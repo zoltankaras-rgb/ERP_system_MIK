@@ -487,18 +487,186 @@ async function loadAndRenderPurchaseSuggestion() {
   } catch(e) { container.innerHTML = `<div class="error">${e.message}</div>`; }
 }
 
-// ---------- Správa akcií (Skrátené pre prehľadnosť, logika ostáva) ----------
+// ---------- Správa akcií ----------
 async function loadAndRenderPromotionsManager() {
-    const c = document.getElementById('promotions-tab-content');
-    c.innerHTML = '<p>Načítavam akcie...</p>';
-    try {
-        const d = await getJSON('/api/kancelaria/get_promotions_data');
-        // ... (Tu ostáva váš pôvodný kód pre formuláre akcií) ...
-        // Pre úsporu miesta to sem nevpisujem celé, ak to už máte.
-        // Podstatné je, že štruktúra TABOV funguje.
-        c.innerHTML = `<div class="alert alert-info">Modul správy akcií je načítaný (zjednodušené zobrazenie).</div>`;
-    } catch(e) { c.innerHTML=e.message; }
+  const container = document.getElementById('promotions-tab-content');
+  if (!container) return;
+  container.innerHTML = '<div class="text-muted" style="padding:1rem;">Načítavam správu akcií...</div>';
+
+  try {
+    const data = await getJSON('/api/kancelaria/get_promotions_data');
+    const { chains = [], promotions = [], products = [] } = data || {};
+    const today = new Date().toISOString().split('T')[0];
+
+    const productOptions = products
+      .map(p => `<option value="${p.ean}">${p.name}</option>`)
+      .join('');
+    const chainOptions = chains
+      .map(c => `<option value="${c.id}">${c.name}</option>`)
+      .join('');
+
+    const promosRows = (promotions || []).map(p => {
+      const from = p.start_date ? new Date(p.start_date).toLocaleDateString('sk-SK') : '';
+      const to   = p.end_date   ? new Date(p.end_date).toLocaleDateString('sk-SK')   : '';
+      const price = Number(p.sale_price_net || 0).toFixed(2);
+      return `
+        <tr>
+          <td>${p.chain_name || ''}</td>
+          <td>${p.product_name || ''}</td>
+          <td>${from} - ${to}</td>
+          <td>${price} €</td>
+          <td>
+            <button class="btn btn-danger" style="margin:0;"
+                    onclick="deletePromotion(${p.id})">
+              <i class="fas fa-trash"></i>
+            </button>
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+    container.innerHTML = `
+      <div class="form-grid">
+        <div>
+          <h4>Vytvoriť Novú Akciu</h4>
+          <form id="add-promotion-form">
+            <div class="form-group">
+              <label>Obchodný Reťazec</label>
+              <select name="chain_id" required>
+                <option value="">-- vyber --</option>
+                ${chainOptions}
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label>Produkt v Akcii</label>
+              <select name="ean" required>
+                <option value="">-- vyber produkt --</option>
+                ${productOptions}
+              </select>
+            </div>
+
+            <div class="form-grid">
+              <div class="form-group">
+                <label>Platnosť Od</label>
+                <input type="date" name="start_date" value="${today}" required>
+              </div>
+              <div class="form-group">
+                <label>Platnosť Do</label>
+                <input type="date" name="end_date" value="${today}" required>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label>Cena Počas Akcie (bez DPH)</label>
+              <input type="number" name="sale_price_net" step="0.01" required>
+            </div>
+
+            <button type="submit" class="btn btn-success" style="width:100%;">
+              Uložiť Akciu
+            </button>
+          </form>
+        </div>
+
+        <div>
+          <h4>Správa Obchodných Reťazcov</h4>
+          <ul id="chains-list">
+            ${chains.map(c => `
+              <li>
+                ${c.name}
+                <button
+                  onclick="manageChain('delete', ${c.id})"
+                  class="btn btn-danger"
+                  style="padding:.125rem .4rem; font-size:.8rem; margin-left:.5rem;">
+                  X
+                </button>
+              </li>
+            `).join('')}
+          </ul>
+
+          <div class="form-group" style="display:flex; gap:.5rem; align-items:flex-end;">
+            <div style="flex:1;">
+              <label>Nový reťazec:</label>
+              <input type="text" id="new-chain-name">
+            </div>
+            <button
+              onclick="manageChain('add')"
+              class="btn btn-primary"
+              style="margin:0; height:45px;">
+              Pridať
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <h4 style="margin-top:1rem;">Prehľad Naplánovaných Akcií</h4>
+      <div class="table-container" style="max-height:none;">
+        <table>
+          <thead>
+            <tr>
+              <th>Reťazec</th>
+              <th>Produkt</th>
+              <th>Trvanie</th>
+              <th>Akciová Cena</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>${promosRows}</tbody>
+        </table>
+      </div>
+    `;
+
+    const form = document.getElementById('add-promotion-form');
+    if (form) form.onsubmit = saveNewPromotion;
+  } catch (e) {
+    container.innerHTML = `<div class="error" style="padding:1rem;">${e.message}</div>`;
+  }
 }
+
+async function saveNewPromotion(e) {
+  e.preventDefault();
+  const formData = new FormData(e.target);
+  const payload = Object.fromEntries(formData.entries());
+  try {
+    await postJSON('/api/kancelaria/save_promotion', payload);
+    e.target.reset();
+    loadAndRenderPromotionsManager();
+  } catch (err) {
+    alert('Chyba pri ukladaní akcie: ' + err.message);
+  }
+}
+
+async function deletePromotion(id) {
+  if (!confirm('Naozaj chceš zmazať túto akciu?')) return;
+  try {
+    await postJSON('/api/kancelaria/delete_promotion', { id });
+    loadAndRenderPromotionsManager();
+  } catch (err) {
+    alert('Chyba pri mazaní akcie: ' + err.message);
+  }
+}
+
+async function manageChain(action, id) {
+  try {
+    if (action === 'add') {
+      const input = document.getElementById('new-chain-name');
+      const name = (input.value || '').trim();
+      if (!name) {
+        alert('Zadaj názov reťazca.');
+        return;
+      }
+      await postJSON('/api/kancelaria/manage_promotion_chain', { action: 'add', name });
+      input.value = '';
+    } else if (action === 'delete') {
+      if (!confirm('Naozaj chceš zmazať tento reťazec?')) return;
+      await postJSON('/api/kancelaria/manage_promotion_chain', { action: 'delete', id });
+    }
+    loadAndRenderPromotionsManager();
+  } catch (err) {
+    alert('Chyba pri správe reťazca: ' + err.message);
+  }
+}
+
 
 // Urgent modal
 function openUrgentProductionModal(name, qty) {

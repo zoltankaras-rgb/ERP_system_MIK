@@ -494,120 +494,164 @@
     return { html, onReady };
   }
   // ===================== MINIMÁLNE ZÁSOBY (EDITOR) =================
-  async function viewMinStock(){
-    const rows = await apiRequest('/api/kancelaria/getProductsForMinStock') || [];
-    const data = Array.isArray(rows) ? rows : [];
-    const original = new Map(data.map(r => [String(r.ean), {kg: (r.minStockKg===''||r.minStockKg==null?NaN:Number(r.minStockKg)), ks: (r.minStockKs===''||r.minStockKs==null?NaN:Number(r.minStockKs))}]));
+  // ===================== MINIMÁLNE ZÁSOBY (EDITOR) =================
+async function viewMinStock(){
+  const rows = await apiRequest('/api/kancelaria/getProductsForMinStock') || [];
+  const data = Array.isArray(rows) ? rows : [];
 
-    const html = `
-      <div class="erp-panel">
-        <div class="panel-head" style="display:flex;justify-content:space-between;gap:.5rem;align-items:center;">
-          <h2>Minimálne zásoby (Katalóg výrobkov a tovaru)</h2>
-          <div style="display:flex;gap:.5rem;">
-            <button class="btn-secondary" id="btn-back-cat">Späť na Katalóg</button>
-            <button class="btn-primary" id="btn-save-min">Uložiť minimálne zásoby</button>
-          </div>
-        </div>
+  // Pôvodné hodnoty (na porovnávanie, či sa zmenilo)
+  const original = new Map(
+    data.map(r => [
+      String(r.ean),
+      {
+        kg: (r.minStockKg === '' || r.minStockKg == null ? NaN : Number(r.minStockKg)),
+        ks: (r.minStockKs === '' || r.minStockKs == null ? NaN : Number(r.minStockKs))
+      }
+    ])
+  );
 
-        <div class="stat-card" style="margin-bottom:.75rem;">
-          <div class="form-grid" style="grid-template-columns: 1.2fr 1fr;">
-            <div class="form-group"><label>Filtrovať názov/EAN</label><input id="ms-filter" type="text" placeholder="napr. klobása / 8580..." /></div>
-            <div class="form-group" style="display:flex;align-items:flex-end;gap:.5rem;">
-              <input type="checkbox" id="ms-only-changed" />
-              <label for="ms-only-changed" style="margin:0;">Zobraziť len zmenené položky</label>
-            </div>
-          </div>
-        </div>
-
-        <div class="table-wrap">
-          <table class="tbl" id="ms-table">
-            <thead>
-              <tr>
-                <th style="width:140px;">EAN</th>
-                <th>Názov</th>
-                <th style="width:90px;">MJ</th>
-                <th style="width:140px; text-align:right;">Min (kg)</th>
-                <th style="width:140px; text-align:right;">Min (ks)</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${data.map(r => `
-                <tr data-ean="${String(r.ean)}">
-                  <td>${String(r.ean)}</td>
-                  <td>${escapeHtml(r.name)}</td>
-                  <td>${escapeHtml(r.mj||'')}</td>
-                  <td style="text-align:right">
-                    <input class="ms-kg" type="number" step="0.001" min="0" placeholder="—" value="${(r.minStockKg ?? '')}" style="width:120px;text-align:right;">
-                  </td>
-                  <td style="text-align:right">
-                    <input class="ms-ks" type="number" step="1" min="0" placeholder="—" value="${(r.minStockKs ?? '')}" style="width:120px;text-align:right;">
-                  </td>
-                </tr>
-              `).join('')}
-            </tbody>
-          </table>
+  const html = `
+    <div class="erp-panel">
+      <div class="panel-head" style="display:flex;justify-content:space-between;gap:.5rem;align-items:center;">
+        <h2>Minimálne zásoby (Katalóg výrobkov a tovaru)</h2>
+        <div style="display:flex;gap:.5rem;">
+          <button class="btn-secondary" id="btn-back-cat">Späť na Katalóg</button>
+          <button class="btn-primary" id="btn-save-min">Uložiť minimálne zásoby</button>
         </div>
       </div>
-    `;
 
-    const onReady = ()=>{
-      const backBtn  = document.getElementById('btn-back-cat');
-      if (backBtn) backBtn.onclick = ()=> window.erpMount(viewCatalogManagement);
+      <div class="stat-card" style="margin-bottom:.75rem;">
+        <div class="form-grid" style="grid-template-columns: 1.2fr 1fr;">
+          <div class="form-group">
+            <label>Filtrovať názov/EAN</label>
+            <input id="ms-filter" type="text" placeholder="napr. klobása / 8580..." />
+          </div>
+          <div class="form-group" style="display:flex;align-items:flex-end;gap:.5rem;">
+            <input type="checkbox" id="ms-only-changed" />
+            <label for="ms-only-changed" style="margin:0;">Zobraziť len zmenené položky</label>
+          </div>
+        </div>
+      </div>
 
-      const tbl = document.getElementById('ms-table');
-      const inpFilter = document.getElementById('ms-filter');
-      const cbChanged = document.getElementById('ms-only-changed');
+      <div class="table-wrap">
+        <table class="tbl" id="ms-table">
+          <thead>
+            <tr>
+              <th style="width:140px;">EAN</th>
+              <th>Názov</th>
+              <th style="width:90px;">MJ</th>
+              <th style="width:140px; text-align:right;">Min (kg)</th>
+              <th style="width:140px; text-align:right;">Min (ks)</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${data.map(r => `
+              <tr data-ean="${String(r.ean)}">
+                <td>${String(r.ean)}</td>
+                <td>${escapeHtml(r.name)}</td>
+                <td>${escapeHtml(r.mj || '')}</td>
+                <td style="text-align:right">
+                  <input class="ms-kg" type="number" step="0.001" min="0" placeholder="—"
+                         value="${(r.minStockKg ?? '')}" style="width:120px;text-align:right;">
+                </td>
+                <td style="text-align:right">
+                  <input class="ms-ks" type="number" step="1" min="0" placeholder="—"
+                         value="${(r.minStockKs ?? '')}" style="width:120px;text-align:right;">
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
 
-      function isChanged(tr){
-        const ean = String(tr?.dataset?.ean||'');
-        const kg = tr.querySelector('.ms-kg')?.value ?? '';
-        const ks = tr.querySelector('.ms-ks')?.value ?? '';
-        const o  = original.get(ean) || {kg: NaN, ks: NaN};
-        const kgN = kg==='' ? NaN : Number(kg);
-        const ksN = ks==='' ? NaN : Number(ks);
-        const okg = isNaN(o.kg) ? NaN : Number(o.kg);
-        const oks = isNaN(o.ks) ? NaN : Number(o.ks);
-        return (isNaN(kgN) !== isNaN(okg)) || (!isNaN(kgN) && kgN !== okg) || (isNaN(ksN) !== isNaN(oks)) || (!isNaN(ksN) && ksN !== oks);
-      }
+  const onReady = () => {
+    const backBtn  = document.getElementById('btn-back-cat');
+    if (backBtn) backBtn.onclick = () => window.erpMount(viewCatalogManagement);
 
-      function applyFilter(){
-        const q = (inpFilter?.value||'').toLowerCase().trim();
-        const only = !!cbChanged?.checked;
-        tbl?.querySelectorAll('tbody tr')?.forEach(tr=>{
-          const e = tr.dataset.ean || '';
-          const n = tr.children[1]?.textContent || '';
-          const hay = (e + ' ' + n).toLowerCase();
-          const matchQ = !q || hay.includes(q);
-          const matchC = !only || isChanged(tr);
-          tr.style.display = (matchQ && matchC) ? '' : 'none';
+    const tbl       = document.getElementById('ms-table');
+    const inpFilter = document.getElementById('ms-filter');
+    const cbChanged = document.getElementById('ms-only-changed');
+
+    function isChanged(tr){
+      const ean = String(tr?.dataset?.ean || '');
+      const kg  = tr.querySelector('.ms-kg')?.value ?? '';
+      const ks  = tr.querySelector('.ms-ks')?.value ?? '';
+      const o   = original.get(ean) || {kg: NaN, ks: NaN};
+
+      const kgN = kg === '' ? NaN : Number(kg);
+      const ksN = ks === '' ? NaN : Number(ks);
+      const okg = isNaN(o.kg) ? NaN : Number(o.kg);
+      const oks = isNaN(o.ks) ? NaN : Number(o.ks);
+
+      return (isNaN(kgN) !== isNaN(okg)) || (!isNaN(kgN) && kgN !== okg)
+          || (isNaN(ksN) !== isNaN(oks)) || (!isNaN(ksN) && ksN !== oks);
+    }
+
+    function applyFilter(){
+      const q    = (inpFilter?.value || '').toLowerCase().trim();
+      const only = !!cbChanged?.checked;
+      tbl?.querySelectorAll('tbody tr')?.forEach(tr => {
+        const e = tr.dataset.ean || '';
+        const n = tr.children[1]?.textContent || '';
+        const hay = (e + ' ' + n).toLowerCase();
+        const matchQ = !q || hay.includes(q);
+        const matchC = !only || isChanged(tr);
+        tr.style.display = (matchQ && matchC) ? '' : 'none';
+      });
+    }
+
+    inpFilter?.addEventListener('input',  applyFilter);
+    cbChanged?.addEventListener('change', applyFilter);
+
+    const saveBtn = document.getElementById('btn-save-min');
+    if (saveBtn){
+      saveBtn.onclick = async () => {
+        const payload = [];
+
+        tbl?.querySelectorAll('tbody tr')?.forEach(tr => {
+          const ean = tr.dataset.ean;
+          const kgRaw = tr.querySelector('.ms-kg')?.value ?? '';
+          const ksRaw = tr.querySelector('.ms-ks')?.value ?? '';
+
+          // PREMENÍME NA ČÍSLO ALEBO null – backend z toho nezošalie
+          const minStockKg = kgRaw === '' ? null : Number(kgRaw);
+          const minStockKs = ksRaw === '' ? null : Number(ksRaw);
+
+          if (ean) payload.push({ ean, minStockKg, minStockKs });
         });
-      }
-      inpFilter?.addEventListener('input', applyFilter);
-      cbChanged?.addEventListener('change', applyFilter);
 
-      const saveBtn = document.getElementById('btn-save-min');
-      if (saveBtn){
-        saveBtn.onclick = async ()=>{
-          const payload = [];
-          tbl?.querySelectorAll('tbody tr')?.forEach(tr=>{
-            const ean = tr.dataset.ean;
-            const kgv = tr.querySelector('.ms-kg')?.value ?? '';
-            const ksv = tr.querySelector('.ms-ks')?.value ?? '';
-            if (ean) payload.push({ ean, minStockKg: kgv, minStockKs: ksv });
+        if (!payload.length){
+          showStatus('Žiadne dáta na uloženie.', true);
+          return;
+        }
+
+        try {
+          const res = await apiRequest(
+            '/api/kancelaria/updateMinStockLevels',
+            { method:'POST', body: payload }
+          );
+
+          // Aktualizujeme "original" tak, aby sa zmeny považovali za uložené
+          payload.forEach(p => {
+            original.set(String(p.ean), {
+              kg: (p.minStockKg === null ? NaN : Number(p.minStockKg)),
+              ks: (p.minStockKs === null ? NaN : Number(p.minStockKs))
+            });
           });
-          if (!payload.length){ showStatus('Žiadne dáta na uloženie.', true); return; }
-          try {
-            const res = await apiRequest('/api/kancelaria/updateMinStockLevels', { method:'POST', body: payload });
-            payload.forEach(p=>{ original.set(String(p.ean), { kg: (p.minStockKg===''?NaN:Number(p.minStockKg)), ks: (p.minStockKs===''?NaN:Number(p.minStockKs)), }); });
-            showStatus(res?.message || 'Minimálne zásoby uložené.', false);
-            applyFilter();
-          } catch (err){ showStatus('Ukladanie zlyhalo: ' + (err?.message || String(err)), true); }
-        };
-      }
-    };
 
-    return { html, onReady };
-  }
+          showStatus(res?.message || 'Minimálne zásoby uložené.', false);
+          applyFilter();
+        } catch (err) {
+          showStatus('Ukladanie zlyhalo: ' + (err?.message || String(err)), true);
+        }
+      };
+    }
+  };
+
+  return { html, onReady };
+}
 
   // ===================== NOVÝ RECEPT (INLINE + HACCP) ======================
 async function viewCreateRecipeInline() {
