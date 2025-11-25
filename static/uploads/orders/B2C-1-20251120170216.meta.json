@@ -1,0 +1,42 @@
+{
+  "delivery_window": "workdays_12_15",
+  "order_number": "B2C-1-20251120170216",
+  "deliveryDate": "2025-11-21",
+  "note": "fdsfdsf",
+  "customerName": "Zoltán Káras",
+  "customerLoginId": "173095385305",
+  "customerAddress": "Hollého č.1999/13",
+  "customerEmail": "zoltan.karas@gmail.com",
+  "items": [
+    {
+      "ean": "0000000023114",
+      "name": "Bravčová krkovička bez kosti",
+      "quantity": 4.8,
+      "unit": "kg",
+      "item_note": "",
+      "price_bez_dph": 3.99,
+      "price_s_dph": 4.189500000000001,
+      "dph_percent": 5.0,
+      "nazov": "Bravčová krkovička bez kosti",
+      "mnozstvo": 4.8,
+      "mj": "kg",
+      "cena_bez_dph": 3.99,
+      "cena_s_dph": 4.189500000000001,
+      "dph": 5.0,
+      "line_total_bez_dph": 19.15,
+      "line_total_s_dph": 20.11
+    }
+  ],
+  "totalNet": 19.15,
+  "totalVat": 0.96,
+  "totalGross": 20.11,
+  "total_vat": 0.96,
+  "suma_bez_dph": 19.15,
+  "suma_s_dph": 20.11,
+  "dph": 0.96,
+  "order_date": "20.11.2025",
+  "uplatnena_odmena_poznamka": null,
+  "deliveryWindowPretty": "Po–Pia 12:00–15:00",
+  "final_gross": 20.25,
+  "saved_at": "2025-11-20T16:02:36.464265Z"
+}

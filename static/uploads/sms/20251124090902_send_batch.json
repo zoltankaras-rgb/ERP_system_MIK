@@ -1,0 +1,35 @@
+{
+  "request": {
+    "auth": {
+      "apikey": "e84bbe41-a3d7-4937-9113-e5adaac17b54"
+    },
+    "data": {
+      "message": "Pripomienka: Otvaranie VO\nTyp: TENDER\nZačiatok: 2025-11-24 09:15:00\nOdoslané približne 5 min pred začiatkom.",
+      "sender": {
+        "text": "ERP"
+      },
+      "recipients": [
+        {
+          "phonenr": "+421907121197"
+        }
+      ],
+      "simple_text": "true"
+    }
+  },
+  "response": {
+    "id": "OK",
+    "data": {
+      "batch_id": "33142245",
+      "recipients": {
+        "accepted": [
+          {
+            "msg_id": 51070655,
+            "phonenr": "+421907121197"
+          }
+        ],
+        "rejected": {}
+      }
+    },
+    "note": null
+  }
+}

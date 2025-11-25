@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Modul Kancelária</title>
+
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/kancelaria.css') }}?v=7" />
+
+  <link rel="icon" href="data:;base64,iVBORw0KGgo=" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+  <script src="https://www.gstatic.com/charts/loader.js"></script>
+  <script src="https://cdn.tiny.cloud/1/m0x3edzazvvmnbeg7c3u9nxprdbgfcecgv9w8m8a64jgz49c/tinymce/6/tinymce.min.js" referrerpolicy="origin"></script>
+
+  <!-- GEMINI chat: presun na ľavý spodok -->
+  <style>
+    /* Vynúť umiestnenie chat bubliniek vľavo dole, aj keby gemini.js používal 'right' */
+    #gemini-fab{
+      position: fixed !important;
+      left: 20px !important;
+      right: auto !important;
+      bottom: 20px !important;
+      z-index: 10000 !important;
+    }
+    #gemini-panel{
+      position: fixed !important;
+      left: 20px !important;
+      right: auto !important;
+      bottom: 80px !important; /* panel nad FAB */
+      z-index: 10000 !important;
+    }
+  </style>
+</head>
+<body>
+  <!-- Login -->
+  <div id="login-wrapper" class="login-wrapper">
+    <div class="login-container">
+      <h2><i class="fas fa-briefcase"></i> Modul Kancelária</h2>
+      <form id="login-form">
+        <div class="form-group">
+          <label for="username">Používateľské meno:</label>
+          <input type="text" id="username" required autocomplete="username" />
+        </div>
+        <div class="form-group">
+          <label for="password">Heslo:</label>
+          <input type="password" id="password" required autocomplete="current-password" />
+        </div>
+        <button type="submit" class="btn btn-primary w-full">Prihlásiť sa</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Aplikácia -->
+  <div id="app-container" class="app-container hidden">
+    <header class="app-header">
+      <div>
+        <h1>Modul Kancelária</h1>
+        <p id="user-info">Vitajte, ...</p>
+      </div>
+      <button id="logout-button" class="btn btn-danger"><i class="fas fa-sign-out-alt"></i> Odhlásiť sa</button>
+    </header>
+
+    <div class="main-layout">
+      <aside class="sidebar">
+        <ul class="sidebar-nav">
+          <li><a class="sidebar-link active" data-section="section-dashboard"><i class="fas fa-chart-line"></i> Dashboard</a></li>
+          <li><a class="sidebar-link" data-section="section-stock"><i class="fas fa-warehouse"></i> Sklad výroba</a></li>
+          <li><a class="sidebar-link" data-section="section-orders"><i class="fas fa-clipboard-list"></i> Objednávky výroba</a></li>
+          <li><a class="sidebar-link" data-section="section-planning"><i class="fas fa-calendar-alt"></i> Plánovanie výroby</a></li>
+
+          <!-- NOVÉ: Enterprise Plánovací Kalendár -->
+          <li><a class="sidebar-link" data-section="section-calendar"><i class="fas fa-calendar-check"></i> Plánovací kalendár</a></li>
+
+          <li><a class="sidebar-link" data-section="section-order-forecast"><i class="fas fa-shipping-fast"></i> Expedičný Plán</a></li>
+          <li><a class="sidebar-link" data-section="section-erp-admin"><i class="fas fa-cogs"></i> Správa ERP</a></li>
+          <li><a class="sidebar-link" data-section="section-b2b-admin"><i class="fas fa-users-cog"></i> B2B Admin</a></li>
+          <li><a class="sidebar-link" data-section="section-b2c-admin"><i class="fas fa-shopping-basket"></i> B2C Správa</a></li>
+          <li><a class="sidebar-link" data-section="section-haccp"><i class="fas fa-file-shield"></i> HACCP</a></li>
+          <li><a class="sidebar-link" data-section="section-fleet"><i class="fas fa-truck"></i> Vozový park</a></li>
+          <li><a class="sidebar-link" data-section="section-hygiene"><i class="fas fa-soap"></i> Hygienický režim</a></li>
+          <li><a class="sidebar-link" data-section="section-mail"><i class="fas fa-envelope"></i> Pošta</a></li>
+          <li><a class="sidebar-link" data-section="section-sms-connector"><i class="fas fa-sms"></i> SMS Connector</a></li>
+          <li><a class="sidebar-link" data-section="section-temps"><i class="fas fa-temperature-low"></i> Teploty</a></li>
+          <li><a class="sidebar-link" data-section="section-meat-calc"><i class="fas fa-drumstick-bite"></i> Kalkulátor rozrábky</a></li>
+          <li><a class="sidebar-link" data-section="section-profitability"><i class="fas fa-euro-sign"></i> Ziskovosť/Kalkulácie</a></li>
+          <li><a class="sidebar-link" data-section="section-costs"><i class="fas fa-wallet"></i> Správa Nákladov</a></li>
+          <li><a class="sidebar-link" data-section="section-gemini-assistant"><i class="fas fa-robot"></i> Asistent Gemini</a></li>
+          <li><a class="sidebar-link" data-section="section-import-export"><i class="fas fa-exchange-alt"></i> Import-Export ERP</a></li>
+        </ul>
+      </aside>
+
+      <main class="main-content">
+        <div id="section-dashboard" class="content-section active"></div>
+        <div id="section-stock" class="content-section"></div>
+        <div id="section-orders" class="content-section" style="display:none"></div>
+        <div id="section-planning" class="content-section"></div>
+
+        <!-- NOVÉ: kontajner pre Enterprise Plánovací Kalendár -->
+        <div id="section-calendar" class="content-section"></div>
+
+        <div id="section-order-forecast" class="content-section"></div>
+        <div id="section-erp-admin" class="content-section"></div>
+        <div id="section-b2b-admin" class="content-section"></div>
+        <div id="section-temps" class="content-section"></div>
+        <div id="section-meat-calc" class="content-section"></div>
+
+        <!-- B2C Správa -->
+        <div id="section-b2c-admin" class="content-section">
+          <h3>B2C Správa – Cenník</h3>
+          <div id="b2c-admin-pricelist"></div>
+        </div>
+
+        <div id="section-haccp" class="content-section"></div>
+        <div id="section-fleet" class="content-section"></div>
+        <div id="section-hygiene" class="content-section"></div>
+
+        <!-- Pošta -->
+        <div id="section-mail" class="content-section"></div>
+        <div id="section-sms-connector" class="content-section" style="display:none"></div>
+
+        <div id="section-profitability" class="content-section"></div>
+        <div id="section-costs" class="content-section"></div>
+        <div id="section-gemini-assistant" class="content-section"></div>
+        <div id="section-import-export" class="content-section"></div>
+      </main>
+    </div>
+  </div>
+
+  <!-- Confirmation modal template -->
+  <template id="confirmation-modal-template">
+    <div class="modal-confirmation">
+      <p id="confirmation-message" class="modal-confirmation-message"></p>
+      <p id="confirmation-warning" class="modal-confirmation-warning"></p>
+      <div class="modal-confirmation-actions">
+        <button id="confirm-action-btn" class="btn btn-success">Potvrdiť</button>
+        <button id="cancel-confirmation-btn" class="btn btn-secondary">Zrušiť</button>
+      </div>
+    </div>
+  </template>
+
+  <!-- Kontajner na modaly -->
+  <div id="modal-container">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>—</h3>
+        <button class="close-btn" title="Zavrieť">&times;</button>
+      </div>
+      <div class="modal-body"></div>
+    </div>
+  </div>
+
+  <!-- Skripty -->
+  <script src="/static/js/common.js" defer></script>
+
+  <script src="/static/js/kancelaria_modules/dashboard.js" defer></script>
+  <script src="/static/js/kancelaria_modules/stock.js" defer></script>
+  <script src="/static/js/kancelaria_modules/planning.js" defer></script>
+  <script src="/static/js/kancelaria_modules/order_forecast.js" defer></script>
+  <script src="/static/js/kancelaria_modules/erp_admin.js" defer></script>
+  <script src="/static/js/kancelaria_modules/b2b_admin.js" defer></script>
+  <script src="/static/js/kancelaria_modules/b2c_admin.js" defer></script>
+  <script src="/static/js/kancelaria_modules/haccp.js" defer></script>
+  <script src="/static/js/kancelaria_modules/fleet.js" defer></script>
+  <script src="/static/js/kancelaria_modules/hygiene.js" defer></script>
+  <script src="/static/js/kancelaria_modules/orders.js" defer></script>
+  <script src="/static/js/kancelaria_modules/temps.js" defer></script>
+  <script src="/static/js/kancelaria_modules/mail.js" defer></script>
+  <script src="/static/js/kancelaria_modules/meat_calc.js" defer></script>
+  <script src="/static/js/kancelaria_modules/import_export.js" defer></script>
+  <!-- NOVÉ: frontend modul pre Enterprise Plánovací Kalendár -->
+  <script src="/static/js/kancelaria_modules/calendar.js" defer></script>
+
+  <script src="/static/js/kancelaria.js" defer></script>
+  <script src="/static/js/profitability.js" defer></script>
+  <script src="/static/js/costs.js" defer></script>
+  <script src="/static/js/gemini.js"></script>
+  <script src="/static/js/task_planner.js"></script>
+  <script src="/static/js/kancelaria_modules/gemini_tasks.js" defer></script>
+</body>
+</html>

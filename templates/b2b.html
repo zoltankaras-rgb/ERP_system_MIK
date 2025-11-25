@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>B2B Portál - MIK s.r.o.</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"/>
+  <style>
+    :root { --primary-color:#b91c1c; --primary-color-dark:#991b1b; --secondary-color:#f3f4f6; --text-color:#1f2937; --border-color:#d1d5db; --white:#ffffff; --info-bg:#eff6ff; --info-text:#1e40af; --border-radius:8px; }
+    body { font-family:'Inter',sans-serif; background:var(--secondary-color); color:var(--text-color); margin:0; display:flex; justify-content:center; align-items:flex-start; min-height:100vh; padding:20px; box-sizing:border-box; }
+    .portal-container { width:100%; max-width:1200px; background:var(--white); padding:30px 40px; border-radius:var(--border-radius); box-shadow:0 10px 15px -3px rgba(0,0,0,.1),0 4px 6px -2px rgba(0,0,0,.05); margin:2rem 0; }
+    .auth-container { max-width:450px; margin:auto; }
+    .logo { max-width:250px; height:auto; display:block; margin:0 auto 30px auto; }
+    h2 { text-align:center; color:var(--text-color); font-size:1.5rem; margin-bottom:25px; }
+    h3 { color:var(--primary-color); border-bottom:2px solid var(--border-color); padding-bottom:10px; margin-top:30px; }
+    .tab-nav { display:flex; border-bottom:2px solid var(--border-color); margin-bottom:25px; gap:6px; }
+    .tab-button { flex:1; padding:15px; cursor:pointer; border:none; background:transparent; font-size:1rem; font-weight:600; color:#6b7280; border-bottom:3px solid transparent; transition:.2s; }
+    .tab-button.active { color:var(--primary-color); border-bottom-color:var(--primary-color); }
+    .form-group { margin-bottom:20px; }
+    .form-group label { display:block; margin-bottom:5px; font-weight:600; font-size:.9rem; }
+    .form-group input, .form-group select, .form-group textarea { width:100%; padding:12px; border:1px solid var(--border-color); border-radius:6px; box-sizing:border-box; transition:border-color .2s, box-shadow .2s; font-family:inherit; font-size:1rem; }
+    .form-group input:focus, .form-group select:focus, .form-group textarea:focus { border-color:var(--primary-color); box-shadow:0 0 0 3px rgba(185,28,28,.1); outline:none; }
+    .button { background:var(--primary-color); color:#fff; padding:14px 20px; border:none; border-radius:6px; cursor:pointer; font-size:1rem; font-weight:bold; transition:.2s; }
+    .button:hover { background:var(--primary-color-dark); }
+    .button.secondary { background:#374151; }
+    .hidden { display:none; }
+    #notification { padding:15px; border-radius:6px; font-weight:bold; text-align:center; margin-top:20px; position:fixed; top:10px; left:50%; transform:translateX(-50%); z-index:1000; box-shadow:0 4px 6px rgba(0,0,0,.1); }
+    .success { background:#dcfce7; color:#16a34a; }
+    .error { background:#fee2e2; color:#dc2626; }
+    #loader { text-align:center; padding:20px; font-weight:bold; color:var(--primary-color); }
+    .footer-link { display:block; text-align:center; margin-top:20px; color:#6b7280; font-size:.9rem; text-decoration:none; }
+    .footer-link:hover { color:var(--primary-color); text-decoration:underline; }
+    .header { display:flex; justify-content:space-between; align-items:center; padding-bottom:20px; border-bottom:1px solid var(--border-color); margin-bottom:20px; }
+    .header-info { text-align:right; }
+    .announcement-bar { background:var(--info-bg); color:var(--info-text); padding:15px; border-radius:6px; margin-bottom:20px; text-align:center; }
+    table { width:100%; border-collapse:collapse; margin-top:20px; font-size:14px; }
+    th,td { border:1px solid var(--border-color); padding:12px; text-align:left; vertical-align:middle; }
+    th { background:var(--secondary-color); text-align:center; font-weight:600; }
+    .order-summary { margin-top:20px; padding-top:20px; border-top:2px solid var(--border-color); display:flex; justify-content:flex-end; }
+    .order-summary-box { width:100%; max-width:350px; }
+    .btn-row { display:flex; gap:10px; flex-wrap:wrap; justify-content:flex-end; margin-top:10px; }
+    #modal-container { display:none; position:fixed; inset:0; z-index:1000; justify-content:center; align-items:center; }
+    .modal-backdrop { position:absolute; inset:0; background:rgba(0,0,0,.5); }
+    .modal-content { background:#fff; padding:2rem; border-radius:var(--border-radius); z-index:1001; width:90%; max-width:450px; box-shadow:0 20px 25px -5px rgba(0,0,0,.1), 0 10px 10px -5px rgba(0,0,0,.04); }
+    .modal-header { display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border-color); padding-bottom:1rem; margin-bottom:1rem; }
+  </style>
+</head>
+<body>
+  <div class="portal-container">
+    <img src="https://www.miksro.sk/wp-content/uploads/2025/09/Dizajn-bez-nazvu-1.png" alt="Logo MIK s.r.o." class="logo" />
+    <div id="notification" class="hidden"></div>
+    <div id="loader" class="hidden">Načítavam...</div>
+
+    <div id="auth-views">
+      <div id="view-auth" class="auth-container">
+        <div class="tab-nav">
+          <button class="tab-button active" data-tab="login">Prihlásenie</button>
+          <button class="tab-button" data-tab="register">Nová registrácia</button>
+        </div>
+
+        <div id="login-form-container">
+          <form id="loginForm">
+            <div class="form-group">
+              <label for="login-id">Číslo odberateľa / Login</label>
+              <input type="text" id="login-id" name="zakaznik_id" required />
+            </div>
+            <div class="form-group">
+              <label for="login-password">Heslo</label>
+              <input type="password" id="login-password" name="password" required />
+            </div>
+            <button type="submit" class="button" style="width:100%;">Prihlásiť sa</button>
+          </form>
+          <a href="#" id="forgot-password-link" class="footer-link">Zabudli ste heslo?</a>
+        </div>
+
+        <div id="register-form-container" class="hidden">
+          <form id="registerForm">
+            <div class="form-group"><label for="reg-name">Názov Zariadenia (Spoločnosti)</label><input type="text" id="reg-name" name="nazov_firmy" required /></div>
+            <div class="form-group"><label for="reg-address">Adresa spoločnosti (fakturačná)</label><input type="text" id="reg-address" name="adresa" required /></div>
+            <div class="form-group"><label for="reg-delivery-address">Adresa doručenia tovaru</label><input type="text" id="reg-delivery-address" name="adresa_dorucenia" required /></div>
+            <div class="form-group"><label for="reg-email">Kontaktný E-mail</label><input type="email" id="reg-email" name="email" required /></div>
+            <div class="form-group"><label for="reg-phone">Telefón</label><input type="tel" id="reg-phone" name="telefon" required /></div>
+            <div class="form-group"><label for="reg-password">Heslo (min. 6 znakov)</label><input type="password" id="reg-password" name="password" required minlength="6" /></div>
+            <div class="form-group" style="display:flex;gap:10px;align-items:flex-start">
+              <input type="checkbox" id="gdpr-checkbox" name="gdpr" required />
+              <label for="gdpr-checkbox" style="margin:0">
+                Súhlasím so spracovaním osobných údajov a potvrdzujem, že sa budú uplatňovať vopred dohodnuté
+                obchodné podmienky medzi zmluvnými stranami. Tento portál slúži ako objednávkový systém pre
+                zmluvných odberateľov a odoslaním registrácie vyjadrujem súhlas s týmto nastavením.
+              </label>
+            </div>
+            <button type="submit" class="button" style="width:100%;">Zaregistrovať sa</button>
+          </form>
+        </div>
+      </div>
+
+      <div id="view-password-reset-request" class="auth-container hidden">
+        <h2>Obnova hesla</h2>
+        <form id="passwordResetRequestForm">
+          <div class="form-group"><label for="reset-email">E-mail</label><input type="email" id="reset-email" name="email" required /></div>
+          <button type="submit" class="button" style="width:100%;">Odoslať žiadosť</button>
+        </form>
+        <a href="#" class="footer-link back-to-login-link">Späť na prihlásenie</a>
+      </div>
+
+      <div id="view-password-reset-form" class="auth-container hidden">
+        <h2>Nové heslo</h2>
+        <form id="passwordResetForm">
+          <input type="hidden" id="reset-token-input" name="token" />
+          <div class="form-group"><label for="new-password">Nové heslo</label><input type="password" id="new-password" name="password" required minlength="6" /></div>
+          <div class="form-group"><label for="confirm-password">Potvrdiť heslo</label><input type="password" id="confirm-password" name="confirm-password" required /></div>
+          <button type="submit" class="button" style="width:100%;">Nastaviť heslo</button>
+        </form>
+        <a href="#" class="footer-link back-to-login-link">Späť na prihlásenie</a>
+      </div>
+    </div>
+
+    <div id="view-customer-portal" class="hidden">
+      <div class="header">
+        <h2>Zákaznícka zóna</h2>
+        <div class="header-info">
+          Prihlásený: <strong id="customer-name"></strong><br />
+          <a href="#" id="logout-link" class="footer-link" style="margin-top:5px;">Odhlásiť sa</a>
+        </div>
+      </div>
+
+      <div id="announcement-bar" class="announcement-bar hidden"></div>
+
+      <div class="tab-nav">
+        <button id="tab-btn-order" class="tab-button active" onclick="showPortalView('view-new-order')">Nová objednávka</button>
+        <button id="tab-btn-history" class="tab-button" onclick="showPortalView('view-order-history')">História objednávok</button>
+        <button id="tab-btn-comm" class="tab-button" onclick="showPortalView('view-communication')">Komunikácia</button>
+      </div>
+
+      <div id="portal-views-container">
+        <!-- KROK 1 – cenník -->
+        <div id="view-new-order">
+          <h3>Krok 1: Zvoľte cenník</h3>
+          <div class="form-group">
+            <label for="pricelist-select">Zvoľte cenník:</label>
+            <select id="pricelist-select"></select>
+          </div>
+
+          <!-- KROK 2 – produkty -->
+          <div id="step-products" class="hidden">
+            <h3>Krok 2: Vyberte si tovar z cenníka</h3>
+            <div id="products-container"></div>
+
+            <div id="order-form-details" class="hidden">
+              <h3>Detaily a odoslanie</h3>
+              <div class="form-group"><label for="delivery-date">Požadovaný dátum dodania:</label><input type="date" id="delivery-date" required /></div>
+              <div class="form-group"><label for="order-note">Poznámka k objednávke:</label><textarea id="order-note" rows="3"></textarea></div>
+              <div id="order-summary" class="order-summary"></div>
+              <div class="btn-row">
+                <button id="btn-back-to-pricelist" class="button secondary" type="button">Späť na výber cenníka</button>
+                <button id="btn-submit-order" class="button" type="button">Odoslať objednávku</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- História -->
+        <div id="view-order-history" class="hidden">
+          <div id="history-container"></div>
+        </div>
+
+        <!-- Komunikácia -->
+        <div id="view-communication" class="hidden">
+          <h3>Komunikácia</h3>
+          <div class="form-group">
+            <form id="commForm" enctype="multipart/form-data">
+              <div class="form-group">
+                <label for="comm-subject">Predmet správy</label>
+                <input type="text" id="comm-subject" name="subject" required />
+              </div>
+              <div class="form-group">
+                <label for="comm-body">Správa</label>
+                <textarea id="comm-body" name="body" rows="5" required></textarea>
+              </div>
+              <div class="form-group">
+                <label for="comm-file">Príloha (voliteľné)</label>
+                <input type="file" id="comm-file" name="file" />
+              </div>
+              <button type="submit" class="button">Odoslať správu</button>
+            </form>
+          </div>
+
+          <h3>Moje správy</h3>
+          <div id="comm-list"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="modal-container"></div>
+  <script src="static/js/b2b_app.js"></script>
+</body>
+</html>

@@ -1,0 +1,40 @@
+{
+  "order_number": "B2C-1-20251120122247",
+  "deliveryDate": "2025-11-21",
+  "note": "asdasdasdas",
+  "customerName": "Zoltán Káras",
+  "customerLoginId": "173095385305",
+  "customerAddress": "Hollého č.1999/13",
+  "customerEmail": "zoltan.karas@gmail.com",
+  "items": [
+    {
+      "ean": "0000000093330",
+      "name": "Oravská slanina údená",
+      "quantity": 5.5,
+      "unit": "kg",
+      "item_note": "",
+      "price_bez_dph": 4.2,
+      "price_s_dph": 4.998,
+      "dph_percent": 19.0,
+      "nazov": "Oravská slanina údená",
+      "mnozstvo": 5.5,
+      "mj": "kg",
+      "cena_bez_dph": 4.2,
+      "cena_s_dph": 4.998,
+      "dph": 19.0,
+      "line_total_bez_dph": 23.1,
+      "line_total_s_dph": 27.49
+    }
+  ],
+  "totalNet": 23.1,
+  "totalVat": 4.39,
+  "totalGross": 27.49,
+  "total_vat": 4.39,
+  "suma_bez_dph": 23.1,
+  "suma_s_dph": 27.49,
+  "dph": 4.39,
+  "order_date": "20.11.2025",
+  "uplatnena_odmena_poznamka": null,
+  "delivery_window": "workdays_12_15",
+  "deliveryWindowPretty": "Po–Pia 12:00–15:00"
+}

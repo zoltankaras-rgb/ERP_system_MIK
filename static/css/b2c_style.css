@@ -1,0 +1,522 @@
+:root {
+    --primary-color: #b91c1c;
+    --primary-color-dark: #991b1b;
+    --secondary-color: #f3f4f6;
+    --text-color: #1f2937;
+    --border-color: #d1d5db;
+    --white: #ffffff;
+}
+
+body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background-color: var(--secondary-color);
+    color: var(--text-color);
+    margin: 0;
+    padding: 0;
+    font-size: 16px;
+}
+
+.container {
+    max-width: 1200px;
+    margin: 2rem auto;
+    background-color: var(--white);
+    padding: 20px 40px;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    border-radius: 8px;
+}
+
+header {
+    text-align: center;
+    margin-bottom: 30px;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 20px;
+}
+
+.logo {
+    max-width: 250px;
+    height: auto;
+}
+
+.header-auth-links {
+    margin-top: 15px;
+    color: var(--text-color);
+}
+
+.header-auth-links a {
+    color: var(--primary-color);
+    text-decoration: none;
+    font-weight: 600;
+}
+.header-auth-links a:hover {
+    text-decoration: underline;
+}
+
+h2, h3 {
+    color: var(--text-color);
+    border-bottom: 2px solid var(--secondary-color);
+    padding-bottom: 10px;
+    margin-top: 1.5rem;
+    margin-bottom: 1.5rem;
+}
+
+/* VÝRAZNÁ AKCIA TÝŽDŇA */
+.akcia-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.35rem 0.95rem;
+    border-radius: 999px;
+    border: 2px solid var(--primary-color);
+    background: #fef2f2;
+    color: var(--primary-color);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-size: 0.95rem;
+}
+.akcia-title::before {
+    content: "AKCIA!";
+    display: inline-block;
+    padding: 0.15rem 0.7rem;
+    border-radius: 999px;
+    background: var(--primary-color);
+    color: #ffffff;
+    font-size: 0.8rem;
+    font-weight: 700;
+}
+
+.hidden { display: none !important; }
+
+.form-group { margin-bottom: 15px; }
+.form-group label { display: block; margin-bottom: 5px; font-weight: 600; }
+.form-group input[type="text"],
+.form-group input[type="email"],
+.form-group input[type="tel"],
+.form-group input[type="password"],
+.form-group input[type="date"],
+.form-group textarea {
+    width: 100%;
+    padding: 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    box-sizing: border-box;
+    font-size: 1rem;
+}
+
+.checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: normal;
+}
+.checkbox-label input[type="checkbox"] {
+    width: auto;
+}
+
+.button {
+    background-color: var(--primary-color);
+    color: var(--white);
+    padding: 12px 20px;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 16px;
+    font-weight: bold;
+    transition: background-color 0.2s;
+    width: 100%;
+    margin-top: 10px;
+}
+.button:hover { background-color: var(--primary-color-dark); }
+
+.tab-nav { display: flex; border-bottom: 2px solid var(--border-color); margin-bottom: 20px; }
+.tab-button {
+    padding: 10px 15px;
+    cursor: pointer;
+    border: none;
+    background-color: transparent;
+    font-size: 1.1em;
+    font-weight: bold;
+    color: #6b7280;
+    border-bottom: 3px solid transparent;
+    margin-bottom: -2px;
+}
+.tab-button.active {
+    color: var(--primary-color);
+    border-bottom: 3px solid var(--primary-color);
+}
+
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+
+#public-pricelist-container .product-category,
+#order-pricelist-container .product-category {
+    margin-bottom: 2rem;
+}
+
+#public-pricelist-container .product-item,
+#order-pricelist-container .product-item {
+    padding: 15px 0;
+    border-bottom: 1px solid var(--secondary-color);
+}
+#public-pricelist-container .product-item:first-of-type,
+#order-pricelist-container .product-item:first-of-type {
+    border-top: 1px solid var(--secondary-color);
+}
+
+.welcome-message {
+    text-align: center;
+    border: none;
+}
+
+.total-summary {
+    margin-top: 20px;
+    padding: 15px;
+    border: 2px solid var(--primary-color);
+    border-radius: 5px;
+    background-color: var(--secondary-color);
+    text-align: center;
+    font-size: 1.2em;
+}
+
+.history-item {
+    border: 1px solid var(--border-color);
+    border-radius: 5px;
+    margin-bottom: 15px;
+    overflow: hidden;
+}
+.history-header {
+    background-color: var(--secondary-color);
+    padding: 12px 15px;
+    font-weight: bold;
+}
+.history-body {
+    padding: 15px;
+}
+.history-body ul {
+    padding-left: 20px;
+    margin-top: 5px;
+}
+
+@media (max-width: 768px) {
+    body { padding: 0; background-color: var(--white); }
+    .container {
+        width: 100%;
+        margin: 0;
+        padding: 15px;
+        box-shadow: none;
+        border-radius: 0;
+    }
+}
+
+/* ==== LAYOUT POLISH – non-breaking, bez zmeny brandu ==== */
+:root{
+  --space-1:.25rem; --space-2:.5rem; --space-3:.75rem; --space-4:1rem; --space-5:1.25rem; --space-6:1.5rem;
+  --radius-6:6px; --radius-10:10px;
+  --shadow-soft:0 6px 20px rgba(0,0,0,.06);
+}
+
+/* HLAVIČKA – logo vľavo, odkazy vpravo (na mobile zostane centrovanie) */
+header{
+  display:flex; align-items:center; justify-content:space-between;
+  gap:var(--space-4); text-align:left; padding-bottom:20px; border-bottom:1px solid var(--border-color);
+}
+.logo{ max-width:220px; height:auto }
+.header-auth-links{ margin-top:0; }
+
+/* SEKCIÁM dáme “kartu”: rovnaké okraje, orámovanie, tieň */
+.auth-section,
+#customer-main-tabs,
+.loyalty-info{
+  background:#fff; border:1px solid var(--border-color);
+  border-radius:var(--radius-10); box-shadow:var(--shadow-soft);
+  padding:var(--space-6);
+  margin-bottom:var(--space-6);
+}
+
+/* Vernostná lišta (nahrádza inline štýl z HTML) */
+.loyalty-info{
+  display:flex; justify-content:space-between; align-items:center;
+  background-color:#fffbe6; border-color:#facc15;
+  padding:10px 15px; border-radius:8px;
+}
+.loyalty-info p{ margin:0; font-weight:700; color:#713f12; }
+.loyalty-info .button{ width:auto; padding:8px 12px; font-size:.95em; }
+
+/* TAB navigácia – medzery a “pill” pocit bez zmeny farieb */
+.tab-nav{ display:flex; flex-wrap:wrap; gap:var(--space-2); border-bottom:none; margin-bottom:var(--space-4); }
+.tab-button{
+  padding:.6rem .9rem; border:1px solid var(--border-color);
+  border-radius:10px; background:#fff; color:#6b7280; font-weight:700;
+}
+.tab-button.active{
+  color:var(--primary-color);
+  border-color:var(--primary-color);
+  box-shadow:0 0 0 3px rgba(185,28,28,.15);
+  background:#fff;
+}
+
+/* FORM – jednotné rozostupy a výrazný focus (bez zmeny farby) */
+.form-group{ margin-bottom:var(--space-4); }
+.form-group input[type="text"],
+.form-group input[type="email"],
+.form-group input[type="tel"],
+.form-group input[type="password"],
+.form-group input[type="date"],
+.form-group textarea,
+.form-group select{
+  border-radius:10px;
+}
+.form-group input:focus,
+.form-group textarea:focus,
+.form-group select:focus{
+  outline:0; border-color:var(--primary-color);
+  box-shadow:0 0 0 3px rgba(185,28,28,.12);
+}
+
+/* Tlačidlá – na väčších displejoch nie full-width (pôsobí kultivovanejšie) */
+@media (min-width: 640px){
+  .button{ width:auto; }
+}
+/* Ak niekde potrebuješ nasilu full-width, daj mu class="button btn-block" */
+.button.btn-block{ width:100% !important; }
+
+/* Súhrn objednávky – jemnejšia karta (uprace “krikľavosť”) */
+.total-summary{
+  margin-top:var(--space-4); padding:var(--space-4);
+  border:1px solid var(--border-color);
+  border-radius:var(--radius-6); background:#fafafa; text-align:center; font-size:1.05em;
+}
+.min-order-warning{
+  color:var(--primary-color); font-weight:700; margin-top:.4rem; text-align:center;
+}
+
+/* REGISTRÁCIA – dvojstĺpec na väčších šírkach, automaticky span pre “dlhé” polia */
+@media (min-width: 900px){
+  #register-tab form{
+    display:grid; grid-template-columns: 1fr 1fr; gap:20px 24px; align-items:start;
+  }
+  #register-tab h3,
+  #register-tab .form-group:has(#reg-address),
+  #register-tab .form-group:has(#reg-delivery-address),
+  #register-tab .form-group:has(#reg-dob),
+  #register-tab .form-group:has(#reg-password),
+  #register-tab .form-group:has([name="marketing_email"]),
+  #register-tab .form-group:has(#reg-terms),
+  #register-tab .form-group:has(#reg-gdpr){
+    grid-column:1 / -1; /* cez celú šírku */
+  }
+  #register-tab .button{ justify-self:start; }
+}
+
+/* LOGIN panel – na veľkých šírkach nech nie je “rozpleštený” */
+#login-tab{
+  max-width:520px;
+}
+
+/* MODAL (nahrádza inline štýl z HTML) */
+.modal-overlay{
+  position:fixed; inset:0; background-color:rgba(0,0,0,.6); z-index:1000;
+  display:flex; align-items:center; justify-content:center;
+  padding:20px; box-sizing:border-box; opacity:0; visibility:hidden;
+  transition:opacity .25s ease, visibility .25s ease;
+}
+.modal-overlay.visible{ opacity:1; visibility:visible; }
+.modal-content{
+  background:#fff; color:var(--text-color);
+  padding:30px; border-radius:10px; width:min(680px, 92vw);
+  box-shadow:0 20px 60px rgba(0,0,0,.25);
+  max-height:80vh; overflow:auto; transform:translateY(8px);
+  transition:transform .25s ease;
+}
+.modal-overlay.visible .modal-content{ transform:none; }
+.modal-header{
+  display:flex; align-items:center; justify-content:space-between;
+  border-bottom:1px solid var(--border-color); padding-bottom:1rem; margin-bottom:1rem;
+}
+.modal-close{
+  font-size:28px; font-weight:700; cursor:pointer; background:none; border:none; color:#999;
+}
+
+/* ===== B2C – prehľadný cenník po prihlásení ===== */
+
+/* Cenník kontajner – nech je statický, bez vnútorného scrollu */
+#order-pricelist-container{
+  max-height:none;
+  overflow:visible;
+}
+
+/* Hlavičky kategórií: statické (žiadny sticky efekt) */
+#order-pricelist-container .product-category {
+  position: static;
+  background: transparent;
+  padding: 0;
+  margin: 1.5rem 0 0.75rem;
+  border-top: none;
+  border-bottom: none;
+  font-weight: 700;
+}
+
+/* Položka: grid stĺpce – názov | cena | množstvo | akcie */
+#order-pricelist-container .product-item {
+  display: grid;
+  grid-template-columns: 1.6fr .8fr .9fr auto;
+  align-items: center; gap: 14px;
+  padding: 12px 6px;
+  border-bottom: 1px solid var(--secondary-color);
+}
+
+/* Bezpečné skrátenie dlhých názvov */
+#order-pricelist-container .product-item .pi-title {
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-weight: 600;
+}
+
+/* Cena napravo, mierne výraznejšia */
+#order-pricelist-container .product-item .pi-price {
+  justify-self: end; font-weight: 700;
+}
+
+/* Množstvo – input number uprataný */
+#order-pricelist-container .product-item .pi-qty {
+  display: inline-flex; align-items: center; gap: 8px;
+}
+#order-pricelist-container .product-item .pi-qty input[type="number"]{
+  width: 110px; max-width: 100%;
+  padding: 10px 12px; border-radius: 10px;
+}
+
+/* Akcie – tlačidlá vedľa seba s rozostupom */
+#order-pricelist-container .product-item .pi-actions {
+  display: inline-flex; align-items: center; gap: 10px; justify-self: end;
+}
+
+/* Sekundárne "pill" tlačidlá (Info, Kusy) – čisté, s ikonou) */
+.info-btn, .by-piece-button {
+  appearance: none; background: #fff; color: var(--text-color);
+  border: 1px solid var(--border-color);
+  padding: 8px 12px; border-radius: 999px; font-weight: 600;
+  cursor: pointer; line-height: 1;
+}
+.info-btn:hover, .by-piece-button:hover {
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 3px rgba(185, 28, 28, .10);
+  color: var(--primary-color);
+}
+.info-btn i, .by-piece-button i { margin-right: 6px; }
+
+/* Primárne tlačidlo (Pridať) nech je kompaktné na desktopoch */
+@media (min-width: 640px){
+  #order-pricelist-container .product-item .button { width: auto; }
+}
+
+/* Mobil: stack – názov na celý riadok, ďalší riadok 3 stĺpce */
+@media (max-width: 720px){
+  #order-pricelist-container .product-item {
+    grid-template-columns: 1fr 1fr 1fr;
+    grid-template-areas:
+      "title title title"
+      "price qty actions";
+    gap: 10px;
+  }
+  #order-pricelist-container .product-item .pi-title { grid-area: title; }
+  #order-pricelist-container .product-item .pi-price { grid-area: price; justify-self: start; }
+  #order-pricelist-container .product-item .pi-qty { grid-area: qty; }
+  #order-pricelist-container .product-item .pi-actions { grid-area: actions; justify-self: end; }
+}
+
+/* Mini-popover pre Info (neprekryje modal systémy) */
+.b2c-popover {
+  position: absolute; z-index: 1001;
+  background:#fff; color: var(--text-color);
+  border:1px solid var(--border-color); border-radius: 10px;
+  box-shadow: 0 12px 35px rgba(0,0,0,.18);
+  max-width: 320px; padding: 10px 12px; font-size:.95rem;
+}
+.b2c-popover h6 { margin:0 0 6px 0; font-size:1rem; }
+.b2c-popover .muted{ color:#6b7280; font-size:.9em }
+
+/* Skryť šípky number inputu – cross-browser */
+#orderForm input[type=number]::-webkit-outer-spin-button,
+#orderForm input[type=number]::-webkit-inner-spin-button {
+  appearance: none;           /* štandard */
+  -webkit-appearance: none;   /* WebKit */
+  margin: 0;
+}
+
+/* Firefox – bez šípok */
+#orderForm input[type=number]{
+  appearance: textfield;      /* štandard (akceptujú aj Chromium) */
+  -moz-appearance: textfield; /* Firefox */
+}
+
+/* Pre istotu aj na riadok s množstvom v cenníku */
+#order-pricelist-container .product-item .pi-qty input[type="number"]{
+  appearance: textfield;
+  -moz-appearance: textfield;
+  -webkit-appearance: none;
+}
+
+/* INFO tlačidlo – sekundárne "pill" */
+.info-btn{
+  appearance:none;
+  display:inline-flex; align-items:center; gap:8px;
+  padding:8px 12px; border-radius:999px;
+  background:#fff; color:var(--text-color);
+  border:1px solid var(--border-color); font-weight:600; cursor:pointer;
+}
+.info-btn:hover{
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 3px rgba(185,28,28,.10);
+  color: var(--primary-color);
+}
+.info-btn{
+  appearance:none;
+  display:inline-flex; align-items:center; gap:8px;
+  padding:8px 12px; border-radius:999px;
+  background:#fff; color:var(--text-color);
+  border:1px solid var(--border-color); font-weight:600; cursor:pointer;
+}
+.info-btn:hover{
+  border-color:var(--primary-color);
+  box-shadow:0 0 0 3px rgba(185,28,28,.10);
+  color: var(--primary-color);
+}
+.info-btn i{ margin-right:6px; }
+
+#product-info-modal .modal-content{ max-width:720px; width:92vw; }
+#product-info-modal .meta{ color:#6b7280; font-size:.95em; margin:.25rem 0 1rem; }
+#product-info-modal .kv{ display:grid; grid-template-columns: 140px 1fr; gap:10px 16px; }
+#product-info-modal .kv div:nth-child(odd){ color:#6b7280; }
+#product-info-modal .kv div:nth-child(even){ font-weight:600; }
+
+.table-container table{width:100%;border-collapse:collapse}
+.table-container th,.table-container td{padding:8px;border-bottom:1px solid #e5e7eb;text-align:left}
+.table-container thead th{position:sticky;top:0;background:#f8fafc;z-index:1}
+.muted{color:#6b7280}
+.mini-btn{border:0;background:#e5e7eb;color:#111;padding:.4rem .6rem;border-radius:.5rem;cursor:pointer;font:600 12px/1 Inter}
+.mini-btn.primary{background:#2563eb;color:#fff}
+.mini-btn.danger{background:#ef4444;color:#fff}
+/* ================== AKCIA TÝŽDŇA – výrazný červený rámik ================== */
+
+.akcia-title {
+  display: inline-block;
+  margin: 1.5rem 0 0.75rem;
+  padding: 0.6rem 1rem;
+  border-radius: 12px;
+  border: 2px solid #b91c1c;   /* hlavná červená */
+  background: #fef2f2;          /* bledá červená */
+  color: #b91c1c;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.akcia-title::before {
+  content: "AKCIA!";
+  display: inline-block;
+  margin-right: 0.75rem;
+  padding: 0.15rem 0.7rem;
+  border-radius: 999px;
+  background: #b91c1c;
+  color: #ffffff;
+  font-size: 0.8rem;
+}

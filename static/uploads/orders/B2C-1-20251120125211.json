@@ -1,0 +1,40 @@
+{
+  "order_number": "B2C-1-20251120125211",
+  "deliveryDate": "2025-11-25",
+  "note": "",
+  "customerName": "Zoltán Káras",
+  "customerLoginId": "173095385305",
+  "customerAddress": "Hollého č.1999/13",
+  "customerEmail": "zoltan.karas@gmail.com",
+  "items": [
+    {
+      "ean": "0000000023118",
+      "name": "Bravčové koleno zadné",
+      "quantity": 10.0,
+      "unit": "kg",
+      "item_note": "",
+      "price_bez_dph": 2.9,
+      "price_s_dph": 3.045,
+      "dph_percent": 5.0,
+      "nazov": "Bravčové koleno zadné",
+      "mnozstvo": 10.0,
+      "mj": "kg",
+      "cena_bez_dph": 2.9,
+      "cena_s_dph": 3.045,
+      "dph": 5.0,
+      "line_total_bez_dph": 29.0,
+      "line_total_s_dph": 30.45
+    }
+  ],
+  "totalNet": 29.0,
+  "totalVat": 1.45,
+  "totalGross": 30.45,
+  "total_vat": 1.45,
+  "suma_bez_dph": 29.0,
+  "suma_s_dph": 30.45,
+  "dph": 1.45,
+  "order_date": "20.11.2025",
+  "uplatnena_odmena_poznamka": null,
+  "delivery_window": "workdays_08_12",
+  "deliveryWindowPretty": "Po–Pia 08:00–12:00"
+}

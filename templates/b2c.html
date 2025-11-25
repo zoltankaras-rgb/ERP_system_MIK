@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Objednávkový systém - MIK s.r.o.</title>
+    <link rel="icon" href="data:;base64,iVBORw0KGgo=">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/b2c_style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <img src="https://www.miksro.sk/wp-content/uploads/2025/09/Dizajn-bez-nazvu-1.png" alt="Logo MIK s.r.o." class="logo">
+            <div id="header-auth-links" class="header-auth-links"></div>
+        </header>
+
+        <!-- =================== NEPRIHLÁSENÝ POUŽÍVATEĽ =================== -->
+        <div id="loggedOutView">
+            <!-- Verejná ponuka pred prihlásením -->
+            <div id="public-pricelist-container"></div>
+
+            <div id="auth-section" class="auth-section">
+                <div class="tab-nav">
+                    <button class="tab-button active" data-tab="login">Prihlásenie</button>
+                    <button class="tab-button" data-tab="register">Nová registrácia</button>
+                </div>
+
+                <!-- PRIHLÁSENIE -->
+                <div id="login-tab" class="tab-content active">
+                    <h3>Prihlásenie</h3>
+                    <form id="loginForm" autocomplete="on">
+                        <div class="form-group">
+                            <label for="login-email">E-mail</label>
+                            <input type="email" name="email" id="login-email" required autocomplete="username">
+                        </div>
+                        <div class="form-group">
+                            <label for="login-password">Heslo</label>
+                            <input type="password" name="password" id="login-password" required autocomplete="current-password">
+                        </div>
+
+                        <div class="form-group" style="text-align:right; margin-top:4px;">
+                            <a href="#" onclick="openModal('password-reset-modal'); return false;"
+                               class="forgot-password-link" style="font-size:0.9rem;">
+                                Zabudli ste heslo?
+                            </a>
+                        </div>
+
+                        <button type="submit" class="button">Prihlásiť sa</button>
+                    </form>
+                </div>
+
+                <!-- REGISTRÁCIA -->
+                <div id="register-tab" class="tab-content">
+                    <h3>Registrácia</h3>
+                    <form id="registerForm" autocomplete="on">
+                        <div class="form-group">
+                            <label for="reg-name">Meno a Priezvisko</label>
+                            <input type="text" id="reg-name" name="name" required autocomplete="name">
+                        </div>
+                        <div class="form-group">
+                            <label for="reg-email">E-mail</label>
+                            <input type="email" id="reg-email" name="email" required autocomplete="email">
+                        </div>
+                        <div class="form-group">
+                            <label for="reg-phone">Telefón</label>
+                            <input type="tel" id="reg-phone" name="phone" required autocomplete="tel">
+                        </div>
+                        <div class="form-group">
+                            <label for="reg-address">Fakturačná adresa</label>
+                            <input type="text" id="reg-address" name="address" required autocomplete="street-address">
+                        </div>
+
+                        <div class="form-group">
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="same-address-checkbox" checked>
+                                Doručovacia adresa je rovnaká ako fakturačná
+                            </label>
+                        </div>
+
+                        <div id="delivery-address-group" class="form-group hidden">
+                            <label for="reg-delivery-address">Adresa doručenia</label>
+                            <input type="text" id="reg-delivery-address" name="delivery_address" autocomplete="street-address">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="reg-password">Heslo (min. 6 znakov)</label>
+                            <input type="password" id="reg-password" name="password" required autocomplete="new-password">
+                        </div>
+
+                        <!-- Dátum narodenia (voliteľné) -->
+                        <div class="form-group">
+                            <label for="reg-dob">Dátum narodenia (narodeninový bonus)</label>
+                            <input type="date" id="reg-dob" name="dob" autocomplete="bday">
+                            <small>
+                                Ak vyplníte dátum narodenia, môžeme vám posielať špeciálne
+                                <strong>narodeninové odmeny a bonusy</strong>.
+                            </small>
+                        </div>
+
+                        <!-- GDPR – 2 samostatné povinné checkboxy (otvárajú pop-up) -->
+                        <div class="form-group">
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="reg-terms" name="gdpr_terms" required>
+                                Súhlasím s <a href="#" onclick="openModal('terms-modal'); return false;">Obchodnými podmienkami</a>.
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="reg-gdpr" name="gdpr_privacy" required>
+                                Beriem na vedomie <a href="#" onclick="openModal('privacy-modal'); return false;">Ochranu osobných údajov</a>.
+                            </label>
+                        </div>
+
+                        <!-- Marketingové súhlasy (dobrovoľné, nepredzaškrtnuté) -->
+                        <div class="form-group">
+                            <strong>Marketingové súhlasy (dobrovoľné):</strong><br>
+                            <label class="checkbox-label"><input type="checkbox" name="marketing_email"> E-mail ponuky</label><br>
+                            <label class="checkbox-label"><input type="checkbox" name="marketing_sms"> SMS ponuky</label><br>
+                            <label class="checkbox-label"><input type="checkbox" name="marketing_newsletter"> Newsletter</label><br>
+                            <label class="checkbox-label">
+                                <input type="checkbox" name="birthday_bonus_opt_in" checked>
+                                Narodeninový bonus (odporúčame ponechať zapnuté)
+                            </label>
+                        </div>
+
+                        <!-- Anti-bot (honeypot + timestamp + jednoduchá captcha) -->
+                        <input type="text" name="hp_url" style="display:none" tabindex="-1" autocomplete="off">
+                        <input type="hidden" name="form_ts" value="">
+                        <div class="form-group">
+                            <label id="captcha-question">Overujem…</label>
+                            <input type="number" name="captcha_answer" inputmode="numeric" required style="max-width: 120px;" autocomplete="off">
+                        </div>
+
+                        <button type="submit" class="button">Zaregistrovať sa</button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- POMOCNÍK – viditeľný už pred prihlásením -->
+            <div id="public-helper"
+                 style="margin-top:2rem;padding:1.25rem 1.5rem;border-radius:0.75rem;background:#f8fafc;border:1px solid #e2e8f0;">
+                <h3>Pomocník – ako začať</h3>
+                <p>
+                    Tento portál slúži na jednoduché objednávanie výrobkov od spoločnosti
+                    <strong>MIK s.r.o.</strong>. Pred vytvorením objednávky je potrebné
+                    sa zaregistrovať a prihlásiť.
+                </p>
+                <ul>
+                    <li>
+                        V záložke <strong>Nová registrácia</strong> vyplníte svoje kontaktné údaje.
+                    </li>
+                    <li>
+                        <strong>Dátum narodenia je dobrovoľný</strong> – ak ho uvediete a povolíte
+                        narodeninový bonus, vieme vám pripraviť špeciálne
+                        <strong>narodeninové odmeny a prekvapenia</strong>.
+                    </li>
+                    <li>
+                        Po registrácii sa môžete prihlásiť a v záložke
+                        <strong>Nová objednávka</strong> vyberať tovar a odoslať objednávku.
+                    </li>
+                </ul>
+                <h4>Vaše údaje a GDPR v skratke</h4>
+                <p style="font-size:0.95rem;color:#334155;">
+                    Vaše údaje používame <strong>len na vybavenie objednávok, komunikáciu
+                    so zákazníkom a vernostný program</strong> (vrátane narodeninových bonusov,
+                    ak ich chcete). Nepredávame ich žiadnym tretím stranám a neposkytujeme ich
+                    na cudzie marketingové účely. Údaje zostávajú u nás – výnimkou sú len
+                    nevyhnutní technickí partneri (napr. hosting, doprava), ktorí musia
+                    spĺňať rovnaké požiadavky na ochranu údajov.
+                </p>
+                <p style="font-size:0.95rem;color:#334155;">
+                    V prípade otázok nás môžete kontaktovať na
+                    <strong>expedícii: <a href="tel:+421905518114">0905 518 114</a></strong>.
+                </p>
+            </div>
+        </div>
+
+        <!-- ===================== PRIHLÁSENÝ POUŽÍVATEĽ ===================== -->
+        <div id="loggedInView" class="hidden">
+            <h2 class="welcome-message">Vitajte, <span id="customer-name"></span>!</h2>
+
+            <div id="loyalty-info" class="loyalty-info">
+                <p>Vaše vernostné body: <span id="customer-points">0</span></p>
+                <button id="claim-reward-btn" class="button" style="background-color: #16a34a;" onclick="showRewardsModal()">Uplatniť odmenu</button>
+            </div>
+
+            <div id="customer-main-tabs">
+                <div class="tab-nav">
+                    <button class="tab-button active" data-tab="order-content">Nová objednávka</button>
+                    <button class="tab-button" data-tab="history-content">Moje objednávky</button>
+                    <button class="tab-button" data-tab="helper-content">Pomocník</button>
+                </div>
+
+                <!-- NOVÁ OBJEDNÁVKA -->
+                <div id="order-content" class="tab-content active">
+                    <form id="orderForm">
+                        <div id="order-pricelist-container"></div>
+
+                        <div id="order-summary-section" class="hidden">
+                            <h3>Súhrn a doručenie</h3>
+
+                            <div class="form-group">
+                                <label for="deliveryDate">Požadovaný dátum vyzdvihnutia:</label>
+                                <input type="date" id="deliveryDate" name="deliveryDate" required>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="orderNote">Poznámka k objednávke:</label>
+                                <textarea id="orderNote" name="orderNote" rows="3"></textarea>
+                            </div>
+
+                            <div class="total-summary">
+                                <div id="total-price">Suma objednávky: <strong>0.00 €</strong></div>
+                                <div id="min-order-warning" class="min-order-warning hidden">
+                                    Minimálna hodnota objednávky je 20.00 €
+                                </div>
+                            </div>
+
+                            <button type="submit" class="button">Odoslať objednávku</button>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- HISTÓRIA OBJEDNÁVOK -->
+                <div id="history-content" class="tab-content">
+                    <h3>História objednávok</h3>
+                    <div id="history-container"></div>
+                </div>
+
+                <!-- POMOCNÍK (po prihlásení) -->
+                <div id="helper-content" class="tab-content">
+                    <h3>Pomocník – ako používať B2C objednávkový systém</h3>
+
+                    <p>
+                        Tento portál slúži na pohodlné objednávanie tovaru priamo od nás.
+                        Nižšie nájdete návod a odpovede na najčastejšie otázky.
+                        V prípade akýchkoľvek nejasností nás kontaktujte na telefónnom čísle
+                        <strong>expedície: <a href="tel:+421905518114">0905 518 114</a></strong>.
+                    </p>
+
+                    <h4>1. Prihlásenie a registrácia</h4>
+                    <ul>
+                        <li>Ak už máte konto, použijete formulár <strong>Prihlásenie</strong>.</li>
+                        <li>Ak ste tu prvýkrát, vyplníte <strong>Registráciu</strong>, potvrdíte podmienky a GDPR a odošlete formulár.</li>
+                        <li>Po registrácii vám prídu informácie e‑mailom. Následne sa môžete prihlásiť a objednávať.</li>
+                        <li>
+                            <strong>Dátum narodenia je dobrovoľný</strong>, ale ak ho vyplníte a súhlasíte,
+                            môžete od nás dostávať <strong>špeciálne narodeninové odmeny</strong> alebo body navyše.
+                        </li>
+                    </ul>
+
+                    <h4>2. Verejný cenník (pred prihlásením)</h4>
+                    <ul>
+                        <li>Na úvodnej stránke vidíte prehľad našej ponuky a sekciu <strong>Akcia týždňa</strong>, zvýraznenú červeným rámikom s nápisom <strong>AKCIA!</strong>.</li>
+                        <li>Akciový tovar je úplne oddelený od ostatných produktov, nie je s nimi premiešaný.</li>
+                        <li>Pri každom produkte je tlačidlo <strong>Info</strong> hneď vedľa názvu.</li>
+                        <li>Po kliknutí na <strong>Info</strong> sa otvorí okno s detailným popisom a fotografiou produktu.</li>
+                        <li>V tejto časti ešte neobjednávate – slúži na prehľad ponuky a akcií.</li>
+                    </ul>
+
+                    <h4>3. Nová objednávka (po prihlásení)</h4>
+                    <ol>
+                        <li>Po prihlásení sa automaticky otvorí záložka <strong>Nová objednávka</strong>.</li>
+                        <li>V hornej časti je zvýraznený blok <strong>Akcia týždňa</strong> – akciové produkty sú vždy oddelené od ostatných položiek.</li>
+                        <li>Nižšie sú zoradené ostatné kategórie tovaru (štandardné produkty).</li>
+                        <li>Pri každom produkte:
+                            <ul>
+                                <li>vľavo vidíte <strong>názov a tlačidlo Info</strong> (po kliknutí sa zobrazí detail a fotka),</li>
+                                <li>vpravo zadávate <strong>Množstvo</strong> – napr. 1 ks, 2 kg a pod.</li>
+                            </ul>
+                        </li>
+                        <li>Pri tovare predávanom na váhu (v kg) môžete zaškrtnúť možnosť objednávky na <strong>ks</strong> a doplniť poznámku (napr. „3 ks cca po 0,4 kg“).</li>
+                        <li>V spodnej časti formulára sa automaticky prepočítava <strong>celková suma objednávky</strong> (bez DPH, DPH a celkom s DPH).</li>
+                        <li>Objednávka musí dosiahnuť minimálnu hodnotu <strong>20,00 € s DPH</strong> – dovtedy vás systém upozorňuje.</li>
+                        <li>Vyberiete si <strong>dátum vyzdvihnutia/doručenia</strong> a prípadne aj <strong>časové okno doručenia</strong>.</li>
+                        <li>Môžete dopísať <strong>poznámku k objednávke</strong> (špeciálne požiadavky, info pre expedíciu).</li>
+                        <li>Objednávku odošlete až po kliknutí na tlačidlo <strong>Odoslať objednávku</strong> – Enter ju sám neodošle.</li>
+                    </ol>
+
+                    <h4>4. Moje objednávky</h4>
+                    <ul>
+                        <li>V záložke <strong>Moje objednávky</strong> vidíte históriu všetkých vašich objednávok.</li>
+                        <li>Pri každej objednávke nájdete číslo, dátum, stav (prijatá, spracúva sa, vybavená…) a zoznam položiek.</li>
+                        <li>Pri váženom tovare sa finálna suma môže mierne líšiť podľa skutočnej hmotnosti – v histórii vidíte finálnu sumu po prevážení.</li>
+                    </ul>
+
+                    <h4>5. Vernostné body a odmeny</h4>
+                    <ul>
+                        <li>Za vaše nákupy môžete získavať <strong>vernostné body</strong> podľa interných pravidiel prevádzky.</li>
+                        <li>Aktuálny počet bodov vidíte po prihlásení v hornej časti obrazovky.</li>
+                        <li>Ak máte dostatok bodov, tlačidlo <strong>Uplatniť odmenu</strong> sa sprístupní a môžete si vybrať odmenu.</li>
+                        <li>Po výbere odmeny sa hodnota bodov zníži a odmena sa priradí k vašej najbližšej objednávke (napr. hmotný darček).</li>
+                        <li>V niektorých prípadoch môžete dostať aj <strong>kód odmeny</strong>, ktorý zadáte do poľa v súhrne objednávky.</li>
+                        <li>Ak vyplníte dátum narodenia a súhlasíte, môžu sa vernostné body a bonusy viazať aj na <strong>narodeninové akcie</strong>.</li>
+                    </ul>
+
+                    <h4>6. E‑maily a SMS správy</h4>
+                    <ul>
+                        <li>Po odoslaní objednávky štandardne dostanete <strong>potvrdzovací e‑mail</strong>.</li>
+                        <li>Podľa nastavení a marketingových súhlasov môžete dostávať aj <strong>SMS správy</strong> (napr. o potvrdení objednávky, pripravenosti tovaru a pod.).</li>
+                        <li>Uistite sa, že máte správne vyplnený e‑mail a telefón, aby vám tieto informácie chodili spoľahlivo.</li>
+                    </ul>
+
+                    <h4>7. Kontakt v prípade otázok alebo problémov</h4>
+                    <p>
+                        Ak máte akúkoľvek otázku k objednávke, nevidíte potvrdenie, niečo nefunguje
+                        alebo si nie ste niečím istí, ozvite sa nám:
+                    </p>
+                    <ul>
+                        <li>telefón na expedíciu: <strong><a href="tel:+421905518114">0905 518 114</a></strong></li>
+                        <li>e‑mail: <a href="mailto:info@miksro.sk">info@miksro.sk</a></li>
+                    </ul>
+
+                    <h4>8. Ochrana osobných údajov v skratke (GDPR)</h4>
+                    <p style="font-size:0.95rem;color:#334155;">
+                        Vaše osobné údaje používame len na to, aby sme vedeli vybaviť vaše objednávky,
+                        komunikovať s vami, nastaviť vaše konto a ponúknuť vám vernostné odmeny
+                        (vrátane narodeninových bonusov, ak si to želáte).
+                    </p>
+                    <ul>
+                        <li>
+                            Údaje <strong>nepredávame tretím stranám</strong> a neposkytujeme ich na cudzí marketing.
+                        </li>
+                        <li>
+                            S údajmi pracuje len MIK s.r.o. a nevyhnutní technickí partneri
+                            (hosting, IT podpora, doprava), ktorí musia spĺňať rovnaké pravidlá ochrany údajov.
+                        </li>
+                        <li>
+                            Marketingové správy (e‑mail/SMS) a narodeninový bonus posielame len vtedy,
+                            ak nám na to dáte <strong>dobrovoľný súhlas</strong>.
+                        </li>
+                        <li>
+                            Svoje súhlasy viete kedykoľvek zmeniť alebo zrušiť a máte právo na prístup,
+                            opravu či vymazanie údajov podľa GDPR.
+                        </li>
+                    </ul>
+                    <p style="font-size:0.9rem;color:#64748b;">
+                        Detailný text nájdete v sekcii <strong>Ochrana osobných údajov</strong>
+                        (GDPR) v dolnej časti tejto stránky.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: Vernostné odmeny -->
+    <div id="rewards-modal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h4>Vyberte si odmenu</h4>
+                <button class="modal-close" onclick="closeModal('rewards-modal')">&times;</button>
+            </div>
+            <p>Máte <strong id="modal-customer-points">0</strong> bodov.</p>
+            <div id="rewards-list-container">Načítavam dostupné odmeny...</div>
+        </div>
+    </div>
+
+    <!-- MODAL: Obnova hesla (žiadost o e‑mail s linkom) -->
+    <div id="password-reset-modal" class="modal-overlay">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h4>Obnova hesla</h4>
+          <button class="modal-close" onclick="closeModal('password-reset-modal')">&times;</button>
+        </div>
+        <div class="modal-body">
+          <p>
+            Zadajte e‑mail, ktorý používate pri prihlásení.
+            Ak u nás existuje účet, pošleme vám e‑mail s odkazom na nastavenie nového hesla.
+          </p>
+          <div class="form-group">
+            <label for="password-reset-email">E‑mail</label>
+            <input type="email" id="password-reset-email" autocomplete="email">
+          </div>
+          <button type="button" class="button" onclick="submitPasswordResetRequest()">Odoslať odkaz na obnovu</button>
+          <p id="password-reset-message" style="margin-top:0.75rem;font-size:0.9rem;color:#334155;"></p>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL: Nastavenie nového hesla (po kliknutí na link v e‑maile) -->
+    <div id="password-change-modal" class="modal-overlay">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h4>Nastavenie nového hesla</h4>
+          <button class="modal-close" onclick="closeModal('password-change-modal')">&times;</button>
+        </div>
+        <div class="modal-body">
+          <p>
+            Zadajte si nové heslo pre váš účet. Tento formulár sa zvykne otvoriť po kliknutí na odkaz,
+            ktorý vám prišiel v e‑maile na obnovu hesla.
+          </p>
+          <div class="form-group">
+            <label for="new-password">Nové heslo</label>
+            <input type="password" id="new-password" autocomplete="new-password">
+          </div>
+          <div class="form-group">
+            <label for="new-password2">Potvrdenie hesla</label>
+            <input type="password" id="new-password2" autocomplete="new-password">
+          </div>
+          <button type="button" class="button" onclick="submitNewPassword()">Uložiť nové heslo</button>
+          <p id="password-change-message" style="margin-top:0.75rem;font-size:0.9rem;color:#334155;"></p>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL: Poznámka ku kusom -->
+    <div id="item-note-modal" class="modal-overlay">
+       <div class="modal-content">
+            <div class="modal-header">
+                <h4 id="item-note-modal-title"></h4>
+                <button class="modal-close" onclick="closeModal('item-note-modal')">&times;</button>
+            </div>
+            <p>
+                Zadali ste objednávku na kusy. Ak máte špecifickú požiadavku
+                (napr. počet kusov, približnú hmotnosť alebo iné detaily),
+                uveďte ju prosím do poznámky.
+            </p>
+            <div class="form-group">
+                <label for="item-note-input">Poznámka k položke:</label>
+                <textarea id="item-note-input" rows="3"></textarea>
+            </div>
+            <button id="save-item-note-btn" class="button">Potvrdiť</button>
+        </div>
+    </div>
+
+    <!-- MODAL: Všeobecné obchodné podmienky -->
+    <div id="terms-modal" class="modal-overlay">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h4>Všeobecné obchodné podmienky (B2C)</h4>
+          <button class="modal-close" onclick="closeModal('terms-modal')">&times;</button>
+        </div>
+        <div class="modal-body">
+          <p><strong>Prevádzkovateľ e-shopu:</strong> MIK, s.r.o., Hollého č.1999/13, 927&nbsp;05&nbsp;Šaľa, IČO: 34099514, DIČ: 2020374125, IČ DPH: SK2020374125 (podľa §4, registrácia od 26.9.1994), e-mail: <a href="mailto:info@miksro.sk">info@miksro.sk</a>.</p>
+          <p>Účinnosť od: 3. 11. 2025</p>
+
+          <h5>1. Vymedzenie pojmov</h5>
+          <ul>
+            <li><strong>Predávajúci</strong> – MIK, s.r.o. (prevádzkovateľ e-shopu).</li>
+            <li><strong>Spotrebiteľ</strong> – fyzická osoba nakupujúca mimo rámca podnikania.</li>
+            <li><strong>Tovar</strong> – najmä čerstvé a mrazené mäso, údeniny a mäsové výrobky.</li>
+          </ul>
+
+          <h5>2. Informácie o tovare a alergény</h5>
+          <ul>
+            <li>Vyobrazenia slúžia na ilustráciu; rozhoduje popis a parametre pri produkte.</li>
+            <li>Alergény a zloženie sú uvedené pri produkte alebo na obale.</li>
+          </ul>
+
+          <h5>3. Hmotnostná tolerancia pri váženom tovare</h5>
+          <ul>
+            <li>Položky predávané <em>na váhu</em> môžu mať odchýlku (bežne ±10&nbsp;%).</li>
+            <li>Účtuje sa <strong>skutočná hmotnosť</strong> pri expedícii; výsledná suma sa môže mierne líšiť.</li>
+          </ul>
+
+          <h5>4. Cena a platba</h5>
+          <ul>
+            <li>Ceny sú s DPH, ak nie je uvedené inak.</li>
+            <li><strong>Upozornenie:</strong> Z technických príčin je <strong>zatiaľ platba možná len v hotovosti</strong> pri prevzatí tovaru.</li>
+          </ul>
+
+          <h5>5. Objednávka a uzavretie zmluvy</h5>
+          <ul>
+            <li>Zmluva je uzavretá potvrdením objednávky predávajúcim (automatický e-mail).</li>
+            <li>Predávajúci môže odmietnuť zjavne chybnú objednávku (napr. omylná cena 0,01&nbsp;€).</li>
+            <li>Minimálna hodnota objednávky je <strong>20,00 € s DPH</strong>, ak nie je uvedené inak.</li>
+          </ul>
+
+          <h5>6. Dodanie a prebratie</h5>
+          <ul>
+            <li>Doručenie vlastnou dopravou/kuriérom s dodržaním <strong>chladiaceho reťazca</strong>.</li>
+            <li>Po prevzatí je zákazník povinný bezodkladne uskladniť tovar pri odporúčanej teplote (zvyčajne 0–4&nbsp;°C) a dodržať dobu spotreby.</li>
+            <li><strong>Platba prebieha pri prevzatí v hotovosti.</strong></li>
+          </ul>
+
+          <h5>7. Odstúpenie od zmluvy a reklamácie</h5>
+          <ul>
+            <li>Pri tovare, ktorý <strong>rýchlo podlieha skaze</strong> (čerstvé mäso, mnohé mäsové výrobky), sa právo odstúpiť do 14 dní <strong>neuplatňuje</strong>.</li>
+            <li>Pri zjavnej vade (balenie, teplota, zápach) kontaktujte nás <strong>bezodkladne, najneskôr do 24 hodín</strong> od prevzatia na <a href="mailto:info@miksro.sk">info@miksro.sk</a> a priložte foto/dokumentáciu.</li>
+          </ul>
+
+          <h5>8. Vernostné programy a bonusy</h5>
+          <ul>
+            <li>Pravidlá vernostných bodov a narodeninového bonusu zverejňujeme v účte zákazníka.</li>
+          </ul>
+
+          <h5>9. Záverečné ustanovenia</h5>
+          <ul>
+            <li>Právne vzťahy sa riadia právom SR. Podmienky môžeme meniť; aktuálna verzia je v e-shope.</li>
+          </ul>
+
+          <p style="font-size:.9em;color:#666">
+            Poznámka: Vzorový text – pred zverejnením si ho nechajte skontrolovať právnikom.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL: Ochrana osobných údajov (GDPR) -->
+    <div id="privacy-modal" class="modal-overlay">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h4>Ochrana osobných údajov (GDPR)</h4>
+          <button class="modal-close" onclick="closeModal('privacy-modal')">&times;</button>
+        </div>
+        <div class="modal-body">
+          <p><strong>Prevádzkovateľ:</strong> MIK, s.r.o., Hollého č.1999/13, 927&nbsp;05&nbsp;Šaľa, IČO: 34099514, DIČ: 2020374125, IČ DPH: SK2020374125 (podľa §4, registrácia od 26.9.1994), e-mail: <a href="mailto:info@miksro.sk">info@miksro.sk</a>.</p>
+          <p>Účinnosť od: 3. 11. 2025</p>
+
+          <h5>Aké údaje spracúvame</h5>
+          <ul>
+            <li>Identifikačné a kontaktné údaje: meno, e-mail, telefón, adresy.</li>
+            <li>Údaje o objednávkach a platbách; <strong>aktuálne prebieha platba len v hotovosti pri prevzatí</strong>.</li>
+            <li>Dobrovoľné: dátum narodenia (na „narodeninový bonus“), marketingové súhlasy.</li>
+            <li>Technické záznamy: IP a čas potvrdení (bezpečnosť, audit súhlasov).</li>
+          </ul>
+
+          <h5>Účely a právne základy</h5>
+          <ul>
+            <li><strong>Plnenie zmluvy</strong> – spracovanie objednávky a doručenie (čl. 6(1)(b)).</li>
+            <li><strong>Právne povinnosti</strong> – účtovníctvo, dane, archivácia (čl. 6(1)(c)).</li>
+            <li><strong>Oprávnený záujem</strong> – bezpečnosť, prevencia podvodov (čl. 6(1)(f)).</li>
+            <li><strong>Súhlas</strong> – marketing (e-mail/SMS/newsletter) a narodeninový bonus (čl. 6(1)(a)); súhlas možno kedykoľvek odvolať.</li>
+          </ul>
+
+          <h5>Doba uchovávania</h5>
+          <ul>
+            <li>Objednávky a účtovné doklady: podľa zákona (spravidla 10 rokov).</li>
+            <li>Účet/objednávky: po dobu trvania účtu + max. 2 roky od poslednej aktivity (ak zákon nevyžaduje dlhšie).</li>
+            <li>Marketing: do odvolania súhlasu alebo do namietnutia.</li>
+          </ul>
+
+          <h5>Príjemcovia</h5>
+          <ul>
+            <li>Hosting/IT, kuriérske služby, e-mail/SMS brány – len v nevyhnutnom rozsahu.</li>
+            <li>Prenos mimo EÚ/EEA nevykonávame; ak by bol potrebný, použijeme primerané záruky.</li>
+          </ul>
+
+          <h5>Vaše práva</h5>
+          <ul>
+            <li>Prístup, oprava, vymazanie, obmedzenie, prenos, námietka; odvolanie súhlasu bez vplyvu na zákonnosť spracúvania pred odvolaním.</li>
+            <li>Dozor: Úrad na ochranu osobných údajov SR.</li>
+            <li>Kontakt na uplatnenie práv: <a href="mailto:info@miksro.sk">info@miksro.sk</a>.</li>
+          </ul>
+
+          <h5>Cookies</h5>
+          <ul>
+            <li>Nevyhnutné cookies pre košík a prihlásenie používame vždy.</li>
+            <li>Analytické/marketingové cookies len so súhlasom.</li>
+          </ul>
+
+          <p style="font-size:.9em;color:#666">
+            Poznámka: Vzorový text – pred zverejnením doplňte/nastavte partnerov a interné procesy.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <!-- LOGIKA B2C PORTÁLU -->
+    <script src="{{ url_for('static', filename='js/b2c.js') }}"></script>
+</body>
+</html>

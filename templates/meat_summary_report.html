@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+  <meta charset="UTF-8">
+  <title>Report – Rozrábky mäsa (súhrn)</title>
+  <style>
+    body{
+      font-family: Arial, sans-serif;
+      background:#f3f4f6;
+      margin:0;
+      padding:12mm;
+    }
+    .paper{
+      max-width:980px;
+      margin:0 auto;
+      background:#fff;
+      box-shadow:0 4px 10px rgba(0,0,0,.08);
+      padding:14px 16px;
+    }
+    h1{ font-size:18pt; margin:0 0 6px; }
+    h2{ font-size:14pt; margin:14px 0 6px; border-bottom:1px solid #e5e7eb; padding-bottom:4px; }
+    table{ width:100%; border-collapse: collapse; font-size:10pt; margin-top:6px; }
+    th,td{ border:1px solid #e5e7eb; padding:6px 8px; text-align:left; }
+    th{ background:#f9fafb; }
+    .meta{ color:#6b7280; font-size:9pt; margin-bottom:6px; }
+    .right{ text-align:right; }
+    .kpi-table{ width:auto; font-size:9.5pt; margin-top:8px; }
+    .kpi-table th{ white-space:nowrap; }
+    .kpi-table td{ text-align:right; }
+    @media print{
+      body{ background:#fff; padding:0; }
+      .paper{ box-shadow:none; margin:0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="paper">
+    <h1>Report – Rozrábky mäsa (súhrn ziskov a výťažnosti)</h1>
+
+    <div class="meta">
+      Surovina: {{ filters.material_label or 'Všetky' }} ·
+      Dátum od: {{ filters.date_from or '–' }} ·
+      Dátum do: {{ filters.date_to or '–' }} ·
+      Dodávateľ: {{ filters.supplier or 'Všetci' }}
+    </div>
+
+    <h2>Prehľad rozrábok</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Dátum</th>
+          <th>Surovina</th>
+          <th>Dodávateľ</th>
+          <th>Vstup (kg)</th>
+          <th>Výstup (kg)</th>
+          <th>Nákup spolu (€)</th>
+          <th>Zisk spolu (€)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td>{{ r.breakdown_date }}</td>
+          <td>{{ r.material_name }}</td>
+          <td>{{ r.supplier or '' }}</td>
+          <td class="right">{{ '%.3f'|format(r.input_weight_kg) }}</td>
+          <td class="right">{{ '%.3f'|format(r.total_output_kg) }}</td>
+          <td class="right">{{ '%.2f'|format(r.purchase_total_cost_eur) }}</td>
+          <td class="right">{{ '%.2f'|format(r.total_profit_eur) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      {% if totals %}
+      <tfoot>
+        <tr>
+          <th>Spolu</th>
+          <th></th>
+          <th></th>
+          <th class="right">{{ '%.3f'|format(totals.sum_input_kg) }}</th>
+          <th class="right">{{ '%.3f'|format(totals.sum_output_kg) }}</th>
+          <th class="right">{{ '%.2f'|format(totals.sum_purchase_total_eur) }}</th>
+          <th class="right">{{ '%.2f'|format(totals.sum_profit_eur) }}</th>
+        </tr>
+      </tfoot>
+      {% endif %}
+    </table>
+
+    {% if totals %}
+    <h2>Rekapitulácia</h2>
+    <table class="kpi-table">
+      <tbody>
+        <tr>
+          <th>Vstupná váha (spolu)</th>
+          <td>{{ '%.3f'|format(totals.sum_input_kg) }} kg</td>
+        </tr>
+        <tr>
+          <th>Výstupná váha (spolu)</th>
+          <td>{{ '%.3f'|format(totals.sum_output_kg) }} kg</td>
+        </tr>
+        <tr>
+          <th>Výťažnosť (spolu)</th>
+          <td>{{ '%.2f'|format(totals.yield_pct) }} %</td>
+        </tr>
+        <tr>
+          <th>Zisk spolu</th>
+          <td><strong>{{ '%.2f'|format(totals.sum_profit_eur) }} €</strong></td>
+        </tr>
+        <tr>
+          <th>Priemerný zisk / 1 kg (vstup)</th>
+          <td>{{ '%.4f'|format(totals.profit_per_kg_input_eur) }} €/kg</td>
+        </tr>
+      </tbody>
+    </table>
+    {% endif %}
+  </div>
+</body>
+</html>

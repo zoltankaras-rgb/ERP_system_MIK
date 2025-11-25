@@ -1,0 +1,42 @@
+{
+  "delivery_window": "workdays_12_15",
+  "order_number": "B2C-1-20251123212729",
+  "deliveryDate": "2025-11-29",
+  "note": "safasf",
+  "customerName": "Zoltán Káras",
+  "customerLoginId": "173095385305",
+  "customerAddress": "Hollého č.1999/13",
+  "customerEmail": "zoltan.karas@gmail.com",
+  "items": [
+    {
+      "ean": "skuska",
+      "name": "Kuracia šunka 100g",
+      "quantity": 50.0,
+      "unit": "ks",
+      "item_note": "",
+      "price_bez_dph": 0.5,
+      "price_s_dph": 0.595,
+      "dph_percent": 19.0,
+      "nazov": "Kuracia šunka 100g",
+      "mnozstvo": 50.0,
+      "mj": "ks",
+      "cena_bez_dph": 0.5,
+      "cena_s_dph": 0.595,
+      "dph": 19.0,
+      "line_total_bez_dph": 25.0,
+      "line_total_s_dph": 29.75
+    }
+  ],
+  "totalNet": 25.0,
+  "totalVat": 4.75,
+  "totalGross": 29.75,
+  "total_vat": 4.75,
+  "suma_bez_dph": 25.0,
+  "suma_s_dph": 29.75,
+  "dph": 4.75,
+  "order_date": "23.11.2025",
+  "uplatnena_odmena_poznamka": null,
+  "deliveryWindowPretty": "Po–Pia 12:00–15:00",
+  "final_gross": 31.25,
+  "saved_at": "2025-11-23T20:51:40.349434Z"
+}

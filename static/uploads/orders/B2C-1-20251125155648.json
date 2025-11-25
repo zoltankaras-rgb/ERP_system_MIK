@@ -1,0 +1,40 @@
+{
+  "order_number": "B2C-1-20251125155648",
+  "deliveryDate": "2025-11-28",
+  "note": "etrghdfsa",
+  "customerName": "Zoltán Káras",
+  "customerLoginId": "173095385305",
+  "customerAddress": "Hollého č.1999/13",
+  "customerEmail": "zoltan.karas@gmail.com",
+  "items": [
+    {
+      "ean": "0000000023114",
+      "name": "Bravčová krkovička bez kosti",
+      "quantity": 5.0,
+      "unit": "ks",
+      "item_note": "Skuska poznamky",
+      "price_bez_dph": 3.99,
+      "price_s_dph": 4.189500000000001,
+      "dph_percent": 5.0,
+      "nazov": "Bravčová krkovička bez kosti",
+      "mnozstvo": 5.0,
+      "mj": "ks",
+      "cena_bez_dph": 3.99,
+      "cena_s_dph": 4.189500000000001,
+      "dph": 5.0,
+      "line_total_bez_dph": 19.95,
+      "line_total_s_dph": 20.95
+    }
+  ],
+  "totalNet": 19.95,
+  "totalVat": 1.0,
+  "totalGross": 20.95,
+  "total_vat": 1.0,
+  "suma_bez_dph": 19.95,
+  "suma_s_dph": 20.95,
+  "dph": 1.0,
+  "order_date": "25.11.2025",
+  "uplatnena_odmena_poznamka": null,
+  "delivery_window": "workdays_08_12",
+  "deliveryWindowPretty": "Po–Pia 08:00–12:00"
+}

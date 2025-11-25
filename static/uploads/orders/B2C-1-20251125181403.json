@@ -1,0 +1,38 @@
+{
+  "order_number": "B2C-1-20251125181403",
+  "deliveryDate": "2025-11-27",
+  "note": "Vernostná odmena: Klobása",
+  "customerName": "Zoltán Káras",
+  "customerLoginId": "173095385305",
+  "customerAddress": "Hollého č.1999/13",
+  "customerEmail": "zoltan.karas@gmail.com",
+  "items": [
+    {
+      "ean": "0000000093330",
+      "name": "Oravská slanina údená",
+      "quantity": 10.0,
+      "unit": "kg",
+      "item_note": "krájať",
+      "price_bez_dph": 4.2,
+      "price_s_dph": 4.998,
+      "dph_percent": 19.0,
+      "nazov": "Oravská slanina údená",
+      "mnozstvo": 10.0,
+      "mj": "kg",
+      "cena_bez_dph": 4.2,
+      "cena_s_dph": 4.998,
+      "dph": 19.0,
+      "line_total_bez_dph": 42.0,
+      "line_total_s_dph": 49.98
+    }
+  ],
+  "totalNet": 42.0,
+  "totalVat": 7.98,
+  "totalGross": 49.98,
+  "total_vat": 7.98,
+  "suma_bez_dph": 42.0,
+  "suma_s_dph": 49.98,
+  "dph": 7.98,
+  "order_date": "25.11.2025",
+  "uplatnena_odmena_poznamka": "Klobása"
+}

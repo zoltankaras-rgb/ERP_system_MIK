@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+  <meta charset="UTF-8">
+  <title>Rozrábka #{{ header.id }} – {{ header.breakdown_date }}</title>
+  <style>
+    body{
+      font-family: Arial, sans-serif;
+      background:#f3f4f6;
+      margin:0;
+      padding:12mm;
+    }
+    .paper{
+      max-width:980px;
+      margin:0 auto;
+      background:#fff;
+      box-shadow:0 4px 10px rgba(0,0,0,.08);
+      padding:14px 16px;
+    }
+    h1{ font-size:18pt; margin:0 0 6px; }
+    h2{ font-size:14pt; margin:14px 0 6px; border-bottom:1px solid #e5e7eb; padding-bottom:4px; }
+    table{ width:100%; border-collapse: collapse; font-size:10pt; margin-top:6px; }
+    th,td{ border:1px solid #e5e7eb; padding:6px 8px; text-align:left; }
+    th{ background:#f9fafb; }
+    .meta{ color:#6b7280; font-size:9pt; margin-bottom:6px; }
+    .kpi-table th{ width:45%; }
+    .right{ text-align:right; }
+    .center{ text-align:center; }
+  </style>
+</head>
+<body>
+  <div class="paper">
+    <h1>Rozrábka #{{ header.id }} – {{ header.breakdown_date }}</h1>
+    <div class="meta">
+      Surovina ID {{ header.material_id }} ·
+      Dodávateľ: {{ header.supplier or '-' }} ·
+      Vstup: {{ '%.3f'|format(header.input_weight_kg or 0) }} kg ·
+      Nákup spolu: {{ '%.2f'|format(header.purchase_total_cost_eur or 0) }} € ·
+      Priem. nákupná cena: {{ '%.4f'|format(header.purchase_unit_price_eur_kg or 0) }} €/kg
+    </div>
+
+    <h2>Výstupy</h2>
+    <table>
+      <thead><tr><th>Produkt</th><th>Váha (kg)</th></tr></thead>
+      <tbody>
+        {% for o in outputs %}
+          <tr>
+            <td>{{ o.product_name }}</td>
+            <td class="right">{{ '%.3f'|format(o.weight_kg) }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    {% if extras and extras|length>0 %}
+    <h2>Dodatočné náklady</h2>
+    <table>
+      <thead><tr><th>Náklad</th><th>Suma (€)</th></tr></thead>
+      <tbody>
+        {% for e in extras %}
+          <tr>
+            <td>{{ e.name }}</td>
+            <td class="right">{{ '%.2f'|format(e.amount_eur) }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+
+    <h2>Výsledky (výťažnosti, náklady, marže)</h2>
+    <table id="results-table">
+      <thead>
+        <tr>
+          <th>✓</th>
+          <th>Kód</th>
+          <th>Produkt</th>
+          <th>Váha (kg)</th>
+          <th>Výťažnosť (%)</th>
+          <th>Náklad €/kg</th>
+          <th>Predaj €/kg</th>
+          <th>Marža €/kg</th>
+          <th>Zisk (€)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in results %}
+          <tr
+            data-weight="{{ r.weight_kg }}"
+            data-profit="{{ r.profit_eur }}"
+            data-cost-per-kg="{{ r.cost_per_kg_eur }}"
+            data-price-per-kg="{{ r.selling_price_eur_kg_snap }}"
+          >
+            <td class="center">
+              <input type="checkbox" class="row-include" checked>
+            </td>
+            <td>{{ r.product_code }}</td>
+            <td>{{ r.product_name }}</td>
+            <td class="right">{{ '%.3f'|format(r.weight_kg) }}</td>
+            <td class="right">{{ '%.4f'|format(r.yield_pct) }}</td>
+            <td class="right">{{ '%.4f'|format(r.cost_per_kg_eur) }}</td>
+            <td class="right">{{ '%.3f'|format(r.selling_price_eur_kg_snap) }}</td>
+            <td class="right">{{ '%.4f'|format(r.margin_eur_per_kg) }}</td>
+            <td class="right">{{ '%.2f'|format(r.profit_eur) }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr>
+          <th colspan="3">Spolu (zahrnuté položky)</th>
+          <th id="sum-output-kg" class="right"></th>
+          <th></th>
+          <th></th>
+          <th></th>
+          <th></th>
+          <th id="sum-profit-eur" class="right"></th>
+        </tr>
+      </tfoot>
+    </table>
+
+    <h2>Súhrn rozrábky</h2>
+    <table class="kpi-table">
+      <tbody>
+        <tr>
+          <th>Vstupná váha</th>
+          <td id="sum-input-kg" class="right"></td>
+        </tr>
+        <tr>
+          <th>Súčet výstupov</th>
+          <td id="sum-output-kg-2" class="right"></td>
+        </tr>
+        <tr>
+          <th>Výťažnosť</th>
+          <td id="summary-yield" class="right"></td>
+        </tr>
+        <tr>
+          <th>Celkový zisk</th>
+          <td id="summary-profit" class="right"></td>
+        </tr>
+        <tr>
+          <th>Zisk / kg vstupu</th>
+          <td id="summary-profit-per-in" class="right"></td>
+        </tr>
+        <tr>
+          <th>Zisk / kg výstupu</th>
+          <td id="summary-profit-per-out" class="right"></td>
+        </tr>
+        <tr>
+          <th>Priemerná marža</th>
+          <td id="summary-margin-pct" class="right"></td>
+        </tr>
+        <tr>
+          <th>Nákupná cena / kg vstupu</th>
+          <td id="summary-cost-per-in" class="right"></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <script>
+  (function(){
+    function recalc(){
+      var rows = document.querySelectorAll('#results-table tbody tr');
+      var totalOut = 0, totalProfit = 0, totalCost = 0, totalRevenue = 0;
+
+      rows.forEach(function(tr){
+        var cb = tr.querySelector('.row-include');
+        if (cb && !cb.checked) return;
+        var w   = parseFloat(tr.getAttribute('data-weight') || '0') || 0;
+        var p   = parseFloat(tr.getAttribute('data-profit') || '0') || 0;
+        var cpk = parseFloat(tr.getAttribute('data-cost-per-kg') || '0') || 0;
+        var spk = parseFloat(tr.getAttribute('data-price-per-kg') || '0') || 0;
+        totalOut     += w;
+        totalProfit  += p;
+        totalCost    += w * cpk;
+        totalRevenue += w * spk;
+      });
+
+      var inputKgStr      = '{{ header.input_weight_kg or 0 }}';
+      var purchaseTotalStr= '{{ header.purchase_total_cost_eur or 0 }}';
+
+      var inputKg      = parseFloat((inputKgStr || '0').replace(',', '.')) || 0;
+      var purchaseTotal= parseFloat((purchaseTotalStr || '0').replace(',', '.')) || 0;
+
+      var yieldPct      = inputKg > 0 ? (totalOut / inputKg * 100.0) : null;
+      var profitPerIn   = inputKg > 0 ? (totalProfit / inputKg) : null;
+      var profitPerOut  = totalOut > 0 ? (totalProfit / totalOut) : null;
+      var marginPct     = totalRevenue > 0 ? (totalProfit / totalRevenue * 100.0) : null;
+      var costPerIn     = (inputKg > 0 && purchaseTotal > 0) ? (purchaseTotal / inputKg) : null;
+
+      function fmt(x, dec){
+        return (x == null || isNaN(x)) ? '–' : x.toFixed(dec);
+      }
+
+      var el;
+      el = document.getElementById('sum-output-kg');
+      if (el) el.textContent = fmt(totalOut, 3);
+      el = document.getElementById('sum-profit-eur');
+      if (el) el.textContent = fmt(totalProfit, 2);
+
+      el = document.getElementById('sum-input-kg');
+      if (el) el.textContent = fmt(inputKg, 3) + ' kg';
+      el = document.getElementById('sum-output-kg-2');
+      if (el) el.textContent = fmt(totalOut, 3) + ' kg';
+      el = document.getElementById('summary-yield');
+      if (el) el.textContent = (yieldPct != null) ? yieldPct.toFixed(2) + ' %' : '–';
+      el = document.getElementById('summary-profit');
+      if (el) el.textContent = fmt(totalProfit, 2) + ' €';
+      el = document.getElementById('summary-profit-per-in');
+      if (el) el.textContent = (profitPerIn != null) ? profitPerIn.toFixed(4) + ' €/kg' : '–';
+      el = document.getElementById('summary-profit-per-out');
+      if (el) el.textContent = (profitPerOut != null) ? profitPerOut.toFixed(4) + ' €/kg' : '–';
+      el = document.getElementById('summary-margin-pct');
+      if (el) el.textContent = (marginPct != null) ? marginPct.toFixed(2) + ' %' : '–';
+      el = document.getElementById('summary-cost-per-in');
+      if (el) el.textContent = (costPerIn != null) ? costPerIn.toFixed(4) + ' €/kg' : '–';
+    }
+
+    document.addEventListener('DOMContentLoaded', function(){
+      document.querySelectorAll('.row-include').forEach(function(cb){
+        cb.addEventListener('change', recalc);
+      });
+      recalc();
+    });
+  })();
+  </script>
+</body>
+</html>

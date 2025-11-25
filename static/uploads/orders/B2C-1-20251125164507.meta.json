@@ -1,0 +1,40 @@
+{
+  "delivery_window": "workdays_08_12",
+  "order_number": "B2C-1-20251125164507",
+  "deliveryDate": "2025-11-26",
+  "note": "sadasdsad",
+  "customerName": "Zoltán Káras",
+  "customerLoginId": "173095385305",
+  "customerAddress": "Hollého č.1999/13",
+  "customerEmail": "zoltan.karas@gmail.com",
+  "items": [
+    {
+      "ean": "0000000023187",
+      "name": "Bravčové karé bez kosti",
+      "quantity": 15.0,
+      "unit": "ks",
+      "item_note": "Krájat po 1kg",
+      "price_bez_dph": 3.9,
+      "price_s_dph": 4.095,
+      "dph_percent": 5.0,
+      "nazov": "Bravčové karé bez kosti",
+      "mnozstvo": 15.0,
+      "mj": "ks",
+      "cena_bez_dph": 3.9,
+      "cena_s_dph": 4.095,
+      "dph": 5.0,
+      "line_total_bez_dph": 58.5,
+      "line_total_s_dph": 61.42
+    }
+  ],
+  "totalNet": 58.5,
+  "totalVat": 2.92,
+  "totalGross": 61.42,
+  "total_vat": 2.92,
+  "suma_bez_dph": 58.5,
+  "suma_s_dph": 61.42,
+  "dph": 2.92,
+  "order_date": "25.11.2025",
+  "uplatnena_odmena_poznamka": null,
+  "deliveryWindowPretty": "Po–Pia 08:00–12:00"
+}

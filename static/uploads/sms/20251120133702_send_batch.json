@@ -1,0 +1,35 @@
+{
+  "request": {
+    "auth": {
+      "apikey": "e84bbe41-a3d7-4937-9113-e5adaac17b54"
+    },
+    "data": {
+      "message": "MIK: objednavka B2C-3-20251120133539 je pripravena. Suma 54.25 EUR. Dakujeme.",
+      "sender": {
+        "text": "MIK"
+      },
+      "recipients": [
+        {
+          "phonenr": "+421905411165"
+        }
+      ],
+      "simple_text": "true"
+    }
+  },
+  "response": {
+    "id": "OK",
+    "data": {
+      "batch_id": "33108826",
+      "recipients": {
+        "accepted": [
+          {
+            "msg_id": 51020897,
+            "phonenr": "+421905411165"
+          }
+        ],
+        "rejected": {}
+      }
+    },
+    "note": null
+  }
+}
