@@ -3982,19 +3982,12 @@ init_orders()
 
 
 # =================================================================
-# === SPUSTENIE APLIKÁCIE + SCHEDULER =============================
+# === SPUSTENIE APLIKÁCIE (len pre lokálny development) ===========
 # =================================================================
 if __name__ == '__main__':
-    # 1) spusti APScheduler v pozadí (scheduler.py)
-    try:
-        start_background_scheduler()
-    except Exception as e:
-        print("[SCHEDULER] Nepodarilo sa spustiť background scheduler:", e)
-
-    # 2) spusti Flask server
     app.run(
         host='0.0.0.0',
         port=int(os.getenv('PORT', 5000)),
         debug=True,
-        use_reloader=False  # nech reloader nespúšťa scheduler 2x
+        use_reloader=False
     )
