@@ -1,3 +1,4 @@
+# Nepoužíva saný import, ale je tu pre prípad, že by si chcel
 # calendar_service.py
 from __future__ import annotations
 

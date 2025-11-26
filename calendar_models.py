@@ -1,3 +1,4 @@
+# Nepoužíva sa
 # calendar_models.py
 from __future__ import annotations
 
