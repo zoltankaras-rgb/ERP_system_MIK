@@ -1,0 +1,38 @@
+{
+  "order_number": "B2C-1-20251126192144",
+  "deliveryDate": "2025-11-27",
+  "note": "asdasdad\n\nVernostná odmena: Klobása",
+  "customerName": "Zoltán Káras",
+  "customerLoginId": "173095385305",
+  "customerAddress": "Hollého č.1999/13",
+  "customerEmail": "zoltan.karas@gmail.com",
+  "items": [
+    {
+      "ean": "0000000061102",
+      "name": "Bravčová slanina",
+      "quantity": 50.0,
+      "unit": "kg",
+      "item_note": "",
+      "price_bez_dph": 1.99,
+      "price_s_dph": 2.0895,
+      "dph_percent": 5.0,
+      "nazov": "Bravčová slanina",
+      "mnozstvo": 50.0,
+      "mj": "kg",
+      "cena_bez_dph": 1.99,
+      "cena_s_dph": 2.0895,
+      "dph": 5.0,
+      "line_total_bez_dph": 99.5,
+      "line_total_s_dph": 104.48
+    }
+  ],
+  "totalNet": 99.5,
+  "totalVat": 4.98,
+  "totalGross": 104.48,
+  "total_vat": 4.98,
+  "suma_bez_dph": 99.5,
+  "suma_s_dph": 104.48,
+  "dph": 4.98,
+  "order_date": "26.11.2025",
+  "uplatnena_odmena_poznamka": "Klobása"
+}

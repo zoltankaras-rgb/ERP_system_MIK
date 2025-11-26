@@ -2,19 +2,9 @@
 """
 B2C handler – registrácia, login, cenník, objednávky, vernostné odmeny.
 
-Bez migrácie DB:
-- zistenie dostupných stĺpcov a skladanie SQL podľa skutočnej schémy,
-- jednotná kolácia pri porovnávaní EAN,
-- fallbacky pre stav odmien a pre vloženie objednávky,
-- súborový trezor hesiel, ak v tabuľke chýbajú heslo_hash/heslo_salt,
-- podpora FK na zákazníka cez b2b_zakaznici.id aj b2b_zakaznici.zakaznik_id,
-- outbox HTML potvrdenie objednávky (ak e-mail neodíde),
-- ceny/DPH z B2C cenníka (robustne) v submit_b2c_order aj v histórii.
-
-DOPLNENÉ:
-- delivery_window: Po–Pia 08:00–12:00 / 12:00–15:00 – prenesené do order_data, META, e-mailu, PDF
-- reward_code (gift-only): pridelí darček bez bodov, max. 1×/zákazníka (evidencia v _giftcode_usage.json),
-  darček sa zobrazí v order_data.rewards + META + e-mail + PDF
+OPRAVENÉ:
+- _find_claimed_reward: Teraz prísne kontroluje, či odmena už nebola použitá (objednavka_id IS NULL).
+  Tým sa zabráni tomu, aby sa "Klobása" objavovala v každej ďalšej objednávke do nekonečna.
 """
 
 import os
@@ -461,9 +451,6 @@ def build_public_payload(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
             "je_v_akcii": 1 if use_sale else 0,
         }
 
-        # 🔧 NOVÁ LOGIKA:
-        # - ak je tovar v akcii → pôjde len do "AKCIA TÝŽĎŇA"
-        # - inak zostane v svojej bežnej kategórii
         if use_sale:
             akcia_items.append(item.copy())
         else:
@@ -506,10 +493,9 @@ def get_public_pricelist() -> Dict[str, Any]:
 def _find_claimed_reward(user_id: int) -> Optional[Dict[str, Any]]:
     """
     Nájde uplatnenú odmenu pre daného zákazníka.
-
-    Pre tvoju aktuálnu tabuľku b2c_uplatnene_odmeny (bez stav/stav_vybavenia)
-    použijeme jednoduchý fallback: vezmeme POSLEDNÝ záznam pre daného zákazníka
-    (podľa created_at, prípadne podľa id).
+    
+    OPRAVA: Hľadá len takú odmenu, ktorá ešte nebola priradená žiadnej objednávke
+    (objednavka_id IS NULL), aby sa predišlo opakovanému pridávaniu tej istej odmeny.
     """
 
     # zistíme id a zakaznik_id zákazníka
@@ -524,57 +510,39 @@ def _find_claimed_reward(user_id: int) -> Optional[Dict[str, Any]]:
 
     # hodnota FK podľa typu stĺpca
     if fk_col == "zakaznik_id" and not _is_numeric_col(table, fk_col):
-        # tvoja schéma: zakaznik_id je VARCHAR
         fk_val = cust.get("zakaznik_id")
         if not fk_val:
             return None
     else:
-        # fallback na číselné id
         fk_val = cust.get("id") or user_id
 
+    # Zistíme, aké stĺpce máme k dispozícii
+    has_order_id = _table_has_columns(table, ["objednavka_id"])
     has_stav_vyb = _table_has_columns(table, ["stav_vybavenia"])
     has_stav     = _table_has_columns(table, ["stav"])
     has_created  = _table_has_columns(table, ["created_at"])
 
-    # 1) Ak by si niekedy doplnil stĺpce stavu, použijeme „Čaká na vybavenie“
-    if has_stav_vyb or has_stav:
-        status_cols = []
-        if has_stav_vyb:
-            status_cols.append("stav_vybavenia")
-        if has_stav:
-            status_cols.append("stav")
+    # Budujeme dotaz
+    sql = f"SELECT id, nazov_odmeny FROM {table} WHERE {fk_col}=%s"
+    params = [fk_val]
 
-        for st_col in status_cols:
-            row = db_connector.execute_query(
-                f"""
-                SELECT id, nazov_odmeny
-                FROM {table}
-                WHERE {fk_col}=%s AND {st_col}=%s
-                ORDER BY id DESC
-                LIMIT 1
-                """,
-                (fk_val, "Čaká na vybavenie"),
-                fetch="one"
-            )
-            if row:
-                return row
-        return None
+    # KĽÚČOVÁ OPRAVA: Ignoruj odmeny, ktoré už majú order_id
+    if has_order_id:
+        sql += " AND (objednavka_id IS NULL OR objednavka_id = 0)"
 
-    # 2) FALLBACK pre tvoju aktuálnu tabuľku (bez stavov):
-    #    vezmeme poslednú uplatnenú odmenu pre daného zákazníka.
-    order_by_col = "created_at" if has_created else "id"
-    row = db_connector.execute_query(
-        f"""
-        SELECT id, nazov_odmeny
-        FROM {table}
-        WHERE {fk_col}=%s
-        ORDER BY {order_by_col} DESC
-        LIMIT 1
-        """,
-        (fk_val,),
-        fetch="one"
-    )
-    return row
+    # Ak je stĺpec stavu, filtruj "Čaká na vybavenie"
+    if has_stav_vyb:
+        sql += " AND stav_vybavenia = %s"
+        params.append("Čaká na vybavenie")
+    elif has_stav:
+        sql += " AND stav = %s"
+        params.append("Čaká na vybavenie")
+
+    # Zoradenie (najnovšie prvé) a limit
+    order_by = "created_at" if has_created else "id"
+    sql += f" ORDER BY {order_by} DESC LIMIT 1"
+
+    return db_connector.execute_query(sql, tuple(params), fetch="one")
 
 
 def _mark_reward_fulfilled(order_id: int, reward_row_id: int):
@@ -817,7 +785,6 @@ def submit_b2c_order(user_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
         order_id = cursor.lastrowid
 
         # 2) VLOŽENIE POLOŽIEK (Pre Expedíciu)
-        # Táto časť zabezpečí, že expedícia bude vidieť položky na krájanie
         if order_id and items_with_details:
             try:
                 pol_vals = []
@@ -832,18 +799,13 @@ def submit_b2c_order(user_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
                         float(it.get("dph_percent") or 0)
                     ))
                 
-                # Kontrola existencie tabuľky b2c_objednavky_polozky predtým ako do nej zapíšeme
-                # (Môžete odstrániť if, ak ste si istí, že tabuľka existuje)
                 cursor.executemany("""
                     INSERT INTO b2c_objednavky_polozky 
                     (objednavka_id, ean_produktu, nazov_vyrobku, mnozstvo, mj, cena_bez_dph, dph)
                     VALUES (%s, %s, %s, %s, %s, %s, %s)
                 """, pol_vals)
             except Exception as e_pol:
-                # Logujeme chybu, ale nezhadzujeme celú objednávku, ak je tabuľka voliteľná. 
-                # Ak je tabuľka kritická, vyhoďte 'raise e_pol'
                 print(f"Warning: Nepodarilo sa zapísať položky do b2c_objednavky_polozky: {e_pol}")
-                # raise e_pol # Odkomentujte, ak chcete strict režim
 
         if claimed and order_id:
             _mark_reward_fulfilled(order_id, claimed["id"])
@@ -885,7 +847,7 @@ def submit_b2c_order(user_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
         if rewards:
             order_data_for_docs["rewards"] = rewards
 
-        # ✅ NOVÉ: dopíš info o odmenách do poznámky, aby ich PDF určite zobrazilo
+        # ✅ DOPLNENÉ: dopíš info o odmenách do poznámky
         reward_lines = []
         if reward_note:
             reward_lines.append(f"Vernostná odmena: {reward_note}")
@@ -905,7 +867,7 @@ def submit_b2c_order(user_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
         # PDF
         pdf_content, _ = pdf_generator.create_order_files(order_data_for_docs)
 
-        # Outbox s doplnkami (pre istotu)
+        # Outbox s doplnkami
         extras_html = ""
         if order_data_for_docs.get("deliveryWindowPretty"):
             extras_html += f"<p>Vyzdvihnutie/doručenie: <b>{order_data_for_docs['deliveryWindowPretty']}</b></p>"
