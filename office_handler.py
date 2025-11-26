@@ -2303,29 +2303,54 @@ def get_products_for_min_stock():
     """) or []
 
 def update_min_stock_levels(products_data):
-    if not products_data:
-        return {"error": "Žiadne dáta na aktualizáciu."}
+    """
+    Aktualizuje minimálne zásoby produktov.
+    Ošetruje chyby v číselných vstupoch (null, NaN, prázdne stringy).
+    """
+    if not products_data or not isinstance(products_data, list):
+        return {"error": "Žiadne dáta na aktualizáciu (očakávaný zoznam)."}
+
     updates = []
+    
+    # Helper pre bezpečné parsovanie čísla
+    def safe_float(val):
+        if val in (None, "", "null", "NaN"):
+            return None
+        try:
+            # Nahradíme čiarku bodkou a skúsime float
+            return float(str(val).replace(",", "."))
+        except (ValueError, TypeError):
+            return None
+
+    def safe_int(val):
+        f = safe_float(val)
+        return int(f) if f is not None else None
+
     for p in products_data:
-        ean = (p.get('ean') or '').strip()
-        if not ean: continue
-        kg = p.get('minStockKg'); ks = p.get('minStockKs')
-        if kg in (None, ''): kg_val = None
-        else:
-            try: kg_val = float(str(kg).replace(',', '.'))
-            except Exception: kg_val = None
-        if ks in (None, ''): ks_val = None
-        else:
-            try: ks_val = int(float(str(ks).replace(',', '.')))
-            except Exception: ks_val = None
+        ean = str(p.get('ean') or '').strip()
+        if not ean: 
+            continue
+
+        # Použijeme bezpečné parsovanie
+        kg_val = safe_float(p.get('minStockKg'))
+        ks_val = safe_int(p.get('minStockKs'))
+
         updates.append((kg_val, ks_val, ean))
+
     if not updates:
         return {"error": "Žiadne platné dáta na aktualizáciu."}
-    db_connector.execute_query("""
-        UPDATE produkty SET minimalna_zasoba_kg=%s, minimalna_zasoba_ks=%s WHERE ean=%s
-    """, updates, fetch='none', multi=True)
-    return {"message": f"Minimálne zásoby aktualizované pre {len(updates)} produktov."}
 
+    try:
+        # Hromadný update
+        db_connector.execute_query("""
+            UPDATE produkty SET minimalna_zasoba_kg=%s, minimalna_zasoba_ks=%s WHERE ean=%s
+        """, updates, fetch='none', multi=True)
+        
+        return {"message": f"Minimálne zásoby aktualizované pre {len(updates)} produktov."}
+    except Exception as e:
+        import traceback
+        traceback.print_exc() # Vypíše chybu do konzoly servera, ale nezhodí request
+        return {"error": f"Chyba databázy: {str(e)}"}
 
 # =================================================================
 # === REPORTY – štatistiky, príjem, inventúra, príjem podľa dátumu ==
