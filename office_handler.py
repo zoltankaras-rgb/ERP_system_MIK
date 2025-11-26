@@ -2305,60 +2305,65 @@ def get_products_for_min_stock():
 def update_min_stock_levels(input_data):
     """
     Aktualizuje minimálne zásoby.
-    Akceptuje priamy zoznam ALEBO {items: [...]}.
+    Opravené: Používa cursor.executemany() namiesto nefunkčného multi=True.
     """
-    # 1. Zisti, čo sme dostali (zoznam alebo dict)
+    # 1. Flexibilné načítanie dát (list alebo dict)
     items = []
     if isinstance(input_data, list):
         items = input_data
     elif isinstance(input_data, dict):
         items = input_data.get('items') or []
-        # Ak 'items' nie je v dict, možno prišli dáta priamo ako kľúče (nepravdepodobné, ale pre istotu)
     
-    if not items or not isinstance(items, list):
-        # Namiesto chyby 400 vrátime úspech s nulovým počtom, aby frontend nepičoval
-        return {"message": "Žiadne dáta na spracovanie (zoznam je prázdny)."}
+    if not items:
+        return {"message": "Žiadne dáta na uloženie."}
 
     updates = []
     
-    # 2. Helper pre čísla (znesie null, None, "NaN", prázdne stringy)
-    def safe_val(val, is_int=False):
-        if val in (None, "", "null", "NaN"):
-            return None
-        try:
-            f = float(str(val).replace(",", "."))
-            if is_int:
-                return int(f)
-            return f
-        except (ValueError, TypeError):
-            return None
-
-    # 3. Spracovanie
+    # 2. Spracovanie dát
     for p in items:
-        # Frontend posiela 'ean', 'minStockKg', 'minStockKs'
+        if not isinstance(p, dict): continue
         ean = str(p.get('ean') or '').strip()
-        if not ean: 
-            continue
+        if not ean: continue
 
-        kg_val = safe_val(p.get('minStockKg'))
-        ks_val = safe_val(p.get('minStockKs'), is_int=True)
+        # Helper na čísla
+        def safe_num(v, is_int=False):
+            if v in (None, '', 'null', 'NaN'): return None
+            try:
+                f = float(str(v).replace(',', '.'))
+                return int(f) if is_int else f
+            except: return None
 
-        updates.append((kg_val, ks_val, ean))
+        kg = safe_num(p.get('minStockKg'))
+        ks = safe_num(p.get('minStockKs'), is_int=True)
+        
+        updates.append((kg, ks, ean))
 
     if not updates:
-        return {"message": "Neboli nájdené žiadne platné EAN kódy."}
+        return {"message": "Žiadne platné položky."}
 
-    # 4. Zápis do DB
+    # 3. Zápis do DB (Bezpečný spôsob cez executemany)
+    conn = None
     try:
-        db_connector.execute_query("""
-            UPDATE produkty SET minimalna_zasoba_kg=%s, minimalna_zasoba_ks=%s WHERE ean=%s
-        """, updates, fetch='none', multi=True)
+        conn = db_connector.get_connection()
+        cur = conn.cursor()
         
-        return {"message": f"Minimálne zásoby uložené ({len(updates)} produktov)."}
+        sql = "UPDATE produkty SET minimalna_zasoba_kg=%s, minimalna_zasoba_ks=%s WHERE ean=%s"
+        cur.executemany(sql, updates)
+        
+        conn.commit()
+        return {"message": f"Uložené ({cur.rowcount} záznamov)."}
+
     except Exception as e:
-        print(f"CHYBA UPDATE STOCK: {e}")
-        # Vrátime 500 len ak zlyhá SQL, ale s detailom do logu
-        return {"error": f"Chyba databázy: {str(e)}"}
+        if conn: conn.rollback()
+        print(f"STOCK UPDATE ERROR: {e}")
+        # Vrátime text chyby, aby sme vedeli čo sa deje, ak to zlyhá
+        return {"error": f"Chyba DB: {str(e)}"}
+        
+    finally:
+        if conn and conn.is_connected():
+            try: cur.close() 
+            except: pass
+            conn.close()
 
 # =================================================================
 # === REPORTY – štatistiky, príjem, inventúra, príjem podľa dátumu ==
