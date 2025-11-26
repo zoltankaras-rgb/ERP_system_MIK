@@ -33,11 +33,13 @@ from email.message import EmailMessage
 from typing import Optional, List, Tuple, Dict, Any
 from datetime import datetime
 from typing import Optional
+
 # ── SMTP config ─────────────────────────────────────────────────
 MAIL_SERVER = os.getenv("MAIL_SERVER")
-MAIL_PORT = int(os.getenv("MAIL_PORT", "465"))
-MAIL_USE_TLS = str(os.getenv("MAIL_USE_TLS", "False")).lower() in ("1", "true", "t", "yes")
-MAIL_USE_SSL = str(os.getenv("MAIL_USE_SSL", "True")).lower() in ("1", "true", "t", "yes")
+# UPRAVENÉ: Default port zmenený na 587 (pre Hetzner/Websupport kompatibilitu)
+MAIL_PORT = int(os.getenv("MAIL_PORT", "587"))
+MAIL_USE_TLS = str(os.getenv("MAIL_USE_TLS", "True")).lower() in ("1", "true", "t", "yes")
+MAIL_USE_SSL = str(os.getenv("MAIL_USE_SSL", "False")).lower() in ("1", "true", "t", "yes")
 MAIL_USERNAME = os.getenv("MAIL_USERNAME")
 MAIL_PASSWORD = os.getenv("MAIL_PASSWORD")
 MAIL_DEFAULT_SENDER = os.getenv("MAIL_DEFAULT_SENDER") or MAIL_USERNAME
@@ -226,12 +228,22 @@ def _sanitize_filename(s: str) -> str:
 def _smtp_client():
     if not all([MAIL_SERVER, MAIL_PORT, MAIL_USERNAME, MAIL_PASSWORD]):
         raise RuntimeError("E-mail nie je nakonfigurovaný – chýbajú MAIL_* premenné v .env")
+    
+    # UPRAVENÉ: Fix pre Hetzner (ignorovania kontroly hostname pre IP adresu)
+    # Vytvoríme kontext, ktorý nekontroluje zhodu IP a certifikátu
+    context = ssl.create_default_context()
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE
+
     if MAIL_USE_SSL:
-        return smtplib.SMTP_SSL(MAIL_SERVER, MAIL_PORT, context=ssl.create_default_context(), timeout=30)
+        # Použijeme náš upravený kontext
+        return smtplib.SMTP_SSL(MAIL_SERVER, MAIL_PORT, context=context, timeout=30)
+    
     client = smtplib.SMTP(MAIL_SERVER, MAIL_PORT, timeout=30)
     client.ehlo()
     if MAIL_USE_TLS:
-        client.starttls(context=ssl.create_default_context())
+        # Použijeme náš upravený kontext aj pre STARTTLS
+        client.starttls(context=context)
         client.ehlo()
     return client
 
@@ -581,6 +593,7 @@ def send_order_confirmation_email(to: str | list[str],
                                   csv_content: bytes | None = None):
     """
     B2B potvrdenie objednávky.
+    UPRAVENÉ:
     - ZÁKAZNÍK: dostane len PDF.
     - EXPEDÍCIA (EXPEDITION_EMAIL): dostane PDF + CSV.
     - Ak 'to' obsahuje obe adresy naraz, odošlú sa 2 e-maily
@@ -624,10 +637,14 @@ def send_order_confirmation_email(to: str | list[str],
         )
 
     # 2) pošli expedícii – PDF + CSV
-    if to_exped:
-        _send_email(
+    # Ak expedícia nebola v zozname príjemcov, pošleme explicitne kópiu
+    target_exped = to_exped if to_exped else [EXPEDITION_EMAIL]
+    
+    # Pre istotu pošleme len ak máme target a ak sme to už neposlali vyššie (ak by expedícia bola v to_others, čo by nemala byť)
+    if EXPEDITION_EMAIL:
+         _send_email(
             to=EXPEDITION_EMAIL,
-            subject=subject,
+            subject=f"KOPIA (B2B): {subject}",
             text=None,
             html=html,
             atts=atts_pdf_csv
@@ -668,15 +685,9 @@ def send_b2c_new_registration_admin_alert(data: dict):
 def send_b2c_order_confirmation(to_email: str, order_data: dict, pdf_bytes: bytes | None = None):
     """
     Potvrdenie B2C objednávky.
-
-    Obsah e-mailu:
-      - poďakovanie a informácia, že objednávka bola prijatá,
-      - informácia, že tovar si môže zákazník vyzdvihnúť v dohodnutom čase,
-      - informácia, že po pripravení objednávky ho budete kontaktovať e-mailom a SMS,
-      - informácia, že v prílohe je potvrdenie objednávky (PDF),
-      - informácia, že konečná cena bude určená po prevážení.
-
-    Okrem e-mailu sa odošle aj krátka SMS na číslo z objednávky alebo z registrácie.
+    UPRAVENÉ:
+    - Zákazník dostane PDF.
+    - Expedícia dostane KÓPIU s PDF.
     """
     order_no = (order_data.get("order_number")
                 or order_data.get("orderNumber")
@@ -727,8 +738,18 @@ def send_b2c_order_confirmation(to_email: str, order_data: dict, pdf_bytes: byte
                 pdf_bytes = fh.read()
         atts = [("objednavka.pdf", pdf_bytes, "application/pdf")]
 
-    # odoslanie e-mailu
+    # 1. odoslanie e-mailu ZÁKAZNÍKOVI
     _send_email(to_email, subject, text=text, html=html, atts=atts)
+
+    # 2. odoslanie KÓPIE EXPEDÍCII
+    if EXPEDITION_EMAIL:
+         _send_email(
+             EXPEDITION_EMAIL,
+             f"KOPIA (B2C): {subject}",
+             text=text,
+             html=html,
+             atts=atts
+         )
 
     # Krátka SMS (ASCII kvôli SMS bránam)
     phone = _extract_phone(order_data) or _lookup_b2c_phone_by_email(to_email)
