@@ -2302,54 +2302,62 @@ def get_products_for_min_stock():
         ORDER BY salesCategory, typ_polozky, nazov_vyrobku
     """) or []
 
-def update_min_stock_levels(products_data):
+def update_min_stock_levels(input_data):
     """
-    Aktualizuje minimálne zásoby produktov.
-    Ošetruje chyby v číselných vstupoch (null, NaN, prázdne stringy).
+    Aktualizuje minimálne zásoby.
+    Akceptuje priamy zoznam ALEBO {items: [...]}.
     """
-    if not products_data or not isinstance(products_data, list):
-        return {"error": "Žiadne dáta na aktualizáciu (očakávaný zoznam)."}
+    # 1. Zisti, čo sme dostali (zoznam alebo dict)
+    items = []
+    if isinstance(input_data, list):
+        items = input_data
+    elif isinstance(input_data, dict):
+        items = input_data.get('items') or []
+        # Ak 'items' nie je v dict, možno prišli dáta priamo ako kľúče (nepravdepodobné, ale pre istotu)
+    
+    if not items or not isinstance(items, list):
+        # Namiesto chyby 400 vrátime úspech s nulovým počtom, aby frontend nepičoval
+        return {"message": "Žiadne dáta na spracovanie (zoznam je prázdny)."}
 
     updates = []
     
-    # Helper pre bezpečné parsovanie čísla
-    def safe_float(val):
+    # 2. Helper pre čísla (znesie null, None, "NaN", prázdne stringy)
+    def safe_val(val, is_int=False):
         if val in (None, "", "null", "NaN"):
             return None
         try:
-            # Nahradíme čiarku bodkou a skúsime float
-            return float(str(val).replace(",", "."))
+            f = float(str(val).replace(",", "."))
+            if is_int:
+                return int(f)
+            return f
         except (ValueError, TypeError):
             return None
 
-    def safe_int(val):
-        f = safe_float(val)
-        return int(f) if f is not None else None
-
-    for p in products_data:
+    # 3. Spracovanie
+    for p in items:
+        # Frontend posiela 'ean', 'minStockKg', 'minStockKs'
         ean = str(p.get('ean') or '').strip()
         if not ean: 
             continue
 
-        # Použijeme bezpečné parsovanie
-        kg_val = safe_float(p.get('minStockKg'))
-        ks_val = safe_int(p.get('minStockKs'))
+        kg_val = safe_val(p.get('minStockKg'))
+        ks_val = safe_val(p.get('minStockKs'), is_int=True)
 
         updates.append((kg_val, ks_val, ean))
 
     if not updates:
-        return {"error": "Žiadne platné dáta na aktualizáciu."}
+        return {"message": "Neboli nájdené žiadne platné EAN kódy."}
 
+    # 4. Zápis do DB
     try:
-        # Hromadný update
         db_connector.execute_query("""
             UPDATE produkty SET minimalna_zasoba_kg=%s, minimalna_zasoba_ks=%s WHERE ean=%s
         """, updates, fetch='none', multi=True)
         
-        return {"message": f"Minimálne zásoby aktualizované pre {len(updates)} produktov."}
+        return {"message": f"Minimálne zásoby uložené ({len(updates)} produktov)."}
     except Exception as e:
-        import traceback
-        traceback.print_exc() # Vypíše chybu do konzoly servera, ale nezhodí request
+        print(f"CHYBA UPDATE STOCK: {e}")
+        # Vrátime 500 len ak zlyhá SQL, ale s detailom do logu
         return {"error": f"Chyba databázy: {str(e)}"}
 
 # =================================================================
