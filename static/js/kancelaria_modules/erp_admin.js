@@ -494,7 +494,6 @@
     return { html, onReady };
   }
   // ===================== MINIMÁLNE ZÁSOBY (EDITOR) =================
-  // ===================== MINIMÁLNE ZÁSOBY (EDITOR) =================
 async function viewMinStock(){
   const rows = await apiRequest('/api/kancelaria/getProductsForMinStock') || [];
   const data = Array.isArray(rows) ? rows : [];
@@ -580,8 +579,8 @@ async function viewMinStock(){
       const ks  = tr.querySelector('.ms-ks')?.value ?? '';
       const o   = original.get(ean) || {kg: NaN, ks: NaN};
 
-      const kgN = kg === '' ? NaN : Number(kg);
-      const ksN = ks === '' ? NaN : Number(ks);
+      const kgN = kg === '' ? NaN : parseFloat(kg.replace(',','.'));
+      const ksN = ks === '' ? NaN : parseFloat(ks.replace(',','.'));
       const okg = isNaN(o.kg) ? NaN : Number(o.kg);
       const oks = isNaN(o.ks) ? NaN : Number(o.ks);
 
@@ -610,14 +609,23 @@ async function viewMinStock(){
       saveBtn.onclick = async () => {
         const payload = [];
 
+        // Helper pre bezpečné parsovanie čísla (fixuje NaN a 500 Error)
+        const safeParse = (val) => {
+            if (!val) return null;
+            // Nahradí čiarku bodkou a parsuje float
+            const n = parseFloat(String(val).replace(',', '.'));
+            // Ak je výsledok NaN (napr. "abc"), vráti null, aby nepadol SQL
+            return isNaN(n) ? null : n;
+        };
+
         tbl?.querySelectorAll('tbody tr')?.forEach(tr => {
           const ean = tr.dataset.ean;
           const kgRaw = tr.querySelector('.ms-kg')?.value ?? '';
           const ksRaw = tr.querySelector('.ms-ks')?.value ?? '';
 
-          // PREMENÍME NA ČÍSLO ALEBO null – backend z toho nezošalie
-          const minStockKg = kgRaw === '' ? null : Number(kgRaw);
-          const minStockKs = ksRaw === '' ? null : Number(ksRaw);
+          // Použitie bezpečného parsovania
+          const minStockKg = safeParse(kgRaw);
+          const minStockKs = safeParse(ksRaw);
 
           if (ean) payload.push({ ean, minStockKg, minStockKs });
         });
@@ -652,7 +660,6 @@ async function viewMinStock(){
 
   return { html, onReady };
 }
-
   // ===================== NOVÝ RECEPT (INLINE + HACCP) ======================
 async function viewCreateRecipeInline() {
   await ensureOfficeDataIsLoaded();

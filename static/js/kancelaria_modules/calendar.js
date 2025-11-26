@@ -282,4 +282,4 @@ function initializeEnterpriseCalendar(){
   reloadMonth();
 }
 
-(function(){ if(document.getElementById('section-enterprise-calendar')) initializeEnterpriseCalendar(); })();
+(function(){ if(document.getElementById('section-enterprise-calendar')) initializeEnterpriseCalendar(); })();e
