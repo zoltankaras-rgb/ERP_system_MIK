@@ -1,0 +1,38 @@
+{
+  "order_number": "B2C-1-20251126142731",
+  "deliveryDate": "2025-11-29",
+  "note": "asdasd\n\nVernostná odmena: Klobása",
+  "customerName": "Zoltán Káras",
+  "customerLoginId": "173095385305",
+  "customerAddress": "Hollého č.1999/13",
+  "customerEmail": "zoltan.karas@gmail.com",
+  "items": [
+    {
+      "ean": "0000000023119",
+      "name": "Bravčové chvosty",
+      "quantity": 25.0,
+      "unit": "kg",
+      "item_note": "",
+      "price_bez_dph": 2.15,
+      "price_s_dph": 2.2575,
+      "dph_percent": 5.0,
+      "nazov": "Bravčové chvosty",
+      "mnozstvo": 25.0,
+      "mj": "kg",
+      "cena_bez_dph": 2.15,
+      "cena_s_dph": 2.2575,
+      "dph": 5.0,
+      "line_total_bez_dph": 53.75,
+      "line_total_s_dph": 56.44
+    }
+  ],
+  "totalNet": 53.75,
+  "totalVat": 2.69,
+  "totalGross": 56.44,
+  "total_vat": 2.69,
+  "suma_bez_dph": 53.75,
+  "suma_s_dph": 56.44,
+  "dph": 2.69,
+  "order_date": "26.11.2025",
+  "uplatnena_odmena_poznamka": "Klobása"
+}
