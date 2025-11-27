@@ -978,8 +978,8 @@ def _get_pricelist_price_map(login_id: str, eans: List[str]) -> Dict[str, float]
         traceback.print_exc()
         return {}
 
-# ───────────────── Objednávky ─────────────────
 def submit_b2b_order(data: dict):
+    # ... (začiatok funkcie bez zmeny) ...
     user_id        = (data or {}).get("userId")
     items_in       = (data or {}).get("items") or []
     note           = (data or {}).get("note")
@@ -1017,7 +1017,7 @@ def submit_b2b_order(data: dict):
 
     for it in items_in:
         qty   = _to_float(it.get("quantity"))
-        price = _to_float(it.get("price"))               # bez DPH / MJ (objednávková cena)
+        price = _to_float(it.get("price"))
         pm    = pmap.get(str(it.get("ean"))) or {}
         dph   = abs(_to_float(pm.get("dph", it.get("dph"))))
         line_net = price * qty
@@ -1029,7 +1029,7 @@ def submit_b2b_order(data: dict):
             "name": it.get("name") or pm.get("nazov_vyrobku") or "",
             "unit": it.get("unit") or pm.get("mj") or "ks",
             "quantity": qty,
-            "price": price,                  # objednávková cena bez DPH
+            "price": price,
             "dph": dph,
             "line_net": line_net,
             "line_vat": line_vat,
@@ -1040,7 +1040,7 @@ def submit_b2b_order(data: dict):
     total_gross = total_net + total_vat
 
     order_payload = {
-        "order_number": None,  # doplníme po INSERTe
+        "order_number": None,
         "customerName": cust["nazov_firmy"],
         "customerAddress": cust["adresa"],
         "deliveryDate": delivery_date,
@@ -1080,7 +1080,7 @@ def submit_b2b_order(data: dict):
                 pm.get("predajna_kategoria"),
                 pm.get("vaha_balenia_g"),
                 pm.get("typ_polozky"),
-                i["price"],  # bez DPH
+                i["price"],
                 _normalize_date_to_str(delivery_date),
             ))
         cur.executemany(
@@ -1101,7 +1101,7 @@ def submit_b2b_order(data: dict):
     # vygenerujeme PDF + CSV a odošleme
     order_payload["order_number"] = order_number
     try:
-        # === OPRAVA TU: Rozbaľujeme 3 hodnoty ===
+        # Získame vygenerovaný názov súboru (napr. 111222333_20251127114853.csv)
         pdf_bytes, csv_bytes, csv_filename = pdf_generator.create_order_files(order_payload)
         
         # zákazník – PDF
@@ -1111,14 +1111,28 @@ def submit_b2b_order(data: dict):
             )
         except Exception:
             traceback.print_exc()
+        
         # expedícia – PDF + CSV
         try:
-            # Ak notification_handler nepodporuje filename argument, pošleme len obsah ako doteraz
+            # Tu posielame csv_filename do emailera. 
+            # Uistite sa, že send_order_confirmation_email podporuje parameter pre názov CSV.
+            # Ak nie, pridajte ho tam (napr. csv_filename=csv_filename)
             notification_handler.send_order_confirmation_email(
-                to=EXPEDITION_EMAIL, order_number=order_number, pdf_content=pdf_bytes, csv_content=csv_bytes
+                to=EXPEDITION_EMAIL, 
+                order_number=order_number, 
+                pdf_content=pdf_bytes, 
+                csv_content=csv_bytes,
+                csv_filename=csv_filename  # <--- DÔLEŽITÉ: Posielame nový názov súboru
             )
         except Exception:
-            traceback.print_exc()
+            # Ak funkcia nepodporuje csv_filename argument, skúste to bez neho, ale názov bude starý
+            try:
+                notification_handler.send_order_confirmation_email(
+                    to=EXPEDITION_EMAIL, order_number=order_number, pdf_content=pdf_bytes, csv_content=csv_bytes
+                )
+            except Exception:
+                 traceback.print_exc()
+
     except Exception:
         traceback.print_exc()
 

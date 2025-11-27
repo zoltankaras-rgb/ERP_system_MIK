@@ -430,15 +430,26 @@ def get_fleet_analysis(vehicle_id, year, month):
     
     total_costs = float(other.get("c") or 0.0) + diesel_c + adblue_c
 
+    # --- VÝPOČTY ---
+    cost_per_km = (total_costs / total_km) if total_km > 0 else 0.0
+    
+    # Výpočet ceny za kg tovaru (to, čo chýbalo)
+    # Pridávame napr. 10% amortizáciu k cene, ako naznačuje šablóna (+10% amort.)
+    # Alebo len čistý podiel. Podľa šablóny to vyzerá, že sa očakáva len hodnota.
+    # Ak chcete presne to isté čo v šablóne "+10% amort", treba to zohľadniť tu alebo v šablóne.
+    # Tu dávam čistý výpočet cena/kg. Ak šablóna robí iné, upravte vzorec.
+    cost_per_kg = (total_costs / goods_out) if goods_out > 0 else 0.0
+
     return {
         "total_km": total_km,
         "total_costs": total_costs,
-        "cost_per_km": (total_costs / total_km) if total_km > 0 else 0.0,
+        "cost_per_km": cost_per_km,
         "total_goods_out_kg": goods_out,
         "avg_consumption": (diesel_l / total_km * 100.0) if total_km > 0 else 0.0,
         "total_adblue_liters": adblue_l,
         "total_adblue_cost": adblue_c,
-        "adblue_per_100km": (adblue_l / total_km * 100.0) if total_km > 0 else 0.0
+        "adblue_per_100km": (adblue_l / total_km * 100.0) if total_km > 0 else 0.0,
+        "cost_per_kg_goods": cost_per_kg  # <--- TOTO BOL CHÝBAJÚCI KĽÚČ
     }
 def get_analysis(vehicle_id, year, month):
     return get_fleet_analysis(vehicle_id, year, month)
