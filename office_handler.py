@@ -2887,6 +2887,7 @@ def finalize_b2c_order(data):
     """
     Označí B2C objednávku ako 'Pripravená', vygeneruje finálne PDF (faktúru)
     a pošle zákazníkovi notifikáciu.
+    Ak data obsahuje 'final_price', použije sa táto suma ako finálna.
     """
     order_id = data.get("order_id")
     if not order_id:
@@ -2906,20 +2907,22 @@ def finalize_b2c_order(data):
         (order_id,), fetch="all"
     ) or []
 
-    # 3. Príprava payloadu pre PDF (Výpočet cien)
+    # 3. Príprava payloadu pre PDF (Výpočet cien položiek)
     pdf_items = []
-    total_net = 0.0
-    total_vat = 0.0
-    total_gross = 0.0
+    
+    # Pomocné premenné na sčítanie položiek
+    calc_net = 0.0
+    calc_vat = 0.0
+    calc_gross = 0.0
 
     for it in items:
         qty = float(it.get('mnozstvo') or 0)
         
-        # OPRAVA CENY: Najprv skúsime 'cena_bez_dph' (to je v DB), potom iné názvy
+        # Cena položky (bez DPH je prioritná)
         price_net = float(it.get('cena_bez_dph') or 0)
         dph_rate = float(it.get('dph') or 20.0)
 
-        # Ak by náhodou bola cena bez DPH 0, skúsime dopočítať z ceny s DPH
+        # Fallback výpočet ceny ak chýba bez DPH
         if price_net == 0:
             price_gross_input = float(it.get('cena_s_dph') or it.get('cena_jednotkova') or 0)
             if price_gross_input > 0:
@@ -2930,25 +2933,51 @@ def finalize_b2c_order(data):
         line_vat = line_net * (dph_rate / 100.0)
         line_gross = line_net + line_vat
 
-        total_net += line_net
-        total_vat += line_vat
-        total_gross += line_gross
+        calc_net += line_net
+        calc_vat += line_vat
+        calc_gross += line_gross
 
         pdf_items.append({
             "ean": it.get('ean_produktu') or "",
             "name": it.get('nazov_vyrobku') or "Produkt",
             "qty": qty,
             "unit": it.get('mj') or "ks",
-            "price": price_net, # PDF generátor potrebuje cenu bez DPH
+            "price": price_net, 
             "dph": dph_rate,
             "line_net": line_net,
             "line_vat": line_vat,
             "line_gross": line_gross
         })
 
-    # Ak v objednávke nie je meno, použijeme fallback
-    customer_name = head.get('zakaznik_meno') or head.get('nazov_firmy') or "B2C Zákazník"
+    # --- KĽÚČOVÁ OPRAVA: POUŽITIE MANUÁLNE ZADANEJ SUMY ---
+    # Skúsime nájsť sumu v dátach, ktoré poslal frontend
+    manual_price = data.get('final_price') 
+    if manual_price is None:
+        manual_price = data.get('celkova_suma_s_dph')
+        
+    if manual_price is not None:
+        try:
+            # Ak máme manuálnu sumu, použijeme ju ako finálnu
+            # Ošetríme desatinnú čiarku pre istotu
+            total_gross = float(str(manual_price).replace(',', '.'))
+            
+            # Spätne dopočítame základ a DPH (predpoklad 20%), aby sedeli súčty
+            # (Toto je potrebné, lebo PDF potrebuje rozpis DPH)
+            total_net = total_gross / 1.2
+            total_vat = total_gross - total_net
+        except ValueError:
+            # Ak sa nepodarí prevod, použijeme sčítané položky
+            total_gross = calc_gross
+            total_net = calc_net
+            total_vat = calc_vat
+    else:
+        # Ak manuálna suma neprišla, použijeme súčet položiek
+        total_gross = calc_gross
+        total_net = calc_net
+        total_vat = calc_vat
 
+    # Dáta pre PDF
+    customer_name = head.get('zakaznik_meno') or head.get('nazov_firmy') or "B2C Zákazník"
     order_payload = {
         "order_number": head.get('cislo_objednavky'),
         "customerName": customer_name,
@@ -2956,9 +2985,12 @@ def finalize_b2c_order(data):
         "deliveryDate": datetime.now().strftime("%d.%m.%Y"),
         "note": head.get('poznamka') or "",
         "items": pdf_items,
+        
+        # Tu posielame finálne (prípadne manuálne upravené) sumy
         "totalNet": total_net,
         "totalVat": total_vat,
         "totalWithVat": total_gross,
+        
         "customerCode": str(head.get('zakaznik_id') or head.get('id') or "")
     }
 
@@ -2974,8 +3006,7 @@ def finalize_b2c_order(data):
         import traceback
         traceback.print_exc()
 
-    # 5. Update stavu v DB
-    # (Môžeme uložiť aj prepočítanú sumu, ak sa zmenila)
+    # 5. Update stavu v DB s FINÁLNOU sumou
     try:
         db_connector.execute_query(
             "UPDATE b2c_objednavky SET stav='Pripravená', celkova_suma_s_dph=%s WHERE id=%s",
@@ -2988,19 +3019,17 @@ def finalize_b2c_order(data):
     customer_email = head.get('email')
     if customer_email:
         try:
-            # Zákazníkovi posielame len PDF
             notification_handler.send_order_confirmation_email(
                 to=customer_email,
                 order_number=head.get('cislo_objednavky'),
                 pdf_content=pdf_bytes,
-                csv_content=None, # Zákazníkovi CSV neposielame
+                csv_content=None,
                 csv_filename=None
             )
         except Exception as e:
             print(f"Chyba pri odosielaní emailu zákazníkovi: {e}")
 
-    return {"message": "Objednávka je pripravená a notifikácia odoslaná."} 
-
+    return {"message": "Objednávka je pripravená a notifikácia odoslaná."}
 def credit_b2c_loyalty_points(data):
     """
     Pripíše vernostné body podľa finálnej ceny a nastaví stav 'Hotová'.
