@@ -768,7 +768,8 @@ def b2c_order_pdf():
     if not order_data:
          return jsonify({"error": "Objednávka neexistuje."}), 404
 
-    pdf_bytes, _ = pdf_generator.create_order_files(order_data)
+    # Prijímame 3 hodnoty: PDF, CSV (ignorujeme), Názov (ignorujeme)
+    pdf_bytes, _, _ = pdf_generator.create_order_files(order_data)
     resp = make_response(pdf_bytes)
     resp.headers["Content-Type"] = "application/pdf"
     fname = f"objednavka_{order_data['order_number']}.pdf"
