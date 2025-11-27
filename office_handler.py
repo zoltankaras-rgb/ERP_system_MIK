@@ -2906,7 +2906,7 @@ def finalize_b2c_order(data):
         (order_id,), fetch="all"
     ) or []
 
-    # 3. Príprava payloadu pre PDF
+    # 3. Príprava payloadu pre PDF (Výpočet cien)
     pdf_items = []
     total_net = 0.0
     total_vat = 0.0
@@ -2914,15 +2914,21 @@ def finalize_b2c_order(data):
 
     for it in items:
         qty = float(it.get('mnozstvo') or 0)
-        # Predpokladáme cenu s DPH, ak nie je inak určené
-        price_gross = float(it.get('cena_s_dph') or it.get('cena_jednotkova') or 0)
-        dph_rate = 20.0 
         
-        # Dopočítanie základu
-        price_net = price_gross / (1 + dph_rate/100)
-        line_gross = price_gross * qty
+        # OPRAVA CENY: Najprv skúsime 'cena_bez_dph' (to je v DB), potom iné názvy
+        price_net = float(it.get('cena_bez_dph') or 0)
+        dph_rate = float(it.get('dph') or 20.0)
+
+        # Ak by náhodou bola cena bez DPH 0, skúsime dopočítať z ceny s DPH
+        if price_net == 0:
+            price_gross_input = float(it.get('cena_s_dph') or it.get('cena_jednotkova') or 0)
+            if price_gross_input > 0:
+                price_net = price_gross_input / (1 + dph_rate/100)
+        
+        # Výpočty riadku
         line_net = price_net * qty
-        line_vat = line_gross - line_net
+        line_vat = line_net * (dph_rate / 100.0)
+        line_gross = line_net + line_vat
 
         total_net += line_net
         total_vat += line_vat
@@ -2933,45 +2939,52 @@ def finalize_b2c_order(data):
             "name": it.get('nazov_vyrobku') or "Produkt",
             "qty": qty,
             "unit": it.get('mj') or "ks",
-            "price": price_net,
+            "price": price_net, # PDF generátor potrebuje cenu bez DPH
             "dph": dph_rate,
             "line_net": line_net,
             "line_vat": line_vat,
             "line_gross": line_gross
         })
 
+    # Ak v objednávke nie je meno, použijeme fallback
+    customer_name = head.get('zakaznik_meno') or head.get('nazov_firmy') or "B2C Zákazník"
+
     order_payload = {
         "order_number": head.get('cislo_objednavky'),
-        "customerName": head.get('zakaznik_meno') or "B2C Zákazník",
-        "customerAddress": head.get('adresa_dorucenia') or "Osobný odber",
+        "customerName": customer_name,
+        "customerAddress": head.get('adresa_dorucenia') or head.get('adresa') or "Osobný odber",
         "deliveryDate": datetime.now().strftime("%d.%m.%Y"),
         "note": head.get('poznamka') or "",
         "items": pdf_items,
         "totalNet": total_net,
         "totalVat": total_vat,
         "totalWithVat": total_gross,
-        "customerCode": str(head.get('zakaznik_id') or "")
+        "customerCode": str(head.get('zakaznik_id') or head.get('id') or "")
     }
 
     pdf_bytes = None
     csv_bytes = None
     csv_filename = None
 
-    # 4. Generovanie PDF/CSV (tu bola chyba too many values)
+    # 4. Generovanie PDF (Prijímame 3 hodnoty)
     try:
-        # === OPRAVA: Prijímame 3 hodnoty ===
         pdf_bytes, csv_bytes, csv_filename = pdf_generator.create_order_files(order_payload)
     except Exception as e:
         print(f"Chyba pri generovani PDF pre B2C order {order_id}: {e}")
-        # Pokračujeme aj bez PDF, aby sme aspoň zmenili stav
+        import traceback
+        traceback.print_exc()
 
     # 5. Update stavu v DB
-    db_connector.execute_query(
-        "UPDATE b2c_objednavky SET stav='Pripravená' WHERE id=%s",
-        (order_id,), fetch="none"
-    )
+    # (Môžeme uložiť aj prepočítanú sumu, ak sa zmenila)
+    try:
+        db_connector.execute_query(
+            "UPDATE b2c_objednavky SET stav='Pripravená', celkova_suma_s_dph=%s WHERE id=%s",
+            (total_gross, order_id), fetch="none"
+        )
+    except Exception as e:
+        print(f"Chyba DB update: {e}")
 
-    # 6. Notifikácia (Email)
+    # 6. Notifikácia (Email zákazníkovi)
     customer_email = head.get('email')
     if customer_email:
         try:
@@ -2980,22 +2993,14 @@ def finalize_b2c_order(data):
                 to=customer_email,
                 order_number=head.get('cislo_objednavky'),
                 pdf_content=pdf_bytes,
-                csv_content=None # Zákazníkovi CSV neposielame
+                csv_content=None, # Zákazníkovi CSV neposielame
+                csv_filename=None
             )
         except Exception as e:
             print(f"Chyba pri odosielaní emailu zákazníkovi: {e}")
 
-    # 7. SMS Notifikácia (ak je dostupný telefón)
-    phone = head.get('telefon')
-    if phone:
-        try:
-            # Tu by sa volala funkcia na odoslanie SMS, ak ju máte implementovanú
-            # Napríklad: sms_send({"phones": [phone], "message": "Vasa objednavka je pripravena."})
-            pass 
-        except Exception:
-            pass
+    return {"message": "Objednávka je pripravená a notifikácia odoslaná."} 
 
-    return {"message": "Objednávka je pripravená a notifikácia odoslaná."}
 def credit_b2c_loyalty_points(data):
     """
     Pripíše vernostné body podľa finálnej ceny a nastaví stav 'Hotová'.
