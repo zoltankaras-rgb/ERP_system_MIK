@@ -586,18 +586,16 @@ def send_password_reset_email(to: str, token: str):
     """
     _send_email(to, "Reset hesla – B2B",
                 html=_brand_html("Reset hesla", html, "Reset hesla – token v správe"))
-
 def send_order_confirmation_email(to: str | list[str],
                                   order_number: str,
                                   pdf_content: bytes | None = None,
-                                  csv_content: bytes | None = None):
+                                  csv_content: bytes | None = None,
+                                  csv_filename: str | None = None):  # <--- PRIDANÝ PARAMETER
     """
     B2B potvrdenie objednávky.
     UPRAVENÉ:
     - ZÁKAZNÍK: dostane len PDF.
-    - EXPEDÍCIA (EXPEDITION_EMAIL): dostane PDF + CSV.
-    - Ak 'to' obsahuje obe adresy naraz, odošlú sa 2 e-maily
-      (zákazníkovi bez CSV, expedícii s CSV).
+    - EXPEDÍCIA (EXPEDITION_EMAIL): dostane PDF + CSV (so správnym názvom).
     """
     subject = f"Potvrdenie objednávky {order_number}"
     html_body = f"""
@@ -614,6 +612,7 @@ def send_order_confirmation_email(to: str | list[str],
         recipients = [str(to).strip()] if to else []
 
     # rozdeľ na expedíciu vs ostatní
+    # (EXPEDITION_EMAIL_L musí byť definované na začiatku tvojho súboru ako global)
     to_exped = [r for r in recipients if r.lower() == EXPEDITION_EMAIL_L]
     to_others = [r for r in recipients if r.lower() != EXPEDITION_EMAIL_L]
 
@@ -624,7 +623,11 @@ def send_order_confirmation_email(to: str | list[str],
 
     atts_pdf_csv = list(atts_pdf_only)
     if csv_content:
-        atts_pdf_csv.append((f"objednavka_{order_number}.csv", csv_content, "text/csv"))
+        # === TU JE OPRAVA NÁZVU ===
+        # Ak sme dostali csv_filename, použijeme ho. Inak použijeme starý.
+        final_csv_name = csv_filename if csv_filename else f"objednavka_{order_number}.csv"
+        
+        atts_pdf_csv.append((final_csv_name, csv_content, "text/csv"))
 
     # 1) pošli ostatným (zákazník) – LEN PDF
     if to_others:
@@ -637,10 +640,6 @@ def send_order_confirmation_email(to: str | list[str],
         )
 
     # 2) pošli expedícii – PDF + CSV
-    # Ak expedícia nebola v zozname príjemcov, pošleme explicitne kópiu
-    target_exped = to_exped if to_exped else [EXPEDITION_EMAIL]
-    
-    # Pre istotu pošleme len ak máme target a ak sme to už neposlali vyššie (ak by expedícia bola v to_others, čo by nemala byť)
     if EXPEDITION_EMAIL:
          _send_email(
             to=EXPEDITION_EMAIL,
@@ -649,7 +648,6 @@ def send_order_confirmation_email(to: str | list[str],
             html=html,
             atts=atts_pdf_csv
         )
-
 # =================================================================
 # =========================  B2C NOTIFIKÁCIE  =====================
 # =================================================================
