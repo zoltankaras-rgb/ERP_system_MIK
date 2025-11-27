@@ -32,8 +32,8 @@ from auth_handler import login_required, module_required
 from leader_handler import leader_bp 
 from flask import request, render_template
 from flask import render_template
-from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.cron import CronTrigger
+from apscheduler.schedulers.background import BackgroundScheduler # type: ignore
+from apscheduler.triggers.cron import CronTrigger # type: ignore
 import atexit
 from flask import Blueprint, request, jsonify
 import mail_handler
@@ -938,7 +938,7 @@ def gemini_tasks_validate_cron():
     if not cron:
         return jsonify({"valid": False, "error": "CRON je prázdny."})
     try:
-        from apscheduler.triggers.cron import CronTrigger
+        from apscheduler.triggers.cron import CronTrigger # type: ignore
         CronTrigger.from_crontab(cron)
         return jsonify({"valid": True})
     except Exception as e:
@@ -2605,7 +2605,10 @@ def print_b2b_order_pdf_route(order_id):
     order_data = b2b_handler.get_b2b_order_details({'id': order_id})
     if not order_data or 'error' in order_data:
         return make_response(f"<h1>Chyba: Objednávka s ID {order_id} nebola nájdená.</h1>", 404)
-    pdf_content, _ = pdf_generator.create_order_files(order_data)
+    
+    # ZMENA: Opäť prijmeme 3 hodnoty a CSV ignorujeme, lebo tu chceme len PDF
+    pdf_content, _, _ = pdf_generator.create_order_files(order_data)
+    
     response = make_response(pdf_content)
     response.headers['Content-Type'] = 'application/pdf'
     response.headers['Content-Disposition'] = f"inline; filename=objednavka_{order_data.get('order_number', order_id)}.pdf"

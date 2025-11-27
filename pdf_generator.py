@@ -191,24 +191,6 @@ def _register_fonts():
 def _make_csv(order):
     """
     COOP-štýl CSV pre expedíciu.
-
-    Hlavička:
-      1: názov odberateľa (COOP vo vzore)
-      2: názov odberateľa (spotrebné družstvo vo vzore)
-      3: adresa odberateľa
-      4: názov odberateľa (Galanta vo vzore)
-      5: názov odberateľa (PREV... vo vzore)
-      6: prázdne
-      7: 12
-      8: dátum dodania (napr. 28.8.2025)
-      9: prázdne
-
-    Položky:
-      - EAN, názov, množstvo,
-      - ČÍSLO OBJEDNÁVKY (namiesto konštanty),
-      - názov odberateľa (namiesto "063"),
-      - customerCode (číslo odberateľa),
-      - "0.00 " + cena bez DPH.
     """
     sio = io.StringIO(newline="")
 
@@ -217,27 +199,24 @@ def _make_csv(order):
     cust_code = str(order.get("customer_code") or "").strip()
     date_str  = _date_simple(order.get("delivery_date"))
     
-    # Použijeme číslo objednávky z order objektu
-    # Ak by order_no nebolo, fallback na prázdny string alebo pôvodnú konštantu
     order_no_val = str(order.get("order_no") or "").strip() 
     if not order_no_val:
-        order_no_val = "000000" # Fallback ak chyba
+        order_no_val = "000000"
 
     header_cols = [
-        cust_name,   # bolo COOP Jednota Galanta
-        cust_name,   # bolo "spotrebné družstvo"
-        cust_addr,   # bolo "Revolučná štvrť 953"
-        cust_name,   # bolo "Galanta"
-        cust_name,   # bolo PREV. ...
-        "",          # PSČ – necháme prázdne
-        "12",
+        cust_name,   # názov odberateľa
+        cust_name,   # názov odberateľa
+        cust_addr,   # adresa
+        cust_name,   # mesto/názov
+        cust_name,   # prevádzka
+        "",          # PSČ – prázdne
+        "",          # <--- ZMENA: Pôvodne tu bolo "12", teraz prázdne
         date_str,    # dátum dodania
-        "",          # číslo objednávky – necháme prázdne v hlavičke (podľa pôvodného kódu)
+        "",          # číslo objednávky v hlavičke (prázdne)
     ]
     sio.write(";".join(header_cols) + "\n")
 
-    # konst = "9104063_2503918"  <-- TOTO SME NAHRADILI
-    konst = order_no_val         # <-- Nová hodnota = číslo objednávky
+    konst = order_no_val # Číslo objednávky
 
     prev_label = cust_name.strip()
     if len(prev_label) > 25:
@@ -260,8 +239,8 @@ def _make_csv(order):
             code_field + " " +
             desc_field +
             qty_field + " " +
-            konst + " " +        # Tu sa vypíše číslo objednávky
-            prev_label + " " +   # názov odberateľa namiesto "063"
+            konst + " " +
+            prev_label + " " +
             odb_field +
             " " * 15 +
             "0.00 " +
@@ -270,7 +249,6 @@ def _make_csv(order):
         sio.write(line + "\n")
 
     return sio.getvalue().encode("cp1250", errors="replace")
-
 # ──────────────── PDF ────────────────
 
 def _make_pdf(order):
@@ -517,12 +495,7 @@ def _make_pdf(order):
 
 def create_order_files(order_data: dict):
     """
-    Očakáva order_data s kľúčmi:
-      - order_number, customerName, customerAddress, deliveryDate, note, items
-      - voliteľne: deliveryWindowPretty | delivery_window
-                   rewards: [ {label, qty, ...}, ... ]
-                   uplatnena_odmena_poznamka (vernostná odmena)
-                   customerCode (číslo odberateľa)
+    Vráti (pdf_bytes, csv_bytes, csv_filename)
     """
     order_no   = _pick(order_data, "orderNumber", "order_number", default="—")
     cust_name  = _pick(order_data, "customerName", "customer_name", default="")
@@ -596,6 +569,19 @@ def create_order_files(order_data: dict):
         "customer_code": cust_code,
     }
 
+    # 1. Generovanie obsahu
     csv_bytes = _make_csv(order)
     pdf_bytes = _make_pdf(order)
-    return pdf_bytes, csv_bytes
+
+    # 2. Generovanie názvu súboru: KódOdberateľa_CisloObjednavky_DatumCas.csv
+    # Ak customer_code chýba, použije sa "000000" alebo iný default
+    safe_cust_code = str(cust_code).strip() if cust_code else "NOCODE"
+    safe_order_no = str(order_no).strip()
+    
+    # Dátum a čas generovania (napr. 28082025_1430)
+    now_str = datetime.now().strftime("%d%m%Y_%H%M")
+    
+    csv_filename = f"{safe_cust_code}_{safe_order_no}_{now_str}.csv"
+
+    # Vraciame 3 hodnoty: PDF(bytes), CSV(bytes), NázovCSV(str)
+    return pdf_bytes, csv_bytes, csv_filename

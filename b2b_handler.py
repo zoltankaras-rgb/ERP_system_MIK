@@ -1034,22 +1034,22 @@ def submit_b2b_order(data: dict):
             "line_net": line_net,
             "line_vat": line_vat,
             "line_gross": line_net + line_vat,
-            "pricelist_price": pricelist_price_by_ean.get(str(it.get("ean")))  # << nový údaj
+            "pricelist_price": pricelist_price_by_ean.get(str(it.get("ean")))
         })
 
     total_gross = total_net + total_vat
 
     order_payload = {
         "order_number": None,  # doplníme po INSERTe
-    "customerName": cust["nazov_firmy"],
-    "customerAddress": cust["adresa"],
-    "deliveryDate": delivery_date,
-    "note": note,
-    "items": pdf_items,
-    "totalNet": total_net,
-    "totalVat": total_vat,
-    "totalWithVat": total_gross,
-    "customerCode": login_id, 
+        "customerName": cust["nazov_firmy"],
+        "customerAddress": cust["adresa"],
+        "deliveryDate": delivery_date,
+        "note": note,
+        "items": pdf_items,
+        "totalNet": total_net,
+        "totalVat": total_vat,
+        "totalWithVat": total_gross,
+        "customerCode": login_id, 
     }
 
     # uloženie hlavičky + položiek
@@ -1101,7 +1101,9 @@ def submit_b2b_order(data: dict):
     # vygenerujeme PDF + CSV a odošleme
     order_payload["order_number"] = order_number
     try:
-        pdf_bytes, csv_bytes = pdf_generator.create_order_files(order_payload)
+        # === OPRAVA TU: Rozbaľujeme 3 hodnoty ===
+        pdf_bytes, csv_bytes, csv_filename = pdf_generator.create_order_files(order_payload)
+        
         # zákazník – PDF
         try:
             notification_handler.send_order_confirmation_email(
@@ -1111,6 +1113,7 @@ def submit_b2b_order(data: dict):
             traceback.print_exc()
         # expedícia – PDF + CSV
         try:
+            # Ak notification_handler nepodporuje filename argument, pošleme len obsah ako doteraz
             notification_handler.send_order_confirmation_email(
                 to=EXPEDITION_EMAIL, order_number=order_number, pdf_content=pdf_bytes, csv_content=csv_bytes
             )
@@ -1124,19 +1127,6 @@ def submit_b2b_order(data: dict):
         "message": f"Objednávka {order_number} bola prijatá.",
         "order_data": order_payload,
     }
-
-def get_order_history(user_id):
-    login = _login_from_user_id(user_id) or user_id
-    rows = db_connector.execute_query(
-        """
-        SELECT id, cislo_objednavky, datum_objednavky AS datum_vytvorenia, stav, celkova_suma_s_dph, poznamka
-        FROM b2b_objednavky
-        WHERE zakaznik_id=%s
-        ORDER BY datum_objednavky DESC
-        """,
-        (login,),
-    ) or []
-    return {"orders": rows}
 
 def get_all_b2b_orders(filters=None):
     filters = filters or {}
@@ -1252,7 +1242,9 @@ def build_order_pdf_for_customer(order_id: int, user_id: int):
         "totalGrossWithVat": total_gross,
     }
 
-    pdf_bytes, _ = pdf_generator.create_order_files(data)
+    # === OPRAVA TU: 3 premenné, ignorujeme CSV (pretože zákazník sťahuje len PDF) ===
+    pdf_bytes, _, _ = pdf_generator.create_order_files(data)
+    
     return {"pdf": pdf_bytes, "filename": f"objednavka_{head['cislo_objednavky']}.pdf"}
 
 def build_order_pdf_payload_admin(order_id: int) -> dict:
