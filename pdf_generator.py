@@ -494,10 +494,10 @@ def _make_pdf(order):
 # ──────────────── Public API ────────────────
 def create_order_files(order_data: dict):
     """
-    Generuje PDF a CSV.
-    Vracia (pdf_bytes, csv_bytes, csv_filename)
-    Názov CSV je striktne: KodOdberatela_DatumCas.csv (bez prefixu objednavka_B2B)
+    Vráti (pdf_bytes, csv_bytes, csv_filename)
+    csv_filename bude: KodOdberatela_DatumCas.csv (bez B2B, bez objednavka_)
     """
+    # ... (začiatok funkcie - načítanie premenných order_no, cust_name atď. ostáva rovnaké) ...
     order_no   = _pick(order_data, "orderNumber", "order_number", default="—")
     cust_name  = _pick(order_data, "customerName", "customer_name", default="")
     cust_addr  = _pick(order_data, "customerAddress", "customer_address", default="")
@@ -574,19 +574,17 @@ def create_order_files(order_data: dict):
     csv_bytes = _make_csv(order)
     pdf_bytes = _make_pdf(order)
 
-    # 2. Generovanie názvu súboru - OPRAVENÉ
-    # Očakávame formát order_no: "B2B-111222333-20251127114853"
+    # 2. Generovanie názvu súboru: KodOdberatela_DatumCas.csv
+    # Rozdelíme B2B-111222333-2025... na časti
     safe_order_no = str(order_no).strip()
     parts = safe_order_no.split('-')
 
     if len(parts) >= 3:
-        # Zoberieme len strednú časť (kód) a poslednú časť (čas)
-        # Ignorujeme prvú časť ("B2B")
-        kod_odberatela = parts[1]  # napr. 111222333
-        cas_objednavky = parts[2]  # napr. 20251127114853
-        csv_filename = f"{kod_odberatela}_{cas_objednavky}.csv"
+        # parts[1] je kód odberateľa (111222333)
+        # parts[2] je čas (20251127114853)
+        csv_filename = f"{parts[1]}_{parts[2]}.csv"
     else:
-        # Fallback: ak by formát čísla objednávky nesedel
+        # Fallback
         safe_cust = str(cust_code).strip() if cust_code else "000000"
         now_str = datetime.now().strftime("%Y%m%d%H%M%S")
         csv_filename = f"{safe_cust}_{now_str}.csv"
