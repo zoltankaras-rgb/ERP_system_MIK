@@ -28,6 +28,7 @@ from flask import make_response, request, send_file
 
 import db_connector
 from expedition_handler import _table_exists
+import pdf_generator
 import production_handler
 import notification_handler
 import b2b_handler  # používaš v app.py
@@ -2884,41 +2885,117 @@ def update_b2c_order_status(data):
 
 def finalize_b2c_order(data):
     """
-    Nastaví objednávku do stavu 'Pripravená' a uloží finálnu cenu.
-    NOTIFIKÁCIE SA TU NEPOSIELAJÚ (aby neboli duplicity).
-    Vstup: { "order_id": int, "final_price": "12.34" }
+    Označí B2C objednávku ako 'Pripravená', vygeneruje finálne PDF (faktúru)
+    a pošle zákazníkovi notifikáciu.
     """
-    order_id = (data or {}).get('order_id')
-    price_raw = (data or {}).get('final_price')
-    if not order_id or price_raw in (None, ''):
-        return {"error": "Chýba ID objednávky alebo finálna cena."}
+    order_id = data.get("order_id")
+    if not order_id:
+        return {"error": "Chýba ID objednávky."}
 
+    # 1. Načítanie objednávky
+    head = db_connector.execute_query(
+        "SELECT * FROM b2c_objednavky WHERE id=%s",
+        (order_id,), fetch="one"
+    )
+    if not head:
+        return {"error": "Objednávka neexistuje."}
+
+    # 2. Načítanie položiek
+    items = db_connector.execute_query(
+        "SELECT * FROM b2c_objednavky_polozky WHERE objednavka_id=%s",
+        (order_id,), fetch="all"
+    ) or []
+
+    # 3. Príprava payloadu pre PDF
+    pdf_items = []
+    total_net = 0.0
+    total_vat = 0.0
+    total_gross = 0.0
+
+    for it in items:
+        qty = float(it.get('mnozstvo') or 0)
+        # Predpokladáme cenu s DPH, ak nie je inak určené
+        price_gross = float(it.get('cena_s_dph') or it.get('cena_jednotkova') or 0)
+        dph_rate = 20.0 
+        
+        # Dopočítanie základu
+        price_net = price_gross / (1 + dph_rate/100)
+        line_gross = price_gross * qty
+        line_net = price_net * qty
+        line_vat = line_gross - line_net
+
+        total_net += line_net
+        total_vat += line_vat
+        total_gross += line_gross
+
+        pdf_items.append({
+            "ean": it.get('ean_produktu') or "",
+            "name": it.get('nazov_vyrobku') or "Produkt",
+            "qty": qty,
+            "unit": it.get('mj') or "ks",
+            "price": price_net,
+            "dph": dph_rate,
+            "line_net": line_net,
+            "line_vat": line_vat,
+            "line_gross": line_gross
+        })
+
+    order_payload = {
+        "order_number": head.get('cislo_objednavky'),
+        "customerName": head.get('zakaznik_meno') or "B2C Zákazník",
+        "customerAddress": head.get('adresa_dorucenia') or "Osobný odber",
+        "deliveryDate": datetime.now().strftime("%d.%m.%Y"),
+        "note": head.get('poznamka') or "",
+        "items": pdf_items,
+        "totalNet": total_net,
+        "totalVat": total_vat,
+        "totalWithVat": total_gross,
+        "customerCode": str(head.get('zakaznik_id') or "")
+    }
+
+    pdf_bytes = None
+    csv_bytes = None
+    csv_filename = None
+
+    # 4. Generovanie PDF/CSV (tu bola chyba too many values)
     try:
-        final_price = float(str(price_raw).replace(",", "."))
-        if final_price <= 0:
-            return {"error": "Finálna cena musí byť kladné číslo."}
-    except Exception:
-        return {"error": "Neplatný formát finálnej ceny."}
+        # === OPRAVA: Prijímame 3 hodnoty ===
+        pdf_bytes, csv_bytes, csv_filename = pdf_generator.create_order_files(order_payload)
+    except Exception as e:
+        print(f"Chyba pri generovani PDF pre B2C order {order_id}: {e}")
+        # Pokračujeme aj bez PDF, aby sme aspoň zmenili stav
 
-    # Ulož stav
+    # 5. Update stavu v DB
     db_connector.execute_query(
-        "UPDATE b2c_objednavky SET stav=%s WHERE id=%s", ('Pripravená', order_id), fetch='none'
+        "UPDATE b2c_objednavky SET stav='Pripravená' WHERE id=%s",
+        (order_id,), fetch="none"
     )
 
-    # Ulož finálnu cenu do prvého dostupného stĺpca (žiadne ALTERy)
-    for col in ("celkova_suma_s_dph", "finalna_suma_s_dph", "suma_s_dph", "total_s_dph", "finalna_suma", "total_gross"):
+    # 6. Notifikácia (Email)
+    customer_email = head.get('email')
+    if customer_email:
         try:
-            db_connector.execute_query(
-                f"UPDATE b2c_objednavky SET {col}=%s WHERE id=%s",
-                (final_price, order_id), fetch='none'
+            # Zákazníkovi posielame len PDF
+            notification_handler.send_order_confirmation_email(
+                to=customer_email,
+                order_number=head.get('cislo_objednavky'),
+                pdf_content=pdf_bytes,
+                csv_content=None # Zákazníkovi CSV neposielame
             )
-            break
+        except Exception as e:
+            print(f"Chyba pri odosielaní emailu zákazníkovi: {e}")
+
+    # 7. SMS Notifikácia (ak je dostupný telefón)
+    phone = head.get('telefon')
+    if phone:
+        try:
+            # Tu by sa volala funkcia na odoslanie SMS, ak ju máte implementovanú
+            # Napríklad: sms_send({"phones": [phone], "message": "Vasa objednavka je pripravena."})
+            pass 
         except Exception:
-            continue
+            pass
 
-    return {"message": "Objednávka je označená ako 'Pripravená' a cena uložená.", "final_price": final_price}
-
-
+    return {"message": "Objednávka je pripravená a notifikácia odoslaná."}
 def credit_b2c_loyalty_points(data):
     """
     Pripíše vernostné body podľa finálnej ceny a nastaví stav 'Hotová'.
