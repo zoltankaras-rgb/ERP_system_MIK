@@ -1649,3 +1649,18 @@ def delete_pricelist(data: dict):
         fetch='none'
     )
     return {"message": "Cenník bol úspešne vymazaný."}
+
+
+def get_order_history(user_id):
+    """Vráti históriu objednávok pre daného zákazníka."""
+    login = _login_from_user_id(user_id) or user_id
+    rows = db_connector.execute_query(
+        """
+        SELECT id, cislo_objednavky, datum_objednavky AS datum_vytvorenia, stav, celkova_suma_s_dph, poznamka
+        FROM b2b_objednavky
+        WHERE zakaznik_id=%s
+        ORDER BY datum_objednavky DESC
+        """,
+        (login,),
+    ) or []
+    return {"orders": rows}
