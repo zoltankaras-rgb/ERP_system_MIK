@@ -494,8 +494,9 @@ def _make_pdf(order):
 # ──────────────── Public API ────────────────
 def create_order_files(order_data: dict):
     """
-    Vráti (pdf_bytes, csv_bytes, csv_filename)
-    csv_filename bude vo formáte: 111222333_20251127114853.csv
+    Generuje PDF a CSV.
+    Vracia (pdf_bytes, csv_bytes, csv_filename)
+    Názov CSV je striktne: KodOdberatela_DatumCas.csv (bez prefixu objednavka_B2B)
     """
     order_no   = _pick(order_data, "orderNumber", "order_number", default="—")
     cust_name  = _pick(order_data, "customerName", "customer_name", default="")
@@ -573,20 +574,19 @@ def create_order_files(order_data: dict):
     csv_bytes = _make_csv(order)
     pdf_bytes = _make_pdf(order)
 
-    # 2. Generovanie názvu súboru: KódOdberateľa_DatumCas.csv
-    # Očakávame order_no v tvare: B2B-{kod}-{timestamp}
+    # 2. Generovanie názvu súboru - OPRAVENÉ
+    # Očakávame formát order_no: "B2B-111222333-20251127114853"
     safe_order_no = str(order_no).strip()
-    
     parts = safe_order_no.split('-')
+
     if len(parts) >= 3:
-        # parts[0] = "B2B"
-        # parts[1] = "111222333" (kód)
-        # parts[2] = "20251127114853" (čas)
-        cust_part = parts[1]
-        time_part = parts[2]
-        csv_filename = f"{cust_part}_{time_part}.csv"
+        # Zoberieme len strednú časť (kód) a poslednú časť (čas)
+        # Ignorujeme prvú časť ("B2B")
+        kod_odberatela = parts[1]  # napr. 111222333
+        cas_objednavky = parts[2]  # napr. 20251127114853
+        csv_filename = f"{kod_odberatela}_{cas_objednavky}.csv"
     else:
-        # Fallback ak by číslo objednávky malo iný formát
+        # Fallback: ak by formát čísla objednávky nesedel
         safe_cust = str(cust_code).strip() if cust_code else "000000"
         now_str = datetime.now().strftime("%Y%m%d%H%M%S")
         csv_filename = f"{safe_cust}_{now_str}.csv"
