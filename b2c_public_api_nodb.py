@@ -329,16 +329,15 @@ def submit_order():
     payload = request.get_json(silent=True) or request.form.to_dict(flat=True) or {}
 
     # 1) Spracovanie objednávky cez handler
-    # Očakávame, že b2c_handler.submit_b2c_order vráti dict s kľúčmi:
-    # 'success', 'message', 'order_data', 'pdf_attachment'
     try:
+        # Tu sa volá b2c_handler. Ak ten padne, zachytíme to tu.
         res = b2c_handler.submit_b2c_order(usr["id"], payload)
     except ValueError as e:
-        # Zachytenie chyby unpacking alebo inej ValueError
+        # Toto zachytí chybu "too many values to unpack", ak by ste neopravili b2c_handler.py
         print(f"CRITICAL ERROR in submit_b2c_order: {e}")
         import traceback
         traceback.print_exc()
-        return jsonify({"error": "Interná chyba pri spracovaní objednávky (PDF). Kontaktujte podporu."}), 500
+        return jsonify({"error": "Interná chyba servera (PDF generator). Prosím kontaktujte správcu."}), 500
     except Exception as e:
         print(f"CRITICAL ERROR in submit_b2c_order: {e}")
         import traceback
@@ -352,51 +351,38 @@ def submit_order():
     try:
         order_data = res.get("order_data") or {}
         order_number = order_data.get("order_number", "objednavka")
-        # Bezpečný názov súboru
         safe_name = "".join(ch for ch in order_number if ch.isalnum() or ch in ("-", "_")) or "objednavka"
 
         pdf_bytes = None
-        # Vytiahneme PDF z odpovede handlera a odstránime ho z JSON odpovede (aby nešla binary data na FE)
         if isinstance(res, dict) and isinstance(res.get("pdf_attachment"), (bytes, bytearray)):
             pdf_bytes = res.pop("pdf_attachment", None)
         
         if pdf_bytes:
             filename_pdf = f"{safe_name}.pdf"
-            pdf_path = os.path.join(ORDERS_DIR, filename_pdf)
-            with open(pdf_path, "wb") as f:
+            with open(os.path.join(ORDERS_DIR, filename_pdf), "wb") as f:
                 f.write(pdf_bytes)
-            # Pridáme URL do odpovede pre frontend
             res.setdefault("order_files", {})["pdf_url"] = f"/static/uploads/orders/{filename_pdf}"
 
-        # Uložíme JSON meta dáta o objednávke
         try:
             filename_json = f"{safe_name}.json"
-            json_path = os.path.join(ORDERS_DIR, filename_json)
-            with open(json_path, "w", encoding="utf-8") as f:
+            with open(os.path.join(ORDERS_DIR, filename_json), "w", encoding="utf-8") as f:
                 json.dump(order_data, f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            print(f"Chyba pri ukladaní JSON meta dát: {e}")
+        except Exception:
+            pass
+    except Exception:
+        pass
 
-    except Exception as e:
-        print(f"Chyba pri ukladaní súborov objednávky: {e}")
-        import traceback
-        traceback.print_exc()
-
-    # 3) Doplnky BEZ DB: časové okno + HMOTNÉ ODMENY (gift-only; 1×/zákazník)
-    # Tieto veci sú špecifické pre tvoju implementáciu, ak ich používaš
-    
+    # 3) DOPLNKY BEZ DB: časové okno + HMOTNÉ ODMENY (gift-only; 1×/zákazník)
     delivery_window = (payload.get("delivery_window") or "").strip()
     if delivery_window:
         res.setdefault("order_data", {})["delivery_window"] = delivery_window
 
     reward_code = (payload.get("reward_code") or payload.get("promo_code") or "").strip()
     if reward_code:
-        # Použijeme pomocné funkcie definované vyššie (alebo importované)
         rd = _giftcode_find(reward_code)
         if not rd:
             res.setdefault("warnings", []).append({"reward_code": reward_code, "reason": "neznámy_kód"})
         else:
-            # identifikátor zákazníka (id -> email fallback)
             user_key = str(usr.get("id") or usr.get("email") or "")
             if not user_key:
                 res.setdefault("warnings", []).append({"reward_code": reward_code, "reason": "nezistený_používateľ"})
@@ -410,11 +396,8 @@ def submit_order():
                 except Exception:
                     qty = 1.0
                 reward = {"type": "giftcode", "label": label, "qty": qty, "code": rd.get("code")}
-                
-                # Pridáme odmenu do odpovede
                 res.setdefault("order_data", {}).setdefault("rewards", []).append(reward)
 
-                # zapíš META a zaeviduj použitie kódu
                 order_no = (res.get("order_data") or {}).get("order_number") or safe_name
                 try:
                     meta_path = os.path.join(ORDERS_DIR, f"{order_no}.meta.json")
@@ -425,12 +408,9 @@ def submit_order():
                     pass
                 _giftcode_mark_used(reward_code, user_key, order_no)
 
-    # Ak boli nejaké meta dáta (okno, odmena), uložíme ich k objednávke
     if delivery_window or reward_code:
-        order_no = (res.get("order_data") or {}).get("order_number")
-        if order_no:
-            _write_order_meta(order_no, res.get("order_data") or {})
-    
+        _write_order_meta((res.get("order_data") or {}).get("order_number"), res.get("order_data") or {})
+
     return jsonify(res)
 
 @b2c_public_bp.get("/api/b2c/get-history")

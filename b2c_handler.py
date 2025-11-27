@@ -636,6 +636,125 @@ def _giftcode_mark_used(code: str, user_key: str, order_no: str):
 # -------------------------------
 # Objednávka
 # -------------------------------
+def submit_b2c_order(user_id: int, payload: dict):
+    """
+    Spracuje B2C objednávku, uloží do DB, vygeneruje PDF a pošle e-mail.
+    """
+    items_in = payload.get("items") or []
+    note = payload.get("note") or ""
+    
+    # Načítaj zákazníka
+    cust = _get_customer_ids(user_id)
+    if not cust:
+        return {"error": "Zákazník neexistuje."}
+
+    # Priprav položky pre PDF generátor a výpočet sumy
+    pdf_items = []
+    total_net = 0.0
+    total_vat = 0.0
+    total_gross = 0.0
+
+    for it in items_in:
+        qty = _to_float(it.get("qty") or it.get("mnozstvo"))
+        price_gross = _to_float(it.get("price") or it.get("cena_s_dph")) # Cena s DPH
+        dph_rate = 20.0 
+        
+        # Rozpočítanie DPH
+        price_net = price_gross / (1 + dph_rate/100)
+        
+        line_gross = price_gross * qty
+        line_net = price_net * qty
+        line_vat = line_gross - line_net
+
+        total_gross += line_gross
+        total_net += line_net
+        total_vat += line_vat
+
+        pdf_items.append({
+            "ean": it.get("ean") or "",
+            "name": it.get("name") or "Produkt",
+            "qty": qty,
+            "unit": it.get("unit") or "ks",
+            "price": price_net, 
+            "dph": dph_rate,
+            "line_net": line_net,
+            "line_vat": line_vat,
+            "line_gross": line_gross
+        })
+
+    # Vytvor číslo objednávky
+    now_str = datetime.now().strftime("%Y%m%d%H%M%S")
+    order_number = f"B2C-{user_id}-{now_str}"
+
+    # Uloženie do DB (zjednodušený SQL insert, použite váš existujúci ak je komplexnejší)
+    try:
+        db_connector.execute_query(
+            "INSERT INTO b2c_objednavky (cislo_objednavky, zakaznik_id, zakaznik_meno, email, telefon, adresa_dorucenia, poznamka, stav, celkova_suma_s_dph, datum_objednavky) VALUES (%s, %s, %s, %s, %s, %s, %s, 'Nová', %s, NOW())",
+            (order_number, str(cust.get("zakaznik_id") or user_id), cust.get("nazov_firmy"), cust.get("email"), cust.get("telefon"), payload.get("delivery_address"), note, total_gross),
+            fetch="none"
+        )
+        # Tu by mal nasledovať insert položiek, ak ho máte implementovaný...
+    except Exception as e:
+        print(f"Chyba DB insert: {e}")
+
+    # Príprava dát pre generátor PDF
+    order_payload = {
+        "order_number": order_number,
+        "customerName": cust.get("nazov_firmy") or cust.get("email"),
+        "customerAddress": payload.get("delivery_address") or "B2C Zákazník",
+        "deliveryDate": datetime.now().strftime("%d.%m.%Y"),
+        "note": note,
+        "items": pdf_items,
+        "totalNet": total_net,
+        "totalVat": total_vat,
+        "totalWithVat": total_gross,
+        "customerCode": str(cust.get("zakaznik_id") or user_id)
+    }
+
+    pdf_bytes = None
+    csv_bytes = None
+    csv_filename = None
+
+    # --- GENERATOR PDF (Tu bola chyba) ---
+    try:
+        # === OPRAVA: Prijímame 3 hodnoty ===
+        pdf_bytes, csv_bytes, csv_filename = pdf_generator.create_order_files(order_payload)
+    except Exception as e:
+        print(f"Chyba pri generovaní PDF pre B2C: {e}")
+        # Nedovoľ, aby chyba v PDF zhodila celú objednávku
+        traceback.print_exc()
+
+    # Odoslanie emailu
+    try:
+        # 1. Email zákazníkovi (len PDF)
+        notification_handler.send_order_confirmation_email(
+            to=cust.get("email"),
+            order_number=order_number,
+            pdf_content=pdf_bytes,
+            csv_content=None 
+        )
+
+        # 2. Email expedícii
+        exped_email = os.getenv("B2B_EXPEDITION_EMAIL")
+        if exped_email:
+            notification_handler.send_order_confirmation_email(
+                to=exped_email,
+                order_number=order_number,
+                pdf_content=pdf_bytes,
+                csv_content=csv_bytes,
+                csv_filename=csv_filename 
+            )
+
+    except Exception as e:
+        print(f"Chyba pri odosielaní B2C emailu: {e}")
+
+    return {
+        "success": True,
+        "message": "Objednávka prijatá.",
+        "order_data": order_payload,
+        "pdf_attachment": pdf_bytes 
+    }
+
 def submit_b2c_order(user_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
     conn = None
     cursor = None
@@ -864,8 +983,8 @@ def submit_b2c_order(user_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
             order_data_for_docs["note"] = (base_note + "\n\n" + extra) if base_note else extra
 
     
-        # PDF
-        pdf_content, _ = pdf_generator.create_order_files(order_data_for_docs)
+        # PDF - OPRAVENÉ TU: 3 hodnoty, inak padá "ValueError: too many values to unpack"
+        pdf_content, csv_content, csv_filename = pdf_generator.create_order_files(order_data_for_docs)
 
         # Outbox s doplnkami
         extras_html = ""
@@ -931,7 +1050,6 @@ def submit_b2c_order(user_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
         if conn and conn.is_connected():
             if cursor: cursor.close()
             conn.close()
-
 # -------------------------------
 # História objednávok
 # -------------------------------
