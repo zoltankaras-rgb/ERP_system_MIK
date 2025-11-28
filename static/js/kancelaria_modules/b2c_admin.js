@@ -865,15 +865,25 @@
       .catch(err => rootEl.innerHTML = `<p class="error" style="color:#ef4444;padding:8px;">${escapeHtml(err.message||'Chyba načítania')}</p>`);
   };
 
-  // >>> FULL editor cenníka (Vylepšený – 2 panely) <<<
+  // >>> FULL editor cenníka (OPRAVENÝ - Bez duplicít) <<<
   root.renderB2CPricelistAdmin = function renderB2CPricelistAdmin(data){
     const rootEl = getOrCreatePricelistRoot();
     const all = Array.isArray(data?.all_products) ? data.all_products : [];
     const pl  = Array.isArray(data?.pricelist)    ? data.pricelist    : [];
 
-    // Indexovanie
-    const byEAN = {}; all.forEach(p => { if(p.ean) byEAN[p.ean] = p; });
-    const plByEAN = {}; pl.forEach(x => { if(x.ean_produktu) plByEAN[x.ean_produktu] = x; });
+    // 1. POISTKA: Normalizácia EAN kódov (trim) pre indexovanie
+    const plByEAN = {}; 
+    pl.forEach(x => { 
+        if(x.ean_produktu) {
+            const cleanEan = String(x.ean_produktu).trim();
+            plByEAN[cleanEan] = x; 
+        }
+    });
+    
+    const byEAN = {}; 
+    all.forEach(p => { 
+        if(p.ean) byEAN[String(p.ean).trim()] = p; 
+    });
     
     // Udržiavanie state o tom, čo je v DB (pre insert vs update)
     const originalEANs = new Set(pl.map(x => String(x.ean_produktu || '').trim()).filter(Boolean));
@@ -934,16 +944,17 @@
         </thead><tbody>`;
 
         pl.forEach(item => {
-            const prod = byEAN[item.ean_produktu] || {};
+            const eanClean = String(item.ean_produktu || '').trim();
+            const prod = byEAN[eanClean] || {};
             const name = prod.nazov_vyrobku || item.ean_produktu;
             const price = item.cena_bez_dph || 0;
             const isPromo = !!item.je_v_akcii;
             const promoPrice = item.akciova_cena_bez_dph || 0;
 
-            html += `<tr data-ean="${item.ean_produktu}">
+            html += `<tr data-ean="${escapeHtml(eanClean)}">
                 <td>
                     <div style="font-weight:500; font-size:0.9rem;">${escapeHtml(name)}</div>
-                    <small class="muted" style="font-size:0.75rem;">${item.ean_produktu}</small>
+                    <small class="muted" style="font-size:0.75rem;">${escapeHtml(eanClean)}</small>
                 </td>
                 <td>
                     <input type="number" class="mini-input pl-price" step="0.01" value="${price}">
@@ -969,13 +980,8 @@
             e.target.closest('tr').querySelector('.pl-promo-price').style.display = e.target.checked ? 'inline-block' : 'none';
         });
         
-        // SAVE
         wrapper.querySelectorAll('.pl-save').forEach(btn => btn.onclick = (e) => saveRow(e.target.closest('tr')));
-        
-        // DELETE
         wrapper.querySelectorAll('.pl-del').forEach(btn => btn.onclick = (e) => deleteRow(e.target.closest('tr')));
-
-        // INFO MODAL
         wrapper.querySelectorAll('.pl-info').forEach(btn => btn.onclick = (e) => {
             const tr = e.target.closest('tr');
             const ean = tr.dataset.ean;
@@ -989,16 +995,27 @@
         const wrapper = rootEl.querySelector('#pl-catalog-wrapper');
         const q = filter.toLowerCase();
 
-        // Zoskupenie podľa kategórie
         const groups = {};
+        const renderedEANs = new Set(); // 2. POISTKA: Aby sme nezobrazovali duplicity v katalógu
+
         all.forEach(p => {
-            if (plByEAN[p.ean]) return; // Už je v cenníku
-            const match = !q || (p.nazov_vyrobku||'').toLowerCase().includes(q) || (p.ean||'').includes(q);
+            const cleanEan = String(p.ean).trim();
+            
+            // Ak už je v cenníku, nezobrazuj v katalógu
+            if (plByEAN[cleanEan]) return; 
+
+            // Ak už sme tento EAN vykreslili v tomto render cykle (duplicita v DB), preskoč
+            if (renderedEANs.has(cleanEan)) return;
+
+            const match = !q || (p.nazov_vyrobku||'').toLowerCase().includes(q) || cleanEan.includes(q);
             if (!match) return;
 
+            // Pridaj do zoznamu na vykreslenie
+            renderedEANs.add(cleanEan);
+            
             const cat = p.predajna_kategoria || p.kategoria_pre_recepty || 'Nezaradené';
             if (!groups[cat]) groups[cat] = [];
-            groups[cat].push(p);
+            groups[cat].push({...p, ean: cleanEan}); // Použi clean EAN
         });
 
         if (Object.keys(groups).length === 0) {
@@ -1007,7 +1024,6 @@
         }
 
         let html = '';
-        // Sort categories alphabetically, put 'Nezaradené' last
         const sortedCats = Object.keys(groups).sort((a,b) => {
             if(a === 'Nezaradené') return 1;
             if(b === 'Nezaradené') return -1;
@@ -1028,26 +1044,37 @@
                         <div style="font-weight:500; font-size:0.9rem;">${escapeHtml(p.nazov_vyrobku)}</div>
                         <small class="muted" style="font-size:0.75rem;">${p.ean} • DPH ${Number(p.dph)}%</small>
                     </div>
-                    <button class="mini-btn primary cat-add" data-ean="${p.ean}">Pridať</button>
+                    <button class="mini-btn primary cat-add" data-ean="${escapeHtml(p.ean)}">Pridať</button>
                 </div>`;
             });
             html += `</div></details>`;
         });
         wrapper.innerHTML = html;
 
-        wrapper.querySelectorAll('.cat-add').forEach(btn => btn.onclick = () => {
+        wrapper.querySelectorAll('.cat-add').forEach(btn => btn.onclick = (e) => {
+            e.preventDefault(); // Zastaví prípadné dvojité bublanie
             addToPricelist(btn.dataset.ean);
         });
     }
 
-    // LOGIKA: Pridanie do cenníka
+    // LOGIKA: Pridanie do cenníka (OPRAVENÁ FUNKCIA)
     function addToPricelist(ean) {
+        ean = String(ean).trim(); // 3. POISTKA: Trim
+        
+        // Kontrola 1: Index
         if (plByEAN[ean]) return;
+
+        // Kontrola 2: Prejdenie poľa (pre istotu)
+        const exists = pl.some(x => String(x.ean_produktu).trim() === ean);
+        if (exists) {
+            console.warn('Pokus o pridanie duplicity:', ean);
+            return;
+        }
         
         // Pridáme lokálne do poľa
         const newItem = { ean_produktu: ean, cena_bez_dph: 0, je_v_akcii: 0, akciova_cena_bez_dph: 0 };
-        pl.unshift(newItem); // Pridať na začiatok
-        plByEAN[ean] = newItem;
+        pl.unshift(newItem); 
+        plByEAN[ean] = newItem; // Aktualizuj index
         
         // Prekreslíme
         renderPricelist();
@@ -1055,7 +1082,7 @@
         
         // Scroll na nový riadok a focus
         setTimeout(() => {
-            const tr = rootEl.querySelector(`tr[data-ean="${ean}"]`);
+            const tr = rootEl.querySelector(`tr[data-ean="${CSS.escape(ean)}"]`);
             if(tr) {
                 tr.scrollIntoView({behavior: "smooth", block: "center"});
                 tr.classList.add('flash');
@@ -1075,7 +1102,6 @@
 
         if (priceVal <= 0) { showStatus('Cena musí byť > 0', true); return; }
 
-        // PAYLOAD
         const payload = {
             ean: ean,
             price: Number(priceVal.toFixed(2)),
@@ -1084,7 +1110,6 @@
         };
 
         try {
-            // 1. Ak je EAN nový (nie je v originalEANs), treba ho pridať cez add_to_pricelist
             if (!originalEANs.has(ean)) {
                 await apiRequest('/api/kancelaria/b2c/add_to_pricelist', { 
                     method: 'POST', 
@@ -1093,13 +1118,11 @@
                 originalEANs.add(ean);
             }
 
-            // 2. Update detailov (cena, akcia)
             await apiRequest('/api/kancelaria/b2c/update_pricelist', { 
                 method: 'POST', 
                 body: { items: [payload] } 
             });
 
-            // Lokálny update dát
             const item = plByEAN[ean];
             if(item) {
                 item.cena_bez_dph = payload.price;
@@ -1108,7 +1131,7 @@
             }
 
             showStatus('Uložené', false);
-            tr.style.backgroundColor = '#dcfce7'; // Light green success flash
+            tr.style.backgroundColor = '#dcfce7'; 
             setTimeout(()=>tr.style.backgroundColor='', 1000);
         } catch(e) {
             showStatus('Chyba ukladania: '+e.message, true);
@@ -1121,15 +1144,12 @@
         if(!confirm(`Naozaj odstrániť položku ${ean} z cenníka?`)) return;
         
         try {
-            // Backend API na zmazanie (cez update_pricelist s remove=true, ak to podporuje, inak treba impl. delete)
-            // Predpokladáme, že update_pricelist podporuje {remove: true} podľa tvojho pôvodného kódu
             await apiRequest('/api/kancelaria/b2c/update_pricelist', {
                 method:'POST',
                 body:{ items:[{ ean: ean, ean_produktu: ean, remove: true }] }
             });
 
-            // Lokálny remove
-            const idx = pl.findIndex(x => (x.ean_produktu || x.ean) === ean);
+            const idx = pl.findIndex(x => String(x.ean_produktu).trim() === ean);
             if (idx !== -1) pl.splice(idx, 1);
             delete plByEAN[ean];
             if(originalEANs.has(ean)) originalEANs.delete(ean);
@@ -1145,7 +1165,7 @@
     function exportCSV(){
       const headers = ['EAN','Produkt','Cena_bez_DPH','Je_v_akcii','Akciova_cena_bez_DPH','DPH'];
       const rows = pl.map(x=>{
-        const e = x.ean_produktu || x.ean;
+        const e = String(x.ean_produktu || x.ean).trim();
         const p = byEAN[e] || {};
         const name = (p.nazov_vyrobku || p.nazov_produktu || '').replace(/\s+/g,' ');
         return [e, name, (x.cena_bez_dph||0), (x.je_v_akcii?1:0), (x.akciova_cena_bez_dph||0), (p.dph||0)];
@@ -1155,7 +1175,6 @@
       const a = doc.createElement('a'); a.href = url; a.download = `b2c_cennik_${todayISO()}.csv`; a.click(); URL.revokeObjectURL(url);
     }
 
-    // Bind global buttons
     rootEl.querySelector('#pl-reload').onclick = () => root.loadB2CPricelistAdmin();
     rootEl.querySelector('#pl-export').onclick = exportCSV;
     rootEl.querySelector('#pl-cat-search').addEventListener('input', (e) => renderCatalog(e.target.value));
@@ -1164,6 +1183,7 @@
     renderPricelist();
     renderCatalog();
   };
+
 // --- INFO MODAL (Foto + Popis) - S NAČÍTANÍM ---
 async function openProductMetaModal(ean, name) {
     // 1. Najprv načítame aktuálne dáta zo servera
