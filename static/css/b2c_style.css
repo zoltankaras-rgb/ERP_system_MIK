@@ -821,3 +821,59 @@ h3 {
     justify-content: center;
   }
 }
+/* ====== FIX: aby množstvo nepretrčalo na mobile po prihlásení ====== */
+
+/* 1) Grid položky v riadku sa môžu zmenšiť */
+#order-pricelist-container .product-item .pi-title,
+#order-pricelist-container .product-item .pi-price,
+#order-pricelist-container .product-item .pi-qty,
+#order-pricelist-container .product-item .pi-actions {
+  min-width: 0;
+}
+
+/* 2) Input na množstvo sa prispôsobí dostupnej šírke */
+#order-pricelist-container .product-item .pi-qty input[type="number"] {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+/* 3) Na mobiloch položku rozbijeme pod seba, aby nič nešlo mimo */
+@media (max-width: 768px) {
+  html, body {
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  /* Každá položka = blok pod sebou */
+  #order-pricelist-container .product-item {
+    display: grid;
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "title"
+      "price"
+      "qty"
+      "actions";
+    row-gap: 6px;
+    padding: 10px 0 14px;
+  }
+
+  #order-pricelist-container .product-item .pi-title   { grid-area: title; }
+  #order-pricelist-container .product-item .pi-price   { grid-area: price; }
+  #order-pricelist-container .product-item .pi-qty     { grid-area: qty; }
+  #order-pricelist-container .product-item .pi-actions { grid-area: actions; }
+
+  /* Tlačidlá pekne do riadkov cez celú šírku */
+  #order-pricelist-container .product-item .pi-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  #order-pricelist-container .product-item .pi-actions .button,
+  #order-pricelist-container .product-item .pi-actions .info-btn,
+  #order-pricelist-container .product-item .pi-actions .by-piece-button {
+    flex: 1 1 100%;
+    justify-content: center;
+  }
+}
