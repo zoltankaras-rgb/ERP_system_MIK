@@ -49,13 +49,35 @@ function refreshCaptcha() {
 // Všeobecné helpers
 // -----------------------------------------------------------------
 
+// Pôvodná funkcia apiRequest spôsobovala cacheovanie. Toto je oprava:
 async function apiRequest(endpoint, options = {}) {
   try {
-    const response = await fetch(endpoint, {
-      method: options.method || 'GET',
-      headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+    const method = (options.method || 'GET').toUpperCase();
+    
+    // 1. Anti-cache trik: Pridáme k URL časovú značku, aby si prehliadač myslel, že je to nová adresa
+    let url = endpoint;
+    if (method === 'GET') {
+      const separator = url.includes('?') ? '&' : '?';
+      url = `${url}${separator}_t=${Date.now()}`;
+    }
+
+    // 2. Nastavíme hlavičky na zákaz cacheovania
+    const headers = { 
+      'Content-Type': 'application/json',
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0',
+      ...(options.headers || {}) 
+    };
+
+    const response = await fetch(url, {
+      method: method,
+      headers: headers,
+      // 3. Explicitne povieme fetch API, aby neukladal cache
+      cache: 'no-store', 
       body: options.body ? JSON.stringify(options.body) : null
     });
+
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({ error: 'Server vrátil neplatnú odpoveď.' }));
       throw new Error(errorData.error || 'Neznáma chyba servera.');
