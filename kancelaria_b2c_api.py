@@ -1851,3 +1851,136 @@ def _prepare_order_export_data(order_key):
         order_data["note"] = (base_note + "\n\n" + extra) if base_note else extra
 
     return order_data
+# =================== SPRÁVA CENNÍKA (ADMIN) ===================
+
+@kancelaria_b2c_bp.get("/api/kancelaria/b2c/get_pricelist_admin")
+def b2c_get_pricelist_admin():
+    """
+    Vráti:
+    1. 'pricelist': položky, ktoré už sú v B2C cenníku (b2c_cennik_polozky)
+    2. 'all_products': všetky produkty z hlavnej tabuľky 'produkty' (pre katalóg na pridanie)
+    """
+    # 1. Existujúci cenník
+    pricelist = db_connector.execute_query("""
+        SELECT ean_produktu, cena_bez_dph, je_v_akcii, akciova_cena_bez_dph
+        FROM b2c_cennik_polozky
+    """) or []
+
+    # 2. Všetky produkty (pre výber v pravom paneli)
+    # Ťaháme len potrebné stĺpce, aby to bolo rýchle
+    all_products = db_connector.execute_query("""
+        SELECT ean, nazov_vyrobku, predajna_kategoria, mj, dph
+        FROM produkty
+    """) or []
+
+    return jsonify({
+        "pricelist": pricelist,
+        "all_products": all_products
+    })
+
+
+@kancelaria_b2c_bp.post("/api/kancelaria/b2c/add_to_pricelist")
+def b2c_add_to_pricelist():
+    """
+    Pridá nové EANy do cenníka (INSERT IGNORE).
+    Body: { items: [ {ean, price}, ... ] }
+    """
+    data = request.get_json(silent=True) or {}
+    items = data.get("items") or []
+    
+    vals = []
+    for it in items:
+        ean = str(it.get("ean") or "").strip()
+        price = float(it.get("price") or 0)
+        if ean:
+            # (ean, cena, akcia=0, akcia_cena=0)
+            vals.append((ean, price, 0, 0))
+    
+    if not vals:
+        return jsonify({"ok": True, "added": 0})
+
+    conn = db_connector.get_connection()
+    cursor = conn.cursor()
+    try:
+        # Použijeme INSERT IGNORE, aby sme nepadli na duplicite, ak už tam je
+        sql = """
+            INSERT IGNORE INTO b2c_cennik_polozky 
+            (ean_produktu, cena_bez_dph, je_v_akcii, akciova_cena_bez_dph)
+            VALUES (%s, %s, %s, %s)
+        """
+        cursor.executemany(sql, vals)
+        conn.commit()
+        return jsonify({"ok": True, "added": cursor.rowcount})
+    except Exception as e:
+        conn.rollback()
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@kancelaria_b2c_bp.post("/api/kancelaria/b2c/update_pricelist")
+def b2c_update_pricelist():
+    """
+    Aktualizuje cenník (UPSERT) alebo zmaže položku, ak príde 'remove': True.
+    """
+    data = request.get_json(silent=True) or {}
+    items = data.get("items") or []
+
+    if not items:
+        return jsonify({"ok": True, "count": 0})
+
+    to_delete = []
+    to_upsert = []
+
+    for it in items:
+        ean = str(it.get("ean") or it.get("ean_produktu") or "").strip()
+        if not ean:
+            continue
+        
+        # 1. KONTROLA: Máme príkaz na vymazanie?
+        if it.get("remove") is True:
+            to_delete.append(ean)
+        else:
+            # Inak pripravujeme na update/insert
+            try:
+                price = float(it.get("price") or it.get("cena_bez_dph") or 0)
+                is_promo = 1 if (str(it.get("is_akcia") or it.get("je_v_akcii") or "0").lower() in ("1","true","yes")) else 0
+                sale_price = float(it.get("sale_price") or it.get("akciova_cena_bez_dph") or 0)
+                to_upsert.append((price, is_promo, sale_price, ean))
+            except Exception:
+                pass
+
+    conn = db_connector.get_connection()
+    cursor = conn.cursor()
+
+    try:
+        # A) VYKONAJ MAZANIE (DELETE) - Toto je tá oprava, ktorá ti chýbala
+        if to_delete:
+            # Vytvoríme zoznam %s pre SQL IN klauzulu
+            placeholders = ",".join(["%s"] * len(to_delete))
+            sql_delete = f"DELETE FROM b2c_cennik_polozky WHERE ean_produktu IN ({placeholders})"
+            cursor.execute(sql_delete, tuple(to_delete))
+
+        # B) VYKONAJ AKTUALIZÁCIU (INSERT ... ON DUPLICATE KEY UPDATE)
+        if to_upsert:
+            sql_upsert = """
+                INSERT INTO b2c_cennik_polozky (cena_bez_dph, je_v_akcii, akciova_cena_bez_dph, ean_produktu)
+                VALUES (%s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                    cena_bez_dph = VALUES(cena_bez_dph),
+                    je_v_akcii = VALUES(je_v_akcii),
+                    akciova_cena_bez_dph = VALUES(akciova_cena_bez_dph)
+            """
+            cursor.executemany(sql_upsert, to_upsert)
+
+        conn.commit()
+        return jsonify({"ok": True, "deleted": len(to_delete), "updated": len(to_upsert)})
+
+    except Exception as e:
+        conn.rollback()
+        print(f"Chyba pri update_pricelist: {e}")
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
