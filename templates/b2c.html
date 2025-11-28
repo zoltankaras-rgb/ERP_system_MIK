@@ -16,10 +16,16 @@
             <div id="header-auth-links" class="header-auth-links"></div>
         </header>
 
-        <!-- =================== NEPRIHLÁSENÝ POUŽÍVATEĽ =================== -->
         <div id="loggedOutView">
-            <!-- Verejná ponuka pred prihlásením -->
             <div id="public-pricelist-container"></div>
+            
+            <div class="pricelist-info-footer" style="margin-top: 1rem; padding-top: 0.5rem; border-top: 1px solid #e2e8f0; font-size: 0.75rem; color: #64748b; line-height: 1.4;">
+                <p style="margin: 0;">
+                    Všetky uvedené ceny sú vrátane DPH.<br>
+                    Cena je uvedená za 1 kilogram (kg), pri kusovom sortimente za 1 kus (ks).<br>
+                    Ide o predaj čerstvého výsekového mäsa a mäsových výrobkov našej výroby. Tovar je dodávaný najneskôr do uplynutia prvej tretiny dátumu spotreby. Dátum spotreby je vždy uvedený na obale výrobku alebo na dodacom liste.
+                </p>
+            </div>
 
             <div id="auth-section" class="auth-section">
                 <div class="tab-nav">
@@ -27,7 +33,6 @@
                     <button class="tab-button" data-tab="register">Nová registrácia</button>
                 </div>
 
-                <!-- PRIHLÁSENIE -->
                 <div id="login-tab" class="tab-content active">
                     <h3>Prihlásenie</h3>
                     <form id="loginForm" autocomplete="on">
@@ -51,7 +56,6 @@
                     </form>
                 </div>
 
-                <!-- REGISTRÁCIA -->
                 <div id="register-tab" class="tab-content">
                     <h3>Registrácia</h3>
                     <form id="registerForm" autocomplete="on">
@@ -89,7 +93,6 @@
                             <input type="password" id="reg-password" name="password" required autocomplete="new-password">
                         </div>
 
-                        <!-- Dátum narodenia (voliteľné) -->
                         <div class="form-group">
                             <label for="reg-dob">Dátum narodenia (narodeninový bonus)</label>
                             <input type="date" id="reg-dob" name="dob" autocomplete="bday">
@@ -99,7 +102,6 @@
                             </small>
                         </div>
 
-                        <!-- GDPR – 2 samostatné povinné checkboxy (otvárajú pop-up) -->
                         <div class="form-group">
                             <label class="checkbox-label">
                                 <input type="checkbox" id="reg-terms" name="gdpr_terms" required>
@@ -113,7 +115,6 @@
                             </label>
                         </div>
 
-                        <!-- Marketingové súhlasy (dobrovoľné, nepredzaškrtnuté) -->
                         <div class="form-group">
                             <strong>Marketingové súhlasy (dobrovoľné):</strong><br>
                             <label class="checkbox-label"><input type="checkbox" name="marketing_email"> E-mail ponuky</label><br>
@@ -125,7 +126,6 @@
                             </label>
                         </div>
 
-                        <!-- Anti-bot (honeypot + timestamp + jednoduchá captcha) -->
                         <input type="text" name="hp_url" style="display:none" tabindex="-1" autocomplete="off">
                         <input type="hidden" name="form_ts" value="">
                         <div class="form-group">
@@ -138,7 +138,6 @@
                 </div>
             </div>
 
-            <!-- POMOCNÍK – viditeľný už pred prihlásením -->
             <div id="public-helper"
                  style="margin-top:2rem;padding:1.25rem 1.5rem;border-radius:0.75rem;background:#f8fafc;border:1px solid #e2e8f0;">
                 <h3>Pomocník – ako začať</h3>
@@ -177,7 +176,6 @@
             </div>
         </div>
 
-        <!-- ===================== PRIHLÁSENÝ POUŽÍVATEĽ ===================== -->
         <div id="loggedInView" class="hidden">
             <h2 class="welcome-message">Vitajte, <span id="customer-name"></span>!</h2>
 
@@ -193,10 +191,17 @@
                     <button class="tab-button" data-tab="helper-content">Pomocník</button>
                 </div>
 
-                <!-- NOVÁ OBJEDNÁVKA -->
                 <div id="order-content" class="tab-content active">
                     <form id="orderForm">
                         <div id="order-pricelist-container"></div>
+                        
+                        <div class="pricelist-info-footer" style="margin-top: 1rem; padding-top: 0.5rem; border-top: 1px solid #e2e8f0; font-size: 0.75rem; color: #64748b; line-height: 1.4;">
+                            <p style="margin: 0;">
+                                Všetky uvedené ceny sú vrátane DPH.<br>
+                                Cena je uvedená za 1 kilogram (kg), pri kusovom sortimente za 1 kus (ks).<br>
+                                Ide o predaj čerstvého výsekového mäsa a mäsových výrobkov našej výroby. Tovar je dodávaný najneskôr do uplynutia prvej tretiny dátumu spotreby. Dátum spotreby je vždy uvedený na obale výrobku alebo na dodacom liste.
+                            </p>
+                        </div>
 
                         <div id="order-summary-section" class="hidden">
                             <h3>Súhrn a doručenie</h3>
@@ -223,13 +228,11 @@
                     </form>
                 </div>
 
-                <!-- HISTÓRIA OBJEDNÁVOK -->
                 <div id="history-content" class="tab-content">
                     <h3>História objednávok</h3>
                     <div id="history-container"></div>
                 </div>
 
-                <!-- POMOCNÍK (po prihlásení) -->
                 <div id="helper-content" class="tab-content">
                     <h3>Pomocník – ako používať B2C objednávkový systém</h3>
 
@@ -345,7 +348,6 @@
         </div>
     </div>
 
-    <!-- MODAL: Vernostné odmeny -->
     <div id="rewards-modal" class="modal-overlay">
         <div class="modal-content">
             <div class="modal-header">
@@ -357,7 +359,6 @@
         </div>
     </div>
 
-    <!-- MODAL: Obnova hesla (žiadost o e‑mail s linkom) -->
     <div id="password-reset-modal" class="modal-overlay">
       <div class="modal-content">
         <div class="modal-header">
@@ -379,7 +380,6 @@
       </div>
     </div>
 
-    <!-- MODAL: Nastavenie nového hesla (po kliknutí na link v e‑maile) -->
     <div id="password-change-modal" class="modal-overlay">
       <div class="modal-content">
         <div class="modal-header">
@@ -405,7 +405,6 @@
       </div>
     </div>
 
-    <!-- MODAL: Poznámka ku kusom -->
     <div id="item-note-modal" class="modal-overlay">
        <div class="modal-content">
             <div class="modal-header">
@@ -425,7 +424,6 @@
         </div>
     </div>
 
-    <!-- MODAL: Všeobecné obchodné podmienky -->
     <div id="terms-modal" class="modal-overlay">
       <div class="modal-content">
         <div class="modal-header">
@@ -490,15 +488,10 @@
           <ul>
             <li>Právne vzťahy sa riadia právom SR. Podmienky môžeme meniť; aktuálna verzia je v e-shope.</li>
           </ul>
-
-          <p style="font-size:.9em;color:#666">
-            Poznámka: Vzorový text – pred zverejnením si ho nechajte skontrolovať právnikom.
-          </p>
         </div>
       </div>
     </div>
 
-    <!-- MODAL: Ochrana osobných údajov (GDPR) -->
     <div id="privacy-modal" class="modal-overlay">
       <div class="modal-content">
         <div class="modal-header">
@@ -550,15 +543,10 @@
             <li>Nevyhnutné cookies pre košík a prihlásenie používame vždy.</li>
             <li>Analytické/marketingové cookies len so súhlasom.</li>
           </ul>
-
-          <p style="font-size:.9em;color:#666">
-            Poznámka: Vzorový text – pred zverejnením doplňte/nastavte partnerov a interné procesy.
-          </p>
         </div>
       </div>
     </div>
 
-    <!-- LOGIKA B2C PORTÁLU -->
     <script src="{{ url_for('static', filename='js/b2c.js') }}"></script>
 </body>
 </html>
