@@ -762,3 +762,62 @@ h3 {
     font-size: 0.85rem;
   }
 }
+/* === FIX pre mobilné zobrazenie po prihlásení – záložka "Nová objednávka" === */
+@media (max-width: 768px) {
+
+  /* pre istotu bez horizontálneho scrollu */
+  html, body {
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  /* cenník po prihlásení vždy na šírku obrazovky */
+  #order-pricelist-container {
+    width: 100%;
+  }
+
+  /* Každá položka = blok pod seba (žiadny grid) */
+  #order-pricelist-container .product-item {
+    display: block;
+    padding: 10px 0 14px;
+  }
+
+  /* Názov – môže sa zalomiť, nech netlačí šírku */
+  #order-pricelist-container .product-item .pi-title {
+    white-space: normal;
+    margin-bottom: 6px;
+  }
+
+  /* Cena pod názvom */
+  #order-pricelist-container .product-item .pi-price {
+    display: block;
+    margin-bottom: 6px;
+  }
+
+  /* Množstvo + input */
+  #order-pricelist-container .product-item .pi-qty {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 8px;
+  }
+
+  #order-pricelist-container .product-item .pi-qty input[type="number"] {
+    flex: 1 1 auto;
+    width: 100%;
+  }
+
+  /* Akcie – tlačidlá cez celú šírku, zalomia sa do viacerých riadkov */
+  #order-pricelist-container .product-item .pi-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  #order-pricelist-container .product-item .pi-actions .button,
+  #order-pricelist-container .product-item .pi-actions .info-btn,
+  #order-pricelist-container .product-item .pi-actions .by-piece-button {
+    flex: 1 1 100%;
+    justify-content: center;
+  }
+}
