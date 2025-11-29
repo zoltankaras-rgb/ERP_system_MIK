@@ -1,7 +1,8 @@
 import os
 import io
 from datetime import datetime
-from . import db_connector  # prispôsob tvojej štruktúre
+import db_connector
+
 
 def _parse_number(val: str) -> float:
     if val is None:

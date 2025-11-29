@@ -128,7 +128,7 @@ try:
     temperature_handler.start_generator()
 except Exception as e:
     print("VAROVANIE: Nepodarilo sa spustiť temperature_handler.start_generator():", e)
-
+erp_bp = Blueprint("erp_bp", __name__)
 # =================================================================
 # === DEKORÁTORY A POMOCNÉ FUNKCIE ===
 # =================================================================
@@ -1106,7 +1106,7 @@ def api_erp_manual_export():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-erp_bp = Blueprint("erp_bp", __name__)
+
 
 @erp_bp.route("/api/erp/manual-import", methods=["POST"])
 def erp_manual_import():
