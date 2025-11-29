@@ -5548,6 +5548,7 @@ def generate_erp_export_file():
     LOGIKA:
       - EXPORTUJEME len typy:
           VÝROBOK, VÝROBOK_KRAJANY, VÝROBOK_KRÁJANÝ, VÝROBOK_KUSOVY, VÝROBOK_KUSOVÝ
+      - a len tie, kde COALESCE(aktualny_sklad_finalny_kg, 0) <> 0
       - REG_CIS  = EAN z tabuľky `produkty` prevedený na 13 číslic (0-padding zľava)
       - NAZOV    = nazov_vyrobku
       - JCM11    = price_with_margin (výrobná cena + 25 % marža)
@@ -5591,6 +5592,7 @@ def generate_erp_export_file():
     placeholders = ", ".join(["%s"] * len(target_types))
 
     # 3. SQL – EAN, názov, množstvo, cena s maržou 25 %
+    #    + filter: sklad ≠ 0
     sql = f"""
         SELECT
             p.ean,
@@ -5612,6 +5614,7 @@ def generate_erp_export_file():
             ) AS price_with_margin
         FROM produkty p
         WHERE p.typ_polozky IN ({placeholders})
+          AND COALESCE(p.aktualny_sklad_finalny_kg, 0) <> 0
     """
 
     try:
@@ -5640,6 +5643,7 @@ def generate_erp_export_file():
 
                 # --- JCM11 (11 znakov, 4 desatinné, doprava) ---
                 try:
+                    from decimal import Decimal
                     price_val = Decimal(str(r.get("price_with_margin") or 0))
                     price_fmt = price_val.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
                     price_str = f"{price_fmt:.4f}".rjust(11)[:11]
