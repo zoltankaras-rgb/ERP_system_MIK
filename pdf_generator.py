@@ -1,13 +1,8 @@
 # pdf_generator.py
 # -----------------------------------------------------------------------------
 # PDF + CSV potvrdenie objednávky.
-# - PDF: Dodávateľ + kontakt na expedíciu, Odberateľ, dátum dodania, položky,
-#        rozpis DPH, súhrn, podpisy, poďakovanie.
-# - CSV: COOP-štýl podľa 063_41459252.csv, s úpravami:
-#        * v hlavičke namiesto COOP/spotrebné družstvo/Galanta/PREV... je NÁZOV ODBERATEĽA
-#        * dátum dodania vo formáte 28.8.2025
-#        * riadky položiek: EAN, názov, množstvo, 9104063_2503918, názov odberateľa,
-#          customerCode, 0.00, cena bez DPH.
+# - PDF: Dodávateľ + kontakt na expedíciu, Odberateľ, Dátum dodania + ČAS VYZDVIHNUTIA,
+#        položky, rozpis DPH, súhrn, podpisy, poďakovanie.
 # -----------------------------------------------------------------------------
 
 import os
@@ -98,7 +93,7 @@ def _date_simple(s):
 
 
 def _fmt_dw(raw: str) -> str:
-    """Ľudský popis vyzdvihnutia/doručenia (ak budeš chcieť použiť)."""
+    """Ľudský popis vyzdvihnutia/doručenia (formátuje ID na text)."""
     if not raw:
         return ""
     raw = str(raw).strip()
@@ -111,10 +106,16 @@ def _fmt_dw(raw: str) -> str:
         return "Po–Pia 08:00–12:00"
     if "workdays_12_15" in low:
         return "Po–Pia 12:00–15:00"
+    
+    # Formát: YYYY-MM-DD_HHMM-HHMM
     if "_" in raw and raw[:10].count("-") == 2:
         try:
             d = datetime.strptime(raw[:10], "%Y-%m-%d").strftime("%d.%m.%Y")
             label = raw[11:].replace("-", "–")
+            # Ak label obsahuje čas (napr. 0800–1200), naformátujeme ho krajšie
+            if len(label) >= 9 and label[0].isdigit():
+                 # 0800–1200 -> 08:00–12:00
+                 return f"{d} • {label[:2]}:{label[2:4]}–{label[5:7]}:{label[7:9]}"
             return f"{d} • {label}"
         except Exception:
             pass
@@ -209,14 +210,14 @@ def _make_csv(order):
         cust_addr,   # adresa
         cust_name,   # mesto/názov
         cust_name,   # prevádzka
-        "",          # PSČ – prázdne
-        "",          # <--- ZMENA: Pôvodne tu bolo "12", teraz prázdne
+        "",          # PSČ
+        "",          
         date_str,    # dátum dodania
-        "",          # číslo objednávky v hlavičke (prázdne)
+        "",          
     ]
     sio.write(";".join(header_cols) + "\n")
 
-    konst = order_no_val # Číslo objednávky
+    konst = order_no_val 
 
     prev_label = cust_name.strip()
     if len(prev_label) > 25:
@@ -249,6 +250,8 @@ def _make_csv(order):
         sio.write(line + "\n")
 
     return sio.getvalue().encode("cp1250", errors="replace")
+
+
 # ──────────────── PDF ────────────────
 
 def _make_pdf(order):
@@ -280,12 +283,17 @@ def _make_pdf(order):
 
     story = []
 
-    # Horný riadok: naľavo titul + číslo + dátum, napravo logo
+    # --- HLAVIČKA PDF ---
     left_top = [
         Paragraph("Potvrdenie objednávky", styles['Title']),
         Paragraph(f"Číslo: {html_escape(str(order['order_no']))}", styles['Small']),
         Paragraph(f"Dátum dodania: {_safe_date_str(order['delivery_date'])}", styles['Small']),
     ]
+
+    # === TU SA PRIDÁVA ČASOVÉ OKNO VYZDVIHNUTIA ===
+    if order.get("delivery_window"):
+        dw_text = order["delivery_window"]
+        left_top.append(Paragraph(f"<b>Čas vyzdvihnutia:</b> {html_escape(dw_text)}", styles['Small']))
 
     logo_flow = None
     if LOGO_PATH and os.path.isfile(LOGO_PATH):
@@ -341,17 +349,17 @@ def _make_pdf(order):
 
     # Vernostná odmena (za body)
     if order.get("points_reward_note"):
-        story.append(Paragraph("Vernostná odmena", styles['Label']))
+        story.append(Paragraph("Vernostná odmena (body)", styles['Label']))
         story.append(Paragraph(html_escape(order["points_reward_note"]), styles['Value']))
         story.append(Spacer(1, 6))
 
     # Odmeny (darčeky – napr. z kódu odmeny)
     if order.get("rewards"):
-        story.append(Paragraph("Odmeny (darčeky)", styles['Label']))
+        story.append(Paragraph("Uplatnené darčeky/kódy", styles['Label']))
         for r in order["rewards"]:
             name = html_escape(r.get("label") or "Odmena")
             qty  = r.get("qty") or 1
-            txt  = f"Darček: {name} × {qty}"
+            txt  = f"• {name} (× {qty})"
             story.append(Paragraph(txt, styles['Value']))
         story.append(Spacer(1, 6))
 
@@ -378,7 +386,7 @@ def _make_pdf(order):
             f"<br/><font size=7 color='#6b7280'>EAN: {html_escape(str(it['ean']))}</font>"
         )
 
-        # ak je poznámka k položke, doplníme ju na ďalší riadok v červenej
+        # ak je poznámka k položke
         note = (it.get("item_note") or "").strip()
         if note:
             base_label += (
@@ -494,10 +502,8 @@ def _make_pdf(order):
 # ──────────────── Public API ────────────────
 def create_order_files(order_data: dict):
     """
-    Vráti (pdf_bytes, csv_bytes, csv_filename)
-    csv_filename bude: KodOdberatela_DatumCas.csv (bez B2B, bez objednavka_)
+    Vráti (pdf_bytes, csv_bytes, csv_filename).
     """
-    # ... (začiatok funkcie - načítanie premenných order_no, cust_name atď. ostáva rovnaké) ...
     order_no   = _pick(order_data, "orderNumber", "order_number", default="—")
     cust_name  = _pick(order_data, "customerName", "customer_name", default="")
     cust_addr  = _pick(order_data, "customerAddress", "customer_address", default="")
@@ -506,9 +512,13 @@ def create_order_files(order_data: dict):
     raw_items  = order_data.get("items", []) or []
     cust_code  = _pick(order_data, "customerCode", "customer_code", default="")
 
+    # Časové okno
     dw_raw     = _pick(order_data, "deliveryWindowPretty", "delivery_window", default="")
-    delivery_window    = _fmt_dw(dw_raw) if dw_raw else ""
-    points_reward_note = _pick(order_data, "uplatnena_odmena_poznamka", default="")
+    delivery_window = _fmt_dw(dw_raw) if dw_raw else ""
+    
+    # Odmeny
+    points_reward_note = _pick(order_data, "uplatnena_odmena_poznamka", "points_reward_note", default="")
+    
     rewards_list = []
     for r in (order_data.get("rewards") or []):
         if not isinstance(r, dict):
@@ -539,7 +549,11 @@ def create_order_files(order_data: dict):
             "item_note": it.get("item_note") or "",
         })
 
-    total_gross = total_net + total_vat
+    # Použijeme sumy z order_data ak sú, inak vypočítané
+    final_total_gross = _to_float(order_data.get("totalWithVat"), total_net + total_vat)
+    final_total_net   = _to_float(order_data.get("totalNet"), total_net)
+    final_total_vat   = _to_float(order_data.get("totalVat"), total_vat)
+
     canonical = [5.0, 10.0, 19.0, 23.0]
     base_by_rate = {r: 0.0 for r in canonical}
     vat_by_rate  = {r: 0.0 for r in canonical}
@@ -554,14 +568,14 @@ def create_order_files(order_data: dict):
         "customer_name": cust_name,
         "customer_address": cust_addr,
         "delivery_date": deliv_date,
-        "delivery_window": delivery_window,
+        "delivery_window": delivery_window, # <--- Tu sa ukladá formátovaný string
         "points_reward_note": points_reward_note,
         "rewards": rewards_list,
         "note": note,
         "items": items,
-        "total_net": total_net,
-        "total_vat": total_vat,
-        "total_gross": total_gross,
+        "total_net": final_total_net,
+        "total_vat": final_total_vat,
+        "total_gross": final_total_gross,
         "canonical_rates": canonical,
         "rates_sorted": others,
         "base_by_rate": base_by_rate,
@@ -574,17 +588,13 @@ def create_order_files(order_data: dict):
     csv_bytes = _make_csv(order)
     pdf_bytes = _make_pdf(order)
 
-    # 2. Generovanie názvu súboru: KodOdberatela_DatumCas.csv
-    # Rozdelíme B2B-111222333-2025... na časti
+    # 2. Generovanie názvu súboru
     safe_order_no = str(order_no).strip()
     parts = safe_order_no.split('-')
 
     if len(parts) >= 3:
-        # parts[1] je kód odberateľa (111222333)
-        # parts[2] je čas (20251127114853)
         csv_filename = f"{parts[1]}_{parts[2]}.csv"
     else:
-        # Fallback
         safe_cust = str(cust_code).strip() if cust_code else "000000"
         now_str = datetime.now().strftime("%Y%m%d%H%M%S")
         csv_filename = f"{safe_cust}_{now_str}.csv"
