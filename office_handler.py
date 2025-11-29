@@ -5684,20 +5684,28 @@ def process_erp_import_file(file_path):
     Wrapper okolo novej funkcie process_erp_stock_bytes v erp_import.py.
     - načíta ZASOBA.CSV zo súboru
     - odovzdá raw bytes do process_erp_stock_bytes
-    - vráti rovnakú štruktúru ako doteraz (message + processed)
+    - vráti štruktúru s message + processed
     """
     try:
         with open(file_path, "rb") as f:
             raw = f.read()
 
+        print(">>> process_erp_import_file: calling process_erp_stock_bytes, len =", len(raw))
+
         processed = process_erp_stock_bytes(raw)
+
+        print(">>> process_erp_import_file: processed =", processed)
 
         return {
             "message": f"Import dokončený. Spracovaných: {processed}",
             "processed": processed,
         }
     except Exception as e:
-        return {"error": f"Chyba pri čítaní alebo spracovaní súboru: {e}"}
+        print(">>> process_erp_import_file ERROR:", e)
+        return {
+            "error": f"Chyba pri čítaní alebo spracovaní súboru: {e}",
+            "processed": 0,
+        }
 
 
     def _only_digits(s: str) -> str:

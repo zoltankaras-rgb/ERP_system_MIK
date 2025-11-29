@@ -1109,22 +1109,26 @@ def api_erp_manual_export():
 
 
 
-@app.route("/api/erp/manual-import", methods=["POST"])
-def erp_manual_import():
+@app.route('/api/erp/manual-import', methods=['POST'])
+@login_required(role=['kancelaria', 'admin'])
+def api_erp_manual_import():
     """Manuálne nahratie ZASOBA.CSV z PC a spracovanie."""
-    file = request.files.get("file")
+    file = request.files.get('file')
     if not file:
-        return jsonify({"error": "Chýba súbor."}), 400
+        return jsonify({'error': 'Žiadny súbor'}), 400
 
-    raw = file.read()
+    try:
+        raw = file.read()
+        print(">>> ERP MANUAL IMPORT – bytes len =", len(raw))
 
-    print(">>> ERP MANUAL IMPORT – bytes len =", len(raw))
+        processed = process_erp_stock_bytes(raw)
 
-    processed = process_erp_stock_bytes(raw)
+        print(">>> ERP MANUAL IMPORT – processed =", processed)
 
-    print(">>> ERP MANUAL IMPORT – processed =", processed)
-
-    return jsonify({"message": f"Import OK. Spracovaných: {processed}"})
+        return jsonify({'message': f"Import OK. Spracovaných: {processed}"})
+    except Exception as e:
+        print(">>> ERP MANUAL IMPORT ERROR:", e)
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/erp/status', methods=['GET'])
 @login_required(role=['kancelaria', 'admin'])
