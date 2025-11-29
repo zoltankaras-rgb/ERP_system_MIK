@@ -5518,7 +5518,8 @@ def get_expedition_inventory_detail(inv_id):
 # =================================================================
 
 ERP_SETTINGS_PATH = os.path.join('data', 'erp_settings.json')
-ERP_EXCHANGE_DIR = os.path.join('static', 'erp_exchange')
+ERP_EXCHANGE_DIR = os.getenv("ERP_EXCHANGE_DIR", "/var/app/data/erp_exchange")
+
 
 def _get_erp_settings():
     if not os.path.exists(ERP_SETTINGS_PATH):
@@ -5537,7 +5538,7 @@ def save_erp_settings(data):
 
 def generate_erp_export_file():
     """
-    Vygeneruje VYROBKY.CSV do static/erp_exchange/ (CP1250, fixná šírka)
+    Vygeneruje VYROBKY.CSV (CP1250, fixná šírka)
     v PRESNE rovnakom formáte ako ZASOBA.CSV:
 
         REG_CIS       NAZOV                                       JCM11         MNOZ
@@ -5552,30 +5553,42 @@ def generate_erp_export_file():
       - JCM11    = price_with_margin (výrobná cena + 25 % marža)
       - MNOZ     = aktualny_sklad_finalny_kg
 
-    Výstup: static/erp_exchange/VYROBKY.CSV (CP1250, CRLF, fixná šírka).
+    Výstup:
+      - súbor VYROBKY.CSV v adresári:
+          - ERP_EXCHANGE_DIR z .env, ak je nastavený (absolútna cesta),
+          - inak /var/app/data/erp_exchange
     """
     from decimal import Decimal, ROUND_HALF_UP
 
-    base = os.path.dirname(__file__)
-    out_dir = os.path.join(base, ERP_EXCHANGE_DIR)  # ERP_EXCHANGE_DIR = 'static/erp_exchange'
+    # Kam exportujeme súbor:
+    # 1) ak je v .env nastavené ERP_EXCHANGE_DIR a je absolútna cesta, použijeme ju,
+    # 2) inak default /var/app/data/erp_exchange
+    exchange_dir = os.getenv("ERP_EXCHANGE_DIR", "/var/app/data/erp_exchange")
+    if os.path.isabs(exchange_dir):
+        out_dir = exchange_dir
+    else:
+        base = os.path.dirname(__file__)
+        out_dir = os.path.join(base, exchange_dir)
+
     os.makedirs(out_dir, exist_ok=True)
-    out_path = os.path.join(out_dir, 'VYROBKY.CSV')
+    out_path = os.path.join(out_dir, "VYROBKY.CSV")
 
     print("\n--- [ERP Export START] ---")
+    print(f"[ERP Export] Exportný adresár: {out_dir}")
 
-    # 1. Názov stĺpca v zaznamy_vyroba pre názov produktu (aby fungovalo aj na starších DB)
+    # 1. Názov stĺpca v zaznamy_vyroba pre názov produktu
     zv_col = _zv_name_col()
     print(f"[ERP Export] Používam stĺpec pre názov v zaznamy_vyroba: {zv_col}")
 
     # 2. Typy položiek, ktoré exportujeme
     target_types = [
-        'VÝROBOK',
-        'VÝROBOK_KRAJANY',
-        'VÝROBOK_KRÁJANÝ',   # pre istotu
-        'VÝROBOK_KUSOVY',
-        'VÝROBOK_KUSOVÝ',    # verzia s dĺžňom
+        "VÝROBOK",
+        "VÝROBOK_KRAJANY",
+        "VÝROBOK_KRÁJANÝ",   # pre istotu
+        "VÝROBOK_KUSOVY",
+        "VÝROBOK_KUSOVÝ",    # verzia s dĺžňom
     ]
-    placeholders = ', '.join(['%s'] * len(target_types))
+    placeholders = ", ".join(["%s"] * len(target_types))
 
     # 3. SQL – EAN, názov, množstvo, cena s maržou 25 %
     sql = f"""
@@ -5602,42 +5615,40 @@ def generate_erp_export_file():
     """
 
     try:
-        rows = db_connector.execute_query(sql, tuple(target_types), fetch='all') or []
+        rows = db_connector.execute_query(sql, tuple(target_types), fetch="all") or []
         print(f"[ERP Export] ÚSPECH: Nájdených {len(rows)} položiek pre typy: {target_types}")
 
         # 4. Zápis súboru v CP1250, CRLF
-        with open(out_path, 'w', encoding='cp1250', newline='\r\n') as f:
+        with open(out_path, "w", encoding="cp1250", newline="\r\n") as f:
             # Hlavička – presne ako ZASOBA.CSV
             header = " REG_CIS       NAZOV                                       JCM11         MNOZ"
             f.write(header + "\n")
 
             for r in rows:
                 # --- REG_CIS (15 znakov) ---
-                #  - zoberieme len číslice z EAN
-                #  - doplníme zľava nulami na 13 číslic
-                #  - výsledné pole má tvar: " 0000000023112 " (presne 15 znakov)
-                ean_raw = str(r.get('ean') or '').strip()
-                ean_digits = ''.join(ch for ch in ean_raw if ch.isdigit())
+                ean_raw = str(r.get("ean") or "").strip()
+                ean_digits = "".join(ch for ch in ean_raw if ch.isdigit())
                 if not ean_digits:
-                    # ak by produkt nemal číselný EAN, radšej preskočíme
+                    # ak by produkt nemal číselný EAN, preskočíme
                     continue
-                ean13 = ean_digits.rjust(13, '0')[-13:]
-                ean_field = f" {ean13} "   # 1 medzera + 13 číslic + 1 medzera = 15 znakov
+                ean13 = ean_digits.rjust(13, "0")[-13:]
+                # 1 medzera + 13 číslic + 1 medzera = 15 znakov
+                ean_field = f" {ean13} "
 
                 # --- NAZOV (43 znakov, vľavo) ---
-                name = str(r.get('nazov_vyrobku') or '').strip()[:43].ljust(43)
+                name = str(r.get("nazov_vyrobku") or "").strip()[:43].ljust(43)
 
                 # --- JCM11 (11 znakov, 4 desatinné, doprava) ---
                 try:
-                    price_val = Decimal(str(r.get('price_with_margin') or 0))
-                    price_fmt = price_val.quantize(Decimal('0.0001'), rounding=ROUND_HALF_UP)
+                    price_val = Decimal(str(r.get("price_with_margin") or 0))
+                    price_fmt = price_val.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
                     price_str = f"{price_fmt:.4f}".rjust(11)[:11]
                 except Exception:
                     price_str = "     0.0000"
 
                 # --- MNOZ (8 znakov, 2 desatinné, doprava) ---
                 try:
-                    qty_val = Decimal(str(r.get('qty') or 0))
+                    qty_val = Decimal(str(r.get("qty") or 0))
                     qty_fmt = f"{qty_val:.2f}"
                     if len(qty_fmt) > 8:
                         qty_fmt = f"{qty_val:.2f}"
