@@ -1102,6 +1102,21 @@ def submit_b2b_order(data: dict):
     try:
         # 1. Získame 3 hodnoty vrátane NÁZVU SÚBORU
         pdf_bytes, csv_bytes, csv_filename = pdf_generator.create_order_files(order_payload)
+
+        # 1a. Uložíme CSV aj do zložky na serveri pre B2B import
+        try:
+            export_dir = os.getenv("B2B_CSV_EXPORT_DIR", "/var/app/data/b2bobjednavky")
+            os.makedirs(export_dir, exist_ok=True)
+
+            file_name = csv_filename or f"objednavka_{order_number}.csv"
+            file_path = os.path.join(export_dir, file_name)
+
+            if csv_bytes:
+                with open(file_path, "wb") as f:
+                    f.write(csv_bytes)
+        except Exception:
+            # nech nepadne objednávka kvôli problému so zápisom na disk
+            traceback.print_exc()
         
         # zákazník – PDF
         try:
@@ -1113,13 +1128,12 @@ def submit_b2b_order(data: dict):
         
         # expedícia – PDF + CSV
         try:
-            # === OPRAVA TU: Pridaný parameter csv_filename ===
             notification_handler.send_order_confirmation_email(
                 to=EXPEDITION_EMAIL, 
                 order_number=order_number, 
                 pdf_content=pdf_bytes, 
                 csv_content=csv_bytes,
-                csv_filename=csv_filename  # <--- TOTO TAM CHÝBALO
+                csv_filename=csv_filename  # použije správny názov CSV
             )
         except Exception:
             traceback.print_exc()
