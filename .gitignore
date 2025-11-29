@@ -1,2 +1,8 @@
 .env
 venv/
+__pycache__/
+static/uploads/
+static/erp_exchange/*.CSV
+data/
+storage/
+*.log

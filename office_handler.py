@@ -5537,100 +5537,125 @@ def save_erp_settings(data):
 
 def generate_erp_export_file():
     """
-    Vygeneruje VYROBKY.CSV do static/erp_exchange/ (CP1250, fixná šírka).
-    LOGIKA: Výroba + 25% marža.
-    FILTER: Len typy 'VÝROBOK', 'VÝROBOK_KRAJANY', 'VÝROBOK_KUSOVÝ' (a variácie).
-    OBSAHUJE: Hlavičku (Header row).
+    Vygeneruje VYROBKY.CSV do static/erp_exchange/ (CP1250, fixná šírka)
+    v PRESNE rovnakom formáte ako ZASOBA.CSV:
+
+        REG_CIS       NAZOV                                       JCM11         MNOZ
+        0000000023112 BR.KARE                                    3.7500     952.50
+        ...
+
+    LOGIKA:
+      - EXPORTUJEME len typy:
+          VÝROBOK, VÝROBOK_KRAJANY, VÝROBOK_KRÁJANÝ, VÝROBOK_KUSOVY, VÝROBOK_KUSOVÝ
+      - REG_CIS  = EAN z tabuľky `produkty` prevedený na 13 číslic (0-padding zľava)
+      - NAZOV    = nazov_vyrobku
+      - JCM11    = price_with_margin (výrobná cena + 25 % marža)
+      - MNOZ     = aktualny_sklad_finalny_kg
+
+    Výstup: static/erp_exchange/VYROBKY.CSV (CP1250, CRLF, fixná šírka).
     """
     from decimal import Decimal, ROUND_HALF_UP
-    
+
     base = os.path.dirname(__file__)
-    out_dir = os.path.join(base, ERP_EXCHANGE_DIR)
+    out_dir = os.path.join(base, ERP_EXCHANGE_DIR)  # ERP_EXCHANGE_DIR = 'static/erp_exchange'
     os.makedirs(out_dir, exist_ok=True)
     out_path = os.path.join(out_dir, 'VYROBKY.CSV')
 
     print("\n--- [ERP Export START] ---")
 
-    # 1. Dynamicky zistíme správny názov stĺpca v zaznamy_vyroba
-    zv_col = _zv_name_col() 
+    # 1. Názov stĺpca v zaznamy_vyroba pre názov produktu (aby fungovalo aj na starších DB)
+    zv_col = _zv_name_col()
     print(f"[ERP Export] Používam stĺpec pre názov v zaznamy_vyroba: {zv_col}")
 
-    # 2. Presné typy (Pre istotu dávame verzie s dĺžňom aj bez)
+    # 2. Typy položiek, ktoré exportujeme
     target_types = [
-        'VÝROBOK', 
-        'VÝROBOK_KRAJANY', 
-        'VÝROBOK_KRÁJANÝ',  # pre istotu
-        'VÝROBOK_KUSOVY', 
-        'VÝROBOK_KUSOVÝ'    # Vami požadovaná verzia s dĺžňom
+        'VÝROBOK',
+        'VÝROBOK_KRAJANY',
+        'VÝROBOK_KRÁJANÝ',   # pre istotu
+        'VÝROBOK_KUSOVY',
+        'VÝROBOK_KUSOVÝ',    # verzia s dĺžňom
     ]
     placeholders = ', '.join(['%s'] * len(target_types))
 
-    # SQL Dopyt
+    # 3. SQL – EAN, názov, množstvo, cena s maržou 25 %
     sql = f"""
-        SELECT 
+        SELECT
             p.ean,
             p.nazov_vyrobku,
-            COALESCE(p.aktualny_sklad_finalny_kg, 0) as qty,
+            COALESCE(p.aktualny_sklad_finalny_kg, 0) AS qty,
             (
                 COALESCE(
-                    (SELECT zv.cena_za_jednotku 
-                     FROM zaznamy_vyroba zv 
-                     WHERE (zv.produkt_ean = p.ean OR TRIM(zv.{zv_col}) = TRIM(p.nazov_vyrobku))
-                       AND zv.cena_za_jednotku > 0
-                     ORDER BY zv.datum_ukoncenia DESC, zv.id_davky DESC 
-                     LIMIT 1),
+                    (
+                        SELECT zv.cena_za_jednotku
+                        FROM zaznamy_vyroba zv
+                        WHERE (zv.produkt_ean = p.ean OR TRIM(zv.{zv_col}) = TRIM(p.nazov_vyrobku))
+                          AND zv.cena_za_jednotku > 0
+                        ORDER BY zv.datum_ukoncenia DESC, zv.id_davky DESC
+                        LIMIT 1
+                    ),
                     p.nakupna_cena,
                     0.0000
-                ) * 1.25 
-            ) as price_with_margin
+                ) * 1.25
+            ) AS price_with_margin
         FROM produkty p
         WHERE p.typ_polozky IN ({placeholders})
     """
-    
+
     try:
-        # Vykonanie dopytu s parametrami
         rows = db_connector.execute_query(sql, tuple(target_types), fetch='all') or []
         print(f"[ERP Export] ÚSPECH: Nájdených {len(rows)} položiek pre typy: {target_types}")
 
+        # 4. Zápis súboru v CP1250, CRLF
         with open(out_path, 'w', encoding='cp1250', newline='\r\n') as f:
-            # --- Zápis hlavičky ---
+            # Hlavička – presne ako ZASOBA.CSV
             header = " REG_CIS       NAZOV                                       JCM11         MNOZ"
             f.write(header + "\n")
-            # ----------------------
 
             for r in rows:
-                # 1. EAN (15 znakov, zarovnanie vľavo)
-                ean = str(r.get('ean') or '').strip()[:15].ljust(15)
-                
-                # 2. NÁZOV (43 znakov, zarovnanie vľavo)
+                # --- REG_CIS (15 znakov) ---
+                #  - zoberieme len číslice z EAN
+                #  - doplníme zľava nulami na 13 číslic
+                #  - výsledné pole má tvar: " 0000000023112 " (presne 15 znakov)
+                ean_raw = str(r.get('ean') or '').strip()
+                ean_digits = ''.join(ch for ch in ean_raw if ch.isdigit())
+                if not ean_digits:
+                    # ak by produkt nemal číselný EAN, radšej preskočíme
+                    continue
+                ean13 = ean_digits.rjust(13, '0')[-13:]
+                ean_field = f" {ean13} "   # 1 medzera + 13 číslic + 1 medzera = 15 znakov
+
+                # --- NAZOV (43 znakov, vľavo) ---
                 name = str(r.get('nazov_vyrobku') or '').strip()[:43].ljust(43)
-                
-                # 3. CENA (11 znakov, 4 desatinné, zarovnanie doprava)
+
+                # --- JCM11 (11 znakov, 4 desatinné, doprava) ---
                 try:
                     price_val = Decimal(str(r.get('price_with_margin') or 0))
-                    price_fmt = "{:.4f}".format(price_val.quantize(Decimal('0.0001'), rounding=ROUND_HALF_UP))
-                    price_str = price_fmt.rjust(11)[:11]
-                except:
+                    price_fmt = price_val.quantize(Decimal('0.0001'), rounding=ROUND_HALF_UP)
+                    price_str = f"{price_fmt:.4f}".rjust(11)[:11]
+                except Exception:
                     price_str = "     0.0000"
 
-                # 4. MNOŽSTVO (8 znakov, zarovnanie doprava)
+                # --- MNOZ (8 znakov, 2 desatinné, doprava) ---
                 try:
                     qty_val = Decimal(str(r.get('qty') or 0))
-                    qty_fmt = "{:.2f}".format(qty_val)
-                    if len(qty_fmt) > 8: qty_fmt = "{:.2f}".format(qty_val)
+                    qty_fmt = f"{qty_val:.2f}"
+                    if len(qty_fmt) > 8:
+                        qty_fmt = f"{qty_val:.2f}"
                     qty_str = qty_fmt.rjust(8)[:8]
-                except:
+                except Exception:
                     qty_str = "    0.00"
-                
+
                 # Zápis riadku
-                line = f"{ean}{name}{price_str}{qty_str}\n"
+                line = f"{ean_field}{name}{price_str}{qty_str}\n"
                 f.write(line)
-                
+
+        print(f"[ERP Export] HOTOVO → {out_path}")
         return out_path
+
     except Exception as e:
         print(f"[ERP Export Error]: {e}")
         raise Exception(f"Chyba pri zápise súboru: {e}")
-        
+
 
 def get_erp_status():
     """Vráti informácie o súboroch v ERP exchange priečinku."""
