@@ -86,7 +86,8 @@ if not all([app.config['MAIL_SERVER'], app.config['MAIL_USERNAME'], app.config['
     print("!!! VAROVANIE: Chýbajú niektoré konfiguračné premenné pre e-mail v .env súbore! Odosielanie e-mailov bude zlyhávať. !!!")
 
 mail = Mail(app)
-
+ERP_EXCHANGE_DIR = os.getenv("ERP_EXCHANGE_DIR") or "/var/app/static/erp_exchange"
+ERP_IMPORT_FILENAME = "ZASOBA.CSV"
 # ──────────────────────────────────────────────────────────────
 # Projektové moduly (importy po vytvorení app)
 # ──────────────────────────────────────────────────────────────
@@ -1108,45 +1109,58 @@ def api_erp_manual_export():
 
 
 
-@erp_bp.route("/api/erp/manual-import", methods=["POST"])
+@app.route("/api/erp/manual-import", methods=["POST"])
 def erp_manual_import():
+    """Manuálne nahratie ZASOBA.CSV z PC a spracovanie."""
     file = request.files.get("file")
     if not file:
-        return jsonify(error="Chýba súbor."), 400
+        return jsonify({"error": "Chýba súbor."}), 400
 
     raw = file.read()
+
+    print(">>> ERP MANUAL IMPORT – bytes len =", len(raw))
+
     processed = process_erp_stock_bytes(raw)
 
-    return jsonify(message=f"Import OK. Spracovaných: {processed}")
-    
+    print(">>> ERP MANUAL IMPORT – processed =", processed)
+
+    return jsonify({"message": f"Import OK. Spracovaných: {processed}"})
+
 @app.route('/api/erp/status', methods=['GET'])
 @login_required(role=['kancelaria', 'admin'])
 def api_erp_status():
     return jsonify(office_handler.get_erp_status())
 
-ERP_EXCHANGE_DIR = os.getenv("ERP_EXCHANGE_DIR", "/var/app/static/erp_exchange")
-ERP_IMPORT_FILENAME = "ZASOBA.CSV"
 
-@erp_bp.route("/api/erp/process-server", methods=["POST"])
+
+@app.route("/api/erp/process-server", methods=["POST"])
 def erp_process_server():
-    # cesta k ZASOBA.CSV, ktorý tam nahráva tvoj sync skript
+    """
+    Spracuje súbor ZASOBA.CSV zo servera:
+    /var/app/static/erp_exchange/ZASOBA.CSV
+    """
     path = os.path.join(ERP_EXCHANGE_DIR, ERP_IMPORT_FILENAME)
 
     if not os.path.exists(path):
-        return jsonify(error=f"Súbor {ERP_IMPORT_FILENAME} na serveri neexistuje."), 404
+        return jsonify({"error": f"Súbor {ERP_IMPORT_FILENAME} na serveri neexistuje."}), 404
 
     with open(path, "rb") as f:
         raw = f.read()
 
+    print(">>> ERP SERVER IMPORT – bytes len =", len(raw))
+
     processed = process_erp_stock_bytes(raw)
 
-    # po spracovaní súbor odstránime, aby sa nespracoval znova
+    print(">>> ERP SERVER IMPORT – processed =", processed)
+
+    # po spracovaní súbor zmažeme, aby sa nespracoval znova
     try:
         os.remove(path)
-    except Exception:
-        pass
+    except Exception as e:
+        print(">>> ERP SERVER IMPORT – nepodarilo sa zmazať súbor:", e)
 
-    return jsonify(message=f"Import OK. Spracovaných: {processed}")
+    return jsonify({"message": f"Import OK. Spracovaných: {processed}"})
+
 
    # =================================================================
 # === API: KANCELÁRIA – ERP / plánovanie / sklad / katalóg / kampane ...

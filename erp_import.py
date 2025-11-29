@@ -1,6 +1,5 @@
 import db_connector
 
-
 def _parse_number(val: str) -> float:
     """
     Bezpečné parsovanie čísla z textu:
