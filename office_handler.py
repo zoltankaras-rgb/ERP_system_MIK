@@ -5631,6 +5631,53 @@ def generate_erp_export_file():
         raise Exception(f"Chyba pri zápise súboru: {e}")
         
 
+def get_erp_status():
+    """Vráti informácie o súboroch v ERP exchange priečinku."""
+    base = os.path.dirname(__file__)
+    # Používame konštantu ERP_EXCHANGE_DIR definovanú v súbore (hore)
+    d = os.path.join(base, ERP_EXCHANGE_DIR)
+    
+    def _finfo(name):
+        p = os.path.join(d, name)
+        if os.path.exists(p):
+            try:
+                t = datetime.fromtimestamp(os.path.getmtime(p)).strftime("%d.%m.%Y %H:%M:%S")
+                s = os.path.getsize(p)
+                return {"exists": True, "time": t, "size": s}
+            except:
+                return {"exists": True, "time": "Neznámy", "size": 0}
+        return {"exists": False}
+
+    return {
+        "export_file": _finfo("VYROBKY.CSV"),
+        "import_file": _finfo("ZASOBA.CSV"),
+        "server_time": datetime.now().strftime("%d.%m.%Y %H:%M:%S")
+    }
+
+def process_server_import_file():
+    """Spracuje ZASOBA.CSV, ktorý už leží na serveri (napr. nahraný cez SFTP)."""
+    base = os.path.dirname(__file__)
+    path = os.path.join(base, ERP_EXCHANGE_DIR, 'ZASOBA.CSV')
+    
+    if not os.path.exists(path):
+        return {"error": "Súbor ZASOBA.CSV sa na serveri nenachádza. Skontrolujte synchronizáciu."}
+    
+    # Použijeme existujúcu funkciu na import
+    result = process_erp_import_file(path)
+    
+    # Voliteľné: Po úspešnom importe môžeme súbor premenovať/archivovať, 
+    # aby sa neimportoval znova omylom.
+    if not result.get('error'):
+        try:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            archive_path = os.path.join(base, ERP_EXCHANGE_DIR, f"ZASOBA_PROCESSED_{timestamp}.CSV")
+            os.rename(path, archive_path)
+            result['message'] += " (Súbor bol archivovaný)"
+        except Exception as e:
+            print(f"Chyba pri archivácii ZASOBA.CSV: {e}")
+            
+    return result
+
 def process_erp_import_file(file_path):
     """
     Spracuje importovaný súbor (ZASOBA.CSV) a aktualizuje 'sklad' a 'produkty'.
