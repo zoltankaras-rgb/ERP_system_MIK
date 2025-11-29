@@ -5629,3 +5629,94 @@ def generate_erp_export_file():
     except Exception as e:
         print(f"[ERP Export Error]: {e}")
         raise Exception(f"Chyba pri zápise súboru: {e}")
+        
+
+def process_erp_import_file(file_path):
+    """
+    Spracuje importovaný súbor (ZASOBA.CSV) a aktualizuje 'sklad' a 'produkty'.
+    Predpokladaný formát (CSV oddelený bodkočiarkou alebo čiarkou):
+    EAN; NAZOV; MNOZSTVO; CENA
+    """
+    import csv
+    
+    processed = 0
+    errors = 0
+    
+    # Detekcia kódovania (CP1250 pre Windows exporty, inak UTF-8)
+    encoding = 'cp1250' 
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            f.read()
+            encoding = 'utf-8'
+    except:
+        pass # Zostane CP1250
+
+    # Pokus o čítanie
+    try:
+        with open(file_path, 'r', encoding=encoding) as f:
+            # Zistíme delimeter (';' alebo ',')
+            sample = f.read(1024)
+            f.seek(0)
+            sniffer = csv.Sniffer()
+            try:
+                dialect = sniffer.sniff(sample)
+            except:
+                dialect = None
+            
+            delimiter = dialect.delimiter if dialect else ';'
+            
+            reader = csv.reader(f, delimiter=delimiter)
+            
+            conn = db_connector.get_connection()
+            cursor = conn.cursor()
+            
+            for row in reader:
+                if not row or len(row) < 2: continue
+                
+                # Ignorovať hlavičku ak obsahuje text "REG_CIS" alebo "EAN"
+                if "REG_CIS" in str(row[0]).upper() or "EAN" in str(row[0]).upper():
+                    continue
+                    
+                try:
+                    # Indexy stĺpcov (predpoklad: 0=EAN, 1=Názov, 2=Cena, 3=Množstvo - alebo podobne)
+                    # Prispôsobte podľa reálneho ZASOBA.CSV
+                    ean = str(row[0]).strip()
+                    
+                    # Skúsime nájsť množstvo (hľadáme číslo)
+                    qty = 0.0
+                    price = 0.0
+                    
+                    # Heuristika na nájdenie čísiel v riadku
+                    nums = []
+                    for col in row:
+                        try:
+                            val = float(str(col).replace(',', '.').strip())
+                            nums.append(val)
+                        except:
+                            pass
+                    
+                    if len(nums) >= 1:
+                        qty = nums[-1] # Posledné číslo býva množstvo
+                    if len(nums) >= 2:
+                        price = nums[-2] # Predposledné býva cena
+                        
+                    # Aktualizácia skladu (Suroviny)
+                    cursor.execute("UPDATE sklad SET mnozstvo = %s, nakupna_cena = %s WHERE ean = %s", (qty, price, ean))
+                    
+                    # Aktualizácia produktov (Hotové výrobky)
+                    cursor.execute("UPDATE produkty SET aktualny_sklad_finalny_kg = %s WHERE ean = %s", (qty, ean))
+                    
+                    processed += 1
+                    
+                except Exception as row_err:
+                    print(f"Chyba v riadku {row}: {row_err}")
+                    errors += 1
+            
+            conn.commit()
+            cursor.close()
+            conn.close()
+            
+    except Exception as e:
+        return {"error": f"Chyba pri čítaní súboru: {str(e)}"}
+        
+    return {"message": f"Import dokončený. Spracovaných: {processed}, Chybných: {errors}", "processed": processed}

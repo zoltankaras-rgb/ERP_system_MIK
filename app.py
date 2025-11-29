@@ -1122,7 +1122,16 @@ def api_erp_manual_import():
         return jsonify({'message': f"Import OK. Spracovaných: {res['processed']}"})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+    
+@app.route('/api/erp/status', methods=['GET'])
+@login_required(role=['kancelaria', 'admin'])
+def api_erp_status():
+    return jsonify(office_handler.get_erp_status())
 
+@app.route('/api/erp/process-server', methods=['POST'])
+@login_required(role=['kancelaria', 'admin'])
+def api_erp_process_server():
+    return handle_request(office_handler.process_server_import_file)
    # =================================================================
 # === API: KANCELÁRIA – ERP / plánovanie / sklad / katalóg / kampane ...
 # ================================================================= 
