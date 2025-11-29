@@ -4,17 +4,18 @@
 #  - uloha_kontrola_skladu (denne o 14:00)
 #  - vykonaj_db_ulohu (automatizované SQL úlohy z DB)
 #  - check_calendar_notifications (Enterprise kalendár – pripomienky)
+#  - ERP export (VYROBKY.CSV) podľa nastavení v ERP (automatický export)
 # ===========================================
 
 from __future__ import annotations
-import json
+
 import os
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
 from pytz import timezone
-from tasks import check_calendar_notifications
-import office_handler #
+
 import db_connector
+import office_handler
 from tasks import (
     uloha_kontrola_skladu,
     vykonaj_db_ulohu,
@@ -58,7 +59,7 @@ def _load_db_tasks(sched: BlockingScheduler) -> None:
     """
     rows = db_connector.execute_query(
         "SELECT * FROM automatizovane_ulohy WHERE is_enabled=1",
-        fetch="all"
+        fetch="all",
     ) or []
 
     # odstráň staré joby z DB (ponecháme iba tie s id začínajúcim na 'dbtask_')
@@ -89,69 +90,73 @@ def _load_db_tasks(sched: BlockingScheduler) -> None:
         )
 
 
-def main() -> None:
-    """
-    Spustí blokujúci scheduler.
-    Ak scheduler spúšťaš z app.py v samostatnom vlákne,
-    jednoducho zavolaj scheduler.main() v tom vlákne.
-    """
-    sched = BlockingScheduler(timezone=TZ)
-
-    # Hardcoded joby (sklad + kalendár)
-    _schedule_builtin_jobs(sched)
-    # DB definované úlohy
-    _load_db_tasks(sched)
-
-    # pravidelne refreshni definície úloh (napr. každých 5 minút)
-    sched.add_job(
-        lambda: _load_db_tasks(sched),
-        CronTrigger(minute="*/5", timezone=TZ),
-        id="refresh_db_tasks",
-        replace_existing=True,
-        misfire_grace_time=120,
-    )
-
-    print("[scheduler] Spustený. (Ctrl+C na ukončenie)")
-    try:
-        sched.start()
-    except (KeyboardInterrupt, SystemExit):
-        print("[scheduler] Stop.")
 def _schedule_erp_export(sched: BlockingScheduler) -> None:
     """
-    Načíta nastavenia ERP exportu z JSON a naplánuje úlohu.
+    Načíta nastavenia ERP exportu z DB (cez office_handler._get_erp_settings)
+    a naplánuje úlohu generate_erp_export_file na zadaný čas.
+
+    Nastavenia sú v JSON:
+      {
+        "enabled": true,
+        "time": "06:00"
+      }
     """
-    # Získame nastavenia cez office_handler (aby sme nemenili logiku čítania cesty)
-    settings = office_handler._get_erp_settings()
     job_id = "erp_auto_export_job"
 
-    # Najprv odstránime existujúci job, ak existuje (aby sa pri refreshi aktualizoval čas)
-    if sched.get_job(job_id):
-        sched.remove_job(job_id)
+    # Zmažeme starý job, aby sa pri zmene času/nastavení neplánoval dvakrát
+    try:
+        old_job = sched.get_job(job_id)
+        if old_job:
+            old_job.remove()
+            print(f"[scheduler] ERP Export: starý job {job_id} odstránený.")
+    except Exception as e:
+        print(f"[scheduler] ERP Export: chyba pri odstraňovaní starého jobu: {e}")
 
-    if settings.get("enabled"):
-        time_str = settings.get("time", "06:00")
+    try:
+        settings = office_handler._get_erp_settings() or {}
+    except Exception as e:
+        print(f"[scheduler] ERP Export: neviem načítať nastavenia: {e}")
+        return
+
+    enabled = bool(settings.get("enabled"))
+    time_str = settings.get("time", "06:00")
+
+    print(f"[scheduler] ERP Export settings: enabled={enabled}, time={time_str}")
+
+    if not enabled:
+        print("[scheduler] ERP Export: deaktivovaný (enabled = False).")
+        return
+
+    try:
+        hour_str, minute_str = time_str.split(":")
+        hour = int(hour_str)
+        minute = int(minute_str)
+    except Exception as e:
+        print(f"[scheduler] ERP Export: neplatný čas '{time_str}': {e}")
+        return
+
+    def run_export():
         try:
-            h, m = map(int, time_str.split(":"))
-            
-            # Definícia úlohy: zavolá funkciu generovania súboru
-            def run_export():
-                try:
-                    path = office_handler.generate_erp_export_file()
-                    print(f"[scheduler] ERP Export OK: {path}")
-                except Exception as e:
-                    print(f"[scheduler] ERP Export CHYBA: {e}")
-
-            sched.add_job(
-                run_export,
-                CronTrigger(hour=h, minute=m, timezone=TZ),
-                id=job_id,
-                replace_existing=True
-            )
-            print(f"[scheduler] ERP Export naplánovaný na {time_str}")
+            print("[scheduler] ERP Export: spúšťam generate_erp_export_file()")
+            path = office_handler.generate_erp_export_file()
+            print(f"[scheduler] ERP Export OK: {path}")
         except Exception as e:
-            print(f"[scheduler] Chyba formátu času pre ERP export: {e}")
+            print(f"[scheduler] ERP Export ERROR: {e}")
 
-# UPRAVTE FUNKCIU main():
+    # Naplánujeme job na daný čas (každý deň)
+    try:
+        sched.add_job(
+            run_export,
+            CronTrigger(hour=hour, minute=minute, timezone=TZ),
+            id=job_id,
+            replace_existing=True,
+            misfire_grace_time=300,
+        )
+        print(f"[scheduler] ERP Export job naplánovaný na {time_str} (id={job_id})")
+    except Exception as e:
+        print(f"[scheduler] ERP Export: chyba pri plánovaní jobu: {e}")
+
+
 def main() -> None:
     """
     Spustí blokujúci scheduler.
@@ -160,14 +165,14 @@ def main() -> None:
 
     # 1. Hardcoded joby (sklad + kalendár)
     _schedule_builtin_jobs(sched)
-    
+
     # 2. DB definované úlohy
     _load_db_tasks(sched)
 
-    # 3. NOVÉ: ERP Export úloha
+    # 3. ERP Export úloha (auto export podľa nastavení v ERP)
     _schedule_erp_export(sched)
 
-    # Pravidelný refresh (refreshne DB úlohy AJ ERP nastavenia)
+    # 4. Pravidelný refresh (refreshne DB úlohy AJ ERP nastavenia)
     def refresh_all():
         _load_db_tasks(sched)
         _schedule_erp_export(sched)
@@ -186,6 +191,6 @@ def main() -> None:
     except (KeyboardInterrupt, SystemExit):
         print("[scheduler] Stop.")
 
+
 if __name__ == "__main__":
     main()
-
