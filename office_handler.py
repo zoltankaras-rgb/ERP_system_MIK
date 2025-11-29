@@ -33,6 +33,7 @@ import production_handler
 import notification_handler
 import b2b_handler  # používaš v app.py
 from mysql.connector import errors as mysql_errors
+from erp_import import process_erp_stock_bytes
 
 COLL = 'utf8mb4_0900_ai_ci'   # konzistentná kolácia pre JOINy
 
@@ -5680,37 +5681,24 @@ def process_server_import_file():
 
 def process_erp_import_file(file_path):
     """
-    Spracuje importovaný súbor (ZASOBA.CSV) a aktualizuje 'sklad' a 'produkty'.
-
-    Podporuje dva formáty:
-    1) Klasický CSV:   EAN;NAZOV;CENA;MNOZSTVO  (oddelené ';' alebo ',')
-    2) Fixná šírka:    REG_CIS (15) + NAZOV (43) + JCM11 (11) + MNOZ (8)
-       napr.:
-       " REG_CIS       NAZOV                                       JCM11         MNOZ"
-       " 0000000023112 BR.KARE                                    3.7500     952.50"
-
-    EAN sa mapuje takto:
-    - zoberú sa len číslice
-    - ean_full  = 13-miestny s nulami vľavo
-    - ean_short = verzia bez úvodných núl
-
-    UPDATE potom prebieha s WHERE ean = ean_full OR ean = ean_short,
-    takže sa chytia aj tvoje kódy typu "8" vs "0000000000008".
+    Wrapper okolo novej funkcie process_erp_stock_bytes v erp_import.py.
+    - načíta ZASOBA.CSV zo súboru
+    - odovzdá raw bytes do process_erp_stock_bytes
+    - vráti rovnakú štruktúru ako doteraz (message + processed)
     """
-    import csv
-
-    processed = 0
-    errors = 0
-
-    # 1) Detekcia kódovania (UTF-8 vs CP1250)
-    encoding = 'cp1250'
     try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            f.read()
-            encoding = 'utf-8'
-    except Exception:
-        # zostane CP1250
-        pass
+        with open(file_path, "rb") as f:
+            raw = f.read()
+
+        processed = process_erp_stock_bytes(raw)
+
+        return {
+            "message": f"Import dokončený. Spracovaných: {processed}",
+            "processed": processed,
+        }
+    except Exception as e:
+        return {"error": f"Chyba pri čítaní alebo spracovaní súboru: {e}"}
+
 
     def _only_digits(s: str) -> str:
         return ''.join(ch for ch in s if ch.isdigit())
