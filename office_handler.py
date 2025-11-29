@@ -5681,89 +5681,237 @@ def process_server_import_file():
 def process_erp_import_file(file_path):
     """
     Spracuje importovaný súbor (ZASOBA.CSV) a aktualizuje 'sklad' a 'produkty'.
-    Predpokladaný formát (CSV oddelený bodkočiarkou alebo čiarkou):
-    EAN; NAZOV; MNOZSTVO; CENA
+
+    Podporuje dva formáty:
+    1) Klasický CSV:   EAN;NAZOV;CENA;MNOZSTVO  (oddelené ';' alebo ',')
+    2) Fixná šírka:    REG_CIS (15) + NAZOV (43) + JCM11 (11) + MNOZ (8)
+       napr.:
+       " REG_CIS       NAZOV                                       JCM11         MNOZ"
+       " 0000000023112 BR.KARE                                    3.7500     952.50"
+
+    EAN sa mapuje takto:
+    - zoberú sa len číslice
+    - ean_full  = 13-miestny s nulami vľavo
+    - ean_short = verzia bez úvodných núl
+
+    UPDATE potom prebieha s WHERE ean = ean_full OR ean = ean_short,
+    takže sa chytia aj tvoje kódy typu "8" vs "0000000000008".
     """
     import csv
-    
+
     processed = 0
     errors = 0
-    
-    # Detekcia kódovania (CP1250 pre Windows exporty, inak UTF-8)
-    encoding = 'cp1250' 
+
+    # 1) Detekcia kódovania (UTF-8 vs CP1250)
+    encoding = 'cp1250'
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
             f.read()
             encoding = 'utf-8'
-    except:
-        pass # Zostane CP1250
+    except Exception:
+        # zostane CP1250
+        pass
 
-    # Pokus o čítanie
+    def _only_digits(s: str) -> str:
+        return ''.join(ch for ch in s if ch.isdigit())
+
+    def _parse_float(s: str) -> float:
+        s = (s or "").strip().replace(',', '.')
+        if not s:
+            return 0.0
+        try:
+            return float(s)
+        except Exception:
+            return 0.0
+
     try:
-        with open(file_path, 'r', encoding=encoding) as f:
-            # Zistíme delimeter (';' alebo ',')
-            sample = f.read(1024)
-            f.seek(0)
-            sniffer = csv.Sniffer()
-            try:
-                dialect = sniffer.sniff(sample)
-            except:
-                dialect = None
-            
-            delimiter = dialect.delimiter if dialect else ';'
-            
-            reader = csv.reader(f, delimiter=delimiter)
-            
-            conn = db_connector.get_connection()
-            cursor = conn.cursor()
-            
-            for row in reader:
-                if not row or len(row) < 2: continue
-                
-                # Ignorovať hlavičku ak obsahuje text "REG_CIS" alebo "EAN"
-                if "REG_CIS" in str(row[0]).upper() or "EAN" in str(row[0]).upper():
+        # 2) Najprv zistíme, či je to CSV alebo fixná šírka
+        is_fixed_width = True
+        delimiter = ';'
+
+        with open(file_path, 'r', encoding=encoding, errors='ignore') as f:
+            look_lines = []
+            for _ in range(20):
+                line = f.readline()
+                if not line:
+                    break
+                if not line.strip():
                     continue
-                    
-                try:
-                    # Indexy stĺpcov (predpoklad: 0=EAN, 1=Názov, 2=Cena, 3=Množstvo - alebo podobne)
-                    # Prispôsobte podľa reálneho ZASOBA.CSV
-                    ean = str(row[0]).strip()
-                    
-                    # Skúsime nájsť množstvo (hľadáme číslo)
-                    qty = 0.0
-                    price = 0.0
-                    
-                    # Heuristika na nájdenie čísiel v riadku
-                    nums = []
-                    for col in row:
-                        try:
-                            val = float(str(col).replace(',', '.').strip())
-                            nums.append(val)
-                        except:
-                            pass
-                    
-                    if len(nums) >= 1:
-                        qty = nums[-1] # Posledné číslo býva množstvo
-                    if len(nums) >= 2:
-                        price = nums[-2] # Predposledné býva cena
-                        
-                    # Aktualizácia skladu (Suroviny)
-                    cursor.execute("UPDATE sklad SET mnozstvo = %s, nakupna_cena = %s WHERE ean = %s", (qty, price, ean))
-                    
-                    # Aktualizácia produktov (Hotové výrobky)
-                    cursor.execute("UPDATE produkty SET aktualny_sklad_finalny_kg = %s WHERE ean = %s", (qty, ean))
-                    
-                    processed += 1
-                    
-                except Exception as row_err:
-                    print(f"Chyba v riadku {row}: {row_err}")
-                    errors += 1
-            
-            conn.commit()
-            cursor.close()
-            conn.close()
-            
+                u = line.upper()
+                if "REG_CIS" in u or "EAN" in u:
+                    # hlavička, preskočíme
+                    continue
+                look_lines.append(line)
+
+            for l in look_lines:
+                if ';' in l:
+                    is_fixed_width = False
+                    delimiter = ';'
+                    break
+                if ',' in l:
+                    is_fixed_width = False
+                    delimiter = ','
+                    break
+            # ak sme nenašli ; ani , → berieme ako fixná šírka
+
+        # 3) Pripojenie na DB
+        conn = db_connector.get_connection()
+        cursor = conn.cursor()
+
+        with open(file_path, 'r', encoding=encoding, errors='ignore') as f:
+            if is_fixed_width:
+                # ─────────────────────────────────────────────
+                # FORMÁT FIXNÁ ŠÍRKA (tvoj ZASOBA.CSV)
+                # ─────────────────────────────────────────────
+                line_num = 0
+                for raw_line in f:
+                    line_num += 1
+                    line = raw_line.rstrip('\r\n')
+                    if not line.strip():
+                        continue
+                    u = line.upper()
+                    if "REG_CIS" in u or "EAN" in u:
+                        # hlavička
+                        continue
+                    try:
+                        # Minimálna dĺžka, aby sa tam zmestili všetky polia
+                        if len(line) < 77:
+                            continue
+
+                        # REG_CIS / EAN: pozície 0-15
+                        ean_raw = line[0:15].strip()
+                        if not ean_raw:
+                            continue
+                        ean_digits = _only_digits(ean_raw)
+                        if not ean_digits:
+                            continue
+
+                        # 13-miestny EAN s nulami vľavo + krátky variant
+                        ean_full = ean_digits.rjust(13, '0')[-13:]
+                        ean_short = ean_digits.lstrip('0') or ean_full
+
+                        # NAZOV: 15-58 (nepoužívame na UPDATE, len by sa dalo logovať)
+                        name = line[15:58].strip()
+
+                        # JCM11 (cena): 58-69
+                        price_str = line[58:69]
+                        price = _parse_float(price_str)
+
+                        # MNOZ (množstvo): 69-77
+                        qty_str = line[69:77]
+                        qty = _parse_float(qty_str)
+
+                        # UPDATE sklad + produkty
+                        updated_any = False
+
+                        cursor.execute(
+                            """
+                            UPDATE sklad 
+                            SET mnozstvo = %s, nakupna_cena = %s
+                            WHERE ean = %s OR ean = %s
+                            """,
+                            (qty, price, ean_full, ean_short)
+                        )
+                        if cursor.rowcount > 0:
+                            updated_any = True
+
+                        cursor.execute(
+                            """
+                            UPDATE produkty 
+                            SET aktualny_sklad_finalny_kg = %s
+                            WHERE ean = %s OR ean = %s
+                            """,
+                            (qty, ean_full, ean_short)
+                        )
+                        if cursor.rowcount > 0:
+                            updated_any = True
+
+                        if updated_any:
+                            processed += 1
+
+                    except Exception as row_err:
+                        print(f"Chyba v riadku {line_num}: {row_err}")
+                        errors += 1
+
+            else:
+                # ─────────────────────────────────────────────
+                # KLASICKÝ CSV FORMÁT
+                # ─────────────────────────────────────────────
+                reader = csv.reader(f, delimiter=delimiter)
+                for row in reader:
+                    if not row or len(row) < 2:
+                        continue
+
+                    # Ignorovať hlavičku
+                    if "REG_CIS" in str(row[0]).upper() or "EAN" in str(row[0]).upper():
+                        continue
+
+                    try:
+                        ean_src = str(row[0]).strip()
+                        ean_digits = _only_digits(ean_src)
+                        if not ean_digits:
+                            continue
+
+                        ean_full = ean_digits.rjust(13, '0')[-13:]
+                        ean_short = ean_digits.lstrip('0') or ean_full
+
+                        # Hľadáme čísla v riadku (cena + množstvo) – ako doteraz
+                        nums = []
+                        for col in row[1:]:
+                            try:
+                                val = float(str(col).replace(',', '.').strip())
+                                nums.append(val)
+                            except Exception:
+                                pass
+
+                        qty = nums[-1] if len(nums) >= 1 else 0.0
+                        price = nums[-2] if len(nums) >= 2 else 0.0
+
+                        updated_any = False
+
+                        cursor.execute(
+                            """
+                            UPDATE sklad 
+                            SET mnozstvo = %s, nakupna_cena = %s
+                            WHERE ean = %s OR ean = %s
+                            """,
+                            (qty, price, ean_full, ean_short)
+                        )
+                        if cursor.rowcount > 0:
+                            updated_any = True
+
+                        cursor.execute(
+                            """
+                            UPDATE produkty 
+                            SET aktualny_sklad_finalny_kg = %s
+                            WHERE ean = %s OR ean = %s
+                            """,
+                            (qty, ean_full, ean_short)
+                        )
+                        if cursor.rowcount > 0:
+                            updated_any = True
+
+                        if updated_any:
+                            processed += 1
+
+                    except Exception as row_err:
+                        print(f"Chyba v riadku {row}: {row_err}")
+                        errors += 1
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+
     except Exception as e:
-        return {"error": f"Chyba pri čítaní súboru: {str(e)}"}
-        
-    return {"message": f"Import dokončený. Spracovaných: {processed}, Chybných: {errors}", "processed": processed}
+        # pri väčšej chybe vrátime error správu
+        try:
+            if conn:
+                conn.rollback()
+        except Exception:
+            pass
+        return {"error": f"Chyba pri čítaní alebo spracovaní súboru: {str(e)}"}
+
+    return {
+        "message": f"Import dokončený. Spracovaných: {processed}, Chybných: {errors}",
+        "processed": processed
+    }
