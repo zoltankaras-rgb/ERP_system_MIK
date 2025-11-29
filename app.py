@@ -13,6 +13,7 @@ from flask_mail import Mail
 from flask import request
 # === B2C BLUEPRINTY (VERejný + Admin) ===========================
 from b2c_public_api_nodb import b2c_public_bp
+from erp_import import process_erp_stock_bytes
 from kancelaria_b2c_api import kancelaria_b2c_bp
 from functools import wraps
 from flask import session, jsonify, make_response
@@ -1105,33 +1106,47 @@ def api_erp_manual_export():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/erp/manual-import', methods=['POST'])
-@login_required(role=['kancelaria', 'admin'])
-def api_erp_manual_import():
-    file = request.files.get('file')
-    if not file: return jsonify({'error': 'Žiadny súbor'}), 400
-    try:
-        # Uložíme dočasne
-        base = os.path.dirname(__file__)
-        tmp_dir = os.path.join(base, 'static', 'erp_exchange')
-        os.makedirs(tmp_dir, exist_ok=True)
-        save_path = os.path.join(tmp_dir, 'ZASOBA_UPLOAD.CSV')
-        file.save(save_path)
-        
-        res = office_handler.process_erp_import_file(save_path)
-        return jsonify({'message': f"Import OK. Spracovaných: {res['processed']}"})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+erp_bp = Blueprint("erp_bp", __name__)
+
+@erp_bp.route("/api/erp/manual-import", methods=["POST"])
+def erp_manual_import():
+    file = request.files.get("file")
+    if not file:
+        return jsonify(error="Chýba súbor."), 400
+
+    raw = file.read()
+    processed = process_erp_stock_bytes(raw)
+
+    return jsonify(message=f"Import OK. Spracovaných: {processed}")
     
 @app.route('/api/erp/status', methods=['GET'])
 @login_required(role=['kancelaria', 'admin'])
 def api_erp_status():
     return jsonify(office_handler.get_erp_status())
 
-@app.route('/api/erp/process-server', methods=['POST'])
-@login_required(role=['kancelaria', 'admin'])
-def api_erp_process_server():
-    return handle_request(office_handler.process_server_import_file)
+ERP_EXCHANGE_DIR = os.getenv("ERP_EXCHANGE_DIR", "/var/app/static/erp_exchange")
+ERP_IMPORT_FILENAME = "ZASOBA.CSV"
+
+@erp_bp.route("/api/erp/process-server", methods=["POST"])
+def erp_process_server():
+    # cesta k ZASOBA.CSV, ktorý tam nahráva tvoj sync skript
+    path = os.path.join(ERP_EXCHANGE_DIR, ERP_IMPORT_FILENAME)
+
+    if not os.path.exists(path):
+        return jsonify(error=f"Súbor {ERP_IMPORT_FILENAME} na serveri neexistuje."), 404
+
+    with open(path, "rb") as f:
+        raw = f.read()
+
+    processed = process_erp_stock_bytes(raw)
+
+    # po spracovaní súbor odstránime, aby sa nespracoval znova
+    try:
+        os.remove(path)
+    except Exception:
+        pass
+
+    return jsonify(message=f"Import OK. Spracovaných: {processed}")
 
    # =================================================================
 # === API: KANCELÁRIA – ERP / plánovanie / sklad / katalóg / kampane ...
