@@ -378,12 +378,11 @@ def get_7_day_order_forecast():
 
 def get_goods_purchase_suggestion():
     """
-    Návrh nákupu tovaru podľa minimálnych zásob.
-    OPRAVA: Berie 'aktualny_sklad_finalny_kg' a 'nakupna_cena' priamo z tabuľky PRODUKTY.
+    Návrh nákupu tovaru.
+    OPRAVA: Odstránený chybný prepočet cez váhu. Berie stav skladu priamo z DB.
     """
     import math
 
-    # Čítame priamo stĺpce z tabuľky produkty
     sql = """
         SELECT
           p.ean,
@@ -391,11 +390,16 @@ def get_goods_purchase_suggestion():
           p.typ_polozky,
           p.predajna_kategoria,
           p.mj AS unit,
-          COALESCE(p.aktualny_sklad_finalny_kg, 0) AS stock_kg,
+          COALESCE(p.aktualny_sklad_finalny_kg, 0) AS stock_val, -- Tu je hodnota z importu
           COALESCE(p.minimalna_zasoba_kg, 0)       AS min_stock_kg,
           COALESCE(p.minimalna_zasoba_ks, 0)       AS min_stock_ks,
-          COALESCE(p.vaha_balenia_g, 0)            AS weight_g,
-          COALESCE(p.nakupna_cena, 0)              AS price
+          
+          -- Dotiahnutie ceny zo skladu (kedze v produktoch nemusi byt)
+          (SELECT s.nakupna_cena 
+             FROM sklad s 
+            WHERE (s.ean = p.ean AND s.ean <> '') OR s.nazov = p.nazov_vyrobku 
+            ORDER BY s.nakupna_cena DESC LIMIT 1
+          ) AS nakupna_cena
         FROM produkty p
         WHERE p.ean IS NOT NULL
           AND p.ean <> ''
@@ -411,22 +415,18 @@ def get_goods_purchase_suggestion():
     
     for r in rows:
         unit = str(r.get('unit') or 'kg').lower()
-        stock_kg = float(r.get('stock_kg') or 0.0)
-        weight_g = float(r.get('weight_g') or 0.0)
-        price = float(r.get('price') or 0.0)
+        # Hodnota z DB (bez ohľadu na názov stĺpca je to číslo z importu)
+        current_stock = float(r.get('stock_val') or 0.0)
+        price = float(r.get('nakupna_cena') or 0.0)
         
-        current_stock = 0.0
         min_stock = 0.0
         
-        # Prepočet KS / KG
+        # Rozlíšenie minima (KG vs KS)
         if unit in ('ks', 'ks.', 'kus', 'pc', 'pcs'):
-            if weight_g > 0:
-                current_stock = math.floor((stock_kg * 1000) / weight_g)
-            else:
-                current_stock = 0
             min_stock = float(r.get('min_stock_ks') or 0.0)
+            # Pre istotu zaokrúhlime kusy na celé číslo
+            current_stock = math.floor(current_stock)
         else:
-            current_stock = stock_kg
             min_stock = float(r.get('min_stock_kg') or 0.0)
             
         # Výpočet návrhu
@@ -442,7 +442,6 @@ def get_goods_purchase_suggestion():
             processed_rows.append(r)
             
     return processed_rows
-
 
 # =================================================================
 # === SKLAD – PREHĽADY A OPERÁCIE ==================================
@@ -1102,18 +1101,28 @@ def get_avg_costs_catalog():
 # =================================================================
 def get_comprehensive_stock_view():
     """
-    Prehľad finálnych produktov (centrálny sklad) + ceny.
-    OPRAVA: Všetko (sklad aj cena) sa ťahá priamo z tabuľky PRODUKTY.
+    Prehľad finálnych produktov + ceny.
+    OPRAVA: Odstránený chybný prepočet cez váhu. Cena prioritne z tabuľky 'sklad'.
     """
     q = """
         SELECT
             p.ean, 
             p.nazov_vyrobku AS name, 
             p.predajna_kategoria AS category,
-            p.aktualny_sklad_finalny_kg AS stock_kg, 
-            p.vaha_balenia_g, 
+            p.aktualny_sklad_finalny_kg AS stock_val, -- Hodnota z importu
             p.mj AS unit,
-            COALESCE(p.nakupna_cena, 0) AS price, -- Priamo z tabuľky produkty
+            
+            -- Cena zo skladu
+            (
+                SELECT s.nakupna_cena 
+                FROM sklad s 
+                WHERE (s.ean = p.ean AND s.ean <> '') 
+                   OR s.nazov = p.nazov_vyrobku 
+                ORDER BY s.nakupna_cena DESC 
+                LIMIT 1
+            ) AS sklad_cena,
+            
+            -- Cena z výroby (pre výrobky)
             (
               SELECT ROUND(zv.celkova_cena_surovin / NULLIF(zv.realne_mnozstvo_kg, 0), 4)
               FROM zaznamy_vyroba zv
@@ -1131,7 +1140,7 @@ def get_comprehensive_stock_view():
     """
     rows = db_connector.execute_query(q) or []
 
-    # Pre istotu načítame aj výrobné priemery
+    # centrálne výrobné priemery
     zv = _zv_name_col()
     mc_rows = db_connector.execute_query(f"""
         SELECT TRIM(p.nazov_vyrobku) AS pn, p.mj AS mj,
@@ -1151,32 +1160,35 @@ def get_comprehensive_stock_view():
         avg = (float(r['sum_cost_units'] or 0.0)/su) if su>0 else 0.0
         manuf_index[(r['pn'], r['mj'])] = avg
 
+    purchase_by_ean = _avg_purchase_costs_map_by_ean()
+
     grouped: Dict[str, List[Dict[str, Any]]] = {}
     flat: List[Dict[str, Any]] = []
 
     for p in rows:
         unit = p.get('unit') or 'kg'
-        qty_kg = float(p.get('stock_kg') or 0.0)
-        w = float(p.get('vaha_balenia_g') or 0.0)
         
-        # Množstvo (ks/kg)
-        qty = (qty_kg * 1000 / w) if unit == 'ks' and w > 0 else qty_kg
+        # ZMENA: Žiadny prepočet. Berieme číslo, čo prišlo z importu.
+        qty = float(p.get('stock_val') or 0.0)
 
         # Ceny
         manuf_avg = manuf_index.get((p['name'], unit), 0.0)
-        
-        # Priorita: 1. Cena z karty produktu, 2. Výrobná cena, 3. Posledná výroba
-        final_price = float(p.get('price') or 0.0)
+        purchase_avg = None
+        if p['ean']:
+            base = purchase_by_ean.get((p['ean'] or '').strip())
+            if base is not None:
+                purchase_avg = base # Tu tiež netreba prepočet ak je cena za KS
+
+        # Priorita ceny
+        final_price = float(p.get('sklad_cena') or 0.0)
         
         if final_price == 0:
-            if manuf_avg:
+            if purchase_avg:
+                final_price = float(purchase_avg)
+            elif manuf_avg:
                 final_price = float(manuf_avg)
             elif p.get('last_cost_per_kg'):
-                 lcp = float(p.get('last_cost_per_kg'))
-                 if unit == 'ks' and w > 0:
-                     final_price = lcp * (w/1000.0)
-                 else:
-                     final_price = lcp
+                 final_price = float(p.get('last_cost_per_kg'))
 
         item = {
             "ean": p['ean'],
@@ -1186,10 +1198,10 @@ def get_comprehensive_stock_view():
             "unit": unit,
             "price": round(final_price, 4),
             "sklad1": 0.0,
-            "sklad2": qty_kg,
+            "sklad2": qty,
             "last_cost_per_kg": float(p.get('last_cost_per_kg') or 0.0),
             "avg_manufacturing_unit_cost": round(float(manuf_avg), 4),
-            "avg_purchase_unit_cost": None,
+            "avg_purchase_unit_cost": (None if purchase_avg is None else round(float(purchase_avg), 4)),
         }
         flat.append(item)
         grouped.setdefault(item['category'], []).append(item)
