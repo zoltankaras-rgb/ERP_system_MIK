@@ -378,8 +378,8 @@ def get_7_day_order_forecast():
 
 def get_goods_purchase_suggestion():
     """
-    Návrh nákupu tovaru.
-    OPRAVA: Odstránený chybný prepočet cez váhu. Berie stav skladu priamo z DB.
+    Návrh nákupu.
+    ZMENA: Číta 'nakupna_cena' a 'aktualny_sklad_finalny_kg' LEN z tabuľky PRODUKTY.
     """
     import math
 
@@ -390,16 +390,11 @@ def get_goods_purchase_suggestion():
           p.typ_polozky,
           p.predajna_kategoria,
           p.mj AS unit,
-          COALESCE(p.aktualny_sklad_finalny_kg, 0) AS stock_val, -- Tu je hodnota z importu
+          COALESCE(p.aktualny_sklad_finalny_kg, 0) AS stock_val,
           COALESCE(p.minimalna_zasoba_kg, 0)       AS min_stock_kg,
           COALESCE(p.minimalna_zasoba_ks, 0)       AS min_stock_ks,
-          
-          -- Dotiahnutie ceny zo skladu (kedze v produktoch nemusi byt)
-          (SELECT s.nakupna_cena 
-             FROM sklad s 
-            WHERE (s.ean = p.ean AND s.ean <> '') OR s.nazov = p.nazov_vyrobku 
-            ORDER BY s.nakupna_cena DESC LIMIT 1
-          ) AS nakupna_cena
+          COALESCE(p.vaha_balenia_g, 0)            AS weight_g,
+          COALESCE(p.nakupna_cena, 0)              AS price
         FROM produkty p
         WHERE p.ean IS NOT NULL
           AND p.ean <> ''
@@ -412,24 +407,20 @@ def get_goods_purchase_suggestion():
     rows = db_connector.execute_query(sql, fetch="all") or []
 
     processed_rows = []
-    
     for r in rows:
         unit = str(r.get('unit') or 'kg').lower()
-        # Hodnota z DB (bez ohľadu na názov stĺpca je to číslo z importu)
         current_stock = float(r.get('stock_val') or 0.0)
-        price = float(r.get('nakupna_cena') or 0.0)
+        price = float(r.get('price') or 0.0)
         
         min_stock = 0.0
         
-        # Rozlíšenie minima (KG vs KS)
+        # Ak je tovar v kusoch, zobrazujeme kusy (neprepočítavame cez váhu, veríme číslu z importu)
         if unit in ('ks', 'ks.', 'kus', 'pc', 'pcs'):
             min_stock = float(r.get('min_stock_ks') or 0.0)
-            # Pre istotu zaokrúhlime kusy na celé číslo
             current_stock = math.floor(current_stock)
         else:
             min_stock = float(r.get('min_stock_kg') or 0.0)
             
-        # Výpočet návrhu
         suggestion = max(0, min_stock - current_stock)
         
         if min_stock > 0:
@@ -438,7 +429,6 @@ def get_goods_purchase_suggestion():
             r['suggestion'] = suggestion
             r['reserved'] = 0
             r['price'] = price
-            
             processed_rows.append(r)
             
     return processed_rows
@@ -1101,37 +1091,18 @@ def get_avg_costs_catalog():
 # =================================================================
 def get_comprehensive_stock_view():
     """
-    Prehľad finálnych produktov + ceny.
-    OPRAVA: Odstránený chybný prepočet cez váhu. Cena prioritne z tabuľky 'sklad'.
+    Celkový prehľad.
+    ZMENA: Číta 'nakupna_cena' LEN z tabuľky PRODUKTY.
     """
     q = """
         SELECT
             p.ean, 
             p.nazov_vyrobku AS name, 
             p.predajna_kategoria AS category,
-            p.aktualny_sklad_finalny_kg AS stock_val, -- Hodnota z importu
+            p.aktualny_sklad_finalny_kg AS stock_val,
+            p.vaha_balenia_g, 
             p.mj AS unit,
-            
-            -- Cena zo skladu
-            (
-                SELECT s.nakupna_cena 
-                FROM sklad s 
-                WHERE (s.ean = p.ean AND s.ean <> '') 
-                   OR s.nazov = p.nazov_vyrobku 
-                ORDER BY s.nakupna_cena DESC 
-                LIMIT 1
-            ) AS sklad_cena,
-            
-            -- Cena z výroby (pre výrobky)
-            (
-              SELECT ROUND(zv.celkova_cena_surovin / NULLIF(zv.realne_mnozstvo_kg, 0), 4)
-              FROM zaznamy_vyroba zv
-              WHERE (zv.nazov_vyrobu = p.nazov_vyrobku OR zv.nazov_vyrobku = p.nazov_vyrobku)
-                AND zv.celkova_cena_surovin IS NOT NULL
-                AND zv.realne_mnozstvo_kg IS NOT NULL
-              ORDER BY COALESCE(zv.datum_ukoncenia, zv.datum_vyroby) DESC
-              LIMIT 1
-            ) AS last_cost_per_kg
+            COALESCE(p.nakupna_cena, 0) AS price_prod
         FROM produkty p
         WHERE p.typ_polozky = 'produkt' 
            OR p.typ_polozky LIKE 'VÝROBOK%%' 
@@ -1140,55 +1111,13 @@ def get_comprehensive_stock_view():
     """
     rows = db_connector.execute_query(q) or []
 
-    # centrálne výrobné priemery
-    zv = _zv_name_col()
-    mc_rows = db_connector.execute_query(f"""
-        SELECT TRIM(p.nazov_vyrobku) AS pn, p.mj AS mj,
-               SUM((CASE WHEN p.mj='kg' THEN COALESCE(zv.realne_mnozstvo_kg,0)
-                         ELSE COALESCE(zv.realne_mnozstvo_ks,0) END)
-                   * COALESCE(zv.cena_za_jednotku,0)) AS sum_cost_units,
-               SUM(CASE WHEN p.mj='kg' THEN COALESCE(zv.realne_mnozstvo_kg,0)
-                        ELSE COALESCE(zv.realne_mnozstvo_ks,0) END) AS sum_units
-          FROM zaznamy_vyroba zv
-          JOIN produkty p ON TRIM(zv.{zv}) = TRIM(p.nazov_vyrobku)
-         WHERE COALESCE(zv.cena_za_jednotku,0) > 0
-         GROUP BY TRIM(p.nazov_vyrobku), p.mj
-    """) or []
-    manuf_index = {}
-    for r in mc_rows:
-        su = float(r['sum_units'] or 0.0)
-        avg = (float(r['sum_cost_units'] or 0.0)/su) if su>0 else 0.0
-        manuf_index[(r['pn'], r['mj'])] = avg
-
-    purchase_by_ean = _avg_purchase_costs_map_by_ean()
-
     grouped: Dict[str, List[Dict[str, Any]]] = {}
     flat: List[Dict[str, Any]] = []
 
     for p in rows:
         unit = p.get('unit') or 'kg'
-        
-        # ZMENA: Žiadny prepočet. Berieme číslo, čo prišlo z importu.
         qty = float(p.get('stock_val') or 0.0)
-
-        # Ceny
-        manuf_avg = manuf_index.get((p['name'], unit), 0.0)
-        purchase_avg = None
-        if p['ean']:
-            base = purchase_by_ean.get((p['ean'] or '').strip())
-            if base is not None:
-                purchase_avg = base # Tu tiež netreba prepočet ak je cena za KS
-
-        # Priorita ceny
-        final_price = float(p.get('sklad_cena') or 0.0)
-        
-        if final_price == 0:
-            if purchase_avg:
-                final_price = float(purchase_avg)
-            elif manuf_avg:
-                final_price = float(manuf_avg)
-            elif p.get('last_cost_per_kg'):
-                 final_price = float(p.get('last_cost_per_kg'))
+        final_price = float(p.get('price_prod') or 0.0)
 
         item = {
             "ean": p['ean'],
@@ -1199,9 +1128,8 @@ def get_comprehensive_stock_view():
             "price": round(final_price, 4),
             "sklad1": 0.0,
             "sklad2": qty,
-            "last_cost_per_kg": float(p.get('last_cost_per_kg') or 0.0),
-            "avg_manufacturing_unit_cost": round(float(manuf_avg), 4),
-            "avg_purchase_unit_cost": (None if purchase_avg is None else round(float(purchase_avg), 4)),
+            "avg_manufacturing_unit_cost": 0.0,
+            "avg_purchase_unit_cost": 0.0,
         }
         flat.append(item)
         grouped.setdefault(item['category'], []).append(item)
@@ -5781,14 +5709,11 @@ def process_server_import_file():
 
 def process_erp_import_file(file_path):
     """
-    NUCLEAR OPTION: 
-    1. Načíta celý CSV do pamäte.
-    2. Ak je OK, VYNULUJE CELÝ SKLAD (množstvo = 0).
-    3. Následne nastaví stavy len pre položky zo súboru.
+    NUCLEAR OPTION: Full Sync.
+    ZMENA: Zapisuje NAKUPNA_CENA aj do tabuľky PRODUKTY.
     """
     import csv
 
-    # Pomocné funkcie
     def _only_digits(s: str) -> str:
         return ''.join(ch for ch in str(s) if ch.isdigit())
 
@@ -5798,13 +5723,11 @@ def process_erp_import_file(file_path):
         try: return float(s)
         except: return 0.0
 
-    # 1. NAČÍTANIE SÚBORU DO PAMÄTE (Aby sme nezačali mazať, kým nemáme dáta)
-    items_to_update = [] # List of dicts: {ean, ean_short, ean_full, qty, price}
+    items_to_update = []
     
     try:
         encoding = 'cp1250'
         with open(file_path, 'r', encoding=encoding, errors='ignore') as f:
-            # Detekcia formátu
             first_line = f.readline()
             f.seek(0)
             is_fixed = not (';' in first_line or (',' in first_line and 'REG_CIS' not in first_line))
@@ -5814,10 +5737,8 @@ def process_erp_import_file(file_path):
                 for line in f:
                     line = line.rstrip('\r\n')
                     if len(line) < 15 or "REG_CIS" in line: continue
-                    
                     e = _only_digits(line[0:15].strip())
                     if not e: continue
-                    
                     p = _parse_float(line[58:69] if len(line)>=69 else "0")
                     q = _parse_float(line[69:77] if len(line)>=77 else "0")
                     
@@ -5833,10 +5754,8 @@ def process_erp_import_file(file_path):
                 for row in reader:
                     if not row or len(row) < 2: continue
                     if "REG_CIS" in str(row[0]).upper(): continue
-                    
                     e = _only_digits(str(row[0]))
                     if not e: continue
-                    
                     try:
                         q = _parse_float(row[-1])
                         p = _parse_float(row[-2])
@@ -5852,29 +5771,24 @@ def process_erp_import_file(file_path):
     except Exception as e:
         return {"error": f"Chyba pri čítaní súboru: {e}"}
 
-    # Ak je súbor prázdny, KONČÍME a nič nemažeme (bezpečnosť)
     if not items_to_update:
         return {"error": "Súbor neobsahuje žiadne platné položky. Import zrušený."}
 
-    # 2. ZÁPIS DO DB (ATÓMOVÁ TRANSAKCIA)
     conn = db_connector.get_connection()
     cursor = conn.cursor()
     processed = 0
 
     try:
-        print(f"[ERP NUCLEAR] Začínam Full Sync. Položiek v súbore: {len(items_to_update)}")
+        print(f"[ERP NUCLEAR] Začínam Full Sync. Položiek: {len(items_to_update)}")
         
-        # A) NUKLEÁRNE VYNULOVANIE VŠETKÉHO
-        # Toto zaručí, že čo nie je v súbore, ostane 0.
-        # Cenu (nakupna_cena) NEMENÍME, iba množstvo.
+        # 1. VYNULOVANIE SKLADU (Množstvo na 0, cena ostáva)
         cursor.execute("UPDATE sklad SET mnozstvo = 0")
         cursor.execute("UPDATE produkty SET aktualny_sklad_finalny_kg = 0")
-        print("[ERP NUCLEAR] Celý sklad vynulovaný.")
+        print("[ERP NUCLEAR] Sklad vynulovaný.")
 
-        # B) NAHRATIE NOVÝCH STAVOV
+        # 2. NAHRATIE NOVÝCH ÚDAJOV (Sklad + CENA do oboch tabuliek)
         for it in items_to_update:
-            # Update SKLAD (EAN, full, short)
-            # Používame tri OR podmienky, aby sme trafili formát v DB
+            # SKLAD
             sql_sklad = """
                 UPDATE sklad 
                 SET mnozstvo = %s, nakupna_cena = %s 
@@ -5882,19 +5796,18 @@ def process_erp_import_file(file_path):
             """
             cursor.execute(sql_sklad, (it['qty'], it['price'], it['ean'], it['ean_full'], it['ean_short']))
             
-            # Update PRODUKTY
+            # PRODUKTY - Tu bola chyba, pridávame nakupna_cena
             sql_prod = """
                 UPDATE produkty 
-                SET aktualny_sklad_finalny_kg = %s 
+                SET aktualny_sklad_finalny_kg = %s, nakupna_cena = %s
                 WHERE ean = %s OR ean = %s OR ean = %s
             """
-            cursor.execute(sql_prod, (it['qty'], it['ean'], it['ean_full'], it['ean_short']))
+            cursor.execute(sql_prod, (it['qty'], it['price'], it['ean'], it['ean_full'], it['ean_short']))
             
             processed += 1
 
         conn.commit()
-        
-        msg = f"Import OK. Celý sklad bol najprv vynulovaný. Následne nahratých {processed} položiek zo súboru."
+        msg = f"Import OK. Vynulované a následne nahratých {processed} položiek (vrátane cien)."
         print(f"[ERP NUCLEAR] {msg}")
         return {"message": msg, "processed": processed}
 
