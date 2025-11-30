@@ -1112,20 +1112,35 @@ def api_erp_manual_export():
 @app.route('/api/erp/manual-import', methods=['POST'])
 @login_required(role=['kancelaria', 'admin'])
 def api_erp_manual_import():
-    """Manuálne nahratie ZASOBA.CSV z PC a spracovanie."""
+    """Manuálne nahratie ZASOBA.CSV z PC a spracovanie cez office_handler (Full Sync)."""
     file = request.files.get('file')
     if not file:
         return jsonify({'error': 'Žiadny súbor'}), 400
 
     try:
-        raw = file.read()
-        print(">>> ERP MANUAL IMPORT – bytes len =", len(raw))
+        # 1. Uložíme súbor dočasne na disk (pretože office_handler potrebuje cestu k súboru)
+        # Uistite sa, že ERP_EXCHANGE_DIR je definované (malo by byť z konfigu vyššie)
+        temp_path = os.path.join(ERP_EXCHANGE_DIR, 'TEMP_MANUAL_IMPORT.CSV')
+        file.save(temp_path)
 
-        processed = process_erp_stock_bytes(raw)
+        print(f">>> ERP MANUAL IMPORT – start: {temp_path}")
 
-        print(">>> ERP MANUAL IMPORT – processed =", processed)
+        # 2. Zavoláme tú NOVÚ funkciu z office_handler, ktorá robí nulovanie
+        result = office_handler.process_erp_import_file(temp_path)
 
-        return jsonify({'message': f"Import OK. Spracovaných: {processed}"})
+        # 3. Zmažeme dočasný súbor
+        if os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except:
+                pass
+
+        # 4. Vrátime výsledok
+        if result.get('error'):
+            return jsonify(result), 500
+            
+        return jsonify(result)
+
     except Exception as e:
         print(">>> ERP MANUAL IMPORT ERROR:", e)
         return jsonify({'error': str(e)}), 500
@@ -1136,35 +1151,37 @@ def api_erp_status():
     return jsonify(office_handler.get_erp_status())
 
 
-
 @app.route("/api/erp/process-server", methods=["POST"])
 def erp_process_server():
     """
-    Spracuje súbor ZASOBA.CSV zo servera:
-    /var/app/static/erp_exchange/ZASOBA.CSV
+    Spracuje súbor ZASOBA.CSV zo servera cez office_handler (Full Sync).
     """
     path = os.path.join(ERP_EXCHANGE_DIR, ERP_IMPORT_FILENAME)
 
     if not os.path.exists(path):
         return jsonify({"error": f"Súbor {ERP_IMPORT_FILENAME} na serveri neexistuje."}), 404
 
-    with open(path, "rb") as f:
-        raw = f.read()
+    print(f">>> ERP SERVER IMPORT – start: {path}")
 
-    print(">>> ERP SERVER IMPORT – bytes len =", len(raw))
-
-    processed = process_erp_stock_bytes(raw)
-
-    print(">>> ERP SERVER IMPORT – processed =", processed)
-
-    # po spracovaní súbor zmažeme, aby sa nespracoval znova
     try:
-        os.remove(path)
+        # 1. Zavoláme tú NOVÚ funkciu z office_handler
+        result = office_handler.process_erp_import_file(path)
+
+        # 2. Ak import prebehol (aj keď s varovaniami), zmažeme zdrojový súbor
+        if not result.get('error'):
+            try:
+                os.remove(path)
+            except Exception as ex:
+                print(f"Chyba pri mazaní súboru: {ex}")
+
+        if result.get('error'):
+            return jsonify(result), 500
+
+        return jsonify(result)
+
     except Exception as e:
-        print(">>> ERP SERVER IMPORT – nepodarilo sa zmazať súbor:", e)
-
-    return jsonify({"message": f"Import OK. Spracovaných: {processed}"})
-
+        print(">>> ERP SERVER IMPORT ERROR:", e)
+        return jsonify({'error': str(e)}), 500
 
    # =================================================================
 # === API: KANCELÁRIA – ERP / plánovanie / sklad / katalóg / kampane ...
