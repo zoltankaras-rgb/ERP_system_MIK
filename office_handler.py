@@ -5726,9 +5726,9 @@ def process_server_import_file():
 
 def process_erp_import_file(file_path):
     """
-    Načíta ZASOBA.CSV, aktualizuje nájdené položky a NENAJDENÉ vynuluje (Full Sync).
-    Ceny pri nenájdených položkách ponechá pôvodné.
-    Verzia s TRIM() a logovaním.
+    Načíta ZASOBA.CSV.
+    1. Aktualizuje nájdené položky.
+    2. Načíta všetky EANy z DB, porovná ich a tie čo chýbajú v CSV explicitne vynuluje.
     """
     import csv
 
@@ -5743,7 +5743,8 @@ def process_erp_import_file(file_path):
 
     processed = 0
     errors = 0
-    found_eans = set()
+    # Množina EANov, ktoré sme našli v súbore (budeme ich považovať za "živé")
+    found_eans_in_file = set()
 
     conn = None
     try:
@@ -5758,12 +5759,12 @@ def process_erp_import_file(file_path):
                 if ';' in l: is_fixed_width = False; delimiter = ';'; break
                 if ',' in l and 'REG_CIS' not in l: is_fixed_width = False; delimiter = ','; break
 
-        print(f"[ERP Import] Začiatok importu. Formát fixný: {is_fixed_width}")
-
         conn = db_connector.get_connection()
         cursor = conn.cursor()
 
-        # 2. Čítanie súboru a update nájdených
+        print(f"[ERP Import] Začiatok. Typ: {'Fixná šírka' if is_fixed_width else 'CSV'}")
+
+        # 2. Spracovanie súboru (UPDATE existujúcich)
         with open(file_path, 'r', encoding=encoding, errors='ignore') as f:
             if is_fixed_width:
                 for raw_line in f:
@@ -5775,17 +5776,17 @@ def process_erp_import_file(file_path):
                         ean_digits = _only_digits(ean_raw)
                         if not ean_digits: continue
 
+                        # Uložíme si čistý EAN
                         ean_full = ean_digits.rjust(13, '0')[-13:]
                         ean_short = ean_digits.lstrip('0') or ean_full
-
+                        
                         price = _parse_float(line[58:69]) if len(line) >= 69 else 0.0
                         qty = _parse_float(line[69:77]) if len(line) >= 77 else 0.0
 
-                        found_eans.add(ean_full)
-                        found_eans.add(ean_short)
-                        
-                        # Pridáme aj surový formát pre istotu
-                        found_eans.add(ean_digits)
+                        # Pridáme do zoznamu nájdených (všetky varianty, aby sme ich trafili pri porovnávaní)
+                        found_eans_in_file.add(ean_full)
+                        found_eans_in_file.add(ean_short)
+                        found_eans_in_file.add(ean_digits)
 
                         cursor.execute("UPDATE sklad SET mnozstvo=%s, nakupna_cena=%s WHERE ean=%s OR ean=%s", (qty, price, ean_full, ean_short))
                         cursor.execute("UPDATE produkty SET aktualny_sklad_finalny_kg=%s WHERE ean=%s OR ean=%s", (qty, ean_full, ean_short))
@@ -5811,46 +5812,58 @@ def process_erp_import_file(file_path):
                         qty = nums[-1] if len(nums) >= 1 else 0.0
                         price = nums[-2] if len(nums) >= 2 else 0.0
 
-                        found_eans.add(ean_full)
-                        found_eans.add(ean_short)
-                        found_eans.add(ean_digits)
+                        found_eans_in_file.add(ean_full)
+                        found_eans_in_file.add(ean_short)
+                        found_eans_in_file.add(ean_digits)
 
                         cursor.execute("UPDATE sklad SET mnozstvo=%s, nakupna_cena=%s WHERE ean=%s OR ean=%s", (qty, price, ean_full, ean_short))
                         cursor.execute("UPDATE produkty SET aktualny_sklad_finalny_kg=%s WHERE ean=%s OR ean=%s", (qty, ean_full, ean_short))
                         processed += 1
                     except: errors += 1
-
-        print(f"[ERP Import] Spracované riadky: {processed}. Nájdených unikátnych EANov: {len(found_eans)}")
-
-        # 3. FULL SYNC: Vynulovanie nenájdených (AGRESÍVNEJŠIE)
+        
+        # 3. LOGIKA "FULL SYNC" (Explicitné nulovanie)
+        # Namiesto SQL "NOT IN" si zistíme rozdiel v Pythone
+        
+        print(f"[ERP Import] Nájdených v súbore: {len(found_eans_in_file)} unikátnych EANov.")
+        
+        # A) Načítame VŠETKY EANy z databázy (sklad aj produkty)
+        cursor.execute("SELECT ean FROM sklad WHERE ean IS NOT NULL AND ean != ''")
+        db_eans_sklad = set(str(r[0]).strip() for r in cursor.fetchall())
+        
+        cursor.execute("SELECT ean FROM produkty WHERE ean IS NOT NULL AND ean != ''")
+        db_eans_produkty = set(str(r[0]).strip() for r in cursor.fetchall())
+        
+        # B) Zistíme, ktoré v súbore CHÝBAJÚ
+        # (To čo je v DB mínus to čo bolo v súbore)
+        missing_in_sklad = db_eans_sklad - found_eans_in_file
+        missing_in_produkty = db_eans_produkty - found_eans_in_file
+        
         zeroed_count = 0
-        if found_eans:
-            # Filtrujeme prázdne stringy, aby SQL nepadlo
-            clean_eans = [e for e in found_eans if e and e.strip()]
-            
-            if clean_eans:
-                format_strings = ','.join(['%s'] * len(clean_eans))
-                params = list(clean_eans)
 
-                # Používame TRIM(ean), aby sme odignorovali skryté medzery v databáze
-                print("[ERP Import] Spúšťam nulovanie skladu pre chýbajúce položky...")
-                
-                # A) Produkty
-                sql_prod = f"UPDATE produkty SET aktualny_sklad_finalny_kg = 0 WHERE TRIM(ean) NOT IN ({format_strings}) AND ean IS NOT NULL AND ean != ''"
-                cursor.execute(sql_prod, params)
-                z1 = cursor.rowcount
-                
-                # B) Sklad
-                sql_sklad = f"UPDATE sklad SET mnozstvo = 0 WHERE TRIM(ean) NOT IN ({format_strings}) AND ean IS NOT NULL AND ean != ''"
-                cursor.execute(sql_sklad, params)
-                z2 = cursor.rowcount
-                
-                zeroed_count = z1 + z2
-                print(f"[ERP Import] Vynulované: {zeroed_count} záznamov (produkty + sklad).")
-            else:
-                print("[ERP Import] POZOR: Zoznam clean_eans je prázdny, preskakujem nulovanie.")
-        else:
-            print("[ERP Import] POZOR: Žiadne EANy neboli nájdené v súbore, nulovanie sa nevykonalo (bezpečnosť).")
+        # C) Vynulovanie SKLAD
+        if missing_in_sklad:
+            # Dávkovanie po 1000 ks, aby sme nezabili SQL query limit
+            batch_size = 1000
+            missing_list = list(missing_in_sklad)
+            for i in range(0, len(missing_list), batch_size):
+                batch = missing_list[i:i+batch_size]
+                placeholders = ','.join(['%s'] * len(batch))
+                sql = f"UPDATE sklad SET mnozstvo = 0 WHERE ean IN ({placeholders})"
+                cursor.execute(sql, batch)
+            zeroed_count += len(missing_in_sklad)
+            print(f"[ERP Import] Vynulovaných {len(missing_in_sklad)} položiek v tabuľke 'sklad'.")
+
+        # D) Vynulovanie PRODUKTY
+        if missing_in_produkty:
+            batch_size = 1000
+            missing_list = list(missing_in_produkty)
+            for i in range(0, len(missing_list), batch_size):
+                batch = missing_list[i:i+batch_size]
+                placeholders = ','.join(['%s'] * len(batch))
+                sql = f"UPDATE produkty SET aktualny_sklad_finalny_kg = 0 WHERE ean IN ({placeholders})"
+                cursor.execute(sql, batch)
+            zeroed_count += len(missing_in_produkty)
+            print(f"[ERP Import] Vynulovaných {len(missing_in_produkty)} položiek v tabuľke 'produkty'.")
 
         conn.commit()
         return {
@@ -5866,5 +5879,3 @@ def process_erp_import_file(file_path):
         if conn and conn.is_connected():
             cursor.close()
             conn.close()
-
-    
