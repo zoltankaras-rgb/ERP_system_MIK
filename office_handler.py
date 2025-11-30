@@ -1108,7 +1108,7 @@ def get_avg_costs_catalog():
 def get_comprehensive_stock_view():
     """
     Prehľad finálnych produktov (centrálny sklad) + ceny.
-    OPRAVA: Cenu ťaháme z tabuľky 'sklad' (kde ju import nahral), nie z 'produkty'.
+    OPRAVA: Cenu prioritne ťaháme z tabuľky 'sklad' (kde ju nahral import).
     """
     # 1. SQL Dotaz - pridáme poddotaz na získanie ceny zo skladu
     q = """
@@ -1120,7 +1120,14 @@ def get_comprehensive_stock_view():
             p.vaha_balenia_g, 
             p.mj AS unit,
             -- TOTO JE ZMENA: Dotiahneme nákupnú cenu z tabuľky SKLAD (podľa EAN alebo Názvu)
-            (SELECT s.nakupna_cena FROM sklad s WHERE (s.ean = p.ean AND s.ean <> '') OR s.nazov = p.nazov_vyrobku LIMIT 1) AS sklad_cena,
+            (
+                SELECT s.nakupna_cena 
+                FROM sklad s 
+                WHERE (s.ean = p.ean AND s.ean <> '') 
+                   OR s.nazov = p.nazov_vyrobku 
+                ORDER BY s.nakupna_cena DESC 
+                LIMIT 1
+            ) AS sklad_cena,
             (
               SELECT ROUND(zv.celkova_cena_surovin / NULLIF(zv.realne_mnozstvo_kg, 0), 4)
               FROM zaznamy_vyroba zv
@@ -1158,7 +1165,7 @@ def get_comprehensive_stock_view():
         avg = (float(r['sum_cost_units'] or 0.0)/su) if su>0 else 0.0
         manuf_index[(r['pn'], r['mj'])] = avg
 
-    # nákupné best-effort cez EAN
+    # nákupné best-effort cez EAN (z príjmov)
     purchase_by_ean = _avg_purchase_costs_map_by_ean()
 
     grouped: Dict[str, List[Dict[str, Any]]] = {}
@@ -1172,7 +1179,7 @@ def get_comprehensive_stock_view():
         # Množstvo (ks/kg)
         qty = (qty_kg * 1000 / w) if unit == 'ks' and w > 0 else qty_kg
 
-        # Ceny
+        # Priemerné ceny
         manuf_avg = manuf_index.get((p['name'], unit), 0.0)
         purchase_avg = None
         if p['ean']:
@@ -1183,8 +1190,8 @@ def get_comprehensive_stock_view():
                     purchase_avg = base * (w/1000.0)
         
         # Priorita ceny pre zobrazenie v tabuľke: 
-        # 1. Nákupná cena zo skladu (tá z importu!)
-        # 2. Priemerná nákupná cena (z histórie)
+        # 1. Nákupná cena zo skladu (SKLAD_CENA - tá z importu!)
+        # 2. Priemerná nákupná cena (z histórie príjmov)
         # 3. Výrobná cena (ak je to výrobok)
         final_price = float(p.get('sklad_cena') or 0.0)
         
@@ -1207,7 +1214,7 @@ def get_comprehensive_stock_view():
             "category": p.get('category') or 'Nezaradené',
             "quantity": qty,
             "unit": unit,
-            "price": round(final_price, 4), # <--- TOTO je tá cena, ktorú web zobrazuje
+            "price": round(final_price, 4), # <--- TOTO JE CENA PRE WEB
             "sklad1": 0.0,
             "sklad2": qty_kg,
             "last_cost_per_kg": float(p.get('last_cost_per_kg') or 0.0),
