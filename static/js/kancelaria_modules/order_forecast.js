@@ -471,10 +471,20 @@ async function loadAndRenderPurchaseSuggestion() {
     
     let html = '';
     Object.keys(byCat).sort().forEach(h => {
-        html += `<h4>${h}</h4><div class="table-container"><table><thead><tr><th>Tovar</th><th>Sklad</th><th>Min</th><th>Návrh</th></tr></thead><tbody>`;
+        // PRIDANÝ STĹPEC CENA
+        html += `<h4>${h}</h4><div class="table-container"><table><thead><tr><th>Tovar</th><th>Sklad</th><th>Min</th><th>Cena</th><th>Návrh</th></tr></thead><tbody>`;
         byCat[h].forEach(i => {
             const isLow = (i.stock - i.reserved) < i.min_stock;
-            html += `<tr ${isLow?'style="background:#fff7ed"':''}><td>${escapeHtml(i.name)}</td><td>${i.stock} ${i.unit}</td><td>${i.min_stock}</td><td class="loss"><b>${i.suggestion}</b></td></tr>`;
+            // Formátovanie ceny
+            const priceStr = (i.price != null) ? Number(i.price).toFixed(2) + ' €' : '-';
+
+            html += `<tr ${isLow?'style="background:#fff7ed"':''}>
+                <td>${escapeHtml(i.name)}</td>
+                <td>${i.stock} ${i.unit}</td>
+                <td>${i.min_stock}</td>
+                <td>${priceStr}</td>
+                <td class="loss"><b>${i.suggestion}</b></td>
+            </tr>`;
         });
         html += `</tbody></table></div>`;
     });

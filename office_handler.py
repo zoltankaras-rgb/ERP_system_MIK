@@ -379,11 +379,10 @@ def get_7_day_order_forecast():
 def get_goods_purchase_suggestion():
     """
     Návrh nákupu tovaru podľa minimálnych zásob.
-    OPRAVA: Teraz berie reálny stav skladu z 'aktualny_sklad_finalny_kg'.
+    OPRAVA: Berie reálny stav skladu a NÁKUPNÚ CENU z tabuľky 'sklad'.
     """
     import math
 
-    # 1. Načítame produkty, ktoré majú nastavenú minimálnu zásobu
     sql = """
         SELECT
           p.ean,
@@ -394,7 +393,13 @@ def get_goods_purchase_suggestion():
           COALESCE(p.aktualny_sklad_finalny_kg, 0) AS stock_kg,
           COALESCE(p.minimalna_zasoba_kg, 0)       AS min_stock_kg,
           COALESCE(p.minimalna_zasoba_ks, 0)       AS min_stock_ks,
-          COALESCE(p.vaha_balenia_g, 0)            AS weight_g
+          COALESCE(p.vaha_balenia_g, 0)            AS weight_g,
+          -- Dotiahnutie ceny zo skladu
+          (SELECT s.nakupna_cena 
+             FROM sklad s 
+            WHERE (s.ean = p.ean AND s.ean <> '') OR s.nazov = p.nazov_vyrobku 
+            ORDER BY s.nakupna_cena DESC LIMIT 1
+          ) AS nakupna_cena
         FROM produkty p
         WHERE p.ean IS NOT NULL
           AND p.ean <> ''
@@ -406,46 +411,42 @@ def get_goods_purchase_suggestion():
     """
     rows = db_connector.execute_query(sql, fetch="all") or []
 
-    # 2. Prepočítame stavy (KG vs KS) a vypočítame návrh
     processed_rows = []
     
     for r in rows:
         unit = str(r.get('unit') or 'kg').lower()
         stock_kg = float(r.get('stock_kg') or 0.0)
         weight_g = float(r.get('weight_g') or 0.0)
+        price = float(r.get('nakupna_cena') or 0.0)
         
         current_stock = 0.0
         min_stock = 0.0
         
-        # Logika pre kusy vs kg
+        # Prepočet KS / KG
         if unit in ('ks', 'ks.', 'kus', 'pc', 'pcs'):
-            # Ak je tovar v kusoch, prepočítame kg na ks podľa váhy
             if weight_g > 0:
                 current_stock = math.floor((stock_kg * 1000) / weight_g)
             else:
-                current_stock = 0 # Nemáme váhu, nevieme vypočítať kusy
-            
+                current_stock = 0
             min_stock = float(r.get('min_stock_ks') or 0.0)
         else:
-            # Tovar v kg
             current_stock = stock_kg
             min_stock = float(r.get('min_stock_kg') or 0.0)
             
-        # Výpočet návrhu: (Minimum - Aktuálny stav)
-        # Ak je na sklade dosť, návrh je 0
+        # Výpočet návrhu
         suggestion = max(0, min_stock - current_stock)
         
-        # Pridáme do výsledku len ak máme min_stock nastavený
+        # Zobrazíme iba ak je nastavené minimum
         if min_stock > 0:
             r['stock'] = current_stock
             r['min_stock'] = min_stock
             r['suggestion'] = suggestion
-            r['reserved'] = 0 # Rezervácie zatiaľ neriešime (dashboard ich tiež má 0)
+            r['reserved'] = 0
+            r['price'] = price  # <--- Cena pre frontend
             
             processed_rows.append(r)
             
     return processed_rows
-
 
 
 # =================================================================
