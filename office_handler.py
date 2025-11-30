@@ -1092,20 +1092,27 @@ def get_avg_costs_catalog():
 def get_comprehensive_stock_view():
     """
     Prehľad finálnych produktov (centrálny sklad) + ceny.
-    OPRAVA: Zjednotenie názvu premennej na 'price', aby ju Python našiel.
+    OPRAVA: Cenu berie priamo z tabuľky PRODUKTY (stĺpec nakupna_cena), kam ju uložil import.
     """
+    # 1. SQL - pridáme p.nakupna_cena
     q = """
         SELECT
             p.ean, 
             p.nazov_vyrobku AS name, 
             p.predajna_kategoria AS category,
-            p.aktualny_sklad_finalny_kg AS stock_val,
+            p.aktualny_sklad_finalny_kg AS stock_kg, 
             p.vaha_balenia_g, 
             p.mj AS unit,
-            
-            -- TOTO BOLA CHYBA: Volalo sa to price_prod, ale kód hľadal 'price'
-            COALESCE(p.nakupna_cena, 0) AS price
-            
+            COALESCE(p.nakupna_cena, 0) AS price_card, -- <--- TOTO TU CHÝBALO
+            (
+              SELECT ROUND(zv.celkova_cena_surovin / NULLIF(zv.realne_mnozstvo_kg, 0), 4)
+              FROM zaznamy_vyroba zv
+              WHERE (zv.nazov_vyrobu = p.nazov_vyrobku OR zv.nazov_vyrobku = p.nazov_vyrobku)
+                AND zv.celkova_cena_surovin IS NOT NULL
+                AND zv.realne_mnozstvo_kg IS NOT NULL
+              ORDER BY COALESCE(zv.datum_ukoncenia, zv.datum_vyroby) DESC
+              LIMIT 1
+            ) AS last_cost_per_kg
         FROM produkty p
         WHERE p.typ_polozky = 'produkt' 
            OR p.typ_polozky LIKE 'VÝROBOK%%' 
@@ -1114,7 +1121,7 @@ def get_comprehensive_stock_view():
     """
     rows = db_connector.execute_query(q) or []
 
-    # Výrobné priemery (pre prípad, že v produkte nie je cena)
+    # centrálne výrobné priemery (fallback)
     zv = _zv_name_col()
     mc_rows = db_connector.execute_query(f"""
         SELECT TRIM(p.nazov_vyrobku) AS pn, p.mj AS mj,
@@ -1134,21 +1141,44 @@ def get_comprehensive_stock_view():
         avg = (float(r['sum_cost_units'] or 0.0)/su) if su>0 else 0.0
         manuf_index[(r['pn'], r['mj'])] = avg
 
+    # nákupné best-effort cez EAN (fallback)
+    purchase_by_ean = _avg_purchase_costs_map_by_ean()
+
     grouped: Dict[str, List[Dict[str, Any]]] = {}
     flat: List[Dict[str, Any]] = []
 
     for p in rows:
         unit = p.get('unit') or 'kg'
-        qty = float(p.get('stock_val') or 0.0)
+        qty_kg = float(p.get('stock_kg') or 0.0)
+        w = float(p.get('vaha_balenia_g') or 0.0)
+        
+        # Množstvo (ks/kg)
+        qty = (qty_kg * 1000 / w) if unit == 'ks' and w > 0 else qty_kg
 
-        # TERAZ UŽ NÁJDE CENU (lebo sa volá 'price' aj v SQL)
-        final_price = float(p.get('price') or 0.0)
-
-        # Ak je cena 0, skúsime dohľadať výrobnú cenu
+        # Fallbacky pre cenu
+        manuf_avg = manuf_index.get((p['name'], unit), 0.0)
+        purchase_avg = None
+        if p['ean']:
+            base = purchase_by_ean.get((p['ean'] or '').strip())
+            if base is not None:
+                purchase_avg = base
+                if unit == 'ks' and w > 0:
+                    purchase_avg = base * (w/1000.0)
+        
+        # PRIORITA CENY: 1. Cena z karty (import), 2. Priemer, 3. Výroba
+        final_price = float(p.get('price_card') or 0.0)
+        
         if final_price == 0:
-            manuf_avg = manuf_index.get((p['name'], unit), 0.0)
-            if manuf_avg:
+            if purchase_avg:
+                final_price = float(purchase_avg)
+            elif manuf_avg:
                 final_price = float(manuf_avg)
+            elif p.get('last_cost_per_kg'):
+                 lcp = float(p.get('last_cost_per_kg'))
+                 if unit == 'ks' and w > 0:
+                     final_price = lcp * (w/1000.0)
+                 else:
+                     final_price = lcp
 
         item = {
             "ean": p['ean'],
@@ -1156,11 +1186,12 @@ def get_comprehensive_stock_view():
             "category": p.get('category') or 'Nezaradené',
             "quantity": qty,
             "unit": unit,
-            "price": round(final_price, 4),
+            "price": round(final_price, 4), # <--- TOTO SA ZOBRAZÍ NA WEBE
             "sklad1": 0.0,
-            "sklad2": qty,
-            "avg_manufacturing_unit_cost": 0.0,
-            "avg_purchase_unit_cost": 0.0,
+            "sklad2": qty_kg,
+            "last_cost_per_kg": float(p.get('last_cost_per_kg') or 0.0),
+            "avg_manufacturing_unit_cost": round(float(manuf_avg), 4),
+            "avg_purchase_unit_cost": (None if purchase_avg is None else round(float(purchase_avg), 4)),
         }
         flat.append(item)
         grouped.setdefault(item['category'], []).append(item)
