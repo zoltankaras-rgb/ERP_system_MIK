@@ -1091,8 +1091,8 @@ def get_avg_costs_catalog():
 # =================================================================
 def get_comprehensive_stock_view():
     """
-    Celkový prehľad.
-    ZMENA: Číta 'nakupna_cena' LEN z tabuľky PRODUKTY.
+    Prehľad finálnych produktov (centrálny sklad) + ceny.
+    OPRAVA: Zjednotenie názvu premennej na 'price', aby ju Python našiel.
     """
     q = """
         SELECT
@@ -1102,7 +1102,10 @@ def get_comprehensive_stock_view():
             p.aktualny_sklad_finalny_kg AS stock_val,
             p.vaha_balenia_g, 
             p.mj AS unit,
-            COALESCE(p.nakupna_cena, 0) AS price_prod
+            
+            -- TOTO BOLA CHYBA: Volalo sa to price_prod, ale kód hľadal 'price'
+            COALESCE(p.nakupna_cena, 0) AS price
+            
         FROM produkty p
         WHERE p.typ_polozky = 'produkt' 
            OR p.typ_polozky LIKE 'VÝROBOK%%' 
@@ -1111,13 +1114,41 @@ def get_comprehensive_stock_view():
     """
     rows = db_connector.execute_query(q) or []
 
+    # Výrobné priemery (pre prípad, že v produkte nie je cena)
+    zv = _zv_name_col()
+    mc_rows = db_connector.execute_query(f"""
+        SELECT TRIM(p.nazov_vyrobku) AS pn, p.mj AS mj,
+               SUM((CASE WHEN p.mj='kg' THEN COALESCE(zv.realne_mnozstvo_kg,0)
+                         ELSE COALESCE(zv.realne_mnozstvo_ks,0) END)
+                   * COALESCE(zv.cena_za_jednotku,0)) AS sum_cost_units,
+               SUM(CASE WHEN p.mj='kg' THEN COALESCE(zv.realne_mnozstvo_kg,0)
+                        ELSE COALESCE(zv.realne_mnozstvo_ks,0) END) AS sum_units
+          FROM zaznamy_vyroba zv
+          JOIN produkty p ON TRIM(zv.{zv}) = TRIM(p.nazov_vyrobku)
+         WHERE COALESCE(zv.cena_za_jednotku,0) > 0
+         GROUP BY TRIM(p.nazov_vyrobku), p.mj
+    """) or []
+    manuf_index = {}
+    for r in mc_rows:
+        su = float(r['sum_units'] or 0.0)
+        avg = (float(r['sum_cost_units'] or 0.0)/su) if su>0 else 0.0
+        manuf_index[(r['pn'], r['mj'])] = avg
+
     grouped: Dict[str, List[Dict[str, Any]]] = {}
     flat: List[Dict[str, Any]] = []
 
     for p in rows:
         unit = p.get('unit') or 'kg'
         qty = float(p.get('stock_val') or 0.0)
-        final_price = float(p.get('price_prod') or 0.0)
+
+        # TERAZ UŽ NÁJDE CENU (lebo sa volá 'price' aj v SQL)
+        final_price = float(p.get('price') or 0.0)
+
+        # Ak je cena 0, skúsime dohľadať výrobnú cenu
+        if final_price == 0:
+            manuf_avg = manuf_index.get((p['name'], unit), 0.0)
+            if manuf_avg:
+                final_price = float(manuf_avg)
 
         item = {
             "ean": p['ean'],
