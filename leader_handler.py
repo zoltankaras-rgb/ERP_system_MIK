@@ -894,3 +894,52 @@ def leader_cut_jobs_cancel():
     if result.get('error'):
         return jsonify(result), 400
     return jsonify(result)
+@leader_bp.get('/b2b/search_products')
+@login_required(role=('veduci', 'admin'))
+def leader_b2b_search_products():
+    """
+    Vyhľadávanie v katalógu pre 'Ambulantný predaj'.
+    Vráti produkty s vypočítanou cenou (Nákupná cena + 25% marža).
+    """
+    q = (request.args.get('q') or '').strip()
+    if len(q) < 2:
+        return jsonify([])
+
+    # Hľadáme v tabuľke 'produkty'. 
+    # Predpokladáme, že nákupná cena je v stĺpci 'nakupna_cena'.
+    # Ak je nákupná cena NULL, použijeme 0.
+    sql = """
+        SELECT 
+            ean, 
+            nazov_vyrobku as name, 
+            mj, 
+            COALESCE(nakupna_cena, 0) as cost
+        FROM produkty 
+        WHERE LOWER(nazov_vyrobku) LIKE %s OR ean LIKE %s
+        LIMIT 20
+    """
+    like_q = f"%{q.lower()}%"
+    
+    try:
+        rows = db_connector.execute_query(sql, (like_q, like_q), fetch='all') or []
+    except Exception as e:
+        # Pre prípad, že by stĺpec nakupna_cena neexistoval v tabuľke produkty,
+        # skúsime fallback na tabuľku sklad (ak je to potrebné), alebo vrátime chybu.
+        print(f"Chyba pri vyhľadávaní produktov: {e}")
+        return jsonify([])
+    
+    out = []
+    for r in rows:
+        cost = float(r.get('cost') or 0)
+        
+        # VÝPOČET CENY: Nákupná cena * 1.25 (25% marža)
+        price_with_margin = cost * 1.25
+        
+        out.append({
+            'ean': r['ean'],
+            'name': r['name'],
+            'mj': r.get('mj') or 'kg', 
+            'price': round(price_with_margin, 2)  # Zaokrúhlené na 2 desatinné miesta
+        })
+        
+    return jsonify(out)

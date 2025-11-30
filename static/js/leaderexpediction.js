@@ -671,101 +671,134 @@ function boot(){
   loadDashboard();
 }
 
-// ================= AMBULANTNÝ PREDAJ (NOVÉ FUNKCIE) =================
+// ================= AMBULANTNÝ PREDAJ - FUNKCIE =================
 
-function addProductRow(product) {
-    const tb = $('#nb2b-items tbody');
-    if(!tb) return;
-    
-    const tr = document.createElement('tr');
-    // Predvolené množstvo kg namiesto ks
-    const mj = product.mj || 'kg';
-    
-    tr.innerHTML = `
-        <td><input class="nb2b-ean" value="${escapeHtml(product.ean || '')}"></td>
-        <td><input class="nb2b-name" value="${escapeHtml(product.name || '')}"></td>
-        <td><input class="nb2b-qty" type="number" step="0.001" min="0" value="1"></td>
-        <td><input class="nb2b-mj" value="${escapeHtml(mj)}" style="width:60px"></td>
-        <td><input class="nb2b-price" type="number" step="0.01" min="0" value="${product.price || 0}"></td>
-        <td><button class="btn btn-sm" data-del>×</button></td>
-    `;
-    tb.appendChild(tr);
-    tr.querySelector('[data-del]').onclick = () => tr.remove();
-    tr.querySelector('.nb2b-qty').focus(); // Focus na množstvo
-    showStatus('Položka pridaná.', false);
-}
+document.addEventListener('DOMContentLoaded', boot);
 
-function attachProductSearch() {
-    const input = $('#nb2b-product-search');
-    const results = $('#nb2b-search-results');
-    const ambulantCheck = $('#nb2b-ambulant');
-    const customerInput = $('#nb2b-name');
-    
-    if (!input || !results) return;
+  function addProductRow(product) {
+      const tb = $('#nb2b-items tbody');
+      if(!tb) return;
+      
+      const tr = document.createElement('tr');
+      
+      // Predvolené MJ: ak príde z DB 'ks', daj 'ks', inak 'kg'
+      const mj = product.mj || 'kg';
+      // Cena z DB (už s maržou 25%) alebo 0
+      const price = product.price || 0;
 
-    // 1. Prepínač Ambulantný predaj
-    if(ambulantCheck && customerInput) {
-        ambulantCheck.addEventListener('change', () => {
-            if (ambulantCheck.checked) {
-                customerInput.value = 'Ambulant';
-                __pickedCustomer = { id: null, name: 'Ambulant', code: 'AMB' }; // Dummy zákazník
-                // Skryjeme výber cenníka, ak je zobrazený
-                const plBox = $('#nb2b-pl-box');
-                if(plBox) plBox.style.display = 'none';
-            } else {
-                customerInput.value = '';
-                __pickedCustomer = null;
-            }
-        });
-    }
+      tr.innerHTML = `
+          <td><input class="nb2b-ean" value="${escapeHtml(product.ean || '')}"></td>
+          <td><input class="nb2b-name" value="${escapeHtml(product.name || '')}"></td>
+          <td><input class="nb2b-qty" type="number" step="0.001" min="0" value="1"></td>
+          <td><input class="nb2b-mj" value="${escapeHtml(mj)}" style="width:60px"></td>
+          <td><input class="nb2b-price" type="number" step="0.01" min="0" value="${price.toFixed(2)}"></td>
+          <td><button class="btn btn-sm" data-del style="background:#fee2e2; color:#dc2626; border:1px solid #fca5a5;">×</button></td>
+      `;
+      
+      // Pridáme riadok na začiatok (aby ho bolo hneď vidieť)
+      tb.insertBefore(tr, tb.firstChild);
+      
+      // Event pre zmazanie
+      tr.querySelector('[data-del]').onclick = () => tr.remove();
+      
+      // Automatický focus na množstvo, aby sa dalo hneď písať
+      const qtyInput = tr.querySelector('.nb2b-qty');
+      qtyInput.select(); 
+      
+      showStatus(`Pridané: ${product.name}`, false);
+  }
 
-    // 2. Vyhľadávanie produktov
-    let debounce = null;
-    input.addEventListener('input', () => {
-        const q = input.value.trim();
-        if (q.length < 2) { results.style.display = 'none'; return; }
-        
-        clearTimeout(debounce);
-        debounce = setTimeout(async () => {
-            results.innerHTML = '<div style="padding:8px;" class="muted">Hľadám...</div>';
-            results.style.display = 'block';
-            try {
-                const items = await apiRequest(`/api/leader/b2b/search_products?q=${encodeURIComponent(q)}`);
-                if (!items.length) {
-                    results.innerHTML = '<div style="padding:8px;" class="muted">Žiadne produkty.</div>';
-                    return;
-                }
-                
-                results.innerHTML = items.map(p => `
-                    <div class="product-search-item" data-json='${escapeHtml(JSON.stringify(p))}'>
-                        <div>
-                            <strong>${escapeHtml(p.name)}</strong>
-                            <div class="meta">${escapeHtml(p.ean)}</div>
-                        </div>
-                        <div>${p.mj}</div>
-                    </div>
-                `).join('');
+  function attachProductSearch() {
+      const input = $('#nb2b-product-search');
+      const results = $('#nb2b-search-results');
+      const ambulantCheck = $('#nb2b-ambulant');
+      const customerInput = $('#nb2b-name');
+      
+      if (!input || !results) return;
 
-                results.querySelectorAll('.product-search-item').forEach(div => {
-                    div.onclick = () => {
-                        const pData = JSON.parse(div.getAttribute('data-json'));
-                        addProductRow(pData);
-                        input.value = ''; // Vyčistiť pole
-                        results.style.display = 'none';
-                    };
-                });
+      // 1. Logika pre checkbox "Ambulantný predaj"
+      if(ambulantCheck && customerInput) {
+          ambulantCheck.addEventListener('change', () => {
+              if (ambulantCheck.checked) {
+                  customerInput.value = 'Ambulantný predaj';
+                  // Nastavíme globálnu premennú (z leaderexpediction.js), aby prešla validácia pri uložení
+                  __pickedCustomer = { id: null, name: 'Ambulantný predaj', code: 'AMB' };
+                  
+                  // Skryjeme výber cenníka (ak tam nejaký je), lebo používame katalóg
+                  const plBox = $('#nb2b-pl-box');
+                  if(plBox) plBox.style.display = 'none';
+              } else {
+                  customerInput.value = '';
+                  __pickedCustomer = null;
+              }
+          });
+      }
 
-            } catch(e) { console.error(e); results.style.display = 'none'; }
-        }, 300);
-    });
+      // 2. Našeptávač (Vyhľadávanie)
+      let debounce = null;
+      input.addEventListener('input', () => {
+          const q = input.value.trim();
+          
+          // Ak je prázdne, skry výsledky
+          if (q.length < 2) { 
+              results.style.display = 'none'; 
+              return; 
+          }
+          
+          clearTimeout(debounce);
+          debounce = setTimeout(async () => {
+              results.style.display = 'block';
+              results.innerHTML = '<div style="padding:10px; color:#666;">Hľadám...</div>';
+              
+              try {
+                  const items = await apiRequest(`/api/leader/b2b/search_products?q=${encodeURIComponent(q)}`);
+                  
+                  if (!items || !items.length) {
+                      results.innerHTML = '<div style="padding:10px; color:#999;">Žiadny produkt sa nenašiel.</div>';
+                      return;
+                  }
+                  
+                  results.innerHTML = items.map(p => `
+                      <div class="product-search-item" 
+                           style="padding:8px 12px; cursor:pointer; border-bottom:1px solid #eee; display:flex; justify-content:space-between; align-items:center;"
+                           onmouseover="this.style.background='#f3f4f6'" 
+                           onmouseout="this.style.background='white'"
+                           data-json='${escapeHtml(JSON.stringify(p))}'>
+                          <div>
+                              <div style="font-weight:600; color:#333;">${escapeHtml(p.name)}</div>
+                              <div style="font-size:0.85em; color:#888;">EAN: ${escapeHtml(p.ean)}</div>
+                          </div>
+                          <div style="text-align:right;">
+                              <div style="font-weight:bold; color:#16a34a;">${Number(p.price).toFixed(2)} €</div>
+                              <div style="font-size:0.8em; color:#666;">/ ${p.mj}</div>
+                          </div>
+                      </div>
+                  `).join('');
 
-    // Skryť pri kliknutí mimo
-    document.addEventListener('click', (e) => {
-        if (e.target !== input && !results.contains(e.target)) {
-            results.style.display = 'none';
-        }
-    });
-}
+                  // Click handler pre výsledky
+                  results.querySelectorAll('.product-search-item').forEach(div => {
+                      div.onclick = () => {
+                          const pData = JSON.parse(div.getAttribute('data-json'));
+                          addProductRow(pData);
+                          input.value = ''; // Vyčistiť pole po pridaní
+                          results.style.display = 'none';
+                          input.focus(); // Vrátiť focus na input pre ďalšie hľadanie? 
+                                         // Alebo radšej na qty riadku (to robí addProductRow)
+                       };
+                  });
 
-if (doc.readyState === 'loading') doc.addEventListener('DOMContentLoaded', boot); else boot();
-})(window, document);
+              } catch(e) { 
+                  console.error(e); 
+                  results.innerHTML = '<div style="padding:10px; color:red;">Chyba pripojenia.</div>';
+              }
+          }, 300); // Čaká 300ms kým dopíšeš
+      });
+
+      // Skryť výsledky, keď kliknem inde
+      document.addEventListener('click', (e) => {
+          if (e.target !== input && !results.contains(e.target)) {
+              results.style.display = 'none';
+          }
+      });
+  }
+  })(window, document);
