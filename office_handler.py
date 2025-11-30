@@ -379,16 +379,11 @@ def get_7_day_order_forecast():
 def get_goods_purchase_suggestion():
     """
     Návrh nákupu tovaru podľa minimálnych zásob.
-
-    Zatiaľ bez reálneho skladového stavu (nemáme tabuľku skladove_stavy):
-      - stock     = 0
-      - reserved  = 0
-      - suggestion = minimalna_zasoba_kg
-
-    Vracia všetky produkty z katalógu, ktoré majú:
-      - EAN
-      - a nastavenú minimálnu zásobu (minimalna_zasoba_kg > 0)
+    OPRAVA: Teraz berie reálny stav skladu z 'aktualny_sklad_finalny_kg'.
     """
+    import math
+
+    # 1. Načítame produkty, ktoré majú nastavenú minimálnu zásobu
     sql = """
         SELECT
           p.ean,
@@ -396,22 +391,60 @@ def get_goods_purchase_suggestion():
           p.typ_polozky,
           p.predajna_kategoria,
           p.mj AS unit,
-          0                                  AS stock,
-          COALESCE(p.minimalna_zasoba_kg, 0) AS min_stock,
-          0                                  AS reserved,
-          COALESCE(p.minimalna_zasoba_kg, 0) AS suggestion
+          COALESCE(p.aktualny_sklad_finalny_kg, 0) AS stock_kg,
+          COALESCE(p.minimalna_zasoba_kg, 0)       AS min_stock_kg,
+          COALESCE(p.minimalna_zasoba_ks, 0)       AS min_stock_ks,
+          COALESCE(p.vaha_balenia_g, 0)            AS weight_g
         FROM produkty p
         WHERE p.ean IS NOT NULL
           AND p.ean <> ''
-          AND COALESCE(p.minimalna_zasoba_kg, 0) > 0
+          AND (COALESCE(p.minimalna_zasoba_kg, 0) > 0 OR COALESCE(p.minimalna_zasoba_ks, 0) > 0)
         ORDER BY
           p.typ_polozky,
           p.predajna_kategoria,
           p.nazov_vyrobku
     """
     rows = db_connector.execute_query(sql, fetch="all") or []
-    return rows
 
+    # 2. Prepočítame stavy (KG vs KS) a vypočítame návrh
+    processed_rows = []
+    
+    for r in rows:
+        unit = str(r.get('unit') or 'kg').lower()
+        stock_kg = float(r.get('stock_kg') or 0.0)
+        weight_g = float(r.get('weight_g') or 0.0)
+        
+        current_stock = 0.0
+        min_stock = 0.0
+        
+        # Logika pre kusy vs kg
+        if unit in ('ks', 'ks.', 'kus', 'pc', 'pcs'):
+            # Ak je tovar v kusoch, prepočítame kg na ks podľa váhy
+            if weight_g > 0:
+                current_stock = math.floor((stock_kg * 1000) / weight_g)
+            else:
+                current_stock = 0 # Nemáme váhu, nevieme vypočítať kusy
+            
+            min_stock = float(r.get('min_stock_ks') or 0.0)
+        else:
+            # Tovar v kg
+            current_stock = stock_kg
+            min_stock = float(r.get('min_stock_kg') or 0.0)
+            
+        # Výpočet návrhu: (Minimum - Aktuálny stav)
+        # Ak je na sklade dosť, návrh je 0
+        suggestion = max(0, min_stock - current_stock)
+        
+        # Pridáme do výsledku len ak máme min_stock nastavený
+        if min_stock > 0:
+            r['stock'] = current_stock
+            r['min_stock'] = min_stock
+            r['suggestion'] = suggestion
+            r['reserved'] = 0 # Rezervácie zatiaľ neriešime (dashboard ich tiež má 0)
+            
+            processed_rows.append(r)
+            
+    return processed_rows
 
 
 
@@ -1073,11 +1106,19 @@ def get_avg_costs_catalog():
 # =================================================================
 
 def get_comprehensive_stock_view():
-    """Prehľad finálnych produktov (centrálny sklad) + priemery cien (výrobné/nákupné)."""
+    """
+    Prehľad finálnych produktov (centrálny sklad) + ceny.
+    OPRAVA: Teraz zahrňuje aj nákupnú cenu (p.nakupna_cena) a posiela ju ako 'price'.
+    """
     q = """
         SELECT
-            p.ean, p.nazov_vyrobku AS name, p.predajna_kategoria AS category,
-            p.aktualny_sklad_finalny_kg AS stock_kg, p.vaha_balenia_g, p.mj AS unit,
+            p.ean, 
+            p.nazov_vyrobku AS name, 
+            p.predajna_kategoria AS category,
+            p.aktualny_sklad_finalny_kg AS stock_kg, 
+            p.vaha_balenia_g, 
+            p.mj AS unit,
+            p.nakupna_cena, -- <--- TOTO TU CHÝBALO
             (
               SELECT ROUND(zv.celkova_cena_surovin / NULLIF(zv.realne_mnozstvo_kg, 0), 4)
               FROM zaznamy_vyroba zv
@@ -1088,7 +1129,9 @@ def get_comprehensive_stock_view():
               LIMIT 1
             ) AS last_cost_per_kg
         FROM produkty p
-        WHERE p.typ_polozky = 'produkt' OR p.typ_polozky LIKE 'VÝROBOK%%' OR p.typ_polozky LIKE 'TOVAR%%'
+        WHERE p.typ_polozky = 'produkt' 
+           OR p.typ_polozky LIKE 'VÝROBOK%%' 
+           OR p.typ_polozky LIKE 'TOVAR%%'
         ORDER BY category, name
     """
     rows = db_connector.execute_query(q) or []
@@ -1123,8 +1166,11 @@ def get_comprehensive_stock_view():
         unit = p.get('unit') or 'kg'
         qty_kg = float(p.get('stock_kg') or 0.0)
         w = float(p.get('vaha_balenia_g') or 0.0)
+        
+        # Množstvo (ks/kg)
         qty = (qty_kg * 1000 / w) if unit == 'ks' and w > 0 else qty_kg
 
+        # Ceny
         manuf_avg = manuf_index.get((p['name'], unit), 0.0)
         purchase_avg = None
         if p['ean']:
@@ -1133,6 +1179,24 @@ def get_comprehensive_stock_view():
                 purchase_avg = base
                 if unit == 'ks' and w > 0:
                     purchase_avg = base * (w/1000.0)
+        
+        # Priorita ceny pre zobrazenie v tabuľke: 
+        # 1. Explicitná nákupná cena z karty
+        # 2. Priemerná nákupná cena (z histórie)
+        # 3. Výrobná cena (ak je to výrobok)
+        final_price = float(p.get('nakupna_cena') or 0.0)
+        if final_price == 0:
+            if purchase_avg:
+                final_price = float(purchase_avg)
+            elif manuf_avg:
+                final_price = float(manuf_avg)
+            elif p.get('last_cost_per_kg'):
+                 # fallback na poslednú výrobu
+                 lcp = float(p.get('last_cost_per_kg'))
+                 if unit == 'ks' and w > 0:
+                     final_price = lcp * (w/1000.0)
+                 else:
+                     final_price = lcp
 
         item = {
             "ean": p['ean'],
@@ -1140,6 +1204,7 @@ def get_comprehensive_stock_view():
             "category": p.get('category') or 'Nezaradené',
             "quantity": qty,
             "unit": unit,
+            "price": round(final_price, 4), # <--- TOTO potrebuje stock.js
             "sklad1": 0.0,
             "sklad2": qty_kg,
             "last_cost_per_kg": float(p.get('last_cost_per_kg') or 0.0),
@@ -1150,8 +1215,6 @@ def get_comprehensive_stock_view():
         grouped.setdefault(item['category'], []).append(item)
 
     return {"products": flat, "groupedByCategory": grouped}
-
-
 # =================================================================
 # === CENNÍKY / PROMO (predvolené ceny) ============================
 # =================================================================
