@@ -469,11 +469,13 @@
   }
 
   async function saveManualB2B(){
+    // 1. Zber dát
     const odberatel = safeStr($('#nb2b-name').value);
     const datum_dodania= $('#nb2b-date').value || todayISO();
     const poznamka = safeStr($('#nb2b-note').value);
     const tb = $('#nb2b-items tbody'); 
     const items=[];
+    
     $$('.nb2b-ean', tb).forEach((e,i)=>{
       const ean = safeStr(e.value);
       const name = safeStr($$('.nb2b-name', tb)[i].value);
@@ -495,17 +497,17 @@
           body.customer_id = __pickedCustomer.id;
       }
 
+      // 2. Uloženie
       const res = await apiRequest('/api/leader/b2b/orders', { method:'POST', body });
-      if (!res?.order_id){ showStatus('Server nevrátil ID objednávky.', true); return; }
+      if (!res?.order_id){ showStatus('Server nevrátil ID.', true); return; }
 
-      // PRE AMBULANT (ID 255) NEPOSIELAME MAIL
-      if (Number(body.customer_id) !== 255) {
-          await apiRequest(`/api/leader/b2b/notify_order`, { method:'POST', body:{ order_id: res.order_id } }).catch(()=>{});
-          showStatus('Objednávka uložená a odoslaná.', false); 
-      } else {
-          showStatus('Ambulantná objednávka uložená (bez notifikácie).', false); 
-      }
+      // 3. Notifikácia (CSV na sklad) - VOLÁME VŽDY
+      // Backend sa postará o to, že zákazníkovi 255 sa mail nepošle
+      await apiRequest(`/api/leader/b2b/notify_order`, { method:'POST', body:{ order_id: res.order_id } }).catch(()=>{});
+      
+      showStatus('Objednávka uložená a CSV odoslané.', false); 
 
+      // 4. Reset
       $$('[data-section="leader-b2b"]')[0]?.click(); 
       loadB2B();
     } catch(e){ showStatus(e.message||String(e), true); }
