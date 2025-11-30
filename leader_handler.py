@@ -311,98 +311,102 @@ def leader_dashboard():
 def leader_b2c_orders():
     """
     Zoznam B2C objednávok pre Vedúceho expedície.
-
-    Predb. suma:
-      - najprv z DB (predpokladana_suma_s_dph / suma_s_dph / total_s_dph / total_gross),
-      - ak je None alebo 0, spočíta sa z položiek (polozky_json) podľa price_s_dph * quantity.
-
-    Finálna suma:
-      - z DB (celkova_suma_s_dph / finalna_suma_s_dph / finalna_suma / final_total_s_dph / suma_s_dph / total_s_dph).
+    OPRAVA: Pripája tabuľku b2b_zakaznici cez LEFT JOIN, aby sme vždy mali meno zákazníka.
     """
     d = _d(request.args.get('date'))
-    date_col = _pick_col('b2c_objednavky', ['pozadovany_datum_dodania', 'datum_objednavky'])
+    
+    # Zistíme, ktorý stĺpec v b2c_objednavky je dátum dodania (pre WHERE klauzulu)
+    date_col = _pick_col('b2c_objednavky', ['pozadovany_datum_dodania', 'datum_dodania', 'datum_objednavky']) or 'id'
 
-    if date_col:
-        rows = db_connector.execute_query(
-            f"SELECT * FROM b2c_objednavky WHERE DATE({date_col})=%s "
-            f"ORDER BY {date_col} DESC, id DESC",
-            (d,),
-            fetch="all",
-        ) or []
-    else:
-        rows = db_connector.execute_query(
-            "SELECT * FROM b2c_objednavky ORDER BY id DESC LIMIT 200",
-            fetch="all",
-        ) or []
+    # SQL Dotaz s JOINom na zákazníka
+    # Používame alias 'o' pre objednávky a 'z' pre zákazníkov
+    sql = f"""
+        SELECT 
+            o.*,
+            COALESCE(z.nazov_firmy, z.email, o.nazov_firmy) as resolved_name
+        FROM b2c_objednavky o
+        LEFT JOIN b2b_zakaznici z ON o.zakaznik_id = z.zakaznik_id
+        WHERE DATE(o.{date_col}) = %s 
+        ORDER BY o.{date_col} DESC, o.id DESC
+    """
+    
+    # Ak by tabuľka b2b_zakaznici neexistovala (veľmi nepravdepodobné), fallback na jednoduchý select
+    if not _table_exists('b2b_zakaznici'):
+        sql = f"SELECT *, nazov_firmy as resolved_name FROM b2c_objednavky WHERE DATE({date_col}) = %s ORDER BY {date_col} DESC"
 
-    # ktoré stĺpce použijeme
+    try:
+        rows = db_connector.execute_query(sql, (d,), fetch="all") or []
+    except Exception as e:
+        # Fallback ak zlyhá SQL syntax (napr. neexistujúce stĺpce)
+        print(f"Leader B2C Error: {e}")
+        rows = []
+
+    # Zistíme názvy stĺpcov pre sumy a položky (pre robustnosť)
     pred_col = _pick_col('b2c_objednavky', ['predpokladana_suma_s_dph', 'suma_s_dph', 'total_s_dph', 'total_gross'])
-    fin_col  = _pick_col('b2c_objednavky', ['celkova_suma_s_dph', 'finalna_suma_s_dph', 'finalna_suma',
-                                            'final_total_s_dph', 'suma_s_dph', 'total_s_dph'])
+    fin_col  = _pick_col('b2c_objednavky', ['celkova_suma_s_dph', 'finalna_suma_s_dph', 'finalna_suma', 'total_s_dph'])
     items_col = _pick_col('b2c_objednavky', ['polozky_json', 'polozky', 'items'])
-    name_col  = _pick_col('b2c_objednavky', ['nazov_firmy', 'customer_name', 'zakaznik_meno'])
 
     out = []
 
     for r in rows:
-        # --- predbežná suma z DB
+        # --- 1. Meno zákazníka (z JOINu alebo fallback) ---
+        cust_name = r.get('resolved_name') or r.get('nazov_firmy') or r.get('email') or 'Neznámy zákazník'
+
+        # --- 2. Predbežná suma ---
         pred = None
         if pred_col:
             try:
                 val = r.get(pred_col)
-                if val is not None:
-                    pred = float(val)
-            except Exception:
-                pred = None
+                if val is not None: pred = float(val)
+            except: pass
 
-        # --- ak je 0 alebo None, spočítaj ju z položiek (price_s_dph * quantity)
-        if not pred or pred <= 0:
+        # Ak nemáme sumu v DB, spočítame ju z JSON položiek
+        if (not pred or pred <= 0):
             try:
-                raw_items = r.get(items_col) if items_col else None
+                raw_items = r.get(items_col)
                 if isinstance(raw_items, str):
                     items = json.loads(raw_items or "[]")
                 elif isinstance(raw_items, list):
                     items = raw_items
                 else:
                     items = []
+                
                 gross = 0.0
                 for it in items:
-                    if not isinstance(it, dict):
-                        continue
-                    q = float(it.get("quantity") or it.get("mnozstvo") or 0) or 0.0
-                    price = float(it.get("price_s_dph") or it.get("cena_s_dph") or 0) or 0.0
+                    if not isinstance(it, dict): continue
+                    # Podpora rôznych kľúčov (quantity/mnozstvo, price_s_dph/cena_s_dph)
+                    q = float(it.get("quantity") or it.get("mnozstvo") or 0)
+                    price = float(it.get("price_s_dph") or it.get("cena_s_dph") or 0)
                     if q > 0 and price > 0:
                         gross += q * price
-                if gross > 0:
-                    pred = round(gross, 2)
-            except Exception:
-                pass
+                
+                if gross > 0: pred = round(gross, 2)
+            except: pass
 
-        # --- finálna suma z DB
+        # --- 3. Finálna suma ---
         fin = None
         if fin_col:
             try:
                 val = r.get(fin_col)
-                if val is not None:
+                if val is not None and float(val) > 0:
                     fin = float(val)
-            except Exception:
-                fin = None
+            except: pass
 
+        # Výstup pre frontend
         out.append({
             "id": r.get("id"),
-            "cislo_objednavky": r.get("cislo_objednavky") or r.get("id"),
+            "cislo_objednavky": r.get("cislo_objednavky") or str(r.get("id")),
             "datum_objednavky": _iso(r.get("datum_objednavky")),
             "pozadovany_datum_dodania": _iso(r.get("pozadovany_datum_dodania")),
             "predpokladana_suma_s_dph": pred,
             "finalna_suma_s_dph": fin,
             "stav": r.get("stav") or "",
-            "zakaznik_meno": r.get(name_col) or "",
-            "nazov_firmy": r.get(name_col) or "",
+            "zakaznik_meno": cust_name,  # <--- TOTO JE OPRAVENÉ POLE
+            "nazov_firmy": cust_name,    # <--- PRE ISTOTU AJ TOTO
             "polozky_json": r.get(items_col) or "[]",
         })
 
     return jsonify(out)
-
 
 @leader_bp.get('/b2b/orders')
 @login_required(role=('veduci','admin'))
