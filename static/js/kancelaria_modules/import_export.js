@@ -26,7 +26,6 @@
                 </button>
             </div>
 
-            <!-- STATUS PANEL -->
             <div style="display:grid; grid-template-columns: 1fr 1fr; gap:1rem; margin-top:1rem; background:#f8fafc; padding:12px; border-radius:6px; border:1px solid #e2e8f0;">
                 <div>
                     <strong style="color:#0f172a">Export (VYROBKY.CSV)</strong><br>
@@ -41,11 +40,9 @@
 
         <div class="dashboard-grid" style="grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 1.5rem;">
             
-            <!-- KARTA IMPORT -->
             <div class="stat-card">
                 <h4><i class="fas fa-file-import"></i> Import Skladu</h4>
                 
-                <!-- Možnosť A: Zo servera -->
                 <div style="background:#f0fdf4; padding:12px; border-radius:6px; margin-bottom:15px; border:1px solid #bbf7d0;">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;">
                         <strong style="color:#166534">A. Zo servera (Sync)</strong>
@@ -59,7 +56,6 @@
                     </button>
                 </div>
 
-                <!-- Možnosť B: Upload -->
                 <div style="border-top:1px solid #eee; padding-top:12px;">
                     <strong style="color:#334155">B. Nahrať z počítača</strong>
                     <div class="form-group" style="margin-top:8px; margin-bottom:8px;">
@@ -71,7 +67,6 @@
                 <div id="import-status" style="margin-top:10px; font-weight:bold; color:#166534; font-size:0.9em; min-height:1.2em;"></div>
             </div>
 
-            <!-- KARTA EXPORT -->
             <div class="stat-card">
                 <h4><i class="fas fa-file-export"></i> Export Cien</h4>
                 <p class="small text-muted">
@@ -88,8 +83,7 @@
                 </p>
             </div>
 
-            <!-- KARTA NASTAVENIA -->
-            <div class="stat-card" style="grid-column: 1 / -1;">
+            <div class="stat-card">
                 <h4><i class="fas fa-clock"></i> Automatický Export</h4>
                 <div class="form-grid" style="grid-template-columns: 1fr 1fr 1fr; gap: 1rem; align-items:end;">
                     <div class="form-group">
@@ -108,8 +102,69 @@
                     </div>
                 </div>
             </div>
+
+            <div class="stat-card" style="grid-column: 1 / -1; border-top: 4px solid #64748b;">
+                <h4><i class="fas fa-list-ul"></i> Denník posledných operácií</h4>
+                <div class="table-responsive">
+                    <table class="table table-sm table-striped" style="font-size:0.9em;">
+                        <thead>
+                            <tr>
+                                <th width="150">Čas</th>
+                                <th>Akcia</th>
+                                <th width="100">Stav</th>
+                            </tr>
+                        </thead>
+                        <tbody id="erp-log-tbody">
+                            <tr><td colspan="3" class="text-center text-muted">Načítavam...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
         </div>
       `;
+
+      // --- LOG FUNKCIE ---
+      function addLog(action, status) {
+          try {
+              let logs = JSON.parse(localStorage.getItem('erp_sync_logs') || '[]');
+              const now = new Date();
+              const timeStr = now.getDate() + "." + (now.getMonth()+1) + ". " + 
+                              now.getHours().toString().padStart(2, '0') + ":" + 
+                              now.getMinutes().toString().padStart(2, '0');
+              
+              logs.unshift({ time: timeStr, action: action, status: status });
+              if (logs.length > 5) logs.length = 5; // Len posledných 5
+              
+              localStorage.setItem('erp_sync_logs', JSON.stringify(logs));
+              renderLogs();
+          } catch(e) { console.error(e); }
+      }
+
+      function renderLogs() {
+          const tbody = document.getElementById('erp-log-tbody');
+          if (!tbody) return;
+          
+          const logs = JSON.parse(localStorage.getItem('erp_sync_logs') || '[]');
+          if (logs.length === 0) {
+              tbody.innerHTML = '<tr><td colspan="3" class="text-center text-muted">Žiadne záznamy</td></tr>';
+              return;
+          }
+
+          tbody.innerHTML = logs.map(l => {
+              const color = l.status === 'OK' ? 'green' : (l.status.includes('Chyba') ? 'red' : 'orange');
+              return `
+                <tr>
+                    <td>${l.time}</td>
+                    <td>${l.action}</td>
+                    <td style="color:${color}; font-weight:bold;">${l.status}</td>
+                </tr>
+              `;
+          }).join('');
+      }
+
+      // Spustiť pri otvorení
+      renderLogs();
+
 
       // --- LOGIKA STAVU ---
       async function loadStatus() {
@@ -167,9 +222,11 @@
               if(d.error) throw new Error(d.error);
               
               alert(d.message);
+              addLog("Import (Server)", "OK"); // ZÁPIS DO LOGU
               document.getElementById('import-status').innerText = "Import OK: " + new Date().toLocaleTimeString();
               loadStatus(); // Obnoviť, lebo súbor sa asi zmazal/spracoval
           } catch(e) {
+              addLog("Import (Server)", "Chyba"); // ZÁPIS DO LOGU
               alert("Chyba: " + e.message);
           } finally {
               btn.innerHTML = '<i class="fas fa-server"></i> Spracovať súbor zo servera';
@@ -192,18 +249,31 @@
           try {
               const res = await fetch('/api/erp/manual-import', { method:'POST', body:fd });
               const data = await res.json();
-              alert(data.message || (data.error ? "Chyba: "+data.error : "Hotovo"));
-              if(!data.error) document.getElementById('import-status').innerText = "Import OK: " + new Date().toLocaleTimeString();
-          } catch(e) { alert("Chyba importu: " + e); }
+              
+              if(!data.error) {
+                  alert(data.message || "Hotovo");
+                  addLog("Import (Upload)", "OK"); // ZÁPIS DO LOGU
+                  document.getElementById('import-status').innerText = "Import OK: " + new Date().toLocaleTimeString();
+              } else {
+                  throw new Error(data.error);
+              }
+          } catch(e) { 
+              addLog("Import (Upload)", "Chyba"); // ZÁPIS DO LOGU
+              alert("Chyba importu: " + e); 
+          }
           finally { btn.innerHTML = '<i class="fas fa-upload"></i> Nahrať a spracovať'; }
       };
 
       // 3. Export
       document.getElementById('btn-manual-export').onclick = async () => {
+          addLog("Export (Manuálny)", "Spustený"); // ZÁPIS DO LOGU
           // Najprv stiahnuť (to triggeruje generovanie na serveri)
           window.location.href = '/api/erp/manual-export';
           // Po chvíľke obnoviť status, aby sme videli nový čas exportu
-          setTimeout(loadStatus, 2000);
+          setTimeout(() => {
+              loadStatus();
+              addLog("Export (Manuálny)", "OK"); // Optimistický zápis po 2s
+          }, 2000);
       };
 
       // 4. Settings
@@ -219,6 +289,7 @@
                   body: JSON.stringify(payload)
               });
               alert("Nastavenia uložené.");
+              addLog("Zmena nastavení", "OK"); // ZÁPIS DO LOGU
           } catch(e) { alert("Chyba: " + e); }
       };
   }
