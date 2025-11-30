@@ -616,10 +616,7 @@ def leader_b2b_update_order():
 def leader_b2b_notify_order():
     """
     Odošle notifikácie (PDF/CSV).
-    ÚPRAVA PRE AMBULANT: 
-    1. Pre ID 255 nastaví meno na "255 - [Zadané Meno]".
-    2. Expedícii pošle PDF aj CSV.
-    3. Zákazníkovi s ID 255 nepošle nič (lebo nemá email).
+    ÚPRAVA: Pre ID 255 natvrdo nastaví meno v PDF na "255 - [Manuálne meno]".
     """
     data = request.get_json(silent=True) or {}
     order_id = data.get('order_id')
@@ -645,28 +642,65 @@ def leader_b2b_notify_order():
         cust_email = (row or {}).get('email')
 
     # 2) Priprav dáta pre PDF generátor
+    payload = {}
     try:
         from b2b_handler import build_order_pdf_payload_admin
         payload = build_order_pdf_payload_admin(int(order_id))
-        
-        # --- ŠPECIÁLNA ÚPRAVA PRE AMBULANT (ID 255) ---
-        # Ak je ID 255, do PDF dáme formát "255 - Meno Firmy"
-        if str(head.get('zakaznik_id')) == '255':
-            manual_name = head.get('nazov_firmy') or ""
-            # V PDF to bude vyzerať ako "255 - Jožko Mrkvička"
-            payload['customer_name'] = f"255 - {manual_name}"
-        elif head.get('nazov_firmy'):
-            payload['customer_name'] = head['nazov_firmy']
-            
     except Exception:
-        # Fallback ak zlyhá import buildera
-        return jsonify({'error': 'Chyba pri príprave dát pre PDF.'}), 500
+        # Fallback ak zlyhá import buildera (vyskladáme ručne)
+        items = db_connector.execute_query(
+            "SELECT ean_produktu, nazov_vyrobku, mnozstvo, mj, dph, cena_bez_dph "
+            "FROM b2b_objednavky_polozky WHERE objednavka_id=%s ORDER BY id", (order_id,)
+        ) or []
+        total_net = sum(float((it.get('cena_bez_dph') or 0)) * float((it.get('mnozstvo') or 0)) for it in items)
+        total_vat = sum(
+            float((it.get('cena_bez_dph') or 0)) * float((it.get('mnozstvo') or 0)) * (abs(float(it.get('dph') or 0))/100.0)
+            for it in items
+        )
+        delivery = head.get('pozadovany_datum_dodania')
+        if isinstance(delivery, (datetime, date)):
+            delivery = delivery.strftime("%Y-%m-%d")
+            
+        payload = {
+            "order_number": head['cislo'],
+            "customer_address": head.get("adresa") or "",
+            "delivery_date": delivery or "",
+            "note": "",
+            "items": [{
+                "ean": it.get("ean_produktu"),
+                "name": it.get("nazov_vyrobku"),
+                "quantity": float(it.get("mnozstvo") or 0),
+                "unit": it.get("mj") or "ks",
+                "price": float(it.get("cena_bez_dph") or 0),
+                "dph": abs(float(it.get("dph") or 0))
+            } for it in items],
+            "totalNet": total_net,
+            "totalVat": total_vat,
+            "totalWithVat": total_net + total_vat,
+        }
+
+    # --- KĽÚČOVÁ OPRAVA: PREPÍSANIE MENA PRE PDF ---
+    # Toto zabezpečí, že sa tam zobrazí to, čo ste napísali do objednávky
+    
+    manual_name = head.get('nazov_firmy') or ""
+    zakaznik_id_str = str(head.get('zakaznik_id') or "")
+
+    if zakaznik_id_str == '255':
+        # Pre ID 255 spojíme ID a meno
+        display_name = f"255 - {manual_name}"
+    else:
+        # Pre ostatných použijeme meno z objednávky (alebo ak je prázdne, tak z payloadu)
+        display_name = manual_name if manual_name else payload.get('customer_name', '')
+
+    # Nastavíme to do oboch kľúčov, ktoré PDF generátor používa
+    payload['customer_name'] = display_name
+    payload['customerName'] = display_name
 
     # 3) Vygeneruj PDF + CSV
     try:
         # CSV názov: 255_Meno_Datum.csv
-        safe_name = "".join(x for x in str(payload.get('customer_name','')) if x.isalnum())
-        csv_fname = f"{head.get('zakaznik_id')}_{safe_name}_{datetime.now().strftime('%Y%m%d%H%M')}.csv"
+        safe_name = "".join(x for x in manual_name if x.isalnum())
+        csv_fname = f"{zakaznik_id_str}_{safe_name}_{datetime.now().strftime('%Y%m%d%H%M')}.csv"
         
         pdf_bytes, csv_bytes, _ = pdf_generator.create_order_files(payload)
     except Exception as e:
@@ -675,7 +709,7 @@ def leader_b2b_notify_order():
     # 4) Odoslanie e-mailov
     expedition_email = os.getenv("B2B_EXPEDITION_EMAIL") or "miksroexpedicia@gmail.com"
 
-    # A) Zákazník - pre 255 sa nepošle (lebo cust_email je None)
+    # A) Zákazník - len ak má email (pri ID 255 bude cust_email None, takže sa nepošle)
     if cust_email:
         try:
             notification_handler.send_order_confirmation_email(
