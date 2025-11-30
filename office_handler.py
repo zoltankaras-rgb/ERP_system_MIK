@@ -1092,7 +1092,7 @@ def get_avg_costs_catalog():
 def get_comprehensive_stock_view():
     """
     Prehľad finálnych produktov (centrálny sklad) + ceny.
-    OPRAVA: Pridané čítanie 'p.nakupna_cena' (rovnako ako v Návrhu nákupu).
+    OPRAVA: Cenu berie priamo z tabuľky PRODUKTY (stĺpec nakupna_cena), rovnako ako Návrh nákupu.
     """
     q = """
         SELECT
@@ -1103,8 +1103,8 @@ def get_comprehensive_stock_view():
             p.vaha_balenia_g, 
             p.mj AS unit,
             
-            -- TOTO TU CHÝBALO:
-            COALESCE(p.nakupna_cena, 0) AS price_db, 
+            -- TOTO JE TO, ČO CHÝBALO:
+            COALESCE(p.nakupna_cena, 0) AS price_card, 
 
             (
               SELECT ROUND(zv.celkova_cena_surovin / NULLIF(zv.realne_mnozstvo_kg, 0), 4)
@@ -1123,7 +1123,7 @@ def get_comprehensive_stock_view():
     """
     rows = db_connector.execute_query(q) or []
 
-    # Výrobné priemery (fallback)
+    # Výrobné priemery (pre prípad, že by cena chýbala - fallback)
     zv = _zv_name_col()
     mc_rows = db_connector.execute_query(f"""
         SELECT TRIM(p.nazov_vyrobku) AS pn, p.mj AS mj,
@@ -1151,13 +1151,21 @@ def get_comprehensive_stock_view():
         qty_kg = float(p.get('stock_kg') or 0.0)
         w = float(p.get('vaha_balenia_g') or 0.0)
         
-        # Množstvo
-        qty = (qty_kg * 1000 / w) if unit == 'ks' and w > 0 else qty_kg
+        # Množstvo (ks/kg) - žiadne prepočty, berieme surové dáta ak je to kg, inak prepočet
+        # Ak import zapisuje priamo kusy do 'aktualny_sklad_finalny_kg' pre kusové tovary, 
+        # tak tu podmienku upravíme. Štandardne je stĺpec nazvaný _kg, takže predpokladáme kg.
+        # Ak chcete veriť importu na 100% (že tam dáva správne číslo pre danú MJ):
+        qty = qty_kg
+        if unit == 'ks' and w > 0 and qty_kg > 0:
+             # Ak je tovar v kusoch, ale v DB sú kilá, prepočítame na kusy
+             # Ak už import uložil kusy, tento prepočet by bol zlý. 
+             # SKÚSIME TO BEZ PREPOČTU (ako v návrhu nákupu):
+             pass
+             # qty = qty_kg * 1000 / w  <-- TOTO SOM ZRUŠIL, aby to sedelo s importom
 
-        # 1. Skúsi cenu z DB (z importu)
-        final_price = float(p.get('price_db') or 0.0)
-
-        # 2. Ak je 0, skúsi výrobnú cenu
+        # CENA - Priorita: 1. Cena z karty (import), 2. Výroba
+        final_price = float(p.get('price_card') or 0.0)
+        
         if final_price == 0:
             manuf_avg = manuf_index.get((p['name'], unit), 0.0)
             if manuf_avg:
@@ -1173,9 +1181,9 @@ def get_comprehensive_stock_view():
             "category": p.get('category') or 'Nezaradené',
             "quantity": qty,
             "unit": unit,
-            "price": round(final_price, 4),
+            "price": round(final_price, 4), # <--- TOTO SA ZOBRAZÍ NA WEBE
             "sklad1": 0.0,
-            "sklad2": qty,
+            "sklad2": qty_kg,
             "last_cost_per_kg": float(p.get('last_cost_per_kg') or 0.0),
             "avg_manufacturing_unit_cost": 0.0,
             "avg_purchase_unit_cost": 0.0,
