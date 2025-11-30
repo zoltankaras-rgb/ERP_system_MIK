@@ -1108,8 +1108,9 @@ def get_avg_costs_catalog():
 def get_comprehensive_stock_view():
     """
     Prehľad finálnych produktov (centrálny sklad) + ceny.
-    OPRAVA: Teraz zahrňuje aj nákupnú cenu (p.nakupna_cena) a posiela ju ako 'price'.
+    OPRAVA: Cenu ťaháme z tabuľky 'sklad' (kde ju import nahral), nie z 'produkty'.
     """
+    # 1. SQL Dotaz - pridáme poddotaz na získanie ceny zo skladu
     q = """
         SELECT
             p.ean, 
@@ -1118,7 +1119,8 @@ def get_comprehensive_stock_view():
             p.aktualny_sklad_finalny_kg AS stock_kg, 
             p.vaha_balenia_g, 
             p.mj AS unit,
-            p.nakupna_cena, -- <--- TOTO TU CHÝBALO
+            -- TOTO JE ZMENA: Dotiahneme nákupnú cenu z tabuľky SKLAD (podľa EAN alebo Názvu)
+            (SELECT s.nakupna_cena FROM sklad s WHERE (s.ean = p.ean AND s.ean <> '') OR s.nazov = p.nazov_vyrobku LIMIT 1) AS sklad_cena,
             (
               SELECT ROUND(zv.celkova_cena_surovin / NULLIF(zv.realne_mnozstvo_kg, 0), 4)
               FROM zaznamy_vyroba zv
@@ -1181,10 +1183,11 @@ def get_comprehensive_stock_view():
                     purchase_avg = base * (w/1000.0)
         
         # Priorita ceny pre zobrazenie v tabuľke: 
-        # 1. Explicitná nákupná cena z karty
+        # 1. Nákupná cena zo skladu (tá z importu!)
         # 2. Priemerná nákupná cena (z histórie)
         # 3. Výrobná cena (ak je to výrobok)
-        final_price = float(p.get('nakupna_cena') or 0.0)
+        final_price = float(p.get('sklad_cena') or 0.0)
+        
         if final_price == 0:
             if purchase_avg:
                 final_price = float(purchase_avg)
@@ -1204,7 +1207,7 @@ def get_comprehensive_stock_view():
             "category": p.get('category') or 'Nezaradené',
             "quantity": qty,
             "unit": unit,
-            "price": round(final_price, 4), # <--- TOTO potrebuje stock.js
+            "price": round(final_price, 4), # <--- TOTO je tá cena, ktorú web zobrazuje
             "sklad1": 0.0,
             "sklad2": qty_kg,
             "last_cost_per_kg": float(p.get('last_cost_per_kg') or 0.0),
