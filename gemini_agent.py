@@ -147,8 +147,14 @@ def ask_gemini_agent(
         # Summarizer
         sample = json.dumps([{k: str(v) for k,v in r.items()} for r in rows[:3]], ensure_ascii=False)
         sum_prompt = (
-            f"Otázka: {q}\nDáta: {sample}\n"
-            "Napíš 1 vetu zhrnutia pre manažéra (slovensky). Nepíš 'Dobrý deň'. Buď konkrétny."
+            f"Pôvodná požiadavka užívateľa: {q}\n"
+            f"Nájdené dáta (vzorka): {sample}\n\n"
+            "Tvojou úlohou je napísať úvodný text e-mailu k týmto dátam.\n"
+            "PRAVIDLÁ:\n"
+            "1. Ak užívateľ v požiadavke napísal konkrétny text (napr. 'úvodný text mailu napíšeš...'), POUŽI PRESNE TEN TEXT.\n"
+            "2. Ak užívateľ text nešpecifikoval, napíš stručné zhrnutie pre manažéra.\n"
+            "3. Nevypisuj žiadne dáta ani tabuľky, tie sa pridajú automaticky pod tvoj text.\n"
+            "4. Odpovedz iba čistým textom správy."
         )
         human_text = _call_llm(sum_prompt).replace('"', '').strip()
         if not human_text: human_text = f"Našiel som {len(rows)} záznamov."
