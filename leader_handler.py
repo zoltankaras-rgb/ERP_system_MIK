@@ -611,13 +611,13 @@ def leader_b2b_update_order():
         return jsonify({'error': f'Chyba pripojenia: {e}'}), 500
     return jsonify({'message': 'Objednávka upravená.', 'order_id': order_id})
 
-@leader_bp.post('/b2b/notify_order')
 
 @leader_bp.post('/b2b/notify_order')
 @login_required(role=('veduci','admin'))
 def leader_b2b_notify_order():
     """
-    Odošle notifikácie (PDF/CSV) a ULOŽÍ CSV NA SERVER PRE IMPORT.
+    Odošle notifikácie (PDF/CSV) a ULOŽÍ CSV DO ZLOŽKY PRE OBJEDNÁVKY.
+    Oprava: Ukladá do B2B_REMOTE_DIR (/var/app/data/b2bobjednavky).
     """
     data = request.get_json(silent=True) or {}
     order_id = data.get('order_id')
@@ -651,17 +651,18 @@ def leader_b2b_notify_order():
         if str(head.get('zakaznik_id')) == '255':
             manual_name = head.get('nazov_firmy') or ""
             payload['customer_name'] = f"255 - {manual_name}"
+            payload['customerName'] = f"255 - {manual_name}"
         elif head.get('nazov_firmy'):
             payload['customer_name'] = head['nazov_firmy']
+            payload['customerName'] = head['nazov_firmy']
             
     except Exception:
-        # Fallback ak zlyhá import buildera
+        # Fallback
         return jsonify({'error': 'Chyba pri príprave dát pre PDF.'}), 500
 
     # 3) Vygeneruj PDF + CSV
     try:
-        # CSV názov: 255_Meno_Datum.csv
-        # Odstránime nepovolené znaky z mena
+        # CSV názov: 255_Meno_Datum.csv (bezpečné znaky)
         safe_name = "".join(x for x in str(payload.get('customer_name','')) if x.isalnum())
         csv_fname = f"{head.get('zakaznik_id')}_{safe_name}_{datetime.now().strftime('%Y%m%d%H%M')}.csv"
         
@@ -669,37 +670,33 @@ def leader_b2b_notify_order():
     except Exception as e:
         return jsonify({'error': f'Generovanie PDF/CSV zlyhalo: {e}'}), 500
 
-    # --- 4) ULOŽENIE CSV NA SERVER (PRE SYNC) ---
+    # --- 4) ULOŽENIE CSV NA SERVER (DO B2B ZLOŽKY) ---
     try:
-        # Získame cestu z .env alebo použijeme default
-        exchange_dir = os.getenv("ERP_EXCHANGE_DIR", "/var/app/data/erp_exchange")
+        # ZMENA: Čítame B2B_REMOTE_DIR, nie ERP_EXCHANGE_DIR
+        # Default: /var/app/data/b2bobjednavky
+        orders_dir = os.getenv("B2B_REMOTE_DIR", "/var/app/data/b2bobjednavky")
         
-        # Ak je cesta relatívna, spravíme ju absolútnou voči projektu (istota)
-        if not os.path.isabs(exchange_dir):
+        if not os.path.isabs(orders_dir):
             base = os.path.dirname(__file__)
-            exchange_dir = os.path.join(base, exchange_dir)
+            orders_dir = os.path.join(base, orders_dir)
 
-        # Vytvoríme priečinok ak neexistuje
-        os.makedirs(exchange_dir, exist_ok=True)
+        os.makedirs(orders_dir, exist_ok=True)
         
-        # Cesta k súboru (vždy veľkými písmenami pre istotu, ak to ERP vyžaduje)
-        # Alebo použijeme csv_fname tak ako sme ho vygenerovali
-        file_path = os.path.join(exchange_dir, csv_fname)
+        file_path = os.path.join(orders_dir, csv_fname)
         
         with open(file_path, "wb") as f:
             f.write(csv_bytes)
             
-        print(f"[Leader] CSV uložené do: {file_path}")
+        print(f"[Leader] CSV objednávka uložená do: {file_path}")
         
     except Exception as e:
-        print(f"[Leader] Chyba pri ukladaní CSV na disk: {e}")
-        # Nechceme, aby to zhodilo celý request, ak zlyhá len zápis na disk
-        pass
+        print(f"[Leader] Chyba pri zápise CSV na disk: {e}")
+        # Pokračujeme, aby sa odoslal aspoň email
 
-    # 5) Odoslanie e-mailov (ako predtým)
+    # 5) Odoslanie e-mailov
     expedition_email = os.getenv("B2B_EXPEDITION_EMAIL") or "miksroexpedicia@gmail.com"
 
-    # A) Zákazník - pre 255 sa nepošle
+    # A) Zákazník (len ak má email)
     if cust_email:
         try:
             notification_handler.send_order_confirmation_email(
@@ -710,7 +707,7 @@ def leader_b2b_notify_order():
             )
         except: pass
 
-    # B) Expedícia - pošle sa VŽDY
+    # B) Expedícia - VŽDY
     try:
         notification_handler.send_order_confirmation_email(
             to=expedition_email,
@@ -722,7 +719,7 @@ def leader_b2b_notify_order():
     except Exception as e:
         return jsonify({'error': f'Expedičný e-mail zlyhal: {e}'}), 500
 
-    return jsonify({'message':'Objednávka spracovaná, CSV uložené a odoslané.', 'order_id': order_id})
+    return jsonify({'message':'Objednávka spracovaná, CSV uložené pre sync.', 'order_id': order_id})
 # =============================================================================
 # Výrobný plán
 # =============================================================================
