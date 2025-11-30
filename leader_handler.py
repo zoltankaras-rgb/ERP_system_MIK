@@ -612,11 +612,12 @@ def leader_b2b_update_order():
     return jsonify({'message': 'Objednávka upravená.', 'order_id': order_id})
 
 @leader_bp.post('/b2b/notify_order')
+
+@leader_bp.post('/b2b/notify_order')
 @login_required(role=('veduci','admin'))
 def leader_b2b_notify_order():
     """
-    Odošle notifikácie (PDF/CSV).
-    ÚPRAVA: Pre ID 255 natvrdo nastaví meno v PDF na "255 - [Manuálne meno]".
+    Odošle notifikácie (PDF/CSV) a ULOŽÍ CSV NA SERVER PRE IMPORT.
     """
     data = request.get_json(silent=True) or {}
     order_id = data.get('order_id')
@@ -642,74 +643,63 @@ def leader_b2b_notify_order():
         cust_email = (row or {}).get('email')
 
     # 2) Priprav dáta pre PDF generátor
-    payload = {}
     try:
         from b2b_handler import build_order_pdf_payload_admin
         payload = build_order_pdf_payload_admin(int(order_id))
-    except Exception:
-        # Fallback ak zlyhá import buildera (vyskladáme ručne)
-        items = db_connector.execute_query(
-            "SELECT ean_produktu, nazov_vyrobku, mnozstvo, mj, dph, cena_bez_dph "
-            "FROM b2b_objednavky_polozky WHERE objednavka_id=%s ORDER BY id", (order_id,)
-        ) or []
-        total_net = sum(float((it.get('cena_bez_dph') or 0)) * float((it.get('mnozstvo') or 0)) for it in items)
-        total_vat = sum(
-            float((it.get('cena_bez_dph') or 0)) * float((it.get('mnozstvo') or 0)) * (abs(float(it.get('dph') or 0))/100.0)
-            for it in items
-        )
-        delivery = head.get('pozadovany_datum_dodania')
-        if isinstance(delivery, (datetime, date)):
-            delivery = delivery.strftime("%Y-%m-%d")
+        
+        # --- ŠPECIÁLNA ÚPRAVA PRE AMBULANT (ID 255) ---
+        if str(head.get('zakaznik_id')) == '255':
+            manual_name = head.get('nazov_firmy') or ""
+            payload['customer_name'] = f"255 - {manual_name}"
+        elif head.get('nazov_firmy'):
+            payload['customer_name'] = head['nazov_firmy']
             
-        payload = {
-            "order_number": head['cislo'],
-            "customer_address": head.get("adresa") or "",
-            "delivery_date": delivery or "",
-            "note": "",
-            "items": [{
-                "ean": it.get("ean_produktu"),
-                "name": it.get("nazov_vyrobku"),
-                "quantity": float(it.get("mnozstvo") or 0),
-                "unit": it.get("mj") or "ks",
-                "price": float(it.get("cena_bez_dph") or 0),
-                "dph": abs(float(it.get("dph") or 0))
-            } for it in items],
-            "totalNet": total_net,
-            "totalVat": total_vat,
-            "totalWithVat": total_net + total_vat,
-        }
-
-    # --- KĽÚČOVÁ OPRAVA: PREPÍSANIE MENA PRE PDF ---
-    # Toto zabezpečí, že sa tam zobrazí to, čo ste napísali do objednávky
-    
-    manual_name = head.get('nazov_firmy') or ""
-    zakaznik_id_str = str(head.get('zakaznik_id') or "")
-
-    if zakaznik_id_str == '255':
-        # Pre ID 255 spojíme ID a meno
-        display_name = f"255 - {manual_name}"
-    else:
-        # Pre ostatných použijeme meno z objednávky (alebo ak je prázdne, tak z payloadu)
-        display_name = manual_name if manual_name else payload.get('customer_name', '')
-
-    # Nastavíme to do oboch kľúčov, ktoré PDF generátor používa
-    payload['customer_name'] = display_name
-    payload['customerName'] = display_name
+    except Exception:
+        # Fallback ak zlyhá import buildera
+        return jsonify({'error': 'Chyba pri príprave dát pre PDF.'}), 500
 
     # 3) Vygeneruj PDF + CSV
     try:
         # CSV názov: 255_Meno_Datum.csv
-        safe_name = "".join(x for x in manual_name if x.isalnum())
-        csv_fname = f"{zakaznik_id_str}_{safe_name}_{datetime.now().strftime('%Y%m%d%H%M')}.csv"
+        # Odstránime nepovolené znaky z mena
+        safe_name = "".join(x for x in str(payload.get('customer_name','')) if x.isalnum())
+        csv_fname = f"{head.get('zakaznik_id')}_{safe_name}_{datetime.now().strftime('%Y%m%d%H%M')}.csv"
         
         pdf_bytes, csv_bytes, _ = pdf_generator.create_order_files(payload)
     except Exception as e:
         return jsonify({'error': f'Generovanie PDF/CSV zlyhalo: {e}'}), 500
 
-    # 4) Odoslanie e-mailov
+    # --- 4) ULOŽENIE CSV NA SERVER (PRE SYNC) ---
+    try:
+        # Získame cestu z .env alebo použijeme default
+        exchange_dir = os.getenv("ERP_EXCHANGE_DIR", "/var/app/data/erp_exchange")
+        
+        # Ak je cesta relatívna, spravíme ju absolútnou voči projektu (istota)
+        if not os.path.isabs(exchange_dir):
+            base = os.path.dirname(__file__)
+            exchange_dir = os.path.join(base, exchange_dir)
+
+        # Vytvoríme priečinok ak neexistuje
+        os.makedirs(exchange_dir, exist_ok=True)
+        
+        # Cesta k súboru (vždy veľkými písmenami pre istotu, ak to ERP vyžaduje)
+        # Alebo použijeme csv_fname tak ako sme ho vygenerovali
+        file_path = os.path.join(exchange_dir, csv_fname)
+        
+        with open(file_path, "wb") as f:
+            f.write(csv_bytes)
+            
+        print(f"[Leader] CSV uložené do: {file_path}")
+        
+    except Exception as e:
+        print(f"[Leader] Chyba pri ukladaní CSV na disk: {e}")
+        # Nechceme, aby to zhodilo celý request, ak zlyhá len zápis na disk
+        pass
+
+    # 5) Odoslanie e-mailov (ako predtým)
     expedition_email = os.getenv("B2B_EXPEDITION_EMAIL") or "miksroexpedicia@gmail.com"
 
-    # A) Zákazník - len ak má email (pri ID 255 bude cust_email None, takže sa nepošle)
+    # A) Zákazník - pre 255 sa nepošle
     if cust_email:
         try:
             notification_handler.send_order_confirmation_email(
@@ -720,7 +710,7 @@ def leader_b2b_notify_order():
             )
         except: pass
 
-    # B) Expedícia - pošle sa VŽDY (PDF + CSV)
+    # B) Expedícia - pošle sa VŽDY
     try:
         notification_handler.send_order_confirmation_email(
             to=expedition_email,
@@ -732,7 +722,7 @@ def leader_b2b_notify_order():
     except Exception as e:
         return jsonify({'error': f'Expedičný e-mail zlyhal: {e}'}), 500
 
-    return jsonify({'message':'Objednávka spracovaná, CSV odoslané na sklad.', 'order_id': order_id})
+    return jsonify({'message':'Objednávka spracovaná, CSV uložené a odoslané.', 'order_id': order_id})
 # =============================================================================
 # Výrobný plán
 # =============================================================================
