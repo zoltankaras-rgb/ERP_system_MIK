@@ -452,8 +452,19 @@ def internal_check_session():
 
 
 # =================================================================
-# === API: VÝROBA (vložené priamo) ===
+# === API: VÝROBA (vložené priamo) ================================
 # =================================================================
+@app.route('/api/kancelaria/getInventoryHistory', methods=['GET'])
+@login_required(role='kancelaria')
+def api_get_inventory_history():
+    return handle_request(office_handler.get_inventory_history_list)
+
+@app.route('/api/kancelaria/getInventoryDetail', methods=['GET'])
+@login_required(role='kancelaria')
+def api_get_inventory_detail():
+    log_id = request.args.get('id')
+    return handle_request(office_handler.get_inventory_detail, log_id)
+
 def register_vyroba_routes(app, login_required, handle_request):
 
     # Stav skladu pre výrobu (Mäso/Koreniny/Obaly/Pomocný materiál)
@@ -467,14 +478,14 @@ def register_vyroba_routes(app, login_required, handle_request):
     def api_wh_items():
         return handle_request(vyroba.get_all_warehouse_items)
 
-    # PÔVODNÁ "jednorazová" inventúra – staré tlačidlo
+    # PÔVODNÁ „jednorazová“ inventúra (staré tlačidlo)
     @app.route('/api/submitInventory', methods=['POST'])
     @login_required(role='vyroba')
     def api_submit_inventory():
         body = request.get_json(force=True) or []
         return handle_request(vyroba.update_inventory, body)
 
-    # NOVÉ – ukladanie jednej kategórie (Mäso / Koreniny / Obaly / Pomocný materiál)
+    # NOVÉ – priebežné uloženie inventúry jednej kategórie
     @app.route('/api/saveInventoryCategory', methods=['POST'])
     @login_required(role='vyroba')
     def api_save_inventory_category():
@@ -483,7 +494,7 @@ def register_vyroba_routes(app, login_required, handle_request):
         category = (body.get('category') or '').strip() or 'Nezaradené'
         return handle_request(vyroba.save_inventory_category, items, category)
 
-    # NOVÉ – ukončenie celej inventúry (prepne DRAFT log na COMPLETED)
+    # NOVÉ – finálne ukončenie inventúry (prepne DRAFT → COMPLETED)
     @app.route('/api/finishInventory', methods=['POST'])
     @login_required(role='vyroba')
     def api_finish_inventory():
@@ -524,6 +535,10 @@ def register_vyroba_routes(app, login_required, handle_request):
             body.get('workerName'),
             body.get('existingLogId'),
         )
+
+# zaregistruj výrobné API
+register_vyroba_routes(app, login_required, handle_request)
+
 
 
 # =========================== KANCELÁRIA – HACCP ===========================
