@@ -456,29 +456,34 @@ def start_production(productName, plannedWeight, productionDate, ingredients, wo
     finally:
         if conn and conn.is_connected(): conn.close()
 
-# ───────────────────────── Inventúra / Výdaj ─────────────────────────
+# =================================================================
+# === INVENTÚRA / VÝDAJ – VÝROBNÝ SKLAD ============================
+# =================================================================
 
-# production_handler.py
-# production_handler.py
-
-# --- POMOCNÁ FUNKCIA: Nájdi alebo vytvor otvorenú inventúru ---
 def _get_or_create_draft_log(cursor, worker_name):
-    # Hľadáme otvorenú inventúru (DRAFT)
+    """
+    Nájde otvorenú inventúru (status = 'DRAFT') alebo vytvorí novú.
+    """
     cursor.execute("SELECT id FROM inventory_logs WHERE status = 'DRAFT' LIMIT 1")
     row = cursor.fetchone()
-    
     if row:
-        return row['id'] # alebo row[0] ak nepouzivate dictionary cursor
-    else:
-        # Ak neexistuje, vytvoríme novú
-        cursor.execute(
-            "INSERT INTO inventory_logs (created_at, worker_name, note, status) VALUES (NOW(), %s, '', 'DRAFT')",
-            (worker_name,)
-        )
-        return cursor.lastrowid
+        # ak máš dictionary=True cursor, row je dict, inak tuple
+        return row['id'] if isinstance(row, dict) else row[0]
 
-# ───────────────────────── NOVÉ: Priebežné uloženie kategórie ─────────────────────────
+    cursor.execute(
+        "INSERT INTO inventory_logs (created_at, worker_name, note, status) "
+        "VALUES (NOW(), %s, '', 'DRAFT')",
+        (worker_name,)
+    )
+    return cursor.lastrowid
+
+
 def save_inventory_category(inventory_data, category_name):
+    """
+    Uloží inventúru jednej kategórie:
+      - hneď prepíše množstvá v `sklad_vyroba`
+      - zapíše položky do inventory_log_items (napojené na inventory_logs – DRAFT)
+    """
     if not inventory_data:
         return {"message": "Žiadne dáta na uloženie."}
 
@@ -489,25 +494,27 @@ def save_inventory_category(inventory_data, category_name):
 
     conn = db_connector.get_connection()
     try:
-        cur = conn.cursor(dictionary=True) # Uistite sa, ze pouzivate dictionary=True alebo upravte indexy
+        cur = conn.cursor(dictionary=True)
 
-        # 1. Získame ID otvorenej inventúry
+        # 1) otvorená inventúra (DRAFT)
         log_id = _get_or_create_draft_log(cur, worker_name)
 
         updates_count = 0
 
-        # 2. Prejdeme položky
+        # 2) spracuj každú položku
         for item in inventory_data:
-            name = item.get('name')
+            name = (item or {}).get('name')
+            if not name:
+                continue
+
             try:
                 real_qty = float(item.get('realQty'))
-                if real_qty < 0: continue
-            except:
-                continue 
+                if real_qty < 0:
+                    continue
+            except Exception:
+                continue
 
-            # A) Získame aktuálne dáta (kvôli cene a systémovému stavu PRE REPORT)
-            # Pozor: Systémový stav sa mení, ale pre inventúru chceme snapshot. 
-            # Pri drafte aktualizujeme záznam, ak už v logu existuje.
+            # A) aktuálne dáta – systémový stav + cena
             cur.execute("""
                 SELECT 
                     COALESCE(sv.mnozstvo, 0) as sys_qty,
@@ -516,57 +523,79 @@ def save_inventory_category(inventory_data, category_name):
                 LEFT JOIN sklad_vyroba sv ON sv.nazov = s.nazov
                 WHERE s.nazov = %s
             """, (name,))
-            row = cur.fetchone()
-            
-            # Fallback hodnoty
-            system_qty = float(row['sys_qty']) if row else 0.0
-            unit_price = float(row['price']) if row else 0.0
+            row = cur.fetchone() or {}
+            system_qty = float(row.get('sys_qty') or 0.0)
+            unit_price = float(row.get('price') or 0.0)
 
-            # B) OKAMŽITÝ UPDATE SKLADU (Aby výroba mohla pokračovať s novými číslami)
+            # B) okamžitý update výrobného skladu
             cur.execute("""
-                INSERT INTO sklad_vyroba (nazov, mnozstvo) 
+                INSERT INTO sklad_vyroba (nazov, mnozstvo)
                 VALUES (%s, %s)
                 ON DUPLICATE KEY UPDATE mnozstvo = %s
             """, (name, real_qty, real_qty))
 
-            # C) Zápis do LOGU (História) - UPSERT (ak už položku uložil, prepíšeme ju)
-            # Najprv zmažeme starý záznam pre túto položku v tomto logu (jednoduchší update)
-            cur.execute("DELETE FROM inventory_log_items WHERE inventory_log_id=%s AND product_name=%s", (log_id, name))
-            
+            # C) zápis do logu – najprv zmaž starý záznam tej istej položky v tomto logu
+            cur.execute(
+                "DELETE FROM inventory_log_items "
+                "WHERE inventory_log_id=%s AND product_name=%s",
+                (log_id, name)
+            )
             cur.execute("""
-                INSERT INTO inventory_log_items 
-                (inventory_log_id, product_name, category, system_qty, real_qty, unit_price)
+                INSERT INTO inventory_log_items
+                    (inventory_log_id, product_name, category, system_qty, real_qty, unit_price)
                 VALUES (%s, %s, %s, %s, %s, %s)
             """, (log_id, name, category_name, system_qty, real_qty, unit_price))
-            
+
             updates_count += 1
 
         conn.commit()
-        return {"message": f"Kategória '{category_name}' bola uložená ({updates_count} pol.). Sklad aktualizovaný."}
+        return {
+            "message": f"Kategória '{category_name}' bola uložená "
+                       f"({updates_count} položiek). Stav výrobného skladu aktualizovaný."
+        }
 
     except Exception as e:
-        if conn: conn.rollback()
+        if conn:
+            conn.rollback()
         return {"error": f"Chyba: {str(e)}"}
     finally:
-        if conn and conn.is_connected(): conn.close()
+        if conn and conn.is_connected():
+            conn.close()
 
-# ───────────────────────── NOVÉ: Ukončenie inventúry ─────────────────────────
+
 def finish_inventory_process():
+    """
+    Prepne všetky DRAFT inventúry na COMPLETED.
+    (Používa sa pri tlačidle „UKONČIŤ CELÚ INVENTÚRU“ vo výrobe.)
+    """
     conn = db_connector.get_connection()
     try:
         cur = conn.cursor()
-        # Nájde otvorený draft a zmení ho na COMPLETED
-        cur.execute("UPDATE inventory_logs SET status='COMPLETED', created_at=NOW() WHERE status='DRAFT'")
-        
+        cur.execute(
+            "UPDATE inventory_logs "
+            "SET status='COMPLETED', created_at=NOW() "
+            "WHERE status='DRAFT'"
+        )
+
         if cur.rowcount > 0:
             conn.commit()
-            return {"message": "Inventúra bola úspešne UKONČENÁ a odoslaná do kancelárie."}
+            return {
+                "message": "Inventúra bola úspešne UKONČENÁ a odoslaná do kancelárie."
+            }
         else:
-            return {"message": "Nebola nájdená žiadna rozpracovaná inventúra na ukončenie."}
+            return {
+                "message": "Nebola nájdená žiadna rozpracovaná inventúra na ukončenie."
+            }
     except Exception as e:
+        if conn:
+            conn.rollback()
         return {"error": str(e)}
     finally:
-        if conn and conn.is_connected(): conn.close()
+        if conn and conn.is_connected():
+            conn.close()
+
+# ───────────────────────── NOVÉ: Priebežné uloženie kategórie ─────────────────────────
+
         
 def update_inventory(inventory_data):
     if not inventory_data:

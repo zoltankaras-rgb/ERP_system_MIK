@@ -466,6 +466,44 @@ def api_get_inventory_detail():
     return handle_request(office_handler.get_inventory_detail, log_id)
 
 def register_vyroba_routes(app, login_required, handle_request):
+    @app.route('/api/getWarehouseState', methods=['GET'])
+    @login_required(role=['vyroba', 'kancelaria'])
+    def api_wh_state():
+        return handle_request(vyroba.get_warehouse_state)
+
+    @app.route('/api/getAllWarehouseItems', methods=['GET'])
+    @login_required(role=['vyroba', 'kancelaria'])
+    def api_wh_items():
+        return handle_request(vyroba.get_all_warehouse_items)
+
+    # PÔVODNÁ "jednorázová" inventúra – staré tlačidlo
+    @app.route('/api/submitInventory', methods=['POST'])
+    @login_required(role='vyroba')
+    def api_submit_inventory():
+        body = request.get_json(force=True) or []
+        return handle_request(vyroba.update_inventory, body)
+
+    # NOVÉ – ukladanie jednej kategórie (Mäso / Koreniny / Obaly / Pomocný materiál)
+    @app.route('/api/saveInventoryCategory', methods=['POST'])
+    @login_required(role='vyroba')
+    def api_save_inventory_category():
+        body = request.get_json(force=True) or {}
+        items = body.get('items') or []
+        category = (body.get('category') or '').strip() or 'Nezaradené'
+        return handle_request(vyroba.save_inventory_category, items, category)
+
+    # NOVÉ – ukončenie celej inventúry (prepne DRAFT log na COMPLETED)
+    @app.route('/api/finishInventory', methods=['POST'])
+    @login_required(role='vyroba')
+    def api_finish_inventory():
+        return handle_request(vyroba.finish_inventory_process)
+
+    @app.route('/api/manualWriteOff', methods=['POST'])
+    @login_required(role='vyroba')
+    def api_manual_writeoff():
+        body = request.get_json(force=True) or {}
+        return handle_request(vyroba.manual_warehouse_write_off, body)
+
 
     @app.route('/api/getProductionMenuData', methods=['GET'])
     @login_required(role=['vyroba', 'kancelaria'])
@@ -496,10 +534,7 @@ def register_vyroba_routes(app, login_required, handle_request):
             body.get('existingLogId'),
         )
 
-    @app.route('/api/getWarehouseState', methods=['GET'])
-    @login_required(role=['vyroba', 'kancelaria'])
-    def api_wh_state():
-        return handle_request(vyroba.get_warehouse_state)
+ 
 
     @app.route('/api/getAllWarehouseItems', methods=['GET'])
     @login_required(role=['vyroba', 'kancelaria'])
@@ -517,6 +552,21 @@ def register_vyroba_routes(app, login_required, handle_request):
     def api_manual_writeoff():
         body = request.get_json(force=True) or {}
         return handle_request(vyroba.manual_warehouse_write_off, body)
+
+@app.post("/api/saveInventoryCategory")
+def api_save_inventory_category():
+    payload  = request.get_json(force=True) or {}
+    category = (payload.get("category") or "").strip()
+    items    = payload.get("items") or []
+
+    # inventory_data = list položiek z frontendu
+    result = vyroba.save_inventory_category(items, category)
+    return jsonify(result)
+
+@app.post("/api/finishInventory")
+def api_finish_inventory():
+    result = vyroba.finish_inventory_process()
+    return jsonify(result)
 
 # zaregistruj výrobné API
 register_vyroba_routes(app, login_required, handle_request)
