@@ -698,14 +698,18 @@ def get_comprehensive_stock_view():
             p.aktualny_sklad_finalny_kg AS stock_kg,
             p.vaha_balenia_g,
             p.mj                 AS unit,
-            (
-              SELECT ROUND(zv.celkova_cena_surovin / NULLIF(zv.realne_mnozstvo_kg, 0), 4)
-              FROM zaznamy_vyroba zv
-              WHERE zv.nazov_vyrobku = p.nazov_vyrobku
-                AND zv.celkova_cena_surovin IS NOT NULL
-                AND zv.realne_mnozstvo_kg IS NOT NULL
-              ORDER BY COALESCE(zv.datum_ukoncenia, zv.datum_vyroby) DESC
-              LIMIT 1
+            COALESCE(
+              NULLIF(p.nakupna_cena, 0),   -- 1. pokus: nákupná cena z tabuľky produkty
+              (
+                -- 2. fallback: posledná výrobná cena na kg
+                SELECT ROUND(zv.celkova_cena_surovin / NULLIF(zv.realne_mnozstvo_kg, 0), 4)
+                FROM zaznamy_vyroba zv
+                WHERE zv.nazov_vyrobku = p.nazov_vyrobku
+                  AND zv.celkova_cena_surovin IS NOT NULL
+                  AND zv.realne_mnozstvo_kg IS NOT NULL
+                ORDER BY COALESCE(zv.datum_ukoncenia, zv.datum_vyroby) DESC
+                LIMIT 1
+              )
             ) AS price
         FROM produkty p
         WHERE p.typ_polozky = 'produkt'
