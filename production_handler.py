@@ -686,11 +686,23 @@ def get_all_warehouse_items():
     ) or []
 
 def manual_warehouse_write_off(data):
-    name, worker, qty_str, note = data.get('itemName'), data.get('workerName'), data.get('quantity'), data.get('note')
+    """
+    Manuálny odpis suroviny z VÝROBNÉHO skladu.
+
+    - zobrazí sa vo vyrobe (view-manual-writeoff)
+    - odpisuje zo sklad_vyroba.mnozstvo (nie zo sklad.mnozstvo)
+    - loguje do vydajky alebo zaznamy_vyroba_suroviny (ako doteraz)
+    """
+    name  = data.get('itemName')
+    worker = data.get('workerName')
+    qty_str = data.get('quantity')
+    note  = data.get('note')
+
     if not all([name, worker, qty_str, note]):
         return {"error": "Všetky polia sú povinné."}
+
     try:
-        qty = float(qty_str)
+        qty = float(str(qty_str).replace(',', '.'))
         if qty <= 0:
             raise ValueError("Množstvo musí byť kladné.")
     except (ValueError, TypeError):
@@ -700,9 +712,20 @@ def manual_warehouse_write_off(data):
     try:
         cur = conn.cursor()
 
-        # 1) Update skladu (nekonečné neodpisujeme)
+        # 1) Update VÝROBNÉHO skladu (sklad_vyroba) – nekonečné neodpisujeme
         if name not in INFINITE_STOCK_NAMES:
-            cur.execute("UPDATE sklad SET mnozstvo = mnozstvo - %s WHERE nazov = %s", (qty, name))
+            # zabezpeč, že riadok existuje
+            cur.execute("""
+                INSERT INTO sklad_vyroba (nazov, mnozstvo)
+                VALUES (%s, 0)
+                ON DUPLICATE KEY UPDATE mnozstvo = mnozstvo
+            """, (name,))
+            # reálny odpis – nedovolíme ísť do mínusu
+            cur.execute("""
+                UPDATE sklad_vyroba
+                SET mnozstvo = GREATEST(COALESCE(mnozstvo,0) - %s, 0)
+                WHERE nazov = %s
+            """, (qty, name))
 
         # 2) Log výdaja – dynamicky podľa existujúcich stĺpcov v 'vydajky'
         inserted = False
@@ -714,7 +737,10 @@ def manual_warehouse_write_off(data):
             col_pozn     = _pick_existing_col('vydajky', ['poznamka','dovod','poz'])
 
             if all([col_datum, col_prac, col_nazov, col_mnozstvo, col_pozn]):
-                q = f"INSERT INTO vydajky ({col_datum}, {col_prac}, {col_nazov}, {col_mnozstvo}, {col_pozn}) VALUES (%s,%s,%s,%s,%s)"
+                q = f"""
+                    INSERT INTO vydajky ({col_datum}, {col_prac}, {col_nazov}, {col_mnozstvo}, {col_pozn})
+                    VALUES (%s,%s,%s,%s,%s)
+                """
                 cur.execute(q, (datetime.now(), worker, name, qty, note))
                 inserted = True
 
@@ -731,7 +757,9 @@ def manual_warehouse_write_off(data):
         conn.commit()
         return {"message": f"Úspešne odpísaných {qty} kg suroviny '{name}'."}
     except Exception as e:
-        if conn: conn.rollback()
+        if conn:
+            conn.rollback()
         raise e
     finally:
-        if conn and conn.is_connected(): conn.close()
+        if conn and conn.is_connected():
+            conn.close()
