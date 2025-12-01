@@ -374,16 +374,22 @@ def create_manual_slicing_job(data: Dict[str, Any]):
 
 def get_slicing_requirements_from_orders():
     """
-    Vráti zoznam položiek na krájanie.
-    Vynucuje COLLATE utf8mb4_general_ci pre všetky textové polia, aby UNION nespadol.
+    Vráti zoznam položiek na krájanie z B2B/B2C objednávok.
+
+    - pre každý riadok máme:
+        cislo_objednavky, zakaznik, termin, produkt, množstvo, MJ, vaha_balenia_g, zdrojovy_ean, target_ean
+    - ignorujeme objednávky, pre ktoré UŽ existuje úloha na krájanie
+      (záznam v zaznamy_vyroba s detaily_zmeny.cisloObjednavky a operacia='krajanie'
+       v stave 'Prijaté, čaká na tlač' alebo 'Ukončené' alebo 'Zrušená')
+    - ak je pre danú objednávku+produkt krájanie v stave 'Prebieha krájanie',
+      nastavíme is_running=True (tlačidlo v FE bude sivé a disabled)
     """
-    
-    # 1. Zistíme bežiace krájanie
+    # 1. Zistíme bežiace krájanie (podľa názvu – stará logika)
     zv_col = _zv_name_col()
     active_slicing = {}
     try:
         rows_running = db_connector.execute_query(f"""
-            SELECT {zv_col}, SUM(planovane_mnozstvo_kg) as total_kg 
+            SELECT {zv_col}, SUM(planovane_mnozstvo_kg) AS total_kg 
             FROM zaznamy_vyroba 
             WHERE stav IN ('Prebieha krájanie', 'Naplánované') 
             GROUP BY {zv_col}
@@ -392,7 +398,33 @@ def get_slicing_requirements_from_orders():
             nm = (r.get(zv_col) or '').strip()
             active_slicing[nm] = float(r.get('total_kg') or 0)
     except Exception:
-        pass
+        active_slicing = {}
+
+    # 2. Mapovanie objednávka+produkt -> stav krájania (zaznamy_vyroba.detaily_zmeny)
+    order_slicing_status = {}
+    try:
+        jobs = db_connector.execute_query("""
+            SELECT 
+                JSON_UNQUOTE(JSON_EXTRACT(detaily_zmeny, '$.cisloObjednavky')) AS order_no,
+                JSON_UNQUOTE(JSON_EXTRACT(detaily_zmeny, '$.cielovyNazov'))     AS product_name,
+                stav
+            FROM zaznamy_vyroba
+            WHERE detaily_zmeny IS NOT NULL
+              AND JSON_EXTRACT(detaily_zmeny, '$.operacia') = '"krajanie"'
+        """) or []
+        for j in jobs:
+            o = (j.get('order_no') or '').strip()
+            p = (j.get('product_name') or '').strip()
+            if not o or not p:
+                continue
+            order_slicing_status[(o, p)] = j.get('stav') or ''
+    except Exception as e:
+        print(f"Error building order_slicing_status: {e}")
+        order_slicing_status = {}
+
+    # helper na konverziu textových stĺpcov s jednotnou koláciou
+    def _str(col):
+        return f"CONVERT({col} USING utf8mb4) COLLATE utf8mb4_general_ci"
 
     sql_condition = """
         (
@@ -403,21 +435,18 @@ def get_slicing_requirements_from_orders():
         AND o.stav NOT IN ('Hotová', 'Zrušená', 'Expedovaná')
     """
 
-    # Pomocné castovanie na string s fixnou koláciou
-    def _str(col):
-        return f"CONVERT({col} USING utf8mb4) COLLATE utf8mb4_general_ci"
-
-    # B2B
+    # ---------- B2B ----------
     sql_b2b = f"""
         SELECT 
             {_str('o.cislo_objednavky')} AS cislo_objednavky,
-            {_str('o.nazov_firmy')} AS zakaznik,
-            o.pozadovany_datum_dodania AS termin,
-            {_str('pol.nazov_vyrobku')} AS produkt,
+            {_str('o.nazov_firmy')}      AS zakaznik,
+            o.pozadovany_datum_dodania   AS termin,
+            {_str('pol.nazov_vyrobku')}  AS produkt,
             pol.mnozstvo,
-            {_str('pol.mj')} AS mj,
+            {_str('pol.mj')}             AS mj,
             p.vaha_balenia_g,
-            p.zdrojovy_ean
+            p.zdrojovy_ean,
+            CONVERT(COALESCE(p.ean, pol.ean_produktu) USING utf8mb4) COLLATE utf8mb4_general_ci AS target_ean
         FROM b2b_objednavky_polozky pol
         JOIN b2b_objednavky o ON o.id = pol.objednavka_id
         LEFT JOIN produkty p ON (
@@ -429,11 +458,9 @@ def get_slicing_requirements_from_orders():
 
     sql_parts = [sql_b2b]
 
-    # B2C
+    # ---------- B2C ----------
     if _table_exists('b2c_objednavky') and _table_exists('b2c_objednavky_polozky'):
-        # Meno zákazníka
         cust_expr = "COALESCE(z.nazov_firmy, z.email, 'B2C Zákazník')"
-        
         join_cust = """
             LEFT JOIN b2b_zakaznici z ON (
                 CAST(z.id AS CHAR) = CAST(o.zakaznik_id AS CHAR)
@@ -444,13 +471,14 @@ def get_slicing_requirements_from_orders():
         sql_b2c = f"""
             SELECT 
                 {_str('o.cislo_objednavky')} AS cislo_objednavky,
-                {_str(cust_expr)} AS zakaznik,
-                o.pozadovany_datum_dodania AS termin,
-                {_str('pol.nazov_vyrobku')} AS produkt,
+                {_str(cust_expr)}            AS zakaznik,
+                o.pozadovany_datum_dodania   AS termin,
+                {_str('pol.nazov_vyrobku')}  AS produkt,
                 pol.mnozstvo,
-                {_str('pol.mj')} AS mj,
+                {_str('pol.mj')}             AS mj,
                 p.vaha_balenia_g,
-                p.zdrojovy_ean
+                p.zdrojovy_ean,
+                CONVERT(COALESCE(p.ean, pol.ean_produktu) USING utf8mb4) COLLATE utf8mb4_general_ci AS target_ean
             FROM b2c_objednavky_polozky pol
             JOIN b2c_objednavky o ON o.id = pol.objednavka_id
             {join_cust}
@@ -466,56 +494,69 @@ def get_slicing_requirements_from_orders():
 
     try:
         rows = db_connector.execute_query(full_sql, fetch='all') or []
-        
+
         formatted = []
         for r in rows:
             termin = r['termin']
             if isinstance(termin, (datetime, date)):
-                termin = termin.strftime('%d.%m.%Y')
-            
+                termin_str = termin.strftime('%d.%m.%Y')
+            else:
+                termin_str = str(termin) if termin is not None else ''
+
+            mnozstvo = float(r['mnozstvo'] or 0)
+            vaha_g   = float(r['vaha_balenia_g'] or 0)
+            mj       = str(r['mj'] or 'kg').lower()
+
             qty_ks = 0
             qty_disp = ""
-            mnozstvo = float(r['mnozstvo'] or 0)
-            vaha_g = float(r['vaha_balenia_g'] or 0)
-            mj = str(r['mj'] or 'kg').lower()
-
             if mj == 'ks':
-                qty_ks = int(mnozstvo)
+                qty_ks   = int(mnozstvo)
                 qty_disp = f"{qty_ks} ks"
                 needed_kg = (qty_ks * vaha_g) / 1000.0 if vaha_g > 0 else 0
             else:
                 needed_kg = mnozstvo
                 if vaha_g > 0:
-                    qty_ks = math.ceil((mnozstvo * 1000) / vaha_g)
+                    qty_ks   = math.ceil((mnozstvo * 1000) / vaha_g)
                     qty_disp = f"{mnozstvo:.2f} kg (~{qty_ks} ks)"
                 else:
                     qty_disp = f"{mnozstvo:.2f} kg"
-                    qty_ks = math.ceil(mnozstvo)
+                    qty_ks   = math.ceil(mnozstvo)
 
-            # Kontrola bežiacej výroby
-            is_running = False
             prod_name = (r['produkt'] or '').strip()
-            
-            # Ak pre tento produkt beží výroba v objeme aspoň 10% z potreby, označíme
-            if active_slicing.get(prod_name, 0) > (needed_kg * 0.1): 
-                is_running = True
+            order_no  = (r['cislo_objednavky'] or '').strip()
+
+            # Stav krájania pre konkrétnu objednávku + produkt
+            job_state = order_slicing_status.get((order_no, prod_name), '')
+            already_done = job_state in ('Prijaté, čaká na tlač', 'Ukončené', 'Zrušená')
+            is_running_exact = job_state in ('Prebieha krájanie', 'Naplánované')
+
+            # Ak už je pre túto objednávku krájanie ukončené, NEVRACAJ RIADOK
+            if already_done:
+                continue
+
+            # Pôvodná heuristika podľa celkového bežiaceho krájania pre produkt
+            is_running_product = active_slicing.get(prod_name, 0) > (needed_kg * 0.1)
+
+            is_running = bool(is_running_exact or is_running_product)
 
             formatted.append({
                 "order": r['cislo_objednavky'],
                 "customer": r['zakaznik'],
-                "date": termin,
+                "date": termin_str,
                 "product": prod_name,
                 "quantity_display": qty_disp,
                 "pieces_calc": qty_ks,
                 "is_running": is_running,
-                "source_ean": r['zdrojovy_ean']
+                "source_ean": r['zdrojovy_ean'],
+                "target_ean": r.get('target_ean'),
             })
-            
+
         return formatted
 
     except Exception as e:
         print(f"Error slicing reqs: {e}")
         return []
+
 
 # ─────────────────────────────────────────────────────────────
 # Prevzatie z výroby – dni a položky (len neprijaté)

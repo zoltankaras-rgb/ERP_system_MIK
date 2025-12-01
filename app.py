@@ -709,6 +709,25 @@ def exp_finalize_slicing():
     body = request.get_json(force=True) or {}
     return handle_request(expedition_handler.finalize_slicing_transaction, body.get('logId'), body.get('actualPieces'))
 
+@app.route('/api/expedicia/createManualSlicingJob', methods=['POST'])
+@login_required(role='expedicia')
+def exp_create_manual_slicing_job():
+    """
+    Vytvorí úlohu na krájanie priamo z objednávky (Objednávky na krájanie – Zákazníci).
+    Očakáva JSON:
+      {
+        "ean": "...",          # EAN krájaného výrobku (cieľ)
+        "quantity": 123,       # počet kusov alebo kg
+        "unit": "ks"|"kg",
+        "customer": "...",     # meno zákazníka
+        "order_id": "...",     # číslo objednávky
+        "due_date": "..."      # termín (môže byť aj vo formáte 01.12.2025)
+      }
+    """
+    body = request.get_json(force=True) or {}
+    return handle_request(expedition_handler.create_manual_slicing_job, body)
+
+
 # Manuálny príjem / škoda
 @app.route('/api/expedicia/getAllFinalProducts')
 @login_required(role='expedicia')

@@ -140,40 +140,43 @@ async function loadSlicingRequirements() {
 
     try {
         const data = await apiRequest('/api/expedicia/getSlicingRequirementsFromOrders');
-        if (!data || data.length === 0) {
+
+        if (!data || !Array.isArray(data) || data.length === 0) {
             container.innerHTML = '<p class="text-muted">Žiadne objednávky na krájanie.</p>';
             return;
         }
 
         let html = `
-        <table style="font-size:0.9rem;">
+        <table style="font-size:0.9rem; width:100%; border-collapse:collapse;">
             <thead>
-                <tr style="background:#fff7ed;">
-                    <th style="width: 90px;">Termín</th>
-                    <th>Zákazník</th>
-                    <th>Produkt</th>
-                    <th style="width: 90px;">Množstvo</th>
-                    <th style="width: 120px;">Akcia</th>
+                <tr style="background:#fff7ed; border-bottom:1px solid #e5e7eb;">
+                    <th style="width: 90px; padding:6px 8px; text-align:left;">Termín</th>
+                    <th style="padding:6px 8px; text-align:left;">Zákazník</th>
+                    <th style="padding:6px 8px; text-align:left;">Produkt</th>
+                    <th style="width: 110px; padding:6px 8px; text-align:right;">Množstvo</th>
+                    <th style="width: 140px; padding:6px 8px; text-align:center;">Akcia</th>
                 </tr>
             </thead>
             <tbody>`;
-        
+
         data.forEach(r => {
             let btnHtml = '';
             let rowStyle = '';
 
             if (r.is_running) {
-                // ČERVENÉ TLAČIDLO - Krájať znovu?
+                // Už beží krájanie → sivé tlačidlo, nedá sa kliknúť
                 btnHtml = `
-                    <button class="btn-danger slice-btn" style="padding:4px 8px; font-size:0.8rem;" 
-                            onclick="startSlicingFromOrder(this, '${escapeHtml(r.product)}', ${r.pieces_calc})">
-                        <i class="fas fa-redo"></i> Krájať znovu?
+                    <button class="btn-secondary slice-btn"
+                            style="padding:4px 8px; font-size:0.8rem; cursor:default; opacity:0.8;"
+                            disabled>
+                        <i class="fas fa-pause-circle"></i> Prebieha krájanie
                     </button>`;
-                rowStyle = 'style="background-color: #fff1f2;"'; // Jemne červené
+                rowStyle = 'style="background-color:#fef2f2; opacity:0.9;"'; // jemne červené
             } else {
-                // MODRÉ TLAČIDLO
+                // Pripravené na spustenie krájania
                 btnHtml = `
-                    <button class="btn-info slice-btn" style="padding:4px 8px; font-size:0.8rem;" 
+                    <button class="btn-info slice-btn"
+                            style="padding:4px 8px; font-size:0.8rem;"
                             onclick="startSlicingFromOrder(this, '${escapeHtml(r.product)}', ${r.pieces_calc})">
                         <i class="fas fa-play"></i> Krájať
                     </button>`;
@@ -181,56 +184,72 @@ async function loadSlicingRequirements() {
 
             html += `
             <tr ${rowStyle}>
-                <td style="font-weight:bold;">${escapeHtml(r.date)}</td>
-                <td><strong>${escapeHtml(r.customer)}</strong><br><small>${escapeHtml(r.order)}</small></td>
-                <td>${escapeHtml(r.product)}</td>
-                <td>${escapeHtml(r.quantity_display)}</td>
-                <td>${btnHtml}</td>
+                <td style="padding:4px 8px; font-weight:bold;">${escapeHtml(r.date)}</td>
+                <td style="padding:4px 8px;">
+                    <strong>${escapeHtml(r.customer)}</strong><br>
+                    <small class="text-muted">${escapeHtml(r.order)}</small>
+                </td>
+                <td style="padding:4px 8px;">${escapeHtml(r.product)}</td>
+                <td style="padding:4px 8px; text-align:right;">${escapeHtml(r.quantity_display)}</td>
+                <td style="padding:4px 8px; text-align:center;">${btnHtml}</td>
             </tr>`;
         });
-        
+
         html += `</tbody></table>`;
         container.innerHTML = html;
     } catch (e) {
-        container.innerHTML = `<p class="error">Chyba: ${e.message}</p>`;
+        container.innerHTML = `<p class="error">Chyba: ${e && e.message ? e.message : e}</p>`;
     }
 }
 
-function startSlicingFromOrder(btnElement, productName, pieces) {
+
+async function startSlicingFromOrder(btnElement, productName, pieces, orderNo, dateDisplay, targetEan, customerName) {
     if (isSlicingTransitioning) return;
     isSlicingTransitioning = true;
 
-    if (btnElement) {
-        btnElement.disabled = true;
-        btnElement.innerHTML = '<i class="fas fa-spinner fa-spin"></i> ...';
+    if (!targetEan) {
+        alert("Pre tento produkt nemáme EAN – nedá sa vytvoriť príkaz na krájanie.");
+        isSlicingTransitioning = false;
+        return;
     }
 
-    loadAndShowSlicingRequest(); 
-    
-    setTimeout(() => {
-        const sel = document.getElementById('slicing-product-select');
-        const inp = document.getElementById('slicing-planned-pieces');
-        
-        for (let i = 0; i < sel.options.length; i++) {
-            if (sel.options[i].text === productName) {
-                sel.selectedIndex = i; break;
-            }
+    if (btnElement) {
+        btnElement.disabled = true;
+        btnElement.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Vytváram...';
+    }
+
+    try {
+        const payload = {
+            ean: targetEan,
+            quantity: pieces || 0,
+            unit: 'ks',                // objednávky sú v kusoch
+            customer: customerName || '',
+            order_id: orderNo || '',
+            due_date: dateDisplay || ''  // uloží sa do JSONu ako string
+        };
+
+        const res = await apiRequest('/api/expedicia/createManualSlicingJob', {
+            method: 'POST',
+            body: payload
+        });
+
+        showStatus(res.message || 'Príkaz na krájanie vytvorený.', false);
+
+        // Obnovíme menu + zoznam objednávok na krájanie
+        await loadAndShowExpeditionMenu();
+    } catch (e) {
+        alert("Chyba pri vytváraní príkazu na krájanie: " + (e.message || e));
+        if (btnElement) {
+            btnElement.disabled = false;
+            btnElement.innerHTML = '<i class="fas fa-play"></i> Krájať';
         }
-        if (pieces > 0) inp.value = pieces;
-        
-        const submitBtn = document.querySelector('#view-expedition-slicing-request button.btn-info');
-        if (submitBtn) {
-            const newBtn = submitBtn.cloneNode(true);
-            submitBtn.parentNode.replaceChild(newBtn, submitBtn);
-            newBtn.onclick = async function() {
-                newBtn.disabled = true; newBtn.innerHTML = "Odosielam...";
-                await submitSlicingRequest(); 
-                loadSlicingRequirements(); 
-                isSlicingTransitioning = false; 
-            };
-        }
-    }, 500); 
+        isSlicingTransitioning = false;
+        return;
+    }
+
+    isSlicingTransitioning = false;
 }
+
 
 // =================================================================
 // === 3. FORMULÁRE + TLAČIDLÁ SPÄŤ (Fix) ===
