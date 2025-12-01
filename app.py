@@ -454,18 +454,9 @@ def internal_check_session():
 # =================================================================
 # === API: VÝROBA (vložené priamo) ===
 # =================================================================
-@app.route('/api/kancelaria/getInventoryHistory', methods=['GET'])
-@login_required(role='kancelaria')
-def api_get_inventory_history():
-    return handle_request(office_handler.get_inventory_history_list)
-
-@app.route('/api/kancelaria/getInventoryDetail', methods=['GET'])
-@login_required(role='kancelaria')
-def api_get_inventory_detail():
-    log_id = request.args.get('id')
-    return handle_request(office_handler.get_inventory_detail, log_id)
-
 def register_vyroba_routes(app, login_required, handle_request):
+
+    # Stav skladu pre výrobu (Mäso/Koreniny/Obaly/Pomocný materiál)
     @app.route('/api/getWarehouseState', methods=['GET'])
     @login_required(role=['vyroba', 'kancelaria'])
     def api_wh_state():
@@ -476,7 +467,7 @@ def register_vyroba_routes(app, login_required, handle_request):
     def api_wh_items():
         return handle_request(vyroba.get_all_warehouse_items)
 
-    # PÔVODNÁ "jednorázová" inventúra – staré tlačidlo
+    # PÔVODNÁ "jednorazová" inventúra – staré tlačidlo
     @app.route('/api/submitInventory', methods=['POST'])
     @login_required(role='vyroba')
     def api_submit_inventory():
@@ -504,7 +495,7 @@ def register_vyroba_routes(app, login_required, handle_request):
         body = request.get_json(force=True) or {}
         return handle_request(vyroba.manual_warehouse_write_off, body)
 
-
+    # Výrobný plán / recepty
     @app.route('/api/getProductionMenuData', methods=['GET'])
     @login_required(role=['vyroba', 'kancelaria'])
     def api_get_menu():
@@ -533,43 +524,6 @@ def register_vyroba_routes(app, login_required, handle_request):
             body.get('workerName'),
             body.get('existingLogId'),
         )
-
- 
-
-    @app.route('/api/getAllWarehouseItems', methods=['GET'])
-    @login_required(role=['vyroba', 'kancelaria'])
-    def api_wh_items():
-        return handle_request(vyroba.get_all_warehouse_items)
-
-    @app.route('/api/submitInventory', methods=['POST'])
-    @login_required(role='vyroba')
-    def api_submit_inventory():
-        body = request.get_json(force=True) or []
-        return handle_request(vyroba.update_inventory, body)
-
-    @app.route('/api/manualWriteOff', methods=['POST'])
-    @login_required(role='vyroba')
-    def api_manual_writeoff():
-        body = request.get_json(force=True) or {}
-        return handle_request(vyroba.manual_warehouse_write_off, body)
-
-@app.post("/api/saveInventoryCategory")
-def api_save_inventory_category():
-    payload  = request.get_json(force=True) or {}
-    category = (payload.get("category") or "").strip()
-    items    = payload.get("items") or []
-
-    # inventory_data = list položiek z frontendu
-    result = vyroba.save_inventory_category(items, category)
-    return jsonify(result)
-
-@app.post("/api/finishInventory")
-def api_finish_inventory():
-    result = vyroba.finish_inventory_process()
-    return jsonify(result)
-
-# zaregistruj výrobné API
-register_vyroba_routes(app, login_required, handle_request)
 
 
 # =========================== KANCELÁRIA – HACCP ===========================
