@@ -4,6 +4,8 @@ from datetime import datetime, timedelta
 import unicodedata
 from typing import List, Dict, Any, Tuple, Optional
 
+from expedition_handler import _zv_name_col
+
 # Položky, ktoré sa neodpisujú (nekonečný sklad)
 INFINITE_STOCK_NAMES = {'Ľad', 'Lad', 'Voda', 'Ovar'}
 
@@ -91,7 +93,10 @@ def _category_from_values(cat_raw: Optional[str], name: str) -> str:
 
 def _build_sklad_select_sql() -> str:
     """
-    SELECT na sklad – funguje aj bez kategoria/typ/podtyp; vráti aj cenu a min zásobu.
+    SELECT na sklad pre VÝROBU.
+
+    Množstvo berieme zo sklad_vyrova (výrobný sklad),
+    nie zo sklad.mnozstvo (centrálny sklad).
     """
     has_cat  = _has_col('sklad', 'kategoria')
     has_typ  = _has_col('sklad', 'typ')
@@ -101,31 +106,31 @@ def _build_sklad_select_sql() -> str:
     has_min  = _has_col('sklad', 'min_zasoba')
     has_inf  = _has_col('sklad', 'is_infinite_stock')
 
-    cat_expr = 'kategoria' if has_cat else ('typ' if has_typ else ('podtyp' if has_pod else "' '"))
-    price_expr = (
-        "COALESCE(default_cena_eur_kg, nakupna_cena, 0)" if (has_def and has_buy)
-        else ("COALESCE(default_cena_eur_kg, 0)" if has_def else ("COALESCE(nakupna_cena, 0)" if has_buy else "0"))
+    cat_expr = (
+        's.kategoria' if has_cat else
+        ('s.typ' if has_typ else ('s.podtyp' if has_pod else "' '"))
     )
-    min_expr = "COALESCE(min_zasoba, 0)" if has_min else "0"
-    inf_expr = "COALESCE(is_infinite_stock, 0)" if has_inf else "0"
+    price_expr = (
+        "COALESCE(s.default_cena_eur_kg, s.nakupna_cena, 0)" if (has_def and has_buy)
+        else ("COALESCE(s.default_cena_eur_kg, 0)" if has_def
+              else ("COALESCE(s.nakupna_cena, 0)" if has_buy else "0"))
+    )
+    min_expr = "COALESCE(s.min_zasoba, 0)" if has_min else "0"
+    inf_expr = "COALESCE(s.is_infinite_stock, 0)" if has_inf else "0"
 
     return f"""
         SELECT
-            nazov AS name,
+            s.nazov AS name,
             {cat_expr} AS cat_raw,
-            mnozstvo AS quantity,
+            COALESCE(sv.mnozstvo, 0) AS quantity,
             {price_expr} AS price,
             {min_expr} AS minStock,
             {inf_expr} AS is_infinite_stock
-        FROM sklad
-        ORDER BY nazov
+        FROM sklad s
+        LEFT JOIN sklad_vyroba sv ON sv.nazov = s.nazov
+        ORDER BY s.nazov
     """
 
-def _zv_name_col() -> str:
-    """
-    V zaznamy_vyroba zistí názov stĺpca s menom výrobku: 'nazov_vyrobu' alebo 'nazov_vyrobku'.
-    """
-    return 'nazov_vyrobu' if _has_col('zaznamy_vyroba', 'nazov_vyrobu') else 'nazov_vyrobku'
 
 # ───────────────────────── Sklad / Recepty (pre UI) ─────────────────────────
 
