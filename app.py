@@ -539,6 +539,31 @@ def register_vyroba_routes(app, login_required, handle_request):
 # zaregistruj výrobné API
 register_vyroba_routes(app, login_required, handle_request)
 
+# =========================
+# VÝROBA – inventúra skladu
+# =========================
+
+@app.route('/api/saveInventoryCategory', methods=['POST'])
+@login_required(role='vyroba')
+def vyroba_save_inventory_category_api():
+    """
+    Uloženie jednej kategórie inventúry (Mäso / Koreniny / Obaly / Pomocný materiál).
+    Volá production_handler.save_inventory_category(inventory_data, category_name).
+    """
+    body = request.get_json(force=True) or {}
+    items = body.get('items') or []
+    category = (body.get('category') or '').strip() or 'Nezaradené'
+    # použijeme handle_request, aby sa chyby správali rovnako ako inde
+    return handle_request(vyroba.save_inventory_category, items, category)
+
+
+@app.route('/api/finishInventory', methods=['POST'])
+@login_required(role='vyroba')
+def vyroba_finish_inventory_api():
+    """
+    Ukončenie inventúry – DRAFT záznam v inventory_logs sa prepne na COMPLETED.
+    """
+    return handle_request(vyroba.finish_inventory_process)
 
 
 # =========================== KANCELÁRIA – HACCP ===========================
