@@ -151,37 +151,37 @@ def _ensure_sklad_supplier_links_schema():
             REFERENCES suppliers(id) ON DELETE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_slovak_ci
     """, fetch='none')
-    # indexy podľa potreby (PK už pokrýva sklad_nazov+supplier_id)
 
-# stock_handler.py
-
-# ... (existujúce funkcie _ensure_suppliers_schema atď nechajte tak) ...
-
+# !!! TOTO JE TÁ KĽÚČOVÁ OPRAVA PRE DATABÁZU !!!
 def _fix_decimal_precision():
     """
-    Opraví stĺpce na DECIMAL(12,3), aby sa zmestili čísla nad 1000 kg.
-    Pôvodne to mohlo byť malé (napr. 999.99).
+    Rozšíri stĺpce v databáze, aby sa do nich zmestili čísla nad 999.99.
+    Zmení DECIMAL na (12,3), čo stačí aj pre milióny kíl.
     """
-    # 1. Sklad (suroviny)
+    # 1. Tabuľka SKLAD (suroviny)
     if _has_col("sklad", "mnozstvo"):
-        db_connector.execute_query(
-            "ALTER TABLE sklad MODIFY mnozstvo DECIMAL(12,3)", 
-            fetch='none'
-        )
+        try:
+            db_connector.execute_query("ALTER TABLE sklad MODIFY mnozstvo DECIMAL(12,3)", fetch='none')
+        except Exception: pass
     
-    # 2. Produkty (hotové výrobky)
+    if _has_col("sklad", "nakupna_cena"):
+        try:
+            db_connector.execute_query("ALTER TABLE sklad MODIFY nakupna_cena DECIMAL(12,4)", fetch='none')
+        except Exception: pass
+
+    # 2. Tabuľka PRODUKTY (hotové výrobky)
     if _has_col("produkty", "aktualny_sklad_finalny_kg"):
-        db_connector.execute_query(
-            "ALTER TABLE produkty MODIFY aktualny_sklad_finalny_kg DECIMAL(12,3)", 
-            fetch='none'
-        )
+        try:
+            db_connector.execute_query("ALTER TABLE produkty MODIFY aktualny_sklad_finalny_kg DECIMAL(12,3)", fetch='none')
+        except Exception: pass
 
 def init_stock():
     _ensure_suppliers_schema()
     _ensure_link_to_supplier()
     _ensure_meat_templates_schema()
     _ensure_sklad_supplier_links_schema()
-    _fix_decimal_precision()  # <--- TOTO SME PRIDALI
+    # Spustenie opravy stĺpcov
+    _fix_decimal_precision()
 
 # ------------------------- core queries ----------------------------
 
