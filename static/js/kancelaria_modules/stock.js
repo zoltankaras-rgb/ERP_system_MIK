@@ -1064,8 +1064,8 @@
       // KARTA 1: Importy
       const importCard = el(`
         <div class="stat-card" style="border-top: 4px solid #16a34a;">
-          <h4 style="margin-top:0"><i class="fa-solid fa-file-import"></i> Príjem na Výrobný Sklad (z Rozrábky)</h4>
-          <p class="text-muted small">Položky sa spárujú podľa EAN kódu z centrálneho číselníka a pripočítajú sa do výrobného skladu.</p>
+          <h4 style="margin-top:0"><i class="fa-solid fa-file-import"></i> Príjem na CENTRÁLNY Sklad (z Rozrábky)</h4>
+          <p class="text-muted small">Položky sa spárujú podľa EAN kódu a pripočítajú sa do tabuľky <b>sklad</b>.</p>
           
           <div style="background:${fileStatus.exists ? '#dcfce7' : '#f1f5f9'}; padding:15px; border-radius:8px; margin:15px 0; border:1px solid ${fileStatus.exists ? '#86efac' : '#e2e8f0'};">
              <div style="font-weight:bold; margin-bottom:5px; color:${fileStatus.exists ? '#166534':'#475569'}">A. Zo servera (automaticky)</div>

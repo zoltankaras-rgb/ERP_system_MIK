@@ -6122,55 +6122,111 @@ def _parse_rozrabka_csv(file_path, import_id):
 
     return {"items": items_to_import}
 
+# office_handler.py (Časť pre Rozrábku)
+
 def _execute_rozrabka_import(file_path, import_id):
-    """Spoločný vykonávač pre manuálny aj automatický import."""
+    """
+    Spoločný vykonávač pre import z rozrábky DO CENTRÁLNEHO SKLADU (`sklad`).
+    Páruje podľa EAN. Aktualizuje množstvo a vážený priemer ceny.
+    """
     
-    # 1. Parsovanie
+    # 1. Parsovanie CSV (EAN, Množstvo, Cena)
     parsed = _parse_rozrabka_csv(file_path, import_id)
     if "error" in parsed:
         return parsed
     
     items = parsed["items"]
     if not items:
-        return {"error": "Súbor neobsahuje žiadne platné položky (skontrolujte EAN kódy)."}
+        return {"error": "Súbor neobsahuje žiadne platné položky."}
 
-    # 2. Zápis do VÝROBNÉHO SKLADU
-    # Funkcia receive_production_stock (vyššie v tomto súbore) robí presne toto:
-    # INSERT INTO sklad_vyroba ... ON DUPLICATE KEY UPDATE mnozstvo = mnozstvo + ...
+    conn = db_connector.get_connection()
     try:
-        res_db = receive_production_stock({"items": items})
-        if res_db.get("error"):
-            return res_db
-    except Exception as e:
-        return {"error": f"Chyba pri zápise do DB: {e}"}
-
-    return {"message": f"Import OK. Prijatých {len(items)} položiek na výrobný sklad.", "import_id": import_id}
-
-def process_rozrabka_manual_import(file_path):
-    """Manuálny upload."""
-    import_id = uuid.uuid4().hex[:8].upper()
-    return _execute_rozrabka_import(file_path, import_id)
-
-def process_rozrabka_import():
-    """Automatický import zo servera."""
-    status = get_rozrabka_import_status()
-    if not status['exists']:
-        return {"error": f"Súbor {ROZRABKA_IMPORT_FILENAME} sa nenašiel."}
-    
-    import_id = uuid.uuid4().hex[:8].upper()
-    result = _execute_rozrabka_import(status['path'], import_id)
-    
-    # Ak OK, archivujeme
-    if not result.get("error"):
-        try:
-            dirname = os.path.dirname(status['path'])
-            archive_dir = os.path.join(dirname, "archive")
-            os.makedirs(archive_dir, exist_ok=True)
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            os.rename(status['path'], os.path.join(archive_dir, f"PRIJEMVYROBA_{timestamp}_{import_id}.CSV"))
-        except Exception: pass
+        cur = conn.cursor()
+        updated_count = 0
         
-    return result
+        for it in items:
+            ean_csv = it.get('note', '').split('EAN: ')[-1].strip().replace(')', '') # Vytiahneme EAN z poznámky alebo priamo z objektu ak by sme ho tam uložili
+            qty_new = float(it['quantity'])
+            price_new = float(it['price']) if it['price'] is not None else 0.0
+            
+            # --- KROK A: Nájdi položku v CENTRÁLNOM SKLADE (tabuľka `sklad`) ---
+            # Párujeme prioritne podľa EAN. Ak EAN v CSV chýba, skúsime Názov.
+            
+            row = None
+            # 1. Hľadanie podľa EAN (ak je v CSV ean_csv validné číslo)
+            if ean_csv and ean_csv.isdigit():
+                # Skús presnú zhodu
+                cur.execute("SELECT nazov, mnozstvo, nakupna_cena FROM sklad WHERE ean = %s LIMIT 1", (ean_csv,))
+                row = cur.fetchone()
+                
+                # Skús LIKE (pre nuly na začiatku)
+                if not row:
+                    cur.execute("SELECT nazov, mnozstvo, nakupna_cena FROM sklad WHERE ean LIKE %s LIMIT 1", (f"%{int(ean_csv)}%",))
+                    row = cur.fetchone()
+
+            # 2. Fallback: Hľadanie podľa Názvu (ak sa nenašlo podľa EAN)
+            if not row:
+                cur.execute("SELECT nazov, mnozstvo, nakupna_cena FROM sklad WHERE nazov = %s LIMIT 1", (it['name'],))
+                row = cur.fetchone()
+
+            if not row:
+                # Položka v sklade neexistuje -> Nemôžeme prijať (alebo by sme museli založiť kartu, čo tu nerobíme)
+                print(f"SKIP: Položka {it['name']} (EAN: {ean_csv}) sa nenašla v sklade.")
+                continue
+
+            # Máme položku
+            db_nazov = row[0] # Názov z DB (presný)
+            old_qty = float(row[1] or 0.0)
+            old_price = float(row[2] or 0.0)
+
+            # --- KROK B: Výpočet váženého priemeru ceny ---
+            # (Staré Množstvo * Stará Cena) + (Nové Množstvo * Nová Cena) / (Staré + Nové Množstvo)
+            
+            total_qty = old_qty + qty_new
+            new_avg_price = old_price # Default
+            
+            if total_qty > 0 and price_new > 0:
+                old_val = old_qty * old_price
+                new_val = qty_new * price_new
+                new_avg_price = (old_val + new_val) / total_qty
+            elif price_new > 0:
+                new_avg_price = price_new
+
+            # --- KROK C: UPDATE tabuľky `sklad` ---
+            cur.execute("""
+                UPDATE sklad 
+                SET mnozstvo = mnozstvo + %s, 
+                    nakupna_cena = %s 
+                WHERE nazov = %s
+            """, (qty_new, new_avg_price, db_nazov))
+
+            # --- KROK D: Záznam do histórie príjmov (zaznamy_prijem) ---
+            cur.execute("""
+                INSERT INTO zaznamy_prijem 
+                (datum, nazov_suroviny, mnozstvo_kg, nakupna_cena_eur_kg, typ, poznamka_dodavatel)
+                VALUES (%s, %s, %s, %s, %s, %s)
+            """, (
+                it['date'], 
+                db_nazov, 
+                qty_new, 
+                price_new if price_new > 0 else None, 
+                'rozrabka', 
+                it['note']
+            ))
+            
+            updated_count += 1
+
+        conn.commit()
+        return {
+            "message": f"Import OK. Aktualizovaných {updated_count} položiek v CENTRÁLNOM sklade.", 
+            "import_id": import_id
+        }
+
+    except Exception as e:
+        if conn: conn.rollback()
+        return {"error": f"Chyba pri zápise do DB: {e}"}
+    finally:
+        if conn and conn.is_connected(): conn.close()
 
 def get_rozrabka_history_list():
     """História importov pre UI."""
