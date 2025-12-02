@@ -6009,3 +6009,209 @@ def process_erp_import_file(file_path):
         if conn and conn.is_connected():
             cursor.close()
             conn.close()
+
+
+ # =================================================================
+# === IMPORT Z ROZRÁBKY (PRIJEMVYROBA.CSV) -> VÝROBNÝ SKLAD =======
+# =================================================================
+
+ROZRABKA_IMPORT_FILENAME = "PRIJEMVYROBA.CSV"
+
+def get_rozrabka_import_status():
+    """Vráti informácie o súbore PRIJEMVYROBA.CSV na serveri."""
+    base = os.path.dirname(__file__)
+    # Použijeme ERP_EXCHANGE_DIR z configu alebo default
+    exchange_dir = os.getenv("ERP_EXCHANGE_DIR", "/var/app/data/erp_exchange")
+    if not os.path.isabs(exchange_dir):
+        exchange_dir = os.path.join(base, exchange_dir)
+        
+    path = os.path.join(exchange_dir, ROZRABKA_IMPORT_FILENAME)
+    
+    if os.path.exists(path):
+        try:
+            t = datetime.fromtimestamp(os.path.getmtime(path)).strftime("%d.%m.%Y %H:%M:%S")
+            s = os.path.getsize(path)
+            return {"exists": True, "time": t, "size": s, "path": path}
+        except:
+            return {"exists": True, "time": "Neznámy", "size": 0}
+    return {"exists": False}
+
+def _parse_rozrabka_csv(file_path, import_id):
+    """
+    Parsuje fixný formát z rozrábky:
+    REG_CIS (EAN)   NAZOV                       JCM11 (Cena)   MNOZ (Množstvo)
+    
+    Logika:
+    1. Nájde EAN v tabuľke 'sklad' (centrálny číselník).
+    2. Použije NÁZOV z databázy (aby sa predišlo duplicitám kvôli preklepom v CSV).
+    3. Pripraví dáta pre zápis do 'sklad_vyroba'.
+    """
+    items_to_import = []
+    
+    def _clean_float(s):
+        if not s: return 0.0
+        try: return float(str(s).replace(',', '.').replace(' ', ''))
+        except: return 0.0
+
+    try:
+        encoding = 'cp1250'
+        with open(file_path, 'r', encoding=encoding, errors='ignore') as f:
+            for line in f:
+                line = line.rstrip('\r\n')
+                # Ignorujeme hlavičku a krátke riadky
+                if len(line) < 15 or "REG_CIS" in line: continue
+                
+                parts = line.split()
+                if len(parts) < 3: continue
+
+                # Predpoklad formátu:
+                # [0] = EAN
+                # [-1] = Množstvo
+                # [-2] = Cena
+                
+                ean_raw = parts[0].strip()
+                
+                # Ak prvý stĺpec nie je číslo (EAN), preskočíme riadok
+                if not ean_raw.isdigit(): 
+                    continue
+
+                qty_raw = parts[-1]
+                price_raw = parts[-2]
+                
+                qty = _clean_float(qty_raw)
+                price = _clean_float(price_raw)
+
+                if qty <= 0: continue
+
+                # --- KĽÚČOVÉ: Zistiť názov suroviny podľa EAN v systéme ---
+                # Hľadáme v tabuľke 'sklad', aby sme vedeli, čo to je.
+                # Ale naskladňovať budeme do 'sklad_vyroba'.
+                
+                # Skúsime presnú zhodu EAN
+                row = db_connector.execute_query(
+                    "SELECT nazov FROM sklad WHERE ean = %s LIMIT 1", 
+                    (ean_raw,), fetch='one'
+                )
+                
+                # Ak nenájde, skúsime LIKE (pre prípad núl na začiatku 000...)
+                if not row:
+                    row = db_connector.execute_query(
+                        "SELECT nazov FROM sklad WHERE ean LIKE %s LIMIT 1", 
+                        (f"%{int(ean_raw)}%",), fetch='one'
+                    )
+
+                if row and row.get('nazov'):
+                    system_name = row['nazov']
+                else:
+                    # Ak EAN v systéme nemáme, použijeme názov z CSV (riskantné, ale nutné fallback)
+                    # Názov je všetko medzi EAN a Cenou
+                    system_name = " ".join(parts[1:-2])
+
+                items_to_import.append({
+                    "category": "maso",         # Rozrábka = Mäso
+                    "source": "rozrabka",       # Zdroj pre štatistiky
+                    "name": system_name,        # Názov (kľúč pre sklad_vyroba)
+                    "quantity": qty,            # Množstvo na pripočítanie
+                    "price": price if price > 0 else None,
+                    "note": f"Import Rozrábka #{import_id} (EAN: {ean_raw})",
+                    "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                })
+
+    except Exception as e:
+        return {"error": f"Chyba pri čítaní CSV: {str(e)}"}
+
+    return {"items": items_to_import}
+
+def _execute_rozrabka_import(file_path, import_id):
+    """Spoločný vykonávač pre manuálny aj automatický import."""
+    
+    # 1. Parsovanie
+    parsed = _parse_rozrabka_csv(file_path, import_id)
+    if "error" in parsed:
+        return parsed
+    
+    items = parsed["items"]
+    if not items:
+        return {"error": "Súbor neobsahuje žiadne platné položky (skontrolujte EAN kódy)."}
+
+    # 2. Zápis do VÝROBNÉHO SKLADU
+    # Funkcia receive_production_stock (vyššie v tomto súbore) robí presne toto:
+    # INSERT INTO sklad_vyroba ... ON DUPLICATE KEY UPDATE mnozstvo = mnozstvo + ...
+    try:
+        res_db = receive_production_stock({"items": items})
+        if res_db.get("error"):
+            return res_db
+    except Exception as e:
+        return {"error": f"Chyba pri zápise do DB: {e}"}
+
+    return {"message": f"Import OK. Prijatých {len(items)} položiek na výrobný sklad.", "import_id": import_id}
+
+def process_rozrabka_manual_import(file_path):
+    """Manuálny upload."""
+    import_id = uuid.uuid4().hex[:8].upper()
+    return _execute_rozrabka_import(file_path, import_id)
+
+def process_rozrabka_import():
+    """Automatický import zo servera."""
+    status = get_rozrabka_import_status()
+    if not status['exists']:
+        return {"error": f"Súbor {ROZRABKA_IMPORT_FILENAME} sa nenašiel."}
+    
+    import_id = uuid.uuid4().hex[:8].upper()
+    result = _execute_rozrabka_import(status['path'], import_id)
+    
+    # Ak OK, archivujeme
+    if not result.get("error"):
+        try:
+            dirname = os.path.dirname(status['path'])
+            archive_dir = os.path.join(dirname, "archive")
+            os.makedirs(archive_dir, exist_ok=True)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            os.rename(status['path'], os.path.join(archive_dir, f"PRIJEMVYROBA_{timestamp}_{import_id}.CSV"))
+        except Exception: pass
+        
+    return result
+
+def get_rozrabka_history_list():
+    """História importov pre UI."""
+    sql = """
+        SELECT 
+            MIN(id) as id,
+            DATE_FORMAT(datum, '%d.%m.%Y %H:%i') as datum_display,
+            datum,
+            SUBSTRING_INDEX(poznamka_dodavatel, ' (', 1) as import_ref,
+            COUNT(*) as items_count,
+            SUM(mnozstvo_kg) as total_kg,
+            SUM(mnozstvo_kg * COALESCE(nakupna_cena_eur_kg, 0)) as total_value
+        FROM zaznamy_prijem
+        WHERE typ = 'rozrabka' 
+        GROUP BY datum, import_ref
+        ORDER BY datum DESC
+        LIMIT 50
+    """
+    rows = db_connector.execute_query(sql) or []
+    return {"history": rows}
+
+def get_rozrabka_pdf_data(import_ref):
+    """Dáta pre PDF."""
+    like_query = import_ref + "%"
+    sql = """
+        SELECT 
+            nazov_suroviny as nazov,
+            mnozstvo_kg as mnozstvo,
+            nakupna_cena_eur_kg as cena,
+            datum
+        FROM zaznamy_prijem
+        WHERE poznamka_dodavatel LIKE %s AND typ = 'rozrabka'
+        ORDER BY nazov_suroviny
+    """
+    rows = db_connector.execute_query(sql, (like_query,)) or []
+    if not rows: return None
+        
+    return {
+        "title": f"Príjemka na Výrobný sklad - {import_ref}",
+        "date": rows[0]['datum'].strftime("%d.%m.%Y %H:%M"),
+        "items": rows,
+        "total_kg": sum(float(r['mnozstvo'] or 0) for r in rows),
+        "total_eur": sum(float(r['mnozstvo'] or 0) * float(r['cena'] or 0) for r in rows)
+    }

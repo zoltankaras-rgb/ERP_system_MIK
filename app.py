@@ -3187,8 +3187,69 @@ def b2b_order_pdf_alias():
 
     return jsonify({'error':'Objednávku sa nepodarilo nájsť.'}), 404
 
+# =========================== KANCELÁRIA – rozrábka =============================
+# --- KANCELÁRIA / SKLAD / ROZRÁBKA ---
 
+@app.route('/api/kancelaria/stock/rozrabka/status')
+@login_required(role='kancelaria')
+def api_rozrabka_status():
+    return jsonify(office_handler.get_rozrabka_import_status())
 
+@app.route('/api/kancelaria/stock/rozrabka/process', methods=['POST'])
+@login_required(role='kancelaria')
+def api_rozrabka_process():
+    return handle_request(office_handler.process_rozrabka_import)
+
+@app.route('/api/kancelaria/stock/rozrabka/manual-import', methods=['POST'])
+@login_required(role='kancelaria')
+def api_rozrabka_manual():
+    file = request.files.get('file')
+    if not file: return jsonify({'error': 'Chýba súbor.'}), 400
+    
+    # Dočasné uloženie pre spracovanie
+    temp_path = os.path.join(ERP_EXCHANGE_DIR, f"TEMP_ROZRABKA_{uuid.uuid4().hex}.CSV")
+    try:
+        file.save(temp_path)
+        res = office_handler.process_rozrabka_manual_import(temp_path)
+        if os.path.exists(temp_path): os.remove(temp_path)
+        if res.get("error"): return jsonify(res), 400
+        return jsonify(res)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/kancelaria/stock/rozrabka/history')
+@login_required(role='kancelaria')
+def api_rozrabka_history():
+    return handle_request(office_handler.get_rozrabka_history_list)
+
+@app.route('/api/kancelaria/stock/rozrabka/print/<path:import_ref>')
+@login_required(role='kancelaria')
+def api_rozrabka_print(import_ref):
+    data = office_handler.get_rozrabka_pdf_data(import_ref)
+    if not data: return "Záznam sa nenašiel", 404
+    
+    # Jednoduché HTML pre PDF tlač
+    html = f"""
+    <!doctype html><html><head><meta charset="utf-8">
+    <style>body{{font-family:Arial;font-size:12px}} table{{width:100%;border-collapse:collapse;margin-top:20px}} th,td{{border:1px solid #ccc;padding:6px}} th{{background:#eee}} .tr{{text-align:right}} h1{{font-size:18px}}</style>
+    </head><body>
+    <h1>{data['title']}</h1>
+    <p><strong>Dátum príjmu:</strong> {data['date']} &nbsp;|&nbsp; <strong>Sklad:</strong> Výrobný sklad (Rozrábka)</p>
+    <table>
+        <thead><tr><th>Položka</th><th class="tr">Množstvo (kg)</th><th class="tr">Cena (€)</th><th class="tr">Spolu (€)</th></tr></thead>
+        <tbody>
+    """
+    for item in data['items']:
+        val = float(item['mnozstvo']) * float(item['cena'] or 0)
+        html += f"<tr><td>{item['nazov']}</td><td class='tr'>{float(item['mnozstvo']):.3f}</td><td class='tr'>{float(item['cena'] or 0):.3f}</td><td class='tr'>{val:.2f}</td></tr>"
+    html += f"""
+        </tbody>
+        <tfoot><tr style="font-weight:bold;background:#f9f9f9;"><td>SPOLU</td><td class="tr">{data['total_kg']:.3f}</td><td></td><td class="tr">{data['total_eur']:.2f}</td></tr></tfoot>
+    </table>
+    <br><p>Prevzal: ...........................................</p>
+    <script>window.print()</script></body></html>
+    """
+    return make_response(html)
 # =========================== KANCELÁRIA – B2C =============================
 # POZOR: B2C ADMIN endpointy rieši výlučne blueprint `kancelaria_b2c_api`.
 # TU zámerne nenechávame duplicitné /api/kancelaria/b2c/* volania na office_handler,

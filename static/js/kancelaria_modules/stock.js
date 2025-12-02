@@ -152,8 +152,14 @@
           <button id="btn-stock-raw"    class="btn-secondary"><i class="fa-solid fa-boxes-stacked"></i> Suroviny (výrobný sklad)</button>
           <button id="btn-stock-prods"  class="btn-secondary"><i class="fa-solid fa-layer-group"></i> Celkový prehľad (podľa predajnej kategórie)</button>
           <button id="btn-stock-intake" class="btn-secondary"><i class="fa-solid fa-truck-ramp-box"></i> Výrobný príjem (viac položiek)</button>
+          
+          <button id="btn-stock-rozrabka" class="btn-secondary" style="border:1px solid #16a34a; color:#166534;">
+            <i class="fa-solid fa-file-import"></i> Import z Rozrábky
+          </button>
+
           <button id="btn-stock-additem" class="btn-secondary"><i class="fa-solid fa-plus"></i> Pridať položku do výrobného skladu</button>
           <button id="btn-stock-suppliers" class="btn-secondary"><i class="fa-solid fa-user-tie"></i> Nový dodávateľ</button>
+          
           <span style="display:flex;gap:.5rem;align-items:center;margin-left:auto;">
             <input id="stock-search" type="text" class="input" placeholder="Hľadať názov/kategóriu…" style="max-width:280px;">
             <button id="btn-stock-refresh" class="btn-info"><i class="fa-solid fa-rotate"></i> Obnoviť</button>
@@ -163,15 +169,24 @@
       </div>
     `);
 
+    // Listeners pre navigačné tlačidlá
     qs("#btn-stock-raw", node).addEventListener("click", () => renderRaw(node));
     qs("#btn-stock-prods", node).addEventListener("click", () => renderProducts(node));
     qs("#btn-stock-intake", node).addEventListener("click", () => renderIntake(node));
+    
+    // Listener pre nové tlačidlo
+    qs("#btn-stock-rozrabka", node).addEventListener("click", () => renderRozrabkaImport(node));
+
     qs("#btn-stock-additem", node).addEventListener("click", () => renderAddItem(node));
     qs("#btn-stock-suppliers", node).addEventListener("click", () => renderSuppliers(node));
+
+    // Listener pre tlačidlo Obnoviť (Refresh)
     qs("#btn-stock-refresh", node).addEventListener("click", () => {
       const v = qs("#stock-body [data-view]", node)?.getAttribute("data-view");
+      
       if (v === "products") renderProducts(node);
       else if (v === "intake") renderIntake(node);
+      else if (v === "rozrabka") renderRozrabkaImport(node); // <--- Pridané pre obnovenie rozrábky
       else if (v === "add") renderAddItem(node);
       else if (v === "suppliers") renderSuppliers(node);
       else renderRaw(node);
@@ -1026,6 +1041,129 @@
     });
 
     return node;
+  }
+
+// ------------- Import z Rozrábky -------------
+  // ------------- Import z Rozrábky (Výrobný sklad) -------------
+  async function renderRozrabkaImport(shell) {
+    const body = qs("#stock-body", shell);
+    body.innerHTML = ""; body.appendChild(loading()); body.setAttribute("data-view", "rozrabka");
+
+    try {
+      const [statusRes, histRes] = await Promise.all([
+        apiRequest("/api/kancelaria/stock/rozrabka/status"),
+        apiRequest("/api/kancelaria/stock/rozrabka/history")
+      ]);
+      
+      const fileStatus = statusRes || { exists: false };
+      const history = histRes?.history || [];
+
+      body.innerHTML = "";
+      const container = el(`<div class="dashboard-grid" style="grid-template-columns: 1fr; gap:1.5rem;"></div>`);
+      
+      // KARTA 1: Importy
+      const importCard = el(`
+        <div class="stat-card" style="border-top: 4px solid #16a34a;">
+          <h4 style="margin-top:0"><i class="fa-solid fa-file-import"></i> Príjem na Výrobný Sklad (z Rozrábky)</h4>
+          <p class="text-muted small">Položky sa spárujú podľa EAN kódu z centrálneho číselníka a pripočítajú sa do výrobného skladu.</p>
+          
+          <div style="background:${fileStatus.exists ? '#dcfce7' : '#f1f5f9'}; padding:15px; border-radius:8px; margin:15px 0; border:1px solid ${fileStatus.exists ? '#86efac' : '#e2e8f0'};">
+             <div style="font-weight:bold; margin-bottom:5px; color:${fileStatus.exists ? '#166534':'#475569'}">A. Zo servera (automaticky)</div>
+             ${fileStatus.exists 
+                ? `<div>Súbor <b>PRIJEMVYROBA.CSV</b> je pripravený. <br><small>Čas: ${fileStatus.time}</small></div>`
+                : `<div class="text-muted small">Súbor na serveri sa nenašiel.</div>`
+             }
+             <div style="margin-top:10px">
+                <button class="btn-success js-process-server" ${!fileStatus.exists ? 'disabled' : ''} style="width:100%">
+                    <i class="fa-solid fa-gears"></i> Spracovať súbor zo servera
+                </button>
+             </div>
+          </div>
+
+          <div style="border-top:1px solid #eee; padding-top:15px;">
+             <div style="font-weight:bold; margin-bottom:5px; color:#475569">B. Nahrať ručne (testovanie/manuál)</div>
+             <div style="display:flex; gap:10px;">
+                <input type="file" class="input js-manual-file" accept=".csv,.txt" style="flex:1">
+                <button class="btn-primary js-process-manual"><i class="fa-solid fa-upload"></i> Nahrať</button>
+             </div>
+          </div>
+        </div>
+      `);
+
+      // Handler: Automatika
+      importCard.querySelector('.js-process-server').onclick = async () => {
+        if(!confirm("Spracovať súbor zo servera?")) return;
+        try {
+            const res = await apiRequest("/api/kancelaria/stock/rozrabka/process", "POST");
+            alert(res.message);
+            renderRozrabkaImport(shell);
+        } catch(e) { alert("Chyba: " + e.message); }
+      };
+
+      // Handler: Manuál
+      importCard.querySelector('.js-process-manual').onclick = async () => {
+        const fileInput = importCard.querySelector('.js-manual-file');
+        const file = fileInput.files[0];
+        if(!file) return alert("Vyberte súbor!");
+        
+        const fd = new FormData();
+        fd.append('file', file);
+        
+        try {
+            const res = await fetch("/api/kancelaria/stock/rozrabka/manual-import", { method: 'POST', body: fd });
+            const data = await res.json();
+            if(!res.ok) throw new Error(data.error || "Chyba uploadu");
+            alert(data.message);
+            renderRozrabkaImport(shell);
+        } catch(e) { alert("Chyba: " + e.message); }
+      };
+      
+      container.appendChild(importCard);
+
+      // KARTA 2: História
+      const histCard = el(`
+        <div class="stat-card">
+          <h4 style="margin-top:0">História príjmov</h4>
+          <div class="table-container">
+            <table class="table table-sm">
+                <thead><tr><th>Dátum</th><th>Ref</th><th>Pol.</th><th>Hodnota</th><th>Tlač</th></tr></thead>
+                <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      `);
+      
+      const tbody = histCard.querySelector('tbody');
+      if (history.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">Žiadna história.</td></tr>';
+      } else {
+          history.forEach(h => {
+              const tr = el(`
+                <tr>
+                    <td>${h.datum_display}</td>
+                    <td title="${h.import_ref}" style="max-width:120px; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(h.import_ref)}</td>
+                    <td>${h.items_count}</td>
+                    <td>${fmt(h.total_value)} €</td>
+                    <td>
+                        <button class="btn-secondary btn-sm js-print">
+                            <i class="fa-solid fa-print"></i>
+                        </button>
+                    </td>
+                </tr>
+              `);
+              tr.querySelector('.js-print').onclick = () => {
+                  window.open(`/api/kancelaria/stock/rozrabka/print/${encodeURIComponent(h.import_ref)}`, '_blank');
+              };
+              tbody.appendChild(tr);
+          });
+      }
+      container.appendChild(histCard);
+      body.appendChild(container);
+
+    } catch(e) {
+        console.error(e);
+        body.innerHTML = `<div class="stat-card error">Chyba načítania: ${e.message}</div>`;
+    }
   }
 
   function renderAddItem(shell){
