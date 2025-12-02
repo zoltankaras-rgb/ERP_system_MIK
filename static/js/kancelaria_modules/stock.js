@@ -240,206 +240,211 @@
     return set;
   }
 
-  // ------------- Suroviny (výrobný sklad) - OPRAVENÉ -------------
-  async function renderRaw(shell){
-    const body = qs("#stock-body", shell);
-    body.innerHTML = ""; body.appendChild(loading()); body.setAttribute("data-view", "raw");
-    const search = qs("#stock-search", shell);
+  // ------------- Suroviny (výrobný sklad) -------------
+// ------------- Suroviny (výrobný sklad) - OPRAVA -------------
+  async function renderRaw(shell){
+    const body = qs("#stock-body", shell);
+    body.innerHTML = ""; 
+    body.appendChild(loading()); 
+    body.setAttribute("data-view", "raw");
+    
+    const search = qs("#stock-search", shell);
 
-    const label = {
-      maso: 'Mäso – výrobný sklad',
-      koreniny: 'Koreniny – výrobný sklad',
-      obal: 'Obaly – výrobný sklad',
-      pomocny_material: 'Pomocný materiál – výrobný sklad',
-      nezaradene: 'Nezaradené – výrobný sklad'
-    };
-    
-    const order = ['maso','koreniny','obal','pomocny_material','nezaradene'];
+    const label = {
+      maso: 'Mäso – výrobný sklad',
+      koreniny: 'Koreniny – výrobný sklad',
+      obal: 'Obaly – výrobný sklad',
+      pomocny_material: 'Pomocný materiál – výrobný sklad',
+      nezaradene: 'Nezaradené – výrobný sklad'
+    };
+    const order = ['maso','koreniny','obal','pomocny_material','nezaradene'];
 
-    // Vylepšená detekcia kategórie (podľa typu aj podtypu)
-    const catOf = (r) => {
-        const t = String(r.typ || '').toLowerCase();
-        const p = String(r.podtyp || '').toLowerCase();
-        
-        if (t.includes('mäso') || t.includes('maso') || p.includes('maso')) return 'maso';
-        if (t.includes('koren') || p.includes('koren')) return 'koreniny';
-        if (t.includes('obal') || t.includes('črev') || t.includes('crev')) return 'obal';
-        if (t.includes('pomoc') || t.includes('voda') || t.includes('ľad') || t.includes('lad')) return 'pomocny_material';
-        
-        // Ak sme nič nenašli, ale položka existuje, dáme ju aspoň do nezaradených, aby nezmizla
-        return 'nezaradene';
-    };
+    // Opravená detekcia kategórie (aby sa nestrácali položky)
+    const catOf = (r)=>{
+      const t = String(r.typ || '').toLowerCase();
+      const p = String(r.podtyp || '').toLowerCase();
+      
+      // Mäso
+      if (t.includes('mäso') || t.includes('maso') || t.includes('meat') || p.includes('maso')) return 'maso';
+      // Koreniny
+      if (t.includes('koren') || p.includes('koren')) return 'koreniny';
+      // Obaly (Obaly - Črevá)
+      if (t.includes('obal') || t.includes('črev') || t.includes('crev')) return 'obal';
+      // Pomocný materiál
+      if (t.includes('pomoc') || t.includes('mater') || t.includes('voda') || t.includes('ľad') || t.includes('lad')) return 'pomocny_material';
+      
+      return 'nezaradene';
+    };
 
-    try{
-      const res = await apiRequest("/api/kancelaria/getRawMaterialStockOverview");
-      const items = Array.isArray(res?.items) ? res.items : [];
+    try{
+      const res = await apiRequest("/api/kancelaria/getRawMaterialStockOverview");
+      const items = Array.isArray(res?.items) ? res.items : [];
 
-      // datalist pre intake/autocomplete
-      const dlHtml = items.map(r => `<option value="${r.nazov}"></option>`).join("");
-      if (!qs("#rm-name-dl", shell)) shell.appendChild(el(`<datalist id="rm-name-dl">${dlHtml}</datalist>`));
-      else qs("#rm-name-dl", shell).innerHTML = dlHtml;
+      // Aktualizácia datalistu pre vyhľadávanie
+      const dlHtml = items.map(r => `<option value="${r.nazov}"></option>`).join("");
+      if (!qs("#rm-name-dl", shell)) shell.appendChild(el(`<datalist id="rm-name-dl">${dlHtml}</datalist>`));
+      else qs("#rm-name-dl", shell).innerHTML = dlHtml;
 
-      body.innerHTML = "";
-      const container = el(`<div></div>`);
-      body.appendChild(container);
+      body.innerHTML = "";
+      const container = el(`<div></div>`);
+      body.appendChild(container);
 
+      // Ak je prázdny sklad
       if (items.length === 0) {
           container.appendChild(empty("Výrobný sklad je prázdny."));
           return;
       }
 
-      const asGroups = (list)=>{
-        const g = { maso:[], koreniny:[], obal:[], pomocny_material:[], nezaradene:[] };
-        list.forEach(r => {
+      const asGroups = (list)=>{
+        const g = { maso:[], koreniny:[], obal:[], pomocny_material:[], nezaradene:[] };
+        list.forEach(r => {
             const c = catOf(r);
-            if (g[c]) g[c].push(r);
-            else g['nezaradene'].push(r); // Fallback pre istotu
+            if(g[c]) g[c].push(r);
+            else g.nezaradene.push(r);
         });
-        return g;
-      };
+        return g;
+      };
 
-      const draw = (groups)=>{
-        container.innerHTML = "";
-        order.forEach(cat=>{
-          const rows = groups[cat] || [];
-          if (!rows.length) return;
+      const draw = (groups)=>{
+        container.innerHTML = "";
+        order.forEach(cat=>{
+          const rows = groups[cat] || [];
+          if (!rows.length) return;
 
-          const card = el(`<div class="stat-card" style="margin-bottom:1rem;"></div>`);
-          card.appendChild(el(`<h4 style="margin:0 0 .5rem 0; border-bottom:1px solid #eee; padding-bottom:5px;">${label[cat]}</h4>`));
-          const wrap = el(`<div class="table-container"></div>`);
-          const table = el(`
-            <table class="table table-sm table-striped">
-              <thead>
-                <tr><th>Názov</th><th>Typ</th><th style="text-align:right">Sklad (kg)</th><th style="width:280px">Akcie</th></tr>
-              </thead>
-              <tbody></tbody>
-              <tfoot class="total-row" style="font-weight:bold; background:#f9f9f9;">
-                <tr><td colspan="2">Súčet kategórie</td><td style="text-align:right" class="js-sum">0.00</td><td></td></tr>
-              </tfoot>
-            </table>
-          `);
-          const tb = qs("tbody", table);
-          let sum = 0;
+          const card = el(`<div class="stat-card" style="margin-bottom:1rem;"></div>`);
+          card.appendChild(el(`<h4 style="margin:0 0 .5rem 0;">${label[cat]}</h4>`));
+          const wrap = el(`<div class="table-container"></div>`);
+          const table = el(`
+            <table>
+              <thead>
+                <tr><th>Názov</th><th>Typ</th><th>Sklad (kg)</th><th>Akcie</th></tr>
+              </thead>
+              <tbody></tbody>
+              <tfoot class="total-row"><tr><td colspan="3">Súčet</td><td class="js-sum">0.00</td></tr></tfoot>
+            </table>
+          `);
+          const tb = qs("tbody", table);
+          let sum = 0;
 
-          rows.forEach(r=>{
-            const qty = r.quantity != null ? parseFloat(r.quantity) : (r.mnozstvo != null ? parseFloat(r.mnozstvo) : 0);
-            
+          rows.forEach(r=>{
+            // Ošetrenie rôznych názvov pre množstvo z backendu
+            const qty = r.quantity != null ? Number(r.quantity) : (r.mnozstvo != null ? Number(r.mnozstvo) : 0);
+            
             const tr = el(`
-              <tr data-name="${txt(r.nazov)}" data-cat="${cat}">
-                <td class="c-name" style="font-weight:500">${txt(r.nazov)}</td>
-                <td style="color:#666; font-size:0.9em">${txt(r.typ)} <span class="text-muted">${txt(r.podtyp || "")}</span></td>
-                <td class="c-qty" style="text-align:right; font-weight:bold; font-size:1.1em">${fmt(qty, 3)}</td>
-                <td class="c-actions" style="display:flex; gap:.5rem; align-items:center; justify-content:flex-end;">
-                  <button class="btn-secondary btn-sm js-editqty" title="Upraviť množstvo"><i class="fa-solid fa-pencil"></i></button>
-                  <button class="btn-secondary btn-sm js-editcard" title="Upraviť kartu"><i class="fa-solid fa-id-card"></i></button>
-                  <button class="btn-danger btn-sm js-del" title="Zmazať"><i class="fa-solid fa-trash"></i></button>
-                </td>
-              </tr>
-            `);
+              <tr data-name="${txt(r.nazov)}" data-cat="${cat}">
+                <td class="c-name" style="font-weight:bold;">${txt(r.nazov)}</td>
+                <td>${label[cat].split(' – ')[0]}</td>
+                <td class="c-qty" style="font-size:1.1em;">${fmt(qty, 3)}</td>
+                <td class="c-actions" style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;">
+                  <button class="btn-secondary js-editqty" style="margin:0;">Upraviť množstvo</button>
+                  <button class="btn-secondary js-editcard" style="margin:0;">Upraviť kartu</button>
+                  <button class="btn-danger js-del" style="margin:0;">Zmazať</button>
+                </td>
+              </tr>
+            `);
 
-            // Edit množstva (inline)
-            qs(".js-editqty", tr).addEventListener("click", async ()=>{
-              if (tr.classList.contains("editing-qty")) return;
-              tr.classList.add("editing-qty");
-              const cQty = qs(".c-qty", tr);
-              const oldQty = parseAmount(cQty.textContent || "0", 3) || 0;
-              cQty.innerHTML = `<input type="text" class="input js-newqty" placeholder="kg" value="${oldQty.toFixed(3)}" style="width:80px; text-align:right; padding:2px;">`;
-              const newInput = qs(".js-newqty", tr);
-              attachNumericSanitizer(newInput, 3);
-              newInput.focus();
+            // Edit množstva (inline)
+            qs(".js-editqty", tr).addEventListener("click", async ()=>{
+              if (tr.classList.contains("editing-qty")) return;
+              tr.classList.add("editing-qty");
+              const cQty = qs(".c-qty", tr);
+              const oldQty = parseAmount(cQty.textContent || "0", 3) || 0;
+              cQty.innerHTML = `<input type="text" class="input js-newqty" placeholder="kg" value="${oldQty.toFixed(3)}" style="max-width:9rem;">`;
+              const newInput = qs(".js-newqty", tr);
+              attachNumericSanitizer(newInput, 3);
 
-              const actions = qs(".c-actions", tr);
-              const oldActions = actions.innerHTML;
-              actions.innerHTML = `
-                <button class="btn-success btn-sm js-save"><i class="fa-solid fa-check"></i></button>
-                <button class="btn-secondary btn-sm js-cancel"><i class="fa-solid fa-xmark"></i></button>
-              `;
-              qs(".js-cancel", tr).onclick = ()=>{
-                cQty.textContent = oldQty.toFixed(3);
-                actions.innerHTML = oldActions;
-                bindRowActions();
-                tr.classList.remove("editing-qty");
-              };
-              qs(".js-save", tr).onclick = async ()=>{
-                const newQty = parseAmount(qs(".js-newqty", tr).value, 3);
-                const name = tr.dataset.name;
-                if (newQty == null || newQty < 0){ alert("Neplatné množstvo."); return; }
-                if (!confirmTwice(`Upraviť množstvo položky „${name}“ na ${newQty.toFixed(3)} kg?`,"Prosím potvrďte ešte raz úpravu množstva.")) return;
-                try{
-                  await apiRequest("/api/kancelaria/stock/updateProductionItemQty", "POST", { name, quantity: newQty });
-                  renderRaw(shell);
-                }catch(e){ alert("Chyba pri ukladaní: " + e.message); }
-              };
+              const actions = qs(".c-actions", tr);
+              const oldActions = actions.innerHTML;
+              actions.innerHTML = `
+                <button class="btn-success js-save" style="margin:0;">Uložiť</button>
+                <button class="btn-secondary js-cancel" style="margin:0;">Zrušiť</button>
+              `;
+              qs(".js-cancel", tr).onclick = ()=>{
+                cQty.textContent = oldQty.toFixed(3);
+                actions.innerHTML = oldActions;
+                bindRowActions();
+                tr.classList.remove("editing-qty");
+              };
+              qs(".js-save", tr).onclick = async ()=>{
+                const newQty = parseAmount(qs(".js-newqty", tr).value, 3);
+                const name = tr.dataset.name;
+                if (newQty == null || newQty < 0){ alert("Neplatné množstvo."); return; }
+                if (!confirmTwice(`Upraviť množstvo položky „${name}“ na ${newQty.toFixed(3)} kg?`,"Prosím potvrďte ešte raz úpravu množstva.")) return;
+                try{
+                  await apiRequest("/api/kancelaria/stock/updateProductionItemQty", "POST", { name, quantity: newQty });
+                  renderRaw(shell);
+                }catch(e){ alert("Chyba pri ukladaní: " + e.message); }
+              };
 
-              function bindRowActions(){
-                qs(".js-editqty", tr).addEventListener("click", ()=>{ tr.classList.remove("editing-qty"); qs(".js-editqty", tr).click(); });
-                qs(".js-editcard", tr).addEventListener("click", ()=> openEditCard(shell, tr.dataset.name));
-                qs(".js-del", tr).addEventListener("click", delHandler);
-              }
-            });
+              function bindRowActions(){
+                qs(".js-editqty", tr).addEventListener("click", ()=>{ tr.classList.remove("editing-qty"); qs(".js-editqty", tr).click(); });
+                qs(".js-editcard", tr).addEventListener("click", ()=> openEditCard(shell, tr.dataset.name));
+                qs(".js-del", tr).addEventListener("click", delHandler);
+              }
+            });
 
-            // Edit karty (full)
-            qs(".js-editcard", tr).addEventListener("click", ()=> openEditCard(shell, tr.dataset.name));
+            // Edit karty (full)
+            qs(".js-editcard", tr).addEventListener("click", ()=> openEditCard(shell, tr.dataset.name));
 
-            // Delete
-            function delHandler(){
-              const name = tr.dataset.name;
-              const ok1 = confirm(`Naozaj chcete zmazať položku „${name}“ z výrobného skladu?`);
-              if (!ok1) return;
+            // Delete
+            function delHandler(){
+              const name = tr.dataset.name;
+              const ok1 = confirm(`Naozaj chcete zmazať položku „${name}“ z výrobného skladu?`);
+              if (!ok1) return;
 
-              const deleteCard = confirm(
-                `Chceš zmazať „${name}“ aj z karty v hlavnom sklade?\n\n` +
-                `OK = Zmazať aj z karty\n` +
-                `Zrušiť = Zmazať iba z výrobného skladu`
-              );
+              const deleteCard = confirm(
+                `Chceš zmazať „${name}“ aj z karty v hlavnom sklade (resp. prestať ju sledovať v objednávkach)?\n\n` +
+                `OK = Zmazať aj z karty (vynuluje minimálnu zásobu – položka už nebude figurovať v „pod minimom“)\n` +
+                `Zrušiť = Zmazať iba z výrobného skladu`
+              );
 
-              apiRequest("/api/kancelaria/stock/deleteProductionItem", "POST", {
-                  name,
-                  delete_card: deleteCard
-                })
-                .then(()=> renderRaw(shell))
-                .catch(e => alert("Chyba pri mazaní: " + e.message));
-            }
-            qs(".js-del", tr).addEventListener("click", delHandler);
+              apiRequest("/api/kancelaria/stock/deleteProductionItem", "POST", {
+                  name,
+                  delete_card: deleteCard
+                })
+                .then(()=> renderRaw(shell))
+                .catch(e => alert("Chyba pri mazaní: " + e.message));
+            }
+            qs(".js-del", tr).addEventListener("click", delHandler);
 
-            tb.appendChild(tr);
-            sum += qty;
-          });
+            tb.appendChild(tr);
+            sum += qty;
+          });
 
-          qs(".js-sum", table).textContent = fmt(sum, 3) + " kg";
-          wrap.appendChild(table);
-          card.appendChild(wrap);
-          container.appendChild(card);
-        });
+          qs(".js-sum", table).textContent = fmt(sum, 3);
+          wrap.appendChild(table);
+          card.appendChild(wrap);
+          container.appendChild(card);
+        });
 
-        if (!container.children.length){
-          container.appendChild(empty("Žiadne položky vo výrobnom sklade."));
-        }
-      };
+        if (!container.children.length){
+          container.appendChild(empty("Žiadne položky vo výrobnom sklade."));
+        }
+      };
 
-      const allGroups = asGroups(items);
-      draw(allGroups);
+      const allGroups = asGroups(items);
+      draw(allGroups);
 
-      if (search){
-        search._h && search.removeEventListener("input", search._h);
-        search._h = ()=>{
-          const q = (search.value || "").toLowerCase().trim();
-          if (!q) { draw(allGroups); return; }
-          const filtered = items.filter(r=>{
-            const cat = catOf(r);
-            return txt(r.nazov).toLowerCase().includes(q)
-                || txt(r.typ).toLowerCase().includes(q)
-                || (label[cat] || "").toLowerCase().includes(q);
-          });
-          draw(asGroups(filtered));
-        };
-        search.addEventListener("input", search._h);
-      }
-    }catch(e){
-      console.error(e);
-      body.innerHTML = ""; body.appendChild(empty("Nepodarilo sa načítať výrobný sklad."));
-    }
-  }
+      if (search){
+        search._h && search.removeEventListener("input", search._h);
+        search._h = ()=>{
+          const q = (search.value || "").toLowerCase().trim();
+          if (!q) { draw(allGroups); return; }
+          const filtered = items.filter(r=>{
+            const cat = catOf(r);
+            return txt(r.nazov).toLowerCase().includes(q)
+                || txt(r.typ).toLowerCase().includes(q)
+                || label[cat].toLowerCase().includes(q);
+          });
+          draw(asGroups(filtered));
+        };
+        search.addEventListener("input", search._h);
+      }
+    }catch(e){
+      console.error(e);
+      body.innerHTML = ""; body.appendChild(empty("Nepodarilo sa načítať výrobný sklad."));
+    }
+  }
 
   // ---------- Editačný panel karty ----------
   async function openEditCard(shell, originalName){
