@@ -1320,7 +1320,7 @@
   }
 
  // =================================================================
-  // 2. CELKOVÝ PREHĽAD (Predajná kategória)
+  // 2. CELKOVÝ PREHĽAD (Opravený)
   // =================================================================
   async function renderProducts(shell){
     const body = qs("#stock-body", shell);
@@ -1332,25 +1332,33 @@
 
     try{
       const data = await apiRequest("/api/kancelaria/getComprehensiveStockView");
-      // Fallback ak by náhodou prišla iná štruktúra
-      const grouped = data?.groupedByCategory || (() => {
-        const g={}; (data?.products || []).forEach(p=>{
-          const c = p.category || "Nezaradené";
-          (g[c]||(g[c]=[])).push(p);
-        });
-        return g;
-      })();
+      
+      // 1. Skúsime získať dáta (podpora pre rôzne formáty z backendu)
+      let grouped = data?.groupedByCategory;
+
+      // Ak backend neposlal hotové skupiny, ale len zoznam, zoskupíme to tu:
+      if (!grouped) {
+          const list = data?.products || data?.items || [];
+          grouped = {};
+          list.forEach(p => {
+              // Zistíme kategóriu (backend môže posielať 'category' alebo 'predajna_kategoria')
+              const c = p.category || p.predajna_kategoria || "Nezaradené";
+              if (!grouped[c]) grouped[c] = [];
+              grouped[c].push(p);
+          });
+      }
 
       body.innerHTML = "";
       const container = el(`<div></div>`);
       body.appendChild(container);
 
+      // Funkcia na vykreslenie
       function draw(groups){
         container.innerHTML = "";
         const cats = Object.keys(groups).sort((a,b)=> a.localeCompare(b, "sk"));
         
         if (!cats.length){ 
-            container.appendChild(empty("Žiadne produkty.")); 
+            container.appendChild(empty("Žiadne produkty v systéme. (Skontrolujte či prebehol import 'VYROBKY.CSV' do tabuľky Produkty)")); 
             return; 
         }
         
@@ -1376,13 +1384,21 @@
           const tb = qs("tbody", table);
           
           (groups[cat] || []).forEach(p=>{
+            // Ošetrenie rôznych názvov atribútov (aby to nezlyhalo)
+            const name = p.name || p.nazov_vyrobku || "";
+            const ean = p.ean || "";
+            // Množstvo môže byť 'quantity' alebo 'stock_kg'
+            const qty = p.quantity != null ? p.quantity : (p.stock_kg != null ? p.stock_kg : 0);
+            const unit = p.unit || p.mj || "kg";
+            const price = p.price != null ? p.price : 0;
+
             const tr = el(`
                 <tr>
-                    <td style="font-family:monospace; color:#666;">${p.ean || ''}</td>
-                    <td>${txt(p.name)}</td>
-                    <td style="text-align:right; font-weight:bold;">${fmt(p.quantity)}</td>
-                    <td style="text-align:right;">${txt(p.unit||"kg")}</td>
-                    <td style="text-align:right;">${fmt(p.price)} €</td>
+                    <td style="font-family:monospace; color:#666;">${ean}</td>
+                    <td style="font-weight:500;">${txt(name)}</td>
+                    <td style="text-align:right; font-weight:bold;">${fmt(qty)}</td>
+                    <td style="text-align:right;">${txt(unit)}</td>
+                    <td style="text-align:right;">${fmt(price)} €</td>
                 </tr>
             `);
             tb.appendChild(tr);
@@ -1394,15 +1410,20 @@
         }
       }
 
+      // Filter
       function applyFilter(){
         const q = (search?.value || "").trim().toLowerCase();
         if (!q) { draw(grouped); return; }
         
         const g = {};
         Object.keys(grouped).forEach(cat=>{
-          const f = (grouped[cat]||[]).filter(p =>
-            txt(p.name).toLowerCase().includes(q) || txt(cat).toLowerCase().includes(q)
-          );
+          const items = grouped[cat] || [];
+          const f = items.filter(p => {
+             const n = (p.name || p.nazov_vyrobku || "").toLowerCase();
+             const c = cat.toLowerCase();
+             const e = (p.ean || "").toLowerCase();
+             return n.includes(q) || c.includes(q) || e.includes(q);
+          });
           if (f.length) g[cat] = f;
         });
         draw(g);
@@ -1411,17 +1432,17 @@
       draw(grouped);
       
       if (search){
-        search._h && search.removeEventListener("input", search._h);
-        search._h = ()=> applyFilter();
-        search.addEventListener("input", search._h);
+        // Jednoduchý re-bind (prepíše starý oninput)
+        search.oninput = () => applyFilter();
+        if(search.value) applyFilter();
       }
+
     }catch(e){
       console.error(e);
       body.innerHTML = ""; 
-      body.appendChild(empty("Nepodarilo sa načítať celkový prehľad."));
+      body.appendChild(empty("Chyba pri načítaní prehľadu: " + e.message));
     }
   }
-
   // ------------- init -------------
   window.initializeStockModule = function(){
     const shell = makeShell();
