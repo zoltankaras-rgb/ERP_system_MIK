@@ -240,8 +240,7 @@
     return set;
   }
 
-  // ------------- Suroviny (výrobný sklad) - OPRAVA CENY A KATEGÓRIÍ -------------
- // ------------- Suroviny (výrobný sklad) - OPRAVA MJ (bm pre obaly) -------------
+  // ------------- Suroviny (výrobný sklad) - S EANOM A VYHĽADÁVANÍM -------------
   async function renderRaw(shell){
     const body = qs("#stock-body", shell);
     body.innerHTML = ""; 
@@ -303,29 +302,28 @@
           const rows = groups[cat] || [];
           if (!rows.length) return;
 
-          // Určíme MJ pre celú skupinu (bm pre obaly, inak kg)
           const defaultUnit = (cat === 'obal') ? 'bm' : 'kg';
 
           const card = el(`<div class="stat-card" style="margin-bottom:1rem;"></div>`);
           card.appendChild(el(`<h4 style="margin:0 0 .5rem 0;">${label[cat]}</h4>`));
           const wrap = el(`<div class="table-container"></div>`);
           
-          // ZMENA HLAVIČKY: Sklad (MJ) namiesto (kg)
+          // --- PRIDANÝ STĹPEC EAN ---
           const table = el(`
             <table class="table table-sm table-striped">
               <thead>
                 <tr>
-                    <th>Názov</th>
+                    <th style="width:130px;">EAN</th> <th>Názov</th>
                     <th>Typ</th>
                     <th style="text-align:right">Cena (€)</th>
-                    <th style="text-align:right">Sklad (MJ)</th>
+                    <th style="text-align:right">Sklad (${defaultUnit})</th>
                     <th style="width:280px">Akcie</th>
                 </tr>
               </thead>
               <tbody></tbody>
               <tfoot class="total-row" style="font-weight:bold; background:#f9f9f9;">
                 <tr>
-                    <td colspan="3">Súčet kategórie</td>
+                    <td colspan="4">Súčet kategórie</td>
                     <td style="text-align:right" class="js-sum">0.00</td>
                     <td></td>
                 </tr>
@@ -338,14 +336,15 @@
           rows.forEach(r=>{
             const qty = r.quantity != null ? Number(r.quantity) : (r.mnozstvo != null ? Number(r.mnozstvo) : 0);
             const price = r.price != null ? Number(r.price) : 0;
+            const ean = r.ean || ''; // EAN
 
             const tr = el(`
               <tr data-name="${txt(r.nazov)}" data-cat="${cat}">
+                <td style="font-family:monospace; color:#666;">${escapeHtml(ean)}</td>
+                
                 <td class="c-name" style="font-weight:bold;">${txt(r.nazov)}</td>
                 <td style="color:#666; font-size:0.9em">${label[cat].split(' – ')[0]}</td>
-                
                 <td style="text-align:right;">${fmt(price)}</td>
-
                 <td class="c-qty" style="text-align:right; font-weight:bold; font-size:1.1em; color:${qty < 0 ? 'red' : 'inherit'}">
                     ${fmt(qty, 3)} <small class="text-muted">${defaultUnit}</small>
                 </td>
@@ -365,7 +364,6 @@
               const cQty = qs(".c-qty", tr);
               const oldQty = parseAmount(cQty.textContent || "0", 3) || 0;
               
-              // Input poľa s placeholderom pre jednotku
               cQty.innerHTML = `
                 <div style="display:flex; justify-content:flex-end; align-items:center; gap:4px;">
                     <input type="text" class="input js-newqty" placeholder="${defaultUnit}" value="${oldQty.toFixed(3)}" style="width:80px; text-align:right;">
@@ -424,7 +422,6 @@
             sum += qty;
           });
 
-          // Súčet s jednotkou
           qs(".js-sum", table).textContent = `${fmt(sum, 3)} ${defaultUnit}`;
           wrap.appendChild(table);
           card.appendChild(wrap);
@@ -440,19 +437,29 @@
       draw(allGroups);
 
       if (search){
-        search._h && search.removeEventListener("input", search._h);
-        search._h = ()=>{
-          const q = (search.value || "").toLowerCase().trim();
+        // Odstránime starý listener
+        const newSearch = search.cloneNode(true);
+        search.parentNode.replaceChild(newSearch, search);
+
+        // --- UPDATED SEARCH LOGIC (s EANom) ---
+        newSearch.addEventListener("input", (e) => {
+          const q = (e.target.value || "").toLowerCase().trim();
           if (!q) { draw(allGroups); return; }
-          const filtered = items.filter(r=>{
+          
+          const filtered = items.filter(r => {
             const cat = catOf(r);
+            const ean = String(r.ean || '').toLowerCase(); // EAN pre vyhľadávanie
+            
             return txt(r.nazov).toLowerCase().includes(q)
                 || txt(r.typ).toLowerCase().includes(q)
-                || (label[cat] || "").toLowerCase().includes(q);
+                || (label[cat] || "").toLowerCase().includes(q)
+                || ean.includes(q); // Vyhľadávanie podľa EAN
           });
           draw(asGroups(filtered));
-        };
-        search.addEventListener("input", search._h);
+        });
+        
+        // Ak už niečo bolo v search (napr. pri refreshi)
+        if(newSearch.value) newSearch.dispatchEvent(new Event('input'));
       }
     }catch(e){
       console.error(e);

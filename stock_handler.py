@@ -679,11 +679,12 @@ def receive_production():
 def get_raw_material_stock_overview():
     """
     Prehľad surovín pre modul 'Sklad výroba'.
-    Oprava: Pridaná CENA a Mínusové stavy.
+    Oprava: Pridaný EAN, CENA a Mínusové stavy.
     """
     rows = db_connector.execute_query("""
         SELECT
             s.nazov,
+            s.ean,                                                -- PRIDANÉ: EAN
             COALESCE(sv.mnozstvo, 0)              AS quantity,
             LOWER(COALESCE(s.typ, ''))            AS typ,
             LOWER(COALESCE(s.podtyp, ''))         AS podtyp,
@@ -696,8 +697,9 @@ def get_raw_material_stock_overview():
     return jsonify({
         "items": [{
             "nazov":    r["nazov"],
+            "ean":      r["ean"] or "",           # PRIDANÉ: EAN do JSON
             "quantity": float(r["quantity"] or 0.0),
-            "price":    float(r["price"] or 0.0),     # <--- TOTO SME VRÁTILI SPÄŤ
+            "price":    float(r["price"] or 0.0),
             "typ":      r["typ"] or "",
             "podtyp":   r["podtyp"] or ""
         } for r in rows]
