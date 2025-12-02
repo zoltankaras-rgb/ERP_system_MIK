@@ -76,25 +76,60 @@ function populateWeeklySchedule(schedule) {
     }
 }
 
+// --- Zobrazenie Prebiehajúcich úloh ---
 function populateRunningTasks(tasks) {
     const container = document.getElementById('running-tasks-container');
     container.innerHTML = '';
+    
     if (!tasks || Object.keys(tasks).length === 0) {
         container.innerHTML = "<p style='color:#6b7280; font-style:italic;'>Výroba stojí.</p>";
         return;
     }
+    
     let listHtml = '<ul style="list-style:none; padding:0;">';
     for (const category in tasks) {
         tasks[category].forEach(task => {
-            listHtml += `<li style="padding:5px 0; border-bottom:1px solid #eee;">
-                <i class="fas fa-cog fa-spin" style="color:#3b82f6;"></i> 
-                <strong>${escapeHtml(task.productName)}</strong> (${escapeHtml(task.displayQty)})
+            // Pridanie tlačidla Zrušiť
+            listHtml += `
+            <li style="padding:10px 0; border-bottom:1px solid #eee; display:flex; justify-content:space-between; align-items:center;">
+                <div>
+                    <i class="fas fa-cog fa-spin" style="color:#3b82f6; margin-right:5px;"></i> 
+                    <strong>${escapeHtml(task.productName)}</strong> 
+                    <span style="color:#666;">(${escapeHtml(task.displayQty)})</span>
+                    <div style="font-size:0.8em; color:#999; margin-left:24px;">ID: ${task.logId}</div>
+                </div>
+                <button class="btn-danger" style="padding:4px 8px; font-size:0.8em;" onclick="cancelRunningTask('${task.logId}', '${escapeHtml(task.productName)}')">
+                    <i class="fas fa-times"></i> Zrušiť
+                </button>
             </li>`;
         });
     }
     container.innerHTML = listHtml + '</ul>';
 }
 
+// --- Nová funkcia na zrušenie ---
+async function cancelRunningTask(batchId, productName) {
+    if (!confirm(`Naozaj chcete ZRUŠIŤ výrobu produktu "${productName}"?\n\nSuroviny sa vrátia na sklad.`)) {
+        return;
+    }
+
+    try {
+        const result = await apiRequest('/api/cancelProduction', {
+            method: 'POST',
+            body: { batchId: batchId }
+        });
+
+        if (result && result.error) {
+            showStatus(result.error, true);
+        } else {
+            showStatus(result.message || "Výroba zrušená.", false);
+            loadAndShowProductionMenu(); // Obnoviť zoznam
+        }
+    } catch (e) {
+        showStatus("Chyba pri rušení výroby.", true);
+        console.error(e);
+    }
+}
 function populateProductionCategories(recipes) {
     const container = document.getElementById('category-container');
     container.innerHTML = '';

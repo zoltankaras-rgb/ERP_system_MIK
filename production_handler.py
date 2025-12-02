@@ -340,23 +340,21 @@ def calculate_required_ingredients(product_name, planned_weight):
         })
     return {"data": out, "batchKg": batch_kg, "multiplier": multiplier}
 
-# ───────────────────────── Štart výroby (TX) ─────────────────────────
+# ───────────────────────── Štart výroby (TX) - OPRAVENÉ ─────────────────────────
 
 def start_production(productName, plannedWeight, productionDate, ingredients, workerName, existingLogId=None, **kwargs):
     if not all([productName, plannedWeight, productionDate, ingredients]):
         return {"error": "Chýbajú povinné údaje pre spustenie výroby."}
-    if not existingLogId and not workerName:
-        return {"error": "Chýba meno pracovníka pre vytvorenie manuálnej výrobnej úlohy."}
+    
+    # Ak nemáme workerName (pri automatickom plánovaní), skúsime ho získať zo session
+    if not workerName:
+        user = session.get('user')
+        workerName = user.get('full_name') or user.get('username') or "Neznámy"
 
     try:
         planned_weight_val = float(plannedWeight)
     except Exception:
         return {"error": "Neplatné plánované množstvo."}
-
-    try:
-        datetime.strptime(productionDate, '%Y-%m-%d')
-    except Exception:
-        return {"error": "Dátum výroby musí byť vo formáte YYYY-MM-DD."}
 
     ing_names = [i.get('name') for i in (ingredients or []) if i.get('name')]
     if not ing_names:
@@ -366,12 +364,13 @@ def start_production(productName, plannedWeight, productionDate, ingredients, wo
     try:
         cur = conn.cursor(dictionary=True)
 
-        # LOCK riadkov skladu pre dotknuté suroviny
+        # 1. LOCK na suroviny (sklad_vyroba)
+        # Používame sklad_vyroba, pretože tam je aktuálny stav pre výrobu
         placeholders = ','.join(['%s'] * len(ing_names))
-        cur.execute(f"SELECT nazov, mnozstvo FROM sklad WHERE nazov IN ({placeholders}) FOR UPDATE", tuple(ing_names))
-        _ = cur.fetchall() or []
-
-        # Odpis (nekonečné neodpisujeme)
+        cur.execute(f"SELECT nazov, mnozstvo FROM sklad_vyroba WHERE nazov IN ({placeholders}) FOR UPDATE", tuple(ing_names))
+        
+        # 2. ODPIS ZO SKLADU VÝROBY (OPRAVENÉ)
+        # Pôvodne to bralo 'sklad', teraz 'sklad_vyroba'
         updates: List[Tuple[float, str]] = []
         for ing in ingredients:
             nm = ing.get('name')
@@ -379,41 +378,35 @@ def start_production(productName, plannedWeight, productionDate, ingredients, wo
             if nm in INFINITE_STOCK_NAMES:
                 continue
             updates.append((qty, nm))
+            
         if updates:
-            cur.executemany("UPDATE sklad SET mnozstvo = mnozstvo - %s WHERE nazov = %s", updates)
+            # Použijeme GREATEST(..., 0), aby sme nešli do mínusu, ak je sklad rozhádzaný, 
+            # alebo necháme ísť do mínusu ak to tak chcete. Tu predpokladáme povolenie mínusu pre konzistenciu,
+            # alebo (odporúčané) odčítanie:
+            cur.executemany("UPDATE sklad_vyroba SET mnozstvo = mnozstvo - %s WHERE nazov = %s", updates)
 
         now = datetime.now()
         zv_name = _zv_name_col()
 
+        # ... (zvyšok funkcie start_production ostáva rovnaký - insert do zaznamy_vyroba) ...
+        # Pre istotu tu je skrátený kód pre logiku ID a Insertu:
+        
         if existingLogId:
             batch_id = existingLogId
-            # cena dávky (ak sú stĺpce na sklade)
+            # Cena dávky sa počíta z tabuľky SKLAD (tam sú ceny)
             try:
                 cur.execute(f"SELECT nazov, COALESCE(default_cena_eur_kg, nakupna_cena, 0) AS cena FROM sklad WHERE nazov IN ({placeholders})", tuple(ing_names))
                 price_map = {r['nazov']: float(r.get('cena') or 0.0) for r in (cur.fetchall() or [])}
                 total_cost = sum(float(i.get('quantity') or 0.0) * price_map.get(i.get('name'), 0.0) for i in ingredients)
-                cur.execute(
-                    """
+                
+                cur.execute("""
                     UPDATE zaznamy_vyroba
-                       SET stav=%s,
-                           datum_vyroby=%s,
-                           datum_spustenia=%s,
-                           celkova_cena_surovin=%s
+                       SET stav='Vo výrobe', datum_vyroby=%s, datum_spustenia=%s, celkova_cena_surovin=%s
                      WHERE id_davky=%s
-                    """,
-                    ('Vo výrobe', productionDate, now, total_cost, batch_id)
-                )
-            except Exception:
-                cur.execute(
-                    """
-                    UPDATE zaznamy_vyroba
-                       SET stav=%s,
-                           datum_vyroby=%s,
-                           datum_spustenia=%s
-                     WHERE id_davky=%s
-                    """,
-                    ('Vo výrobe', productionDate, now, batch_id)
-                )
+                """, (productionDate, now, total_cost, batch_id))
+            except:
+                cur.execute("UPDATE zaznamy_vyroba SET stav='Vo výrobe', datum_vyroby=%s, datum_spustenia=%s WHERE id_davky=%s", (productionDate, now, batch_id))
+            
             cur.execute("DELETE FROM zaznamy_vyroba_suroviny WHERE id_davky=%s", (batch_id,))
             message = f"Príkaz {batch_id} bol spustený do výroby."
         else:
@@ -422,36 +415,28 @@ def start_production(productName, plannedWeight, productionDate, ingredients, wo
             date_str = datetime.strptime(productionDate, '%Y-%m-%d').strftime('%d%m%y')
             time_str = now.strftime('%H%M')
             batch_id = f"{safe_product}-{safe_worker}-{date_str}-{time_str}-{int(planned_weight_val)}"
+            
+            # Cena dávky
             try:
                 cur.execute(f"SELECT nazov, COALESCE(default_cena_eur_kg, nakupna_cena, 0) AS cena FROM sklad WHERE nazov IN ({placeholders})", tuple(ing_names))
                 price_map = {r['nazov']: float(r.get('cena') or 0.0) for r in (cur.fetchall() or [])}
                 total_cost = sum(float(i.get('quantity') or 0.0) * price_map.get(i.get('name'), 0.0) for i in ingredients)
-                cur.execute(
-                    f"""
-                    INSERT INTO zaznamy_vyroba
-                        (id_davky, stav, datum_vyroby, {zv_name}, planovane_mnozstvo_kg, datum_spustenia, celkova_cena_surovin)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
-                    """,
-                    (batch_id, 'Vo výrobe', productionDate, productName, planned_weight_val, now, total_cost)
-                )
-            except Exception:
-                cur.execute(
-                    f"""
-                    INSERT INTO zaznamy_vyroba
-                        (id_davky, stav, datum_vyroby, {zv_name}, planovane_mnozstvo_kg, datum_spustenia)
-                    VALUES (%s, %s, %s, %s, %s, %s)
-                    """,
-                    (batch_id, 'Vo výrobe', productionDate, productName, planned_weight_val, now)
-                )
+                
+                cur.execute(f"""
+                    INSERT INTO zaznamy_vyroba (id_davky, stav, datum_vyroby, {zv_name}, planovane_mnozstvo_kg, datum_spustenia, celkova_cena_surovin)
+                    VALUES (%s, 'Vo výrobe', %s, %s, %s, %s, %s)
+                """, (batch_id, productionDate, productName, planned_weight_val, now, total_cost))
+            except:
+                cur.execute(f"""
+                    INSERT INTO zaznamy_vyroba (id_davky, stav, datum_vyroby, {zv_name}, planovane_mnozstvo_kg, datum_spustenia)
+                    VALUES (%s, 'Vo výrobe', %s, %s, %s, %s)
+                """, (batch_id, productionDate, productName, planned_weight_val, now))
+                
             message = f"VÝROBA SPUSTENÁ! Šarža: {batch_id}."
 
-        # Zapíš použité suroviny
         to_log = [(batch_id, i['name'], float(i['quantity'])) for i in ingredients if i.get('name') and float(i.get('quantity') or 0) > 0]
         if to_log:
-            cur.executemany(
-                "INSERT INTO zaznamy_vyroba_suroviny (id_davky, nazov_suroviny, pouzite_mnozstvo_kg) VALUES (%s,%s,%s)",
-                to_log
-            )
+            cur.executemany("INSERT INTO zaznamy_vyroba_suroviny (id_davky, nazov_suroviny, pouzite_mnozstvo_kg) VALUES (%s,%s,%s)", to_log)
 
         conn.commit()
         return {"message": message}
@@ -461,6 +446,56 @@ def start_production(productName, plannedWeight, productionDate, ingredients, wo
     finally:
         if conn and conn.is_connected(): conn.close()
 
+# ───────────────────────── ZRUŠENIE VÝROBY (NOVÉ) ─────────────────────────
+
+def cancel_production_batch(batch_id):
+    """
+    Zruší výrobu: vráti suroviny na sklad_vyroba a vymaže záznam.
+    """
+    if not batch_id:
+        return {"error": "Chýba ID dávky."}
+
+    conn = db_connector.get_connection()
+    try:
+        cur = conn.cursor(dictionary=True)
+
+        # 1. Overíme status
+        cur.execute("SELECT stav FROM zaznamy_vyroba WHERE id_davky = %s", (batch_id,))
+        row = cur.fetchone()
+        if not row:
+            return {"error": "Dávka neexistuje."}
+        if row['stav'] != 'Vo výrobe':
+            return {"error": f"Dávku nemožno zrušiť, má stav: {row['stav']} (iba 'Vo výrobe' sa dá zrušiť)."}
+
+        # 2. Získame použité suroviny
+        cur.execute("SELECT nazov_suroviny, pouzite_mnozstvo_kg FROM zaznamy_vyroba_suroviny WHERE id_davky = %s", (batch_id,))
+        ingredients = cur.fetchall() or []
+
+        # 3. Vrátime suroviny na SKLAD_VYROBA
+        updates = []
+        for ing in ingredients:
+            nm = ing['nazov_suroviny']
+            qty = float(ing['pouzite_mnozstvo_kg'])
+            if nm in INFINITE_STOCK_NAMES:
+                continue
+            updates.append((qty, nm))
+        
+        if updates:
+            # Pripočítame späť
+            cur.executemany("UPDATE sklad_vyroba SET mnozstvo = mnozstvo + %s WHERE nazov = %s", updates)
+
+        # 4. Vymažeme záznamy
+        cur.execute("DELETE FROM zaznamy_vyroba_suroviny WHERE id_davky = %s", (batch_id,))
+        cur.execute("DELETE FROM zaznamy_vyroba WHERE id_davky = %s", (batch_id,))
+
+        conn.commit()
+        return {"message": f"Výroba {batch_id} bola zrušená a suroviny vrátené na sklad."}
+
+    except Exception as e:
+        if conn: conn.rollback()
+        raise e
+    finally:
+        if conn and conn.is_connected(): conn.close()
 # =================================================================
 # === INVENTÚRA / VÝDAJ – VÝROBNÝ SKLAD ============================
 # =================================================================

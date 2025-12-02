@@ -5714,6 +5714,148 @@ def generate_erp_export_file():
     except Exception as e:
         print(f"[ERP Export Error]: {e}")
         raise Exception(f"Chyba pri zápise súboru: {e}")
+def generate_erp_export_file_for_acceptance_day(day_str: str):
+    """
+    Vygeneruje VYROBKY.CSV (CP1250, fixná šírka) Z PRIJATÝCH MNOŽSTIEV z expedície
+    pre konkrétny deň (expedicia_prijmy.datum_prijmu = day_str).
+
+    FORMÁT, NÁZOV SÚBORU a UMIESTNENIE sú IDENTICKÉ ako pri generate_erp_export_file():
+
+        - názov: VYROBKY.CSV
+        - hlavička:  REG_CIS ... NAZOV ... JCM11 ... MNOZ
+        - šírky stĺpcov a zaokrúhlenie: rovnaké
+    """
+    from decimal import Decimal, ROUND_HALF_UP
+
+    if not day_str:
+        raise Exception("Chýba dátum pre ERP export z expedície (day_str).")
+
+    # Overenie / normalizácia dátumu
+    try:
+        _ = datetime.strptime(day_str, "%Y-%m-%d").date()
+    except Exception:
+        raise Exception(f"Neplatný formát dátumu pre ERP export: {day_str!r}. Očakávam YYYY-MM-DD.")
+
+    # Kam exportujeme súbor – rovnaká logika ako v generate_erp_export_file
+    exchange_dir = os.getenv("ERP_EXCHANGE_DIR", "/var/app/data/erp_exchange")
+    if os.path.isabs(exchange_dir):
+        out_dir = exchange_dir
+    else:
+        base = os.path.dirname(__file__)
+        out_dir = os.path.join(base, exchange_dir)
+
+    os.makedirs(out_dir, exist_ok=True)
+    out_path = os.path.join(out_dir, "VYROBKY.CSV")
+
+    print("\n--- [ERP Export z EXPEDÍCIE START] ---")
+    print(f"[ERP Export] Exportný adresár: {out_dir}")
+    print(f"[ERP Export] Deň prijmu (datum_prijmu): {day_str}")
+
+    zv_col = _zv_name_col()
+    print(f"[ERP Export] Používam stĺpec pre názov v zaznamy_vyroba: {zv_col}")
+
+    # Typy položiek, ktoré exportujeme – rovnaké ako v generate_erp_export_file
+    target_types = [
+        "VÝROBOK",
+        "VÝROBOK_KRAJANY",
+        "VÝROBOK_KRÁJANÝ",
+        "VÝROBOK_KUSOVY",
+        "VÝROBOK_KUSOVÝ",
+    ]
+    placeholders = ", ".join(["%s"] * len(target_types))
+
+    # SQL:
+    #  - BERIE len riadky z expedicia_prijmy pre daný deň (datum_prijmu = day_str, is_deleted = 0)
+    #  - prepočíta prijaté množstvo na KG (kg + ks * váha balenia)
+    #  - naviaže to na produkty (podľa názvu zo zaznamy_vyroba) a filtruje typy položiek
+    #  - price_with_margin je rovnaká logika ako v generate_erp_export_file
+    sql = f"""
+        SELECT
+            p.ean,
+            p.nazov_vyrobku,
+            SUM(
+                CASE
+                    WHEN ep.unit = 'kg' THEN COALESCE(ep.prijem_kg, 0)
+                    ELSE COALESCE(ep.prijem_ks, 0) * COALESCE(p.vaha_balenia_g, 0) / 1000
+                END
+            ) AS qty,
+            (
+                COALESCE(
+                    (
+                        SELECT zv2.cena_za_jednotku
+                          FROM zaznamy_vyroba zv2
+                         WHERE TRIM(zv2.{zv_col}) = TRIM(p.nazov_vyrobku)
+                           AND zv2.cena_za_jednotku > 0
+                         ORDER BY zv2.datum_ukoncenia DESC, zv2.id_davky DESC
+                         LIMIT 1
+                    ),
+                    p.nakupna_cena,
+                    0.0000
+                ) * 1.25
+            ) AS price_with_margin
+        FROM expedicia_prijmy ep
+        JOIN zaznamy_vyroba zv
+          ON zv.id_davky = ep.id_davky
+        JOIN produkty p
+          ON TRIM(zv.{zv_col}) = TRIM(p.nazov_vyrobku)
+        WHERE ep.is_deleted = 0
+          AND ep.datum_prijmu = %s
+          AND p.typ_polozky IN ({placeholders})
+        GROUP BY p.ean, p.nazov_vyrobku
+        HAVING qty <> 0
+        ORDER BY p.nazov_vyrobku
+    """
+
+    params = (day_str, *target_types)
+
+    try:
+        rows = db_connector.execute_query(sql, params, fetch="all") or []
+        print(f"[ERP Export] EXPEDÍCIA: Nájdených {len(rows)} položiek pre datum_prijmu = {day_str}")
+
+        # Zápis súboru – PRESNE tá istá logika ako v generate_erp_export_file
+        with open(out_path, "w", encoding="cp1250", newline="\r\n") as f:
+            header = " REG_CIS       NAZOV                                       JCM11         MNOZ"
+            f.write(header + "\n")
+
+            for r in rows:
+                # REG_CIS (15 znakov)
+                ean_raw = str(r.get("ean") or "").strip()
+                ean_digits = "".join(ch for ch in ean_raw if ch.isdigit())
+                if not ean_digits:
+                    continue
+                ean13 = ean_digits.rjust(13, "0")[-13:]
+                ean_field = f" {ean13} "
+
+                # NAZOV (43 znakov, vľavo)
+                name = str(r.get("nazov_vyrobku") or "").strip()[:43].ljust(43)
+
+                # JCM11 (11 znakov, 4 desatinné)
+                try:
+                    price_val = Decimal(str(r.get("price_with_margin") or 0))
+                    price_fmt = price_val.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+                    price_str = f"{price_fmt:.4f}".rjust(11)[:11]
+                except Exception:
+                    price_str = "     0.0000"
+
+                # MNOZ (8 znakov, 2 desatinné)
+                try:
+                    qty_val = Decimal(str(r.get("qty") or 0))
+                    qty_fmt = f"{qty_val:.2f}"
+                    if len(qty_fmt) > 8:
+                        qty_fmt = f"{qty_val:.2f}"
+                    qty_str = qty_fmt.rjust(8)[:8]
+                except Exception:
+                    qty_str = "    0.00"
+
+                line = f"{ean_field}{name}{price_str}{qty_str}\n"
+                f.write(line)
+
+        print(f"[ERP Export] EXPEDÍCIA HOTOVO → {out_path}")
+        return out_path
+
+    except Exception as e:
+        print(f"[ERP Export Error – EXPEDÍCIA]: {e}")
+        raise Exception(f"Chyba pri zápise súboru z expedície: {e}")
 
 
 def get_erp_status():
