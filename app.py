@@ -3203,19 +3203,50 @@ def api_rozrabka_process():
 @app.route('/api/kancelaria/stock/rozrabka/manual-import', methods=['POST'])
 @login_required(role='kancelaria')
 def api_rozrabka_manual():
-    file = request.files.get('file')
-    if not file: return jsonify({'error': 'Chýba súbor.'}), 400
+    import uuid
+    import os
     
-    # Dočasné uloženie pre spracovanie
-    temp_path = os.path.join(ERP_EXCHANGE_DIR, f"TEMP_ROZRABKA_{uuid.uuid4().hex}.CSV")
+    file = request.files.get('file')
+    if not file: 
+        return jsonify({'error': 'Chýba súbor.'}), 400
+    
+    # 1. Zabezpečenie existencie adresára
+    # Použije globálnu premennú ERP_EXCHANGE_DIR alebo default
+    exchange_dir = os.getenv("ERP_EXCHANGE_DIR", "/var/app/data/erp_exchange")
+    if not os.path.isabs(exchange_dir):
+        exchange_dir = os.path.join(app.root_path, exchange_dir)
+        
+    if not os.path.exists(exchange_dir):
+        try:
+            os.makedirs(exchange_dir, exist_ok=True)
+        except Exception as e:
+            return jsonify({'error': f'Nepodarilo sa vytvoriť adresár: {str(e)}'}), 500
+    
+    # 2. Uloženie súboru
+    temp_filename = f"TEMP_ROZRABKA_{uuid.uuid4().hex}.CSV"
+    temp_path = os.path.join(exchange_dir, temp_filename)
+    
     try:
         file.save(temp_path)
+        
+        # 3. Spracovanie
+        print(f"Spúšťam manuálny import rozrábky: {temp_path}")
         res = office_handler.process_rozrabka_manual_import(temp_path)
-        if os.path.exists(temp_path): os.remove(temp_path)
-        if res.get("error"): return jsonify(res), 400
+        
+        # 4. Upratanie
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+        
+        if res.get("error"):
+            print(f"Chyba pri spracovaní: {res.get('error')}")
+            return jsonify(res), 400
+            
         return jsonify(res)
+        
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        import traceback
+        traceback.print_exc() # Vypíše chybu do konzoly servera
+        return jsonify({'error': f'Interná chyba servera: {str(e)}'}), 500
 
 @app.route('/api/kancelaria/stock/rozrabka/history')
 @login_required(role='kancelaria')
