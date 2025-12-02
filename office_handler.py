@@ -6012,7 +6012,7 @@ def process_erp_import_file(file_path):
 
 
  # =================================================================
-# === IMPORT Z ROZRÁBKY (PRIJEMVYROBA.CSV) -> VÝROBNÝ SKLAD =======
+# === IMPORT Z ROZRÁBKY (PRIJEMVYROBA.CSV) -> CENTRÁLNY SKLAD =====
 # =================================================================
 
 ROZRABKA_IMPORT_FILENAME = "PRIJEMVYROBA.CSV"
@@ -6020,7 +6020,6 @@ ROZRABKA_IMPORT_FILENAME = "PRIJEMVYROBA.CSV"
 def get_rozrabka_import_status():
     """Vráti informácie o súbore PRIJEMVYROBA.CSV na serveri."""
     base = os.path.dirname(__file__)
-    # Použijeme ERP_EXCHANGE_DIR z configu alebo default
     exchange_dir = os.getenv("ERP_EXCHANGE_DIR", "/var/app/data/erp_exchange")
     if not os.path.isabs(exchange_dir):
         exchange_dir = os.path.join(base, exchange_dir)
@@ -6038,13 +6037,7 @@ def get_rozrabka_import_status():
 
 def _parse_rozrabka_csv(file_path, import_id):
     """
-    Parsuje fixný formát z rozrábky:
-    REG_CIS (EAN)   NAZOV                       JCM11 (Cena)   MNOZ (Množstvo)
-    
-    Logika:
-    1. Nájde EAN v tabuľke 'sklad' (centrálny číselník).
-    2. Použije NÁZOV z databázy (aby sa predišlo duplicitám kvôli preklepom v CSV).
-    3. Pripraví dáta pre zápis do 'sklad_vyroba'.
+    Parsuje fixný formát z rozrábky a páruje EAN s tabuľkou 'sklad'.
     """
     items_to_import = []
     
@@ -6058,20 +6051,14 @@ def _parse_rozrabka_csv(file_path, import_id):
         with open(file_path, 'r', encoding=encoding, errors='ignore') as f:
             for line in f:
                 line = line.rstrip('\r\n')
-                # Ignorujeme hlavičku a krátke riadky
                 if len(line) < 15 or "REG_CIS" in line: continue
                 
                 parts = line.split()
                 if len(parts) < 3: continue
 
-                # Predpoklad formátu:
-                # [0] = EAN
-                # [-1] = Množstvo
-                # [-2] = Cena
-                
+                # Predpoklad formátu: EAN (prvé), Cena (predposledné), Množstvo (posledné)
                 ean_raw = parts[0].strip()
                 
-                # Ak prvý stĺpec nie je číslo (EAN), preskočíme riadok
                 if not ean_raw.isdigit(): 
                     continue
 
@@ -6083,18 +6070,14 @@ def _parse_rozrabka_csv(file_path, import_id):
 
                 if qty <= 0: continue
 
-                # --- KĽÚČOVÉ: Zistiť názov suroviny podľa EAN v systéme ---
-                # Hľadáme v tabuľke 'sklad', aby sme vedeli, čo to je.
-                # Ale naskladňovať budeme do 'sklad_vyroba'.
-                
-                # Skúsime presnú zhodu EAN
+                # Nájdenie názvu v systéme podľa EAN
                 row = db_connector.execute_query(
                     "SELECT nazov FROM sklad WHERE ean = %s LIMIT 1", 
                     (ean_raw,), fetch='one'
                 )
                 
-                # Ak nenájde, skúsime LIKE (pre prípad núl na začiatku 000...)
                 if not row:
+                    # Skúsime LIKE pre nuly na začiatku
                     row = db_connector.execute_query(
                         "SELECT nazov FROM sklad WHERE ean LIKE %s LIMIT 1", 
                         (f"%{int(ean_raw)}%",), fetch='one'
@@ -6103,15 +6086,14 @@ def _parse_rozrabka_csv(file_path, import_id):
                 if row and row.get('nazov'):
                     system_name = row['nazov']
                 else:
-                    # Ak EAN v systéme nemáme, použijeme názov z CSV (riskantné, ale nutné fallback)
-                    # Názov je všetko medzi EAN a Cenou
+                    # Fallback: Názov z CSV
                     system_name = " ".join(parts[1:-2])
 
                 items_to_import.append({
-                    "category": "maso",         # Rozrábka = Mäso
-                    "source": "rozrabka",       # Zdroj pre štatistiky
-                    "name": system_name,        # Názov (kľúč pre sklad_vyroba)
-                    "quantity": qty,            # Množstvo na pripočítanie
+                    "category": "maso",
+                    "source": "rozrabka",
+                    "name": system_name,
+                    "quantity": qty,
                     "price": price if price > 0 else None,
                     "note": f"Import Rozrábka #{import_id} (EAN: {ean_raw})",
                     "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -6122,13 +6104,10 @@ def _parse_rozrabka_csv(file_path, import_id):
 
     return {"items": items_to_import}
 
-# office_handler.py (Časť pre Rozrábku)
-
 def _execute_rozrabka_import(file_path, import_id):
     """
     Spoločný vykonávač pre import z rozrábky DO CENTRÁLNEHO SKLADU (`sklad`).
     """
-    
     # 1. Parsovanie CSV
     parsed = _parse_rozrabka_csv(file_path, import_id)
     if "error" in parsed:
@@ -6144,47 +6123,40 @@ def _execute_rozrabka_import(file_path, import_id):
         updated_count = 0
         
         for it in items:
-            # Získanie EAN z poznámky (formát: "Import Rozrábka #ID (EAN: 12345)")
+            # Extrakcia EAN z poznámky pre SQL lookup
             ean_csv = ""
             if "EAN:" in it.get('note', ''):
-                try:
-                    ean_csv = it['note'].split('EAN: ')[1].replace(')', '').strip()
+                try: ean_csv = it['note'].split('EAN: ')[1].replace(')', '').strip()
                 except: pass
             
             try:
                 qty_new = float(it['quantity'])
                 price_new = float(it['price']) if it['price'] is not None else 0.0
-            except:
-                continue # Preskočíme vadné čísla
+            except: continue
 
-            # --- KROK A: Nájdi položku v CENTRÁLNOM SKLADE (tabuľka `sklad`) ---
+            # --- KROK A: Nájdi položku v CENTRÁLNOM SKLADE ---
             row = None
             if ean_csv and ean_csv.isdigit():
-                # 1. Presná zhoda
                 cur.execute("SELECT nazov, mnozstvo, nakupna_cena FROM sklad WHERE ean = %s LIMIT 1", (ean_csv,))
                 row = cur.fetchone()
-                
-                # 2. LIKE zhoda (pre nuly na začiatku)
                 if not row:
                     cur.execute("SELECT nazov, mnozstvo, nakupna_cena FROM sklad WHERE ean LIKE %s LIMIT 1", (f"%{int(ean_csv)}%",))
                     row = cur.fetchone()
 
-            # 3. Fallback: Názov
+            # Fallback podľa názvu
             if not row:
                 cur.execute("SELECT nazov, mnozstvo, nakupna_cena FROM sklad WHERE nazov = %s LIMIT 1", (it['name'],))
                 row = cur.fetchone()
 
             if not row:
-                # Položka v sklade neexistuje
-                continue
+                continue # Položka neexistuje, preskočiť
 
             db_nazov = row[0]
             try:
                 old_qty = float(row[1] or 0.0)
                 old_price = float(row[2] or 0.0)
             except:
-                old_qty = 0.0
-                old_price = 0.0
+                old_qty = 0.0; old_price = 0.0
 
             # --- KROK B: Vážený priemer ceny ---
             total_qty = old_qty + qty_new
@@ -6197,7 +6169,7 @@ def _execute_rozrabka_import(file_path, import_id):
             elif price_new > 0:
                 new_avg_price = price_new
 
-            # --- KROK C: UPDATE ---
+            # --- KROK C: UPDATE SKLAD ---
             cur.execute("""
                 UPDATE sklad 
                 SET mnozstvo = mnozstvo + %s, 
@@ -6205,7 +6177,7 @@ def _execute_rozrabka_import(file_path, import_id):
                 WHERE nazov = %s
             """, (qty_new, new_avg_price, db_nazov))
 
-            # --- KROK D: ZÁZNAM PRÍJMU ---
+            # --- KROK D: ZÁZNAM DO HISTÓRIE ---
             cur.execute("""
                 INSERT INTO zaznamy_prijem 
                 (datum, nazov_suroviny, mnozstvo_kg, nakupna_cena_eur_kg, typ, poznamka_dodavatel)
@@ -6218,7 +6190,6 @@ def _execute_rozrabka_import(file_path, import_id):
                 'rozrabka', 
                 it['note']
             ))
-            
             updated_count += 1
 
         conn.commit()
@@ -6229,10 +6200,35 @@ def _execute_rozrabka_import(file_path, import_id):
 
     except Exception as e:
         if conn: conn.rollback()
-        print(f"DB Error v Rozrábke: {e}") # Loguje chybu do konzoly
+        print(f"DB Error v Rozrábke: {e}")
         return {"error": f"Chyba pri zápise do DB: {str(e)}"}
     finally:
         if conn and conn.is_connected(): conn.close()
+
+def process_rozrabka_manual_import(file_path):
+    """Manuálny upload - volaná z app.py"""
+    import_id = uuid.uuid4().hex[:8].upper()
+    return _execute_rozrabka_import(file_path, import_id)
+
+def process_rozrabka_import():
+    """Automatický import zo servera."""
+    status = get_rozrabka_import_status()
+    if not status['exists']:
+        return {"error": f"Súbor {ROZRABKA_IMPORT_FILENAME} sa nenašiel."}
+    
+    import_id = uuid.uuid4().hex[:8].upper()
+    result = _execute_rozrabka_import(status['path'], import_id)
+    
+    if not result.get("error"):
+        try:
+            dirname = os.path.dirname(status['path'])
+            archive_dir = os.path.join(dirname, "archive")
+            os.makedirs(archive_dir, exist_ok=True)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            os.rename(status['path'], os.path.join(archive_dir, f"PRIJEMVYROBA_{timestamp}_{import_id}.CSV"))
+        except Exception: pass
+        
+    return result
 
 def get_rozrabka_history_list():
     """História importov pre UI."""
@@ -6271,7 +6267,7 @@ def get_rozrabka_pdf_data(import_ref):
     if not rows: return None
         
     return {
-        "title": f"Príjemka na Výrobný sklad - {import_ref}",
+        "title": f"Príjemka na Centrálny sklad - {import_ref}",
         "date": rows[0]['datum'].strftime("%d.%m.%Y %H:%M"),
         "items": rows,
         "total_kg": sum(float(r['mnozstvo'] or 0) for r in rows),
