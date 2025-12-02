@@ -240,7 +240,8 @@
     return set;
   }
 
-  // ------------- Suroviny (výrobný sklad) - OPRAVA CENY A KATEGÓRIÍ -------------
+
+ // ------------- Suroviny (výrobný sklad) - OPRAVA MJ (bm pre obaly) -------------
   async function renderRaw(shell){
     const body = qs("#stock-body", shell);
     body.innerHTML = ""; 
@@ -302,18 +303,22 @@
           const rows = groups[cat] || [];
           if (!rows.length) return;
 
+          // Určíme MJ pre celú skupinu (bm pre obaly, inak kg)
+          const defaultUnit = (cat === 'obal') ? 'bm' : 'kg';
+
           const card = el(`<div class="stat-card" style="margin-bottom:1rem;"></div>`);
           card.appendChild(el(`<h4 style="margin:0 0 .5rem 0;">${label[cat]}</h4>`));
           const wrap = el(`<div class="table-container"></div>`);
           
-          // --- TABUĽKA S CENOU ---
+          // ZMENA HLAVIČKY: Sklad (MJ) namiesto (kg)
           const table = el(`
             <table class="table table-sm table-striped">
               <thead>
                 <tr>
                     <th>Názov</th>
                     <th>Typ</th>
-                    <th style="text-align:right">Cena (€)</th> <th style="text-align:right">Sklad (kg)</th>
+                    <th style="text-align:right">Cena (€)</th>
+                    <th style="text-align:right">Sklad (MJ)</th>
                     <th style="width:280px">Akcie</th>
                 </tr>
               </thead>
@@ -332,7 +337,7 @@
 
           rows.forEach(r=>{
             const qty = r.quantity != null ? Number(r.quantity) : (r.mnozstvo != null ? Number(r.mnozstvo) : 0);
-            const price = r.price != null ? Number(r.price) : 0; // Cena
+            const price = r.price != null ? Number(r.price) : 0;
 
             const tr = el(`
               <tr data-name="${txt(r.nazov)}" data-cat="${cat}">
@@ -341,7 +346,9 @@
                 
                 <td style="text-align:right;">${fmt(price)}</td>
 
-                <td class="c-qty" style="text-align:right; font-weight:bold; font-size:1.1em; color:${qty < 0 ? 'red' : 'inherit'}">${fmt(qty, 3)}</td>
+                <td class="c-qty" style="text-align:right; font-weight:bold; font-size:1.1em; color:${qty < 0 ? 'red' : 'inherit'}">
+                    ${fmt(qty, 3)} <small class="text-muted">${defaultUnit}</small>
+                </td>
                 
                 <td class="c-actions" style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap; justify-content:flex-end;">
                   <button class="btn-secondary btn-sm js-editqty" title="Upraviť množstvo"><i class="fa-solid fa-pencil"></i></button>
@@ -357,7 +364,14 @@
               tr.classList.add("editing-qty");
               const cQty = qs(".c-qty", tr);
               const oldQty = parseAmount(cQty.textContent || "0", 3) || 0;
-              cQty.innerHTML = `<input type="text" class="input js-newqty" placeholder="kg" value="${oldQty.toFixed(3)}" style="width:80px; text-align:right;">`;
+              
+              // Input poľa s placeholderom pre jednotku
+              cQty.innerHTML = `
+                <div style="display:flex; justify-content:flex-end; align-items:center; gap:4px;">
+                    <input type="text" class="input js-newqty" placeholder="${defaultUnit}" value="${oldQty.toFixed(3)}" style="width:80px; text-align:right;">
+                    <small>${defaultUnit}</small>
+                </div>`;
+              
               const newInput = qs(".js-newqty", tr);
               attachNumericSanitizer(newInput, 3);
               newInput.focus();
@@ -369,7 +383,7 @@
                 <button class="btn-secondary btn-sm js-cancel"><i class="fa-solid fa-xmark"></i></button>
               `;
               qs(".js-cancel", tr).onclick = ()=>{
-                cQty.textContent = oldQty.toFixed(3);
+                cQty.innerHTML = `${oldQty.toFixed(3)} <small class="text-muted">${defaultUnit}</small>`;
                 actions.innerHTML = oldActions;
                 bindRowActions();
                 tr.classList.remove("editing-qty");
@@ -378,8 +392,8 @@
                 const newQty = parseAmount(qs(".js-newqty", tr).value, 3);
                 const name = tr.dataset.name;
                 if (newQty == null){ alert("Neplatné množstvo."); return; }
-                // Dovolené aj záporné (pre opravy)
-                if (!confirmTwice(`Upraviť množstvo položky „${name}“ na ${newQty.toFixed(3)} kg?`,"Prosím potvrďte ešte raz úpravu množstva.")) return;
+                
+                if (!confirmTwice(`Upraviť množstvo položky „${name}“ na ${newQty.toFixed(3)} ${defaultUnit}?`,"Prosím potvrďte ešte raz úpravu množstva.")) return;
                 try{
                   await apiRequest("/api/kancelaria/stock/updateProductionItemQty", "POST", { name, quantity: newQty });
                   renderRaw(shell);
@@ -410,7 +424,8 @@
             sum += qty;
           });
 
-          qs(".js-sum", table).textContent = fmt(sum, 3) + " kg";
+          // Súčet s jednotkou
+          qs(".js-sum", table).textContent = `${fmt(sum, 3)} ${defaultUnit}`;
           wrap.appendChild(table);
           card.appendChild(wrap);
           container.appendChild(card);
@@ -1304,14 +1319,20 @@
     }
   }
 
-  // ------------- Products view (centrál – bez akcií) -------------
+ // =================================================================
+  // 2. CELKOVÝ PREHĽAD (Predajná kategória)
+  // =================================================================
   async function renderProducts(shell){
     const body = qs("#stock-body", shell);
-    body.innerHTML = ""; body.appendChild(loading()); body.setAttribute("data-view","products");
+    body.innerHTML = ""; 
+    body.appendChild(loading()); 
+    body.setAttribute("data-view", "products");
+    
     const search = qs("#stock-search", shell);
 
     try{
       const data = await apiRequest("/api/kancelaria/getComprehensiveStockView");
+      // Fallback ak by náhodou prišla iná štruktúra
       const grouped = data?.groupedByCategory || (() => {
         const g={}; (data?.products || []).forEach(p=>{
           const c = p.category || "Nezaradené";
@@ -1321,29 +1342,52 @@
       })();
 
       body.innerHTML = "";
-
       const container = el(`<div></div>`);
       body.appendChild(container);
 
       function draw(groups){
         container.innerHTML = "";
         const cats = Object.keys(groups).sort((a,b)=> a.localeCompare(b, "sk"));
-        if (!cats.length){ container.appendChild(empty("Žiadne produkty.")); return; }
+        
+        if (!cats.length){ 
+            container.appendChild(empty("Žiadne produkty.")); 
+            return; 
+        }
+        
         for (const cat of cats){
           const card = el(`<div class="stat-card" style="margin-bottom:1rem;"></div>`);
           card.appendChild(el(`<h4 style="margin:0 0 .5rem 0;">${txt(cat)}</h4>`));
+          
           const wrap = el(`<div class="table-container"></div>`);
           const table = el(`
-            <table>
-              <thead><tr><th>Názov</th><th>Množstvo</th><th>Jedn.</th><th>Cena / kg</th></tr></thead>
+            <table class="table table-sm table-striped">
+              <thead>
+                <tr>
+                    <th>EAN</th>
+                    <th>Názov</th>
+                    <th style="text-align:right">Množstvo</th>
+                    <th style="text-align:right">Jedn.</th>
+                    <th style="text-align:right">Cena</th>
+                </tr>
+              </thead>
               <tbody></tbody>
             </table>
           `);
           const tb = qs("tbody", table);
+          
           (groups[cat] || []).forEach(p=>{
-            const tr = el(`<tr><td>${txt(p.name)}</td><td>${fmt(p.quantity)}</td><td>${txt(p.unit||"kg")}</td><td>${fmt(p.price)}</td></tr>`);
+            const tr = el(`
+                <tr>
+                    <td style="font-family:monospace; color:#666;">${p.ean || ''}</td>
+                    <td>${txt(p.name)}</td>
+                    <td style="text-align:right; font-weight:bold;">${fmt(p.quantity)}</td>
+                    <td style="text-align:right;">${txt(p.unit||"kg")}</td>
+                    <td style="text-align:right;">${fmt(p.price)} €</td>
+                </tr>
+            `);
             tb.appendChild(tr);
           });
+          
           wrap.appendChild(table);
           card.appendChild(wrap);
           container.appendChild(card);
@@ -1353,6 +1397,7 @@
       function applyFilter(){
         const q = (search?.value || "").trim().toLowerCase();
         if (!q) { draw(grouped); return; }
+        
         const g = {};
         Object.keys(grouped).forEach(cat=>{
           const f = (grouped[cat]||[]).filter(p =>
@@ -1364,6 +1409,7 @@
       }
 
       draw(grouped);
+      
       if (search){
         search._h && search.removeEventListener("input", search._h);
         search._h = ()=> applyFilter();
@@ -1371,7 +1417,8 @@
       }
     }catch(e){
       console.error(e);
-      body.innerHTML = ""; body.appendChild(empty("Nepodarilo sa načítať celkový prehľad."));
+      body.innerHTML = ""; 
+      body.appendChild(empty("Nepodarilo sa načítať celkový prehľad."));
     }
   }
 
