@@ -294,7 +294,7 @@ async function calculateIngredientsForBatch(productName, plannedWeight) {
         ingredientsArea.appendChild(controlsDiv);
         ingredientsArea.style.display = 'block';
         startBtn.disabled = false;
-        updateStartButtonState();
+    updateStartButtonState();
     } catch (e) {
         console.error(e);
         showStatus("Chyba pri výpočte.", true);

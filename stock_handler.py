@@ -678,43 +678,30 @@ def receive_production():
 @stock_bp.get("/api/kancelaria/getRawMaterialStockOverview")
 def get_raw_material_stock_overview():
     """
-    Vráti stav výrobného skladu pre Kanceláriu.
-    Kombinuje dáta zo 'sklad_vyroba' (kde sú mínusy) a 'sklad' (karty).
+    Prehľad surovín pre modul 'Sklad výroba'.
+    Oprava: Pridaná CENA a Mínusové stavy.
     """
-    # SQL: Vyberieme všetko zo sklad (karty) a pripojíme sklad_vyroba (stavy)
-    # Tým pádom uvidíme aj mínusové stavy z výroby, aj nulové stavy kariet.
     rows = db_connector.execute_query("""
-        SELECT 
+        SELECT
             s.nazov,
-            COALESCE(sv.mnozstvo, 0)      AS quantity,
-            LOWER(COALESCE(s.typ, ''))    AS typ,
-            LOWER(COALESCE(s.podtyp, '')) AS podtyp
+            COALESCE(sv.mnozstvo, 0)              AS quantity,
+            LOWER(COALESCE(s.typ, ''))            AS typ,
+            LOWER(COALESCE(s.podtyp, ''))         AS podtyp,
+            COALESCE(s.nakupna_cena, s.default_cena_eur_kg, 0) AS price
         FROM sklad s
         LEFT JOIN sklad_vyroba sv ON sv.nazov = s.nazov
         ORDER BY s.nazov
     """) or []
 
-    # Helper pre kategórie (rovnaký ako v JS, pre istotu aj tu)
-    def resolve_cat(r):
-        t = (r['typ'] or '').lower()
-        p = (r['podtyp'] or '').lower()
-        if 'mäso' in t or 'maso' in t or 'maso' in p: return 'maso'
-        if 'koren' in t or 'koren' in p: return 'koreniny'
-        if 'obal' in t or 'črev' in t: return 'obal'
-        if 'pomoc' in t or 'voda' in t: return 'pomocny_material'
-        return 'nezaradene'
-
-    items = []
-    for r in rows:
-        items.append({
-            "nazov": r["nazov"],
-            "quantity": float(r["quantity"] or 0.0), # Tu prejde aj mínus
-            "typ": r["typ"] or "",
-            "podtyp": r["podtyp"] or "",
-            "category": resolve_cat(r) # Backend kategória (frontend si to aj tak prepočíta)
-        })
-
-    return jsonify({"items": items})
+    return jsonify({
+        "items": [{
+            "nazov":    r["nazov"],
+            "quantity": float(r["quantity"] or 0.0),
+            "price":    float(r["price"] or 0.0),     # <--- TOTO SME VRÁTILI SPÄŤ
+            "typ":      r["typ"] or "",
+            "podtyp":   r["podtyp"] or ""
+        } for r in rows]
+    })
 
 @stock_bp.route('/api/kancelaria/stock/allowed-names')
 def stock_allowed_names():
