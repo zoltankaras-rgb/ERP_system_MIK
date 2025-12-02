@@ -5909,6 +5909,7 @@ def process_erp_import_file(file_path):
     """
     NUCLEAR OPTION: Full Sync.
     OPRAVA: Zapisuje NAKUPNU CENU aj do tabuľky PRODUKTY.
+    OPRAVA 2: Číta množstvo až do konca riadku (fix pre čísla > 1000).
     """
     import csv
 
@@ -5917,6 +5918,8 @@ def process_erp_import_file(file_path):
 
     def _parse_float(s: str) -> float:
         s = str(s or "").strip().replace(',', '.')
+        # Odstránime prípadné medzery vo vnútri čísla, ak by tam boli
+        s = s.replace(' ', '')
         if not s: return 0.0
         try: return float(s)
         except: return 0.0
@@ -5934,13 +5937,25 @@ def process_erp_import_file(file_path):
             if is_fixed:
                 for line in f:
                     line = line.rstrip('\r\n')
+                    # Preskočíme krátke riadky alebo hlavičku
                     if len(line) < 15 or "REG_CIS" in line: continue
+                    
                     e = _only_digits(line[0:15].strip())
                     if not e: continue
-                    p = _parse_float(line[58:69] if len(line)>=69 else "0")
-                    q = _parse_float(line[69:77] if len(line)>=77 else "0")
+                    
+                    # Cena: znaky 58-69 (fixná šírka)
+                    p_str = line[58:69] if len(line)>=69 else "0"
+                    
+                    # Množstvo: znaky 69 až do KONCA riadku
+                    # Pôvodne bolo 69:77, čo orezávalo čísla nad 1000
+                    q_str = line[69:].strip()
+                    
+                    p = _parse_float(p_str)
+                    q = _parse_float(q_str)
+                    
                     items_to_update.append({"ean": e, "ean_full": e.rjust(13, '0')[-13:], "ean_short": e.lstrip('0'), "price": p, "qty": q})
             else:
+                # CSV formát (oddelovač ; alebo ,)
                 reader = csv.reader(f, delimiter=delimiter)
                 for row in reader:
                     if not row or len(row) < 2: continue
@@ -5948,6 +5963,7 @@ def process_erp_import_file(file_path):
                     e = _only_digits(str(row[0]))
                     if not e: continue
                     try:
+                        # Predpokladáme: predposledný je cena, posledný je množstvo
                         q = _parse_float(row[-1])
                         p = _parse_float(row[-2])
                         items_to_update.append({"ean": e, "ean_full": e.rjust(13, '0')[-13:], "ean_short": e.lstrip('0'), "price": p, "qty": q})
@@ -5963,17 +5979,18 @@ def process_erp_import_file(file_path):
     processed = 0
 
     try:
-        # 1. VYNULOVANIE SKLADU
+        # 1. VYNULOVANIE SKLADU (Full Sync logika)
         cursor.execute("UPDATE sklad SET mnozstvo = 0")
         cursor.execute("UPDATE produkty SET aktualny_sklad_finalny_kg = 0")
 
-        # 2. NAHRATIE NOVÝCH ÚDAJOV (Sklad + CENA do oboch tabuliek)
+        # 2. NAHRATIE NOVÝCH ÚDAJOV
+        # Aktualizujeme Sklad aj Produkty podľa EAN zhody
         for it in items_to_update:
-            # SKLAD
+            # SKLAD (suroviny/tovar)
             sql_sklad = "UPDATE sklad SET mnozstvo = %s, nakupna_cena = %s WHERE ean = %s OR ean = %s OR ean = %s"
             cursor.execute(sql_sklad, (it['qty'], it['price'], it['ean'], it['ean_full'], it['ean_short']))
             
-            # PRODUKTY - TOTO OPRAVUJE CHYBU: Zapisujeme cenu aj sem!
+            # PRODUKTY (hotové výrobky)
             sql_prod = "UPDATE produkty SET aktualny_sklad_finalny_kg = %s, nakupna_cena = %s WHERE ean = %s OR ean = %s OR ean = %s"
             cursor.execute(sql_prod, (it['qty'], it['price'], it['ean'], it['ean_full'], it['ean_short']))
             

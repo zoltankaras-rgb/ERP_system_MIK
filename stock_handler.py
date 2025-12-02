@@ -153,11 +153,31 @@ def _ensure_sklad_supplier_links_schema():
     """, fetch='none')
     # indexy podľa potreby (PK už pokrýva sklad_nazov+supplier_id)
 
+def _fix_decimal_precision():
+    """
+    Opraví stĺpce na DECIMAL(12,3), aby sa zmestili čísla nad 1000 kg.
+    Pôvodne to mohlo byť malé (napr. 999.99).
+    """
+    # 1. Sklad (suroviny)
+    if _has_col("sklad", "mnozstvo"):
+        db_connector.execute_query(
+            "ALTER TABLE sklad MODIFY mnozstvo DECIMAL(12,3)", 
+            fetch='none'
+        )
+    
+    # 2. Produkty (hotové výrobky)
+    if _has_col("produkty", "aktualny_sklad_finalny_kg"):
+        db_connector.execute_query(
+            "ALTER TABLE produkty MODIFY aktualny_sklad_finalny_kg DECIMAL(12,3)", 
+            fetch='none'
+        )
+
 def init_stock():
     _ensure_suppliers_schema()
     _ensure_link_to_supplier()
     _ensure_meat_templates_schema()
     _ensure_sklad_supplier_links_schema()
+    _fix_decimal_precision()
 
 # ------------------------- core queries ----------------------------
 
