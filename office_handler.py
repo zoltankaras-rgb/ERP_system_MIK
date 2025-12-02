@@ -6273,3 +6273,38 @@ def get_rozrabka_pdf_data(import_ref):
         "total_kg": sum(float(r['mnozstvo'] or 0) for r in rows),
         "total_eur": sum(float(r['mnozstvo'] or 0) * float(r['cena'] or 0) for r in rows)
     }
+    # Vložte/Nahraďte toto v súbore office_handler.py
+
+def _get_production_overview():
+    """
+    Načíta stav VÝROBNÉHO skladu (sklad_vyroba).
+    Zobrazuje aj mínusové hodnoty.
+    """
+    # Používame LEFT JOIN na sklad_vyroba, aby sme videli realitu vo výrobe
+    sql = """
+        SELECT
+            s.nazov,
+            COALESCE(sv.mnozstvo, 0)      AS quantity,  -- Toto je množstvo vo výrobe
+            LOWER(COALESCE(s.typ, ''))    AS typ,
+            LOWER(COALESCE(s.podtyp, '')) AS podtyp
+        FROM sklad s
+        LEFT JOIN sklad_vyroba sv ON sv.nazov = s.nazov
+        ORDER BY s.nazov
+    """
+    rows = db_connector.execute_query(sql) or []
+    
+    return {
+        "items": [
+            {
+                "nazov":    r["nazov"],
+                "quantity": float(r["quantity"] or 0.0), # Tu prejde aj záporné číslo
+                "typ":      r["typ"] or "",
+                "podtyp":   r["podtyp"] or "",
+            }
+            for r in rows
+        ]
+    }
+
+def get_raw_material_stock_overview():
+    """Endpoint pre Sklad > Suroviny (Výrobný sklad)"""
+    return _get_production_overview()

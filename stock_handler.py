@@ -675,69 +675,46 @@ def receive_production():
     finally:
         if conn and conn.is_connected(): conn.close()
 # ------------------------- read views ------------------------------
-
 @stock_bp.get("/api/kancelaria/getRawMaterialStockOverview")
 def get_raw_material_stock_overview():
-    return jsonify(_get_production_overview())
-
-@stock_bp.get("/api/kancelaria/getComprehensiveStockView")
-def get_comprehensive_stock_view():
-    q = """
-        SELECT
-            p.ean,
-            p.nazov_vyrobku      AS name,
-            p.predajna_kategoria AS category,
-            p.aktualny_sklad_finalny_kg AS stock_kg,
-            p.vaha_balenia_g,
-            p.mj                 AS unit,
-            COALESCE(
-              NULLIF(p.nakupna_cena, 0),   -- 1. pokus: nákupná cena z tabuľky produkty
-              (
-                -- 2. fallback: posledná výrobná cena na kg
-                SELECT ROUND(zv.celkova_cena_surovin / NULLIF(zv.realne_mnozstvo_kg, 0), 4)
-                FROM zaznamy_vyroba zv
-                WHERE zv.nazov_vyrobku = p.nazov_vyrobku
-                  AND zv.celkova_cena_surovin IS NOT NULL
-                  AND zv.realne_mnozstvo_kg IS NOT NULL
-                ORDER BY COALESCE(zv.datum_ukoncenia, zv.datum_vyroby) DESC
-                LIMIT 1
-              )
-            ) AS price
-        FROM produkty p
-        WHERE p.typ_polozky = 'produkt'
-           OR p.typ_polozky LIKE 'VÝROBOK%'
-           OR p.typ_polozky LIKE 'TOVAR%'
-        ORDER BY category, name
     """
+    Vráti stav výrobného skladu pre Kanceláriu.
+    Kombinuje dáta zo 'sklad_vyroba' (kde sú mínusy) a 'sklad' (karty).
+    """
+    # SQL: Vyberieme všetko zo sklad (karty) a pripojíme sklad_vyroba (stavy)
+    # Tým pádom uvidíme aj mínusové stavy z výroby, aj nulové stavy kariet.
+    rows = db_connector.execute_query("""
+        SELECT 
+            s.nazov,
+            COALESCE(sv.mnozstvo, 0)      AS quantity,
+            LOWER(COALESCE(s.typ, ''))    AS typ,
+            LOWER(COALESCE(s.podtyp, '')) AS podtyp
+        FROM sklad s
+        LEFT JOIN sklad_vyroba sv ON sv.nazov = s.nazov
+        ORDER BY s.nazov
+    """) or []
 
-    rows = db_connector.execute_query(q) or []
+    # Helper pre kategórie (rovnaký ako v JS, pre istotu aj tu)
+    def resolve_cat(r):
+        t = (r['typ'] or '').lower()
+        p = (r['podtyp'] or '').lower()
+        if 'mäso' in t or 'maso' in t or 'maso' in p: return 'maso'
+        if 'koren' in t or 'koren' in p: return 'koreniny'
+        if 'obal' in t or 'črev' in t: return 'obal'
+        if 'pomoc' in t or 'voda' in t: return 'pomocny_material'
+        return 'nezaradene'
 
-    grouped = {}
+    items = []
     for r in rows:
-        unit = r.get('unit') or 'kg'
-        qty_kg = float(r.get('stock_kg') or 0.0)
-        w = float(r.get('vaha_balenia_g') or 0.0)
+        items.append({
+            "nazov": r["nazov"],
+            "quantity": float(r["quantity"] or 0.0), # Tu prejde aj mínus
+            "typ": r["typ"] or "",
+            "podtyp": r["podtyp"] or "",
+            "category": resolve_cat(r) # Backend kategória (frontend si to aj tak prepočíta)
+        })
 
-        # ak je jednotka "ks" a máme váhu balenia v gramoch, prepočítame na kusy
-        if unit == 'ks' and w > 0:
-            qty = qty_kg * 1000.0 / w
-        else:
-            qty = qty_kg
-
-        item = {
-            "ean":      r.get('ean'),
-            "name":     r.get('name'),
-            "category": r.get('category') or 'Nezaradené',
-            "quantity": qty,
-            "unit":     unit,
-            "price":    float(r.get('price') or 0.0),
-            "sklad1":   0.0,        # rezervované do budúcna
-            "sklad2":   qty_kg      # reálne kg na sklade
-        }
-        grouped.setdefault(item['category'], []).append(item)
-
-    return jsonify({"groupedByCategory": grouped})
-
+    return jsonify({"items": items})
 
 @stock_bp.route('/api/kancelaria/stock/allowed-names')
 def stock_allowed_names():
