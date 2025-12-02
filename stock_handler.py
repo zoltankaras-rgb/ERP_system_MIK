@@ -188,13 +188,13 @@ def init_stock():
 def _get_production_overview():
     """
     Prehľad surovín pre modul Sklad.
-    UPRAVENÉ: Číta dáta priamo z tabuľky 'sklad' podľa novej schémy.
+    Číta 'mnozstvo' a 'nakupna_cena' priamo z tabuľky 'sklad'.
     """
     sql = """
         SELECT
             s.nazov,
-            COALESCE(s.mnozstvo, 0)       AS quantity,
-            COALESCE(s.nakupna_cena, 0)   AS price,
+            COALESCE(s.mnozstvo, 0)       AS mnozstvo,
+            COALESCE(s.nakupna_cena, 0)   AS nakupna_cena,
             LOWER(COALESCE(s.typ, ''))    AS typ,
             LOWER(COALESCE(s.podtyp, '')) AS podtyp
         FROM sklad s
@@ -204,16 +204,15 @@ def _get_production_overview():
     return {
         "items": [
             {
-                "nazov":   r["nazov"],
-                "quantity": float(r["quantity"] or 0.0),
-                "price":    float(r["price"] or 0.0), # Pridaná cena pre frontend
-                "typ":     r["typ"] or "",
-                "podtyp":  r["podtyp"] or "",
+                "nazov":        r["nazov"],
+                "mnozstvo":     float(r["mnozstvo"] or 0.0),      # Kľúč je teraz 'mnozstvo'
+                "nakupna_cena": float(r["nakupna_cena"] or 0.0),  # Kľúč je teraz 'nakupna_cena'
+                "typ":          r["typ"] or "",
+                "podtyp":       r["podtyp"] or "",
             }
             for r in rows
         ]
     }
-
 # ... (rest of _get_allowed_names, _last_price_for etc. remain the same)
 def _get_allowed_names(category: Optional[str]):
     cat = (category or "").strip().lower()

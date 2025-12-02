@@ -256,21 +256,19 @@
     const order = ['maso','koreniny','obal','pomocny_material','nezaradene'];
 
     const catOf = (r)=>{
-        // ... (catOf logic remains same) ...
-        const t = String(r.typ || '').toLowerCase();
-        const p = String(r.podtyp || '').toLowerCase();
-        if (t === 'mäso' || t === 'maso' || t === 'meat' || p === 'maso') return 'maso';
-        if (t.startsWith('koren') || p === 'koreniny') return 'koreniny';
-        if (t.startsWith('obal')) return 'obal';
-        if (t.startsWith('pomoc')) return 'pomocny_material';
-        return 'nezaradene';
+      const t = String(r.typ || '').toLowerCase();
+      const p = String(r.podtyp || '').toLowerCase();
+      if (t === 'mäso' || t === 'maso' || t === 'meat' || p === 'maso') return 'maso';
+      if (t.startsWith('koren') || p === 'koreniny') return 'koreniny';
+      if (t.startsWith('obal')) return 'obal';
+      if (t.startsWith('pomoc')) return 'pomocny_material';
+      return 'nezaradene';
     };
 
     try{
       const res = await apiRequest("/api/kancelaria/getRawMaterialStockOverview");
       const items = Array.isArray(res?.items) ? res.items : [];
 
-      // ... (datalist logic remains same) ...
       const dlHtml = items.map(r => `<option value="${r.nazov}"></option>`).join("");
       if (!qs("#rm-name-dl", shell)) shell.appendChild(el(`<datalist id="rm-name-dl">${dlHtml}</datalist>`));
       else qs("#rm-name-dl", shell).innerHTML = dlHtml;
@@ -295,14 +293,15 @@
           card.appendChild(el(`<h4 style="margin:0 0 .5rem 0;">${label[cat]}</h4>`));
           const wrap = el(`<div class="table-container"></div>`);
           
-          // UPRAVENÁ TABUĽKA - pridaný stĺpec Cena bez DPH
+          // DEFINÍCIA TABUĽKY - 5 stĺpcov
           const table = el(`
             <table>
               <thead>
                 <tr>
                     <th>Názov</th>
                     <th>Typ</th>
-                    <th>Cena bez DPH</th> <th>Sklad (kg)</th>
+                    <th>Cena bez DPH</th>
+                    <th>Sklad (kg)</th>
                     <th>Akcie</th>
                 </tr>
               </thead>
@@ -314,25 +313,22 @@
           let sum = 0;
 
           rows.forEach(r=>{
-            const qty = r.quantity != null ? r.quantity : (r.mnozstvo != null ? r.mnozstvo : 0);
-            const price = r.price != null ? r.price : 0; // Cena z backendu
+            // Čítame presne tie kľúče, ktoré posiela Python
+            const qty = r.mnozstvo != null ? Number(r.mnozstvo) : 0;
+            const price = r.nakupna_cena != null ? Number(r.nakupna_cena) : 0;
 
             const tr = el(`
               <tr data-name="${txt(r.nazov)}" data-cat="${cat}">
                 <td class="c-name">${txt(r.nazov)}</td>
                 <td>${label[cat].split(' – ')[0]}</td>
-                <td>${fmt(price, 2)} €</td> <td class="c-qty">${fmt(qty, 3)}</td>
-                <td class="c-actions" style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;">
-                  <button class="btn-secondary js-editqty" style="margin:0;">Upraviť množstvo</button>
+                <td>${fmt(price, 2)} €</td>      <td class="c-qty">${fmt(qty, 3)}</td> <td class="c-actions" style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;"> <button class="btn-secondary js-editqty" style="margin:0;">Upraviť množstvo</button>
                   <button class="btn-secondary js-editcard" style="margin:0;">Upraviť kartu</button>
                   <button class="btn-danger js-del" style="margin:0;">Zmazať</button>
                 </td>
               </tr>
             `);
 
-            // ... (zvyšok logiky pre editqty, editcard, del ostáva rovnaký) ...
-            
-            // Edit množstva (inline) - skopírovaný pôvodný kód, aby fungoval kontext
+            // Editácia množstva
             qs(".js-editqty", tr).addEventListener("click", async ()=>{
               if (tr.classList.contains("editing-qty")) return;
               tr.classList.add("editing-qty");
@@ -351,8 +347,8 @@
               qs(".js-cancel", tr).onclick = ()=>{
                 cQty.textContent = oldQty.toFixed(3);
                 actions.innerHTML = oldActions;
-                // rebindRowActions logic needs to be handled carefully or just reload
-                renderRaw(shell); // refresh to safe state
+                // Pre istotu prekreslíme, aby sa obnovili listenery
+                renderRaw(shell);
               };
               qs(".js-save", tr).onclick = async ()=>{
                 const newQty = parseAmount(qs(".js-newqty", tr).value, 3);
@@ -366,13 +362,15 @@
               };
             });
 
+            // Editácia karty
             qs(".js-editcard", tr).addEventListener("click", ()=> openEditCard(shell, tr.dataset.name));
-            
+
+            // Zmazanie
             qs(".js-del", tr).addEventListener("click", () => {
                  const name = tr.dataset.name;
-                 // ... (pôvodný delete handler)
-                 if(!confirm(`Naozaj zmazať ${name}?`)) return;
-                 apiRequest("/api/kancelaria/stock/deleteProductionItem", "POST", { name, delete_card: true })
+                 if(!confirm(`Naozaj chcete zmazať položku „${name}“?`)) return;
+                 const deleteCard = confirm("Vymazať aj z hlavnej karty skladu?");
+                 apiRequest("/api/kancelaria/stock/deleteProductionItem", "POST", { name, delete_card: deleteCard })
                     .then(()=>renderRaw(shell))
                     .catch(e=>alert(e.message));
             });
@@ -391,10 +389,10 @@
           container.appendChild(empty("Žiadne položky vo výrobnom sklade."));
         }
       };
-      
+
       const allGroups = asGroups(items);
       draw(allGroups);
-      // ... search listener ...
+
       if (search){
         search._h && search.removeEventListener("input", search._h);
         search._h = ()=>{
@@ -410,7 +408,6 @@
         };
         search.addEventListener("input", search._h);
       }
-
     }catch(e){
       console.error(e);
       body.innerHTML = ""; body.appendChild(empty("Nepodarilo sa načítať výrobný sklad."));
