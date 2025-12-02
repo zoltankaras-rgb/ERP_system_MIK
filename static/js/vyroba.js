@@ -294,7 +294,7 @@ async function calculateIngredientsForBatch(productName, plannedWeight) {
         ingredientsArea.appendChild(controlsDiv);
         ingredientsArea.style.display = 'block';
         startBtn.disabled = false;
-
+        updateStartButtonState();
     } catch (e) {
         console.error(e);
         showStatus("Chyba pri výpočte.", true);
@@ -656,4 +656,37 @@ async function submitManualWriteoff() {
     await apiRequest('/api/manualWriteOff', {method:'POST', body:data});
     showStatus('Odpísané', false);
     loadAndShowProductionMenu();
-}
+}// --- NOVÁ FUNKCIA: Povolí tlačidlo aj pri nedostatku ---
+  function updateStartButtonState() {
+    const btn = document.getElementById('btn-start-prod');
+    if (!btn) return;
+
+    // Tlačidlo je aktívne, ak máme vybraný produkt a váhu > 0.
+    // Ignorujeme nedostatok na sklade (backend povolí mínus).
+    // Predpokladáme, že state.ingredients je naplnené
+    const hasIngredients = (typeof state !== 'undefined' && state.ingredients && state.ingredients.length > 0);
+    const isReady = (document.getElementById('prod-select')?.value && document.getElementById('prod-weight')?.value > 0 && hasIngredients);
+    
+    btn.disabled = !isReady;
+    
+    if (isReady) {
+        // Zistíme, či niečo chýba
+        const missing = state.ingredients.filter(i => !i.isSufficient);
+        
+        if (missing.length > 0) {
+            // Žlté tlačidlo (Varovanie)
+            btn.innerHTML = `<i class="fas fa-exclamation-triangle"></i> Spustiť (Chýba ${missing.length} surovín)`;
+            btn.className = "btn-warning"; 
+            // Dôležité: Aby fungovalo btn-warning, uistite sa, že máte CSS triedu (napr. background: orange). 
+            // Ak nie, nastavte farbu priamo:
+            btn.style.backgroundColor = "#eab308"; 
+            btn.style.color = "black";
+        } else {
+            // Zelené tlačidlo (OK)
+            btn.innerHTML = `<i class="fas fa-play"></i> Spustiť výrobu`;
+            btn.className = "btn-success";
+            btn.style.backgroundColor = ""; // Reset
+            btn.style.color = "";
+        }
+    }
+  }
