@@ -1326,7 +1326,7 @@
     }
   }
 // =================================================================
-  // 2. CELKOVÝ PREHĽAD (Produkty) - OPRAVENÉ
+  // 2. CELKOVÝ PREHĽAD (Produkty) - MÍNUSOVÉ STAVY (ČERVENÉ + TLAČ)
   // =================================================================
   async function renderProducts(shell){
     const body = qs("#stock-body", shell);
@@ -1337,33 +1337,48 @@
     const search = qs("#stock-search", shell);
 
     try{
-      // 1. Zavoláme novo pridanú funkciu na backende
       const data = await apiRequest("/api/kancelaria/getComprehensiveStockView");
       
-      const grouped = data?.groupedByCategory || {};
-      const cats = Object.keys(grouped).sort((a,b)=> a.localeCompare(b, "sk"));
+      // 1. Spracovanie dát
+      let grouped = data?.groupedByCategory;
+      if (!grouped) {
+          const list = data?.products || data?.items || [];
+          grouped = {};
+          list.forEach(p => {
+              const c = p.category || p.predajna_kategoria || "Nezaradené";
+              if (!grouped[c]) grouped[c] = [];
+              grouped[c].push(p);
+          });
+      }
 
       body.innerHTML = "";
+      
+      // --- TLAČIDLO NA TLAČ MÍNUSOVÝCH STAVOV ---
+      const toolbar = el(`
+        <div style="display:flex; justify-content:flex-end; margin-bottom:10px;">
+            <button class="btn-danger btn-sm js-print-minus">
+                <i class="fa-solid fa-print"></i> Tlačiť mínusové stavy
+            </button>
+        </div>
+      `);
+      
+      toolbar.querySelector('.js-print-minus').onclick = () => printNegativeStock(grouped);
+      body.appendChild(toolbar);
+
       const container = el(`<div></div>`);
       body.appendChild(container);
-
-      // Ak nie sú žiadne dáta
-      if (!cats.length){ 
-          container.appendChild(empty("Žiadne produkty v systéme. (Skontrolujte tabuľku 'produkty')")); 
-          return; 
-      }
 
       // Funkcia na vykreslenie
       function draw(groupsToDraw){
         container.innerHTML = "";
-        const categories = Object.keys(groupsToDraw).sort((a,b)=> a.localeCompare(b, "sk"));
+        const cats = Object.keys(groupsToDraw).sort((a,b)=> a.localeCompare(b, "sk"));
         
-        if(!categories.length) {
-            container.appendChild(empty("Žiadne výsledky vyhľadávania."));
-            return;
+        if (!cats.length){ 
+            container.appendChild(empty("Žiadne produkty v systéme.")); 
+            return; 
         }
-
-        for (const cat of categories){
+        
+        for (const cat of cats){
           const items = groupsToDraw[cat] || [];
           if(!items.length) continue;
 
@@ -1388,13 +1403,22 @@
           const tb = qs("tbody", table);
           
           items.forEach(p=>{
+            const name = p.name || p.nazov_vyrobku || "";
+            const ean = p.ean || "";
+            const qty = p.quantity != null ? p.quantity : (p.stock_kg != null ? p.stock_kg : 0);
+            const unit = p.unit || p.mj || "kg";
+            const price = p.price != null ? p.price : 0;
+
+            // --- TU JE ZMENA: ČERVENÁ FARBA PRE MÍNUS ---
+            const qtyStyle = qty < 0 ? "color:#dc2626; font-weight:bold;" : "font-weight:bold;";
+
             const tr = el(`
                 <tr>
-                    <td style="font-family:monospace; color:#666;">${p.ean || '-'}</td>
-                    <td style="font-weight:500;">${txt(p.name)}</td>
-                    <td style="text-align:right; font-weight:bold; font-size:1.1em;">${fmt(p.quantity)}</td>
-                    <td style="text-align:right; color:#666;">${txt(p.unit)}</td>
-                    <td style="text-align:right;">${fmt(p.price)} €</td>
+                    <td style="font-family:monospace; color:#666;">${ean || '-'}</td>
+                    <td style="font-weight:500;">${txt(name)}</td>
+                    <td style="text-align:right; ${qtyStyle}; font-size:1.1em;">${fmt(qty)}</td>
+                    <td style="text-align:right; color:#666;">${txt(unit)}</td>
+                    <td style="text-align:right;">${fmt(price)} €</td>
                 </tr>
             `);
             tb.appendChild(tr);
@@ -1406,7 +1430,6 @@
         }
       }
 
-      // Filter (Search)
       function applyFilter(){
         const q = (search?.value || "").trim().toLowerCase();
         if (!q) { draw(grouped); return; }
@@ -1425,19 +1448,13 @@
         draw(filteredGroups);
       }
 
-      // Vykresliť všetko na začiatok
       draw(grouped);
       
-      // Nastaviť search listener
       if (search){
-        // Odstránime starý listener (ak bol) a dáme nový
         const newSearch = search.cloneNode(true);
         search.parentNode.replaceChild(newSearch, search);
-        
         newSearch.addEventListener("input", () => {
-             // Prečítame hodnotu z nového elementu
              const val = newSearch.value.toLowerCase().trim();
-             // Aplikujeme filter
              const g = {};
              Object.keys(grouped).forEach(cat => {
                  const f = grouped[cat].filter(p => 
@@ -1447,17 +1464,11 @@
                  );
                  if(f.length) g[cat] = f;
              });
-             // Kreslíme
              container.innerHTML = "";
              const cats = Object.keys(g).sort((a,b)=> a.localeCompare(b, "sk"));
              if(!cats.length) container.appendChild(empty("Žiadne výsledky."));
-             else {
-                 // Tu voláme logiku draw ale inline aby sme nemuseli passovať premenné hore dole
-                 // (Pre zjednodušenie stačí zavolať draw(g) ak je v scope, čo je)
-                 draw(g);
-             }
+             else draw(g);
         });
-        // Ak už niečo bolo v search, aplikujeme
         if(newSearch.value) newSearch.dispatchEvent(new Event('input'));
       }
 
@@ -1468,6 +1479,97 @@
     }
   }
 
+  // --- Helper funkcia pre TLAČ MÍNUSOVÝCH STAVOV ---
+  function printNegativeStock(groupedData) {
+      let negatives = [];
+      
+      // Vyfiltrujeme len položky v mínuse
+      Object.keys(groupedData).forEach(cat => {
+          (groupedData[cat] || []).forEach(p => {
+              const qty = p.quantity != null ? p.quantity : (p.stock_kg != null ? p.stock_kg : 0);
+              if (qty < 0) {
+                  negatives.push({
+                      cat: cat,
+                      name: p.name || p.nazov_vyrobku || '',
+                      ean: p.ean || '',
+                      qty: qty,
+                      unit: p.unit || p.mj || 'kg'
+                  });
+              }
+          });
+      });
+
+      if (negatives.length === 0) {
+          alert("Žiadne položky so záporným stavom.");
+          return;
+      }
+
+      // Zoradíme podľa kategórie a názvu
+      negatives.sort((a,b) => a.cat.localeCompare(b.cat) || a.name.localeCompare(b.name));
+
+      // Vygenerujeme HTML pre tlač
+      const dateStr = new Date().toLocaleString('sk-SK');
+      let html = `
+        <!doctype html>
+        <html>
+        <head>
+            <meta charset="utf-8">
+            <title>Mínusové stavy - Report</title>
+            <style>
+                body { font-family: Arial, sans-serif; font-size: 12px; padding: 20px; }
+                h1 { font-size: 18px; margin-bottom: 5px; }
+                .meta { color: #666; margin-bottom: 20px; font-size: 11px; }
+                table { width: 100%; border-collapse: collapse; }
+                th, td { border: 1px solid #ccc; padding: 6px 8px; text-align: left; }
+                th { background: #f3f4f6; font-weight: bold; }
+                .num { text-align: right; font-weight: bold; color: #dc2626; }
+                .cat-row td { background: #e5e7eb; font-weight: bold; padding-top: 10px; }
+            </style>
+        </head>
+        <body>
+            <h1>Report Mínusových Skladových zásob</h1>
+            <div class="meta">Vygenerované: ${dateStr}</div>
+            
+            <table>
+                <thead>
+                    <tr>
+                        <th>EAN</th>
+                        <th>Názov Produktu</th>
+                        <th style="text-align:right">Stav</th>
+                        <th>MJ</th>
+                    </tr>
+                </thead>
+                <tbody>
+      `;
+
+      let lastCat = null;
+      negatives.forEach(item => {
+          if (item.cat !== lastCat) {
+              html += `<tr class="cat-row"><td colspan="4">${item.cat}</td></tr>`;
+              lastCat = item.cat;
+          }
+          html += `
+            <tr>
+                <td>${item.ean}</td>
+                <td>${item.name}</td>
+                <td class="num">${Number(item.qty).toFixed(2)}</td>
+                <td>${item.unit}</td>
+            </tr>
+          `;
+      });
+
+      html += `
+                </tbody>
+            </table>
+            <script>window.print();</script>
+        </body>
+        </html>
+      `;
+
+      const win = window.open('', '_blank');
+      win.document.write(html);
+      win.document.close();
+  }
   // ------------- init -------------
   window.initializeStockModule = function(){
     const shell = makeShell();
