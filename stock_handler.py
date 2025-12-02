@@ -1283,3 +1283,45 @@ def supplier_delete(sup_id: int):
     _ensure_suppliers_schema()
     db_connector.execute_query("UPDATE suppliers SET is_active=0, updated_at=NOW() WHERE id=%s", (sup_id,), fetch='none')
     return jsonify({"message":"Dodávateľ zmazaný."})
+
+# --- Vložte toto na koniec súboru stock_handler.py ---
+
+@stock_bp.get("/api/kancelaria/getComprehensiveStockView")
+def get_comprehensive_stock_view():
+    """
+    Celkový prehľad produktov (Hotové výrobky a Tovar).
+    Číta z tabuľky 'produkty'.
+    """
+    # 1. Načítame dáta z databázy
+    # Používame COALESCE, aby sme nemali NULL hodnoty
+    q = """
+        SELECT
+            p.ean,
+            p.nazov_vyrobku AS name,
+            COALESCE(p.predajna_kategoria, 'Nezaradené') AS category,
+            COALESCE(p.aktualny_sklad_finalny_kg, 0) AS quantity,
+            COALESCE(p.mj, 'kg') AS unit,
+            COALESCE(p.nakupna_cena, 0) AS price
+        FROM produkty p
+        WHERE p.typ_polozky IN ('VÝROBOK', 'TOVAR', 'PRODUKT') 
+           OR p.typ_polozky IS NULL
+        ORDER BY category, name
+    """
+    rows = db_connector.execute_query(q) or []
+
+    # 2. Zoskupíme dáta podľa kategórie pre frontend
+    grouped = {}
+    for r in rows:
+        cat = r['category']
+        if cat not in grouped:
+            grouped[cat] = []
+        
+        grouped[cat].append({
+            "ean": r['ean'],
+            "name": r['name'],
+            "quantity": float(r['quantity']),
+            "unit": r['unit'],
+            "price": float(r['price'])
+        })
+
+    return jsonify({"groupedByCategory": grouped})

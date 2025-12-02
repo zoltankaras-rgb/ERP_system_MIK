@@ -240,7 +240,7 @@
     return set;
   }
 
-
+  // ------------- Suroviny (výrobný sklad) - OPRAVA CENY A KATEGÓRIÍ -------------
  // ------------- Suroviny (výrobný sklad) - OPRAVA MJ (bm pre obaly) -------------
   async function renderRaw(shell){
     const body = qs("#stock-body", shell);
@@ -1318,9 +1318,8 @@
       body.innerHTML = ""; body.appendChild(empty("Nepodarilo sa načítať dodávateľov."));
     }
   }
-
- // =================================================================
-  // 2. CELKOVÝ PREHĽAD (Opravený)
+// =================================================================
+  // 2. CELKOVÝ PREHĽAD (Produkty) - OPRAVENÉ
   // =================================================================
   async function renderProducts(shell){
     const body = qs("#stock-body", shell);
@@ -1331,50 +1330,48 @@
     const search = qs("#stock-search", shell);
 
     try{
+      // 1. Zavoláme novo pridanú funkciu na backende
       const data = await apiRequest("/api/kancelaria/getComprehensiveStockView");
       
-      // 1. Skúsime získať dáta (podpora pre rôzne formáty z backendu)
-      let grouped = data?.groupedByCategory;
-
-      // Ak backend neposlal hotové skupiny, ale len zoznam, zoskupíme to tu:
-      if (!grouped) {
-          const list = data?.products || data?.items || [];
-          grouped = {};
-          list.forEach(p => {
-              // Zistíme kategóriu (backend môže posielať 'category' alebo 'predajna_kategoria')
-              const c = p.category || p.predajna_kategoria || "Nezaradené";
-              if (!grouped[c]) grouped[c] = [];
-              grouped[c].push(p);
-          });
-      }
+      const grouped = data?.groupedByCategory || {};
+      const cats = Object.keys(grouped).sort((a,b)=> a.localeCompare(b, "sk"));
 
       body.innerHTML = "";
       const container = el(`<div></div>`);
       body.appendChild(container);
 
+      // Ak nie sú žiadne dáta
+      if (!cats.length){ 
+          container.appendChild(empty("Žiadne produkty v systéme. (Skontrolujte tabuľku 'produkty')")); 
+          return; 
+      }
+
       // Funkcia na vykreslenie
-      function draw(groups){
+      function draw(groupsToDraw){
         container.innerHTML = "";
-        const cats = Object.keys(groups).sort((a,b)=> a.localeCompare(b, "sk"));
+        const categories = Object.keys(groupsToDraw).sort((a,b)=> a.localeCompare(b, "sk"));
         
-        if (!cats.length){ 
-            container.appendChild(empty("Žiadne produkty v systéme. (Skontrolujte či prebehol import 'VYROBKY.CSV' do tabuľky Produkty)")); 
-            return; 
+        if(!categories.length) {
+            container.appendChild(empty("Žiadne výsledky vyhľadávania."));
+            return;
         }
-        
-        for (const cat of cats){
+
+        for (const cat of categories){
+          const items = groupsToDraw[cat] || [];
+          if(!items.length) continue;
+
           const card = el(`<div class="stat-card" style="margin-bottom:1rem;"></div>`);
-          card.appendChild(el(`<h4 style="margin:0 0 .5rem 0;">${txt(cat)}</h4>`));
+          card.appendChild(el(`<h4 style="margin:0 0 .5rem 0; border-bottom:1px solid #eee; padding-bottom:5px;">${txt(cat)}</h4>`));
           
           const wrap = el(`<div class="table-container"></div>`);
           const table = el(`
             <table class="table table-sm table-striped">
               <thead>
                 <tr>
-                    <th>EAN</th>
+                    <th style="width:130px;">EAN</th>
                     <th>Názov</th>
                     <th style="text-align:right">Množstvo</th>
-                    <th style="text-align:right">Jedn.</th>
+                    <th style="text-align:right; width:60px;">MJ</th>
                     <th style="text-align:right">Cena</th>
                 </tr>
               </thead>
@@ -1383,22 +1380,14 @@
           `);
           const tb = qs("tbody", table);
           
-          (groups[cat] || []).forEach(p=>{
-            // Ošetrenie rôznych názvov atribútov (aby to nezlyhalo)
-            const name = p.name || p.nazov_vyrobku || "";
-            const ean = p.ean || "";
-            // Množstvo môže byť 'quantity' alebo 'stock_kg'
-            const qty = p.quantity != null ? p.quantity : (p.stock_kg != null ? p.stock_kg : 0);
-            const unit = p.unit || p.mj || "kg";
-            const price = p.price != null ? p.price : 0;
-
+          items.forEach(p=>{
             const tr = el(`
                 <tr>
-                    <td style="font-family:monospace; color:#666;">${ean}</td>
-                    <td style="font-weight:500;">${txt(name)}</td>
-                    <td style="text-align:right; font-weight:bold;">${fmt(qty)}</td>
-                    <td style="text-align:right;">${txt(unit)}</td>
-                    <td style="text-align:right;">${fmt(price)} €</td>
+                    <td style="font-family:monospace; color:#666;">${p.ean || '-'}</td>
+                    <td style="font-weight:500;">${txt(p.name)}</td>
+                    <td style="text-align:right; font-weight:bold; font-size:1.1em;">${fmt(p.quantity)}</td>
+                    <td style="text-align:right; color:#666;">${txt(p.unit)}</td>
+                    <td style="text-align:right;">${fmt(p.price)} €</td>
                 </tr>
             `);
             tb.appendChild(tr);
@@ -1410,31 +1399,59 @@
         }
       }
 
-      // Filter
+      // Filter (Search)
       function applyFilter(){
         const q = (search?.value || "").trim().toLowerCase();
         if (!q) { draw(grouped); return; }
         
-        const g = {};
+        const filteredGroups = {};
         Object.keys(grouped).forEach(cat=>{
-          const items = grouped[cat] || [];
+          const items = grouped[cat];
           const f = items.filter(p => {
-             const n = (p.name || p.nazov_vyrobku || "").toLowerCase();
+             const n = (p.name || "").toLowerCase();
              const c = cat.toLowerCase();
              const e = (p.ean || "").toLowerCase();
              return n.includes(q) || c.includes(q) || e.includes(q);
           });
-          if (f.length) g[cat] = f;
+          if (f.length) filteredGroups[cat] = f;
         });
-        draw(g);
+        draw(filteredGroups);
       }
 
+      // Vykresliť všetko na začiatok
       draw(grouped);
       
+      // Nastaviť search listener
       if (search){
-        // Jednoduchý re-bind (prepíše starý oninput)
-        search.oninput = () => applyFilter();
-        if(search.value) applyFilter();
+        // Odstránime starý listener (ak bol) a dáme nový
+        const newSearch = search.cloneNode(true);
+        search.parentNode.replaceChild(newSearch, search);
+        
+        newSearch.addEventListener("input", () => {
+             // Prečítame hodnotu z nového elementu
+             const val = newSearch.value.toLowerCase().trim();
+             // Aplikujeme filter
+             const g = {};
+             Object.keys(grouped).forEach(cat => {
+                 const f = grouped[cat].filter(p => 
+                    (p.name||"").toLowerCase().includes(val) || 
+                    cat.toLowerCase().includes(val) || 
+                    (p.ean||"").includes(val)
+                 );
+                 if(f.length) g[cat] = f;
+             });
+             // Kreslíme
+             container.innerHTML = "";
+             const cats = Object.keys(g).sort((a,b)=> a.localeCompare(b, "sk"));
+             if(!cats.length) container.appendChild(empty("Žiadne výsledky."));
+             else {
+                 // Tu voláme logiku draw ale inline aby sme nemuseli passovať premenné hore dole
+                 // (Pre zjednodušenie stačí zavolať draw(g) ak je v scope, čo je)
+                 draw(g);
+             }
+        });
+        // Ak už niečo bolo v search, aplikujeme
+        if(newSearch.value) newSearch.dispatchEvent(new Event('input'));
       }
 
     }catch(e){
@@ -1443,6 +1460,7 @@
       body.appendChild(empty("Chyba pri načítaní prehľadu: " + e.message));
     }
   }
+
   // ------------- init -------------
   window.initializeStockModule = function(){
     const shell = makeShell();
