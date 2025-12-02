@@ -153,6 +153,10 @@ def _ensure_sklad_supplier_links_schema():
     """, fetch='none')
     # indexy podľa potreby (PK už pokrýva sklad_nazov+supplier_id)
 
+# stock_handler.py
+
+# ... (existujúce funkcie _ensure_suppliers_schema atď nechajte tak) ...
+
 def _fix_decimal_precision():
     """
     Opraví stĺpce na DECIMAL(12,3), aby sa zmestili čísla nad 1000 kg.
@@ -177,7 +181,7 @@ def init_stock():
     _ensure_link_to_supplier()
     _ensure_meat_templates_schema()
     _ensure_sklad_supplier_links_schema()
-    _fix_decimal_precision()
+    _fix_decimal_precision()  # <--- TOTO SME PRIDALI
 
 # ------------------------- core queries ----------------------------
 
