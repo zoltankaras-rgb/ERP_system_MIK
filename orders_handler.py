@@ -136,7 +136,7 @@ def api_under_min():
     unit_col  = pick_first_existing("sklad", ["jednotka","unit","mj"])
     cat_col   = pick_first_existing("sklad", ["kategoria", "typ", "podtyp"])
 
-    # Balenie - stĺpce (musíme skontrolovať, či existujú)
+    # Balenie - stĺpce
     pack_qty_col = "balenie_mnozstvo" if has_col("sklad", "balenie_mnozstvo") else "NULL"
     pack_mj_col  = "balenie_mj" if has_col("sklad", "balenie_mj") else "NULL"
 
@@ -147,7 +147,7 @@ def api_under_min():
     unit_sql  = f"COALESCE(s.{unit_col}, 'kg')" if unit_col else "'kg'"
     cat_sql   = f"s.{cat_col} AS category" if cat_col else "'' AS category"
     
-    # SQL pre balenie (dynamicky)
+    # SQL pre balenie
     pack_q_sql = f"s.{pack_qty_col} AS pack_qty"
     pack_m_sql = f"s.{pack_mj_col} AS pack_mj"
 
@@ -329,8 +329,8 @@ def api_items_for_ordering():
     ean_col   = pick_first_existing("sklad", ["ean","ean13","barcode","kod"])
     
     # Balenie - stĺpce
-    pack_qty_col = pick_first_existing("sklad", ["balenie_mnozstvo"])
-    pack_mj_col  = pick_first_existing("sklad", ["balenie_mj"])
+    pack_qty_col = "balenie_mnozstvo" if has_col("sklad", "balenie_mnozstvo") else "NULL"
+    pack_mj_col  = "balenie_mj" if has_col("sklad", "balenie_mj") else "NULL"
 
     id_sql    = f"s.{id_col} AS id" if id_col else "NULL AS id"
     unit_sql  = f"COALESCE(s.{unit_col}, 'kg')" if unit_col else "'kg'"
@@ -339,8 +339,8 @@ def api_items_for_ordering():
     cat_sql   = f"s.{cat_col} AS category" if cat_col else "'' AS category"
     
     # SQL pre balenie
-    pack_q_sql = f"s.{pack_qty_col} AS pack_qty" if pack_qty_col else "NULL AS pack_qty"
-    pack_m_sql = f"s.{pack_mj_col} AS pack_mj" if pack_mj_col else "NULL AS pack_mj"
+    pack_q_sql = f"s.{pack_qty_col} AS pack_qty"
+    pack_m_sql = f"s.{pack_mj_col} AS pack_mj"
 
     coll = conn_coll()
 
@@ -558,16 +558,11 @@ def last_price():
 @orders_bp.post("/api/objednavky")
 def create_order():
     data = request.get_json(force=True) or {}
-    dod_nazov = (data.get("dodavatel_nazov") or "").strip()
-    dod_id    = data.get("dodavatel_id")
-    datum     = (data.get("datum_objednania") or datetime.utcnow().strftime("%Y-%m-%d"))[:10]
-    polozky   = data.get("polozky") or []
-
-    if not dod_nazov:
-        return jsonify({"error": "Chýba dodávateľ"}), 400
-
-    cislo = generate_order_number(dod_nazov, datum)
-
+    dod_nazov = data.get("dodavatel_nazov")
+    dod_id = data.get("dodavatel_id")
+    if not dod_nazov: return jsonify({"error": "Chýba dodávateľ"}), 400
+    cislo = generate_order_number(dod_nazov, data.get("datum_objednania"))
+    
     conn = get_connection()
     try:
         cur = conn.cursor(dictionary=True)
@@ -576,27 +571,15 @@ def create_order():
             INSERT INTO vyrobne_objednavky
                 (cislo, dodavatel_id, dodavatel_nazov, datum_objednania, stav)
             VALUES (%s, %s, %s, %s, 'objednane')
-        """, (cislo, dod_id, dod_nazov, datum))
+        """, (cislo, dod_id, dod_nazov, data.get("datum_objednania")))
         oid = cur.lastrowid
 
-        for it in polozky:
-            nazov = (it.get("nazov") or "").strip()
-            if not nazov:
-                continue
-            jednotka = (it.get("jednotka") or "kg").strip()
-            try:
-                mnoz = float(it.get("mnozstvo") or 0)
-            except Exception:
-                mnoz = 0.0
-            cena = it.get("cena_predpoklad")
-            cena = float(cena) if (cena not in (None, "")) else None
-            sklad_id = it.get("sklad_id")
-
+        for it in data.get("polozky", []):
             cur.execute("""
                 INSERT INTO vyrobne_objednavky_polozky
                     (objednavka_id, sklad_id, nazov_suroviny, jednotka, mnozstvo_ordered, cena_predpoklad)
                 VALUES (%s, %s, %s, %s, %s, %s)
-            """, (oid, sklad_id, nazov, jednotka, mnoz, cena))
+            """, (oid, it.get("sklad_id"), it.get("nazov"), it.get("jednotka"), it.get("mnozstvo"), it.get("cena_predpoklad")))
 
         conn.commit()
         return jsonify({"ok": True, "id": oid, "cislo": cislo})
@@ -714,13 +697,13 @@ tfoot td{{font-weight:bold}}
 </body></html>
 """
     return Response(html, mimetype="text/html")
-# --- PRIDANÉ: Mazanie objednávky ---
+
+# ---------- NOVÉ: DELETE ORDER ----------
 @orders_bp.delete("/api/objednavky/<int:oid>")
 def delete_order(oid):
     conn = get_connection()
     try:
         cur = conn.cursor()
-        # Zmaže hlavičku (položky sa zmažú kaskádovito vďaka FK)
         cur.execute("DELETE FROM vyrobne_objednavky WHERE id=%s", (oid,))
         conn.commit()
         return jsonify({"message": "Objednávka zmazaná."})
