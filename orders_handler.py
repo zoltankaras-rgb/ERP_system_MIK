@@ -127,7 +127,6 @@ def generate_order_number(dodavatel_nazov: str, datum_obj: str) -> str:
     return f"{prefix}-{n:03d}"
 
 # ---------- Pod minimom (S BALENÍM) ----------
-# orders_handler.py
 @orders_bp.get("/api/sklad/under-min")
 def api_under_min():
     id_col    = pick_first_existing("sklad", ["id","sklad_id","produkt_id","product_id","id_skladu"])
@@ -154,7 +153,7 @@ def api_under_min():
     pack_q_sql = f"s.{pack_qty_col} AS pack_qty"
     pack_m_sql = f"s.{pack_mj_col} AS pack_mj"
 
-    # --- ÚPRAVA: Zohľadnenie tovaru na ceste (objednane, ale neprijate) ---
+    # --- TOTO JE KĽÚČOVÁ ZMENA: Zohľadnenie tovaru na ceste (objednane) ---
     sql = f"""
         SELECT {id_sql},
                s.nazov,
@@ -187,7 +186,7 @@ def api_under_min():
     rows = execute_query(sql, fetch='all') or []
 
     for r in rows:
-        # 1. Výpočet chýbajúceho množstva (Min - Sklad - NaCeste)
+        # Výpočet: (Minimum - Sklad) - UžObjednané
         try:
             min_q = float(r["min_qty"] or 0)
             cur_q = float(r["qty"] or 0)
@@ -199,14 +198,14 @@ def api_under_min():
         except Exception:
             r["to_buy"] = 0.0
 
-        # 2. Detekcia jednotky
+        # Detekcia jednotky
         cat = (r.get("category") or "").lower()
         if 'obal' in cat or 'črev' in cat or 'crev' in cat:
             r["jednotka"] = "bm"
         else:
             r["jednotka"] = r.get("jednotka_raw") or "kg"
 
-        # 3. Formátovanie balenia
+        # Formátovanie balenia
         r["pack_info"] = ""
         if r.get("pack_qty"):
             try:
@@ -217,7 +216,6 @@ def api_under_min():
             except: pass
 
     return jsonify({"items": rows})
-
 # ---------- SUPPLIERS ----------
 @orders_bp.get("/api/objednavky/suppliers")
 def api_suppliers():
