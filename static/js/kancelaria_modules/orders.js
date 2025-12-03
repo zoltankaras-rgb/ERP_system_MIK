@@ -104,20 +104,27 @@
     return SUP_CHOICES;
   }
 
-  // ----------------- 1. POD MINIMOM (S BALENÍM A SKRÝVANÍM OBJEDNANÝCH) -----------------
+ // ----------------- 1. POD MINIMOM (S BALENÍM A SKRÝVANÍM OBJEDNANÝCH) -----------------
   async function viewUnderMin(container){
     container.innerHTML = '<h2>Sklad → Objednávky</h2><div class="text-muted">Načítavam položky pod minimom…</div>';
 
     let data;
-    try { data = await api.get('/api/sklad/under-min'); }
-    catch (e) { container.innerHTML = `<div class="text-danger">Chyba: ${e.message}</div>`; return; }
+    try { 
+        // Volanie API
+        data = await api.get('/api/sklad/under-min'); 
+    }
+    catch (e) { 
+        container.innerHTML = `<div class="text-danger">Chyba: ${e.message}</div>`; 
+        return; 
+    }
 
     const itemsRaw = Array.isArray(data?.items) ? data.items : [];
     await ensureSupplierChoices();
 
+    // Spracovanie dát
     const items = itemsRaw.map(raw => {
       const r = {...raw};
-      r.nazov    = r.nazov ?? r.name ?? '';
+      r.nazov = r.nazov ?? r.name ?? '';
       
       // Detekcia BM (bežné metre pre obaly)
       const cat = (r.category || '').toLowerCase();
@@ -130,8 +137,8 @@
       r.qty      = (r.qty ?? r.mnozstvo ?? r.quantity ?? 0);
       r.min_qty  = (r.min_qty ?? r.min_mnozstvo ?? r.min_stav_kg ?? r.min_zasoba ?? 0);
       
-      // Backend teraz posiela 'to_buy' už znížené o tovar na ceste.
-      // Ak by backend neposlal to_buy, vypočítame starým spôsobom (bez on_way).
+      // Backend teraz posiela 'to_buy' už znížené o tovar na ceste (on_way).
+      // Ak backend túto logiku nemá (neprebehol update orders_handler.py), r.to_buy môže byť null.
       if (r.to_buy == null) {
           r.to_buy = Math.max(num(r.min_qty) - num(r.qty), 0);
       }
@@ -139,12 +146,15 @@
       r.dodavatel_id   = r.dodavatel_id ?? r.supplier_id ?? null;
       r.dodavatel_nazov= r.dodavatel_nazov || r.supplier_name || (r.dodavatel_id ? `Dodávateľ #${r.dodavatel_id}` : 'Bez dodávateľa');
       
-      // Balenie info
+      // Balenie info (text napr. "0.5 kg")
       r.pack_info = raw.pack_info || '';
 
       return r;
-    }).filter(r => num(r.to_buy) > 0); // <--- TOTO SKRYJE POLOŽKY, KTORÉ UŽ SÚ OBJEDNANÉ
+    })
+    // TOTO FILTROVANIE SKRYJE POLOŽKY, KTORÉ UŽ SÚ OBJEDNANÉ (ak to_buy <= 0)
+    .filter(r => num(r.to_buy) > 0); 
 
+    // Vykreslenie hlavičky stránky
     container.innerHTML = '';
     container.appendChild(el('h2',{},'Sklad → Objednávky'));
 
@@ -181,6 +191,8 @@
     // Vykreslenie kariet dodávateľov
     for (const g of groups){
       const card = el('div',{class:'stat-card',style:'margin:10px 0;'});
+      
+      // Hlavička skupiny (Dodávateľ)
       const titleRow = el('div',{style:'display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px;'});
       titleRow.appendChild(el('h3',{style:'margin:0;'}, g.nazov || 'Bez dodávateľa'));
 
@@ -202,13 +214,14 @@
 
       const tbl = el('table',{class:'table',style:'width:100%; border-collapse:collapse;'});
       
-      // HLAVIČKA TABUĽKY
+      // --- HLAVIČKA TABUĽKY (11 stĺpcov) ---
+      // Pridaný 5. stĺpec "Balenie"
       tbl.appendChild(el('thead',{}, el('tr',{},
         el('th',{},''),
         el('th',{},'#'),
         el('th',{},'EAN'),
         el('th',{},'Názov'),
-        el('th',{},'Balenie'), // STĹPEC PRE BALENIE
+        el('th',{},'Balenie'), // <--- TOTO SA MUSÍ ZOBRAZIŤ
         el('th',{},'Jedn.'),
         el('th',{},'Na sklade'),
         el('th',{},'Min'),
@@ -219,6 +232,7 @@
       const tb = el('tbody',{}); tbl.appendChild(tb);
       const rowRefs = [];
 
+      // Riadky tabuľky
       g.rows.forEach((r,i)=>{
         const toBuy = num(r.to_buy);
         const cb   = el('input',{type:'checkbox', checked: toBuy > 0});
@@ -238,19 +252,20 @@
           }catch(_){}
         }}, 'Posl. cena');
 
-        // Badge balenia - vizuálna reprezentácia
+        // Badge pre Balenie
         const packBadge = r.pack_info 
             ? el('span', {
                 style: 'background:#e0f2fe; color:#0369a1; padding:2px 6px; border-radius:4px; font-size:0.85em; white-space:nowrap; display:inline-block;'
               }, r.pack_info) 
             : document.createTextNode('');
 
+        // Vykreslenie buniek (11 stĺpcov)
         tb.appendChild(el('tr',{},
           el('td',{}, cb),
           el('td',{}, String(i+1)),
           el('td',{style:'font-family: monospace; font-size: 0.9em; color:#555;'}, pickEAN(r)),
           el('td',{style:'font-weight:500'}, r.nazov),
-          el('td',{}, packBadge), // BUNKA PRE BALENIE
+          el('td',{}, packBadge), // <--- 5. BUNKA (Balenie)
           el('td',{}, r.jednotka || 'kg'),
           el('td',{}, fmt(r.qty)),
           el('td',{}, fmt(r.min_qty)),
@@ -263,6 +278,7 @@
 
       chkAll.addEventListener('change', ()=> { rowRefs.forEach(ref => { ref.cb.checked = chkAll.checked; }); });
 
+      // Akcia pre vytvorenie objednávky
       btnCreate.addEventListener('click', async ()=>{
         let supId = g.id, supName = g.nazov;
         if (!supId && supSel){
@@ -292,7 +308,7 @@
           const res = await api.post('/api/objednavky', body);
           alert(`Návrh objednávky vytvorený${res.cislo ? `: ${res.cislo}` : ''}.`);
           
-          // Obnoviť zoznam, aby zmizli objednané položky (lebo teraz už budú "on way")
+          // Obnoviť zoznam (položky by mali zmiznúť, ak ich backend započíta ako "on_way")
           viewUnderMin(container);
         }catch(e){ alert(`Chyba: ${e.message}`); }
       });
@@ -301,7 +317,6 @@
       container.appendChild(card);
     }
   }
-
   // ----------------- 2. ZOZNAM OBJEDNÁVOK (S MAZANÍM A DÁTUMOM) -----------------
   async function renderList(container){
     container.innerHTML = '<h2>Objednávky</h2><div class="text-muted">Načítavam…</div>';
