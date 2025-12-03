@@ -45,6 +45,21 @@
   const num   = (x) => (x === null || x === undefined || x === '' || isNaN(Number(x))) ? 0 : Number(x);
   const money = (x) => num(x).toFixed(2);
 
+  // Formát dátumu: 03.12.2025 14:30
+  const formatDate = (isoStr) => {
+      if (!isoStr) return '';
+      const d = new Date(isoStr);
+      if (isNaN(d.getTime())) return isoStr;
+      
+      const day = String(d.getDate()).padStart(2, '0');
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const year = d.getFullYear();
+      const hours = String(d.getHours()).padStart(2, '0');
+      const minutes = String(d.getMinutes()).padStart(2, '0');
+      
+      return `${day}.${month}.${year} ${hours}:${minutes}`;
+  };
+
   const pickEAN = (o) => {
     if (!o || typeof o !== 'object') return '';
     const candidates = ['ean', 'EAN', 'ean_code', 'ean_kod', 'ean13', 'barcode', 'kod_ean', 'kod'];
@@ -61,6 +76,7 @@
       if (!confirm("Určite? Táto akcia je nevratná.")) return;
       try {
           await api.delete(`/api/objednavky/${id}`);
+          // Po zmazaní obnovíme celú stránku, aby zmizla zo všetkých zoznamov
           window.location.reload();
       } catch (e) {
           alert("Chyba pri mazaní: " + e.message);
@@ -88,7 +104,7 @@
     return SUP_CHOICES;
   }
 
-  // ----------------- POD MINIMOM (S BALENÍM - OPRAVENÉ) -----------------
+  // ----------------- 1. POD MINIMOM (S BALENÍM A SKRÝVANÍM OBJEDNANÝCH) -----------------
   async function viewUnderMin(container){
     container.innerHTML = '<h2>Sklad → Objednávky</h2><div class="text-muted">Načítavam položky pod minimom…</div>';
 
@@ -103,7 +119,7 @@
       const r = {...raw};
       r.nazov    = r.nazov ?? r.name ?? '';
       
-      // Detekcia BM pre obaly
+      // Detekcia BM
       const cat = (r.category || '').toLowerCase();
       if (cat.includes('obal') || cat.includes('črev') || cat.includes('crev')) {
           r.jednotka = 'bm';
@@ -117,7 +133,7 @@
       r.dodavatel_id   = r.dodavatel_id ?? r.supplier_id ?? null;
       r.dodavatel_nazov= r.dodavatel_nazov || r.supplier_name || (r.dodavatel_id ? `Dodávateľ #${r.dodavatel_id}` : 'Bez dodávateľa');
       
-      // !!! OPRAVA: Prenos balenia z API odpovede !!!
+      // Balenie
       r.pack_info = raw.pack_info || '';
 
       return r;
@@ -178,13 +194,13 @@
 
       const tbl = el('table',{class:'table',style:'width:100%; border-collapse:collapse;'});
       
-      // HLAVIČKA - Explicitne s Balením
+      // HLAVIČKA - s Balením
       tbl.appendChild(el('thead',{}, el('tr',{},
         el('th',{},''),
         el('th',{},'#'),
         el('th',{},'EAN'),
         el('th',{},'Názov'),
-        el('th',{},'Balenie'),  // <--- STĹPEC BALENIE
+        el('th',{},'Balenie'), 
         el('th',{},'Jedn.'),
         el('th',{},'Na sklade'),
         el('th',{},'Min'),
@@ -214,7 +230,7 @@
           }catch(_){}
         }}, 'Posl. cena');
 
-        // !!! ZOBRAZENIE BALENIA !!!
+        // Badge balenia
         const packBadge = r.pack_info 
             ? el('span', {class:'badge', style:'background:#e0f2fe; color:#0369a1; padding:2px 6px; border-radius:4px; font-size:0.85em; white-space:nowrap;'}, r.pack_info) 
             : document.createTextNode('');
@@ -224,7 +240,7 @@
           el('td',{}, String(i+1)),
           el('td',{style:'font-family: monospace;'}, pickEAN(r)),
           el('td',{style:'font-weight:500'}, r.nazov),
-          el('td',{}, packBadge),  // <--- BUNKA BALENIE
+          el('td',{}, packBadge), // Zobrazenie balenia
           el('td',{}, r.jednotka || 'kg'),
           el('td',{}, fmt(r.qty)),
           el('td',{}, fmt(r.min_qty)),
@@ -265,6 +281,9 @@
           const body = { dodavatel_id: supId ?? null, dodavatel_nazov: supName || null, datum_objednania: today(), polozky };
           const res = await api.post('/api/objednavky', body);
           alert(`Návrh objednávky vytvorený${res.cislo ? `: ${res.cislo}` : ''}.`);
+          
+          // Obnoviť zoznam, aby zmizli objednané
+          viewUnderMin(container);
         }catch(e){ alert(`Chyba: ${e.message}`); }
       });
 
@@ -273,7 +292,7 @@
     }
   }
 
-  // ------- Zoznam objednávok (S TLAČIDLOM ZMAZAŤ) ----------------
+  // ----------------- 2. ZOZNAM OBJEDNÁVOK (S MAZANÍM A DÁTUMOM) -----------------
   async function renderList(container){
     container.innerHTML = '<h2>Objednávky</h2><div class="text-muted">Načítavam…</div>';
     let data, sup;
@@ -331,7 +350,7 @@
       el('th',{},'#'),
       el('th',{},'Číslo'),
       el('th',{},'Dodávateľ'),
-      el('th',{},'Dátum'),
+      el('th',{},'Dátum (Vytvorené)'),
       el('th',{},'Stav'),
       el('th',{},'Suma (predp.)'),
       el('th',{},'Akcie')
@@ -369,14 +388,17 @@
         const btnPrint = el('button',{class:'btn btn-secondary', onclick:()=>window.open(`/kancelaria/objednavky/print/${o.id}`,'_blank')},'Tlačiť');
         const btnRecv  = o.stav==='objednane' ? el('button',{class:'btn btn-success', onclick:()=>renderReceive(container,o.id)},'Prijať') : el('span', {class:'text-muted'}, '✓');
         
-        // Tlačidlo zmazať
+        // TLAČIDLO ZMAZAŤ
         const btnDel = el('button',{class:'btn btn-danger', title:'Zmazať', onclick:()=>deleteOrderWithConfirm(o.id)}, el('i',{class:'fas fa-trash'}));
+
+        // DÁTUM
+        const dateDisplay = formatDate(o.real_created || o.created_at || o.datum_objednania);
 
         tb.appendChild(el('tr',{},
           el('td',{}, String(i+1)),
           el('td',{}, o.cislo),
           el('td',{}, o.dodavatel_nazov || ''),
-          el('td',{}, o.datum_objednania || ''),
+          el('td',{}, dateDisplay),
           el('td',{}, o.stav),
           el('td',{}, money(o.suma_predpoklad)),
           el('td',{}, el('div',{style:'display:flex;gap:4px;'}, btnOpen, btnPrint, btnRecv, btnDel))
@@ -389,7 +411,7 @@
     renderTable();
   }
 
-  // ------- História podľa dodávateľov (S TLAČIDLOM ZMAZAŤ) --------
+  // ----------------- 3. HISTÓRIA (S ZMAZANÍM) -----------------
   async function renderSupplierHistory(container){
     container.innerHTML = '<h2>História objednávok podľa dodávateľov</h2><div class="text-muted">Načítavam…</div>';
     let data, sup;
@@ -468,14 +490,17 @@
           const btnOpen  = el('button',{class:'btn btn-secondary', onclick:()=>renderDetail(container,o.id)},'Otvoriť');
           const btnPrint = el('button',{class:'btn btn-secondary', onclick:()=>window.open(`/kancelaria/objednavky/print/${o.id}`,'_blank')},'Tlačiť');
           
-          // Tlačidlo zmazať
+          // TLAČIDLO ZMAZAŤ
           const btnDel = el('button',{class:'btn btn-danger', title:'Zmazať', onclick:()=>deleteOrderWithConfirm(o.id)}, el('i',{class:'fas fa-trash'}));
+
+          // DÁTUM
+          const dateDisplay = formatDate(o.real_created || o.created_at || o.datum_objednania);
 
           tb.appendChild(el('tr',{},
             el('td',{}, String(i+1)),
             el('td',{}, o.cislo),
             el('td',{}, o.dodavatel_nazov || ''),
-            el('td',{}, o.datum_objednania || ''),
+            el('td',{}, dateDisplay),
             el('td',{}, o.stav),
             el('td',{}, money(o.suma_predpoklad)),
             el('td',{}, el('div',{style:'display:flex;gap:4px;'}, btnOpen, btnPrint, btnDel))
@@ -490,7 +515,7 @@
     render();
   }
 
-  // --- Nová objednávka: dodávateľ → položky ---
+  // ----------------- 4. NOVÁ OBJEDNÁVKA (S BALENÍM) -----------------
   async function renderNewOrder(container){
     container.innerHTML = '';
     container.appendChild(el('h2',{}, 'Nová objednávka'));
@@ -557,7 +582,7 @@
           el('th',{},'#'),
           el('th',{},'EAN'),
           el('th',{},'Názov'),
-          el('th',{},'Balenie'), // NOVÝ STĹPEC
+          el('th',{},'Balenie'), // STĹPEC
           el('th',{},'Jedn.'),
           el('th',{},'Cena (posl./def.)'),
           el('th',{},'Množstvo'),
@@ -597,7 +622,10 @@
             redrawCart();
           }}, 'Pridať');
 
-          const packBadge = r.pack_info ? el('span', {class:'badge', style:'background:#e0f2fe; color:#0369a1; padding:2px 6px; border-radius:4px; font-size:0.85em;'}, r.pack_info) : document.createTextNode('');
+          // Balenie
+          const packBadge = r.pack_info 
+            ? el('span', {class:'badge', style:'background:#e0f2fe; color:#0369a1; padding:2px 6px; border-radius:4px; font-size:0.85em;'}, r.pack_info) 
+            : document.createTextNode('');
 
           tb.appendChild(el('tr',{},
             el('td',{}, String(i+1)),
