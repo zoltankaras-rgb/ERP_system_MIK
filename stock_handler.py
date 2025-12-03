@@ -679,16 +679,18 @@ def receive_production():
 def get_raw_material_stock_overview():
     """
     Prehľad surovín pre modul 'Sklad výroba'.
-    Oprava: Pridaný EAN, CENA a Mínusové stavy.
+    Obsahuje: EAN, Cena, Balenie, Množstvo (vrátane mínusových).
     """
     rows = db_connector.execute_query("""
         SELECT
             s.nazov,
-            s.ean,                                                -- PRIDANÉ: EAN
+            s.ean,
             COALESCE(sv.mnozstvo, 0)              AS quantity,
             LOWER(COALESCE(s.typ, ''))            AS typ,
             LOWER(COALESCE(s.podtyp, ''))         AS podtyp,
-            COALESCE(s.nakupna_cena, s.default_cena_eur_kg, 0) AS price
+            COALESCE(s.nakupna_cena, s.default_cena_eur_kg, 0) AS price,
+            s.balenie_mnozstvo,                   -- NOVÉ: Množstvo balenia
+            s.balenie_mj                          -- NOVÉ: Jednotka balenia
         FROM sklad s
         LEFT JOIN sklad_vyroba sv ON sv.nazov = s.nazov
         ORDER BY s.nazov
@@ -697,11 +699,13 @@ def get_raw_material_stock_overview():
     return jsonify({
         "items": [{
             "nazov":    r["nazov"],
-            "ean":      r["ean"] or "",           # PRIDANÉ: EAN do JSON
+            "ean":      r["ean"] or "",
             "quantity": float(r["quantity"] or 0.0),
             "price":    float(r["price"] or 0.0),
             "typ":      r["typ"] or "",
-            "podtyp":   r["podtyp"] or ""
+            "podtyp":   r["podtyp"] or "",
+            "pack_qty": float(r["balenie_mnozstvo"]) if r["balenie_mnozstvo"] else None, # NOVÉ
+            "pack_mj":  r["balenie_mj"] or ""                                            # NOVÉ
         } for r in rows]
     })
 

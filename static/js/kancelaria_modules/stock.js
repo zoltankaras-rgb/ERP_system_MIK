@@ -240,7 +240,7 @@
     return set;
   }
 
-  // ------------- Suroviny (výrobný sklad) - S EANOM A VYHĽADÁVANÍM -------------
+ // ------------- Suroviny (výrobný sklad) - S BALENÍM -------------
   async function renderRaw(shell){
     const body = qs("#stock-body", shell);
     body.innerHTML = ""; 
@@ -308,13 +308,13 @@
           card.appendChild(el(`<h4 style="margin:0 0 .5rem 0;">${label[cat]}</h4>`));
           const wrap = el(`<div class="table-container"></div>`);
           
-          // --- PRIDANÝ STĹPEC EAN ---
           const table = el(`
             <table class="table table-sm table-striped">
               <thead>
                 <tr>
-                    <th style="width:130px;">EAN</th> <th>Názov</th>
-                    <th>Typ</th>
+                    <th style="width:130px;">EAN</th>
+                    <th>Názov</th>
+                    <th>Balenie</th> <th>Typ</th>
                     <th style="text-align:right">Cena (€)</th>
                     <th style="text-align:right">Sklad (${defaultUnit})</th>
                     <th style="width:280px">Akcie</th>
@@ -323,7 +323,7 @@
               <tbody></tbody>
               <tfoot class="total-row" style="font-weight:bold; background:#f9f9f9;">
                 <tr>
-                    <td colspan="4">Súčet kategórie</td>
+                    <td colspan="5">Súčet kategórie</td>
                     <td style="text-align:right" class="js-sum">0.00</td>
                     <td></td>
                 </tr>
@@ -336,13 +336,22 @@
           rows.forEach(r=>{
             const qty = r.quantity != null ? Number(r.quantity) : (r.mnozstvo != null ? Number(r.mnozstvo) : 0);
             const price = r.price != null ? Number(r.price) : 0;
-            const ean = r.ean || ''; // EAN
+            const ean = r.ean || '';
+            
+            // Spracovanie balenia
+            let packInfo = '';
+            if (r.pack_qty) {
+                // Ak máme množstvo, zobrazíme napr. "0.500 kg"
+                packInfo = `<span class="badge" style="background:#e0f2fe; color:#0369a1;">${Number(r.pack_qty).toFixed(3)} ${r.pack_mj || ''}</span>`;
+            }
 
             const tr = el(`
               <tr data-name="${txt(r.nazov)}" data-cat="${cat}">
                 <td style="font-family:monospace; color:#666;">${escapeHtml(ean)}</td>
-                
                 <td class="c-name" style="font-weight:bold;">${txt(r.nazov)}</td>
+                
+                <td>${packInfo}</td>
+                
                 <td style="color:#666; font-size:0.9em">${label[cat].split(' – ')[0]}</td>
                 <td style="text-align:right;">${fmt(price)}</td>
                 <td class="c-qty" style="text-align:right; font-weight:bold; font-size:1.1em; color:${qty < 0 ? 'red' : 'inherit'}">
@@ -437,28 +446,22 @@
       draw(allGroups);
 
       if (search){
-        // Odstránime starý listener
         const newSearch = search.cloneNode(true);
         search.parentNode.replaceChild(newSearch, search);
-
-        // --- UPDATED SEARCH LOGIC (s EANom) ---
         newSearch.addEventListener("input", (e) => {
           const q = (e.target.value || "").toLowerCase().trim();
           if (!q) { draw(allGroups); return; }
           
           const filtered = items.filter(r => {
             const cat = catOf(r);
-            const ean = String(r.ean || '').toLowerCase(); // EAN pre vyhľadávanie
-            
+            const ean = String(r.ean || '').toLowerCase();
             return txt(r.nazov).toLowerCase().includes(q)
                 || txt(r.typ).toLowerCase().includes(q)
                 || (label[cat] || "").toLowerCase().includes(q)
-                || ean.includes(q); // Vyhľadávanie podľa EAN
+                || ean.includes(q);
           });
           draw(asGroups(filtered));
         });
-        
-        // Ak už niečo bolo v search (napr. pri refreshi)
         if(newSearch.value) newSearch.dispatchEvent(new Event('input'));
       }
     }catch(e){
