@@ -48,6 +48,7 @@ def conn_coll(default='utf8mb4_general_ci'):
 def _order_dt_expr(alias: str = "o") -> str:
     """
     Bezpečný ORDER BY výraz podľa dostupných stĺpcov.
+    Preferencia: datum_dodania -> datum_objednania -> created_at -> id
     """
     cols = []
     if has_col("vyrobne_objednavky", "datum_dodania"):
@@ -135,7 +136,7 @@ def api_under_min():
     unit_col  = pick_first_existing("sklad", ["jednotka","unit","mj"])
     cat_col   = pick_first_existing("sklad", ["kategoria", "typ", "podtyp"])
 
-    # Balenie
+    # Balenie - stĺpce
     pack_qty_col = pick_first_existing("sklad", ["balenie_mnozstvo"])
     pack_mj_col  = pick_first_existing("sklad", ["balenie_mj"])
 
@@ -146,6 +147,7 @@ def api_under_min():
     unit_sql  = f"COALESCE(s.{unit_col}, 'kg')" if unit_col else "'kg'"
     cat_sql   = f"s.{cat_col} AS category" if cat_col else "'' AS category"
     
+    # SQL pre balenie
     pack_q_sql = f"s.{pack_qty_col} AS pack_qty" if pack_qty_col else "NULL AS pack_qty"
     pack_m_sql = f"s.{pack_mj_col} AS pack_mj" if pack_mj_col else "NULL AS pack_mj"
 
@@ -158,28 +160,33 @@ def api_under_min():
                s.{min_col} AS min_qty,
                COALESCE(s.{price_col}, 0) AS price,
                {pack_q_sql},
-               {pack_m_sql}
+               {pack_m_sql},
+               sup.name AS supplier_name,
+               s.dodavatel_id
           FROM sklad s
+          LEFT JOIN sklad_vyroba sv ON sv.nazov = s.nazov
+          LEFT JOIN suppliers sup ON sup.id = s.dodavatel_id
          WHERE s.{min_col} IS NOT NULL
-           AND s.{qty_col} < s.{min_col}
-         ORDER BY (s.{min_col} - s.{qty_col}) DESC
+           AND COALESCE(sv.mnozstvo, 0) < s.{min_col}
+         ORDER BY s.nazov
          LIMIT 1000
     """, fetch='all') or []
 
     for r in rows:
+        # 1. Výpočet chýbajúceho množstva
         try:
             r["to_buy"] = float(r["min_qty"]) - float(r["qty"])
         except Exception:
             r["to_buy"] = 0.0
 
-        # Detekcia BM pre obaly
+        # 2. Detekcia jednotky (Obaly -> bm)
         cat = (r.get("category") or "").lower()
         if 'obal' in cat or 'črev' in cat or 'crev' in cat:
             r["jednotka"] = "bm"
         else:
             r["jednotka"] = r.get("jednotka_raw") or "kg"
 
-        # Formátovanie balenia
+        # 3. Formátovanie balenia (pre frontend)
         r["pack_info"] = ""
         if r.get("pack_qty"):
             try:
@@ -194,6 +201,9 @@ def api_under_min():
 # ---------- SUPPLIERS ----------
 @orders_bp.get("/api/objednavky/suppliers")
 def api_suppliers():
+    """
+    Dodávatelia vhodní pre výrobu
+    """
     only_vyroba = (str(request.args.get("only_vyroba", "")).lower() in ("1","true","yes","on"))
     coll = conn_coll()
     cat_col = pick_first_existing("sklad", ["kategoria","typ","podtyp"])
@@ -201,11 +211,18 @@ def api_suppliers():
     like_parts = []
     allowed_params = []
     if cat_col:
-        like_parts = [f"s.{cat_col} COLLATE {coll} LIKE %s"]*5
+        like_parts = [
+            f"s.{cat_col} COLLATE {coll} LIKE %s",
+            f"s.{cat_col} COLLATE {coll} LIKE %s",
+            f"s.{cat_col} COLLATE {coll} LIKE %s",
+            f"s.{cat_col} COLLATE {coll} LIKE %s",
+            f"s.{cat_col} COLLATE {coll} LIKE %s",
+        ]
         allowed_params = ["koren%","obal%","črev%","cerv%","pomoc%"]
 
     out = []
 
+    # suppliers (+ categories)
     if has_table("suppliers") and has_col("suppliers","name"):
         has_supcats = has_table("supplier_categories") and has_col("supplier_categories","supplier_id") and has_col("supplier_categories","category")
         if only_vyroba and has_supcats:
@@ -227,6 +244,7 @@ def api_suppliers():
                  LIMIT 1000
             """, fetch='all') or []
 
+    # dodavatelia (legacy)
     if not out and has_table("dodavatelia") and has_col("dodavatelia","nazov"):
         id_col   = "id" if has_col("dodavatelia","id") else None
         flag_col = pick_first_existing("dodavatelia", ["pre_vyrobu","prijem_do_vyroby","for_production","vyroba"])
@@ -243,6 +261,7 @@ def api_suppliers():
               LIMIT 1000
         """, fetch='all') or []
 
+    # sklad.dodavatel_id -> suppliers
     if not out and has_col("sklad","dodavatel_id") and has_table("suppliers") and has_col("suppliers","id") and has_col("suppliers","name"):
         if cat_col and like_parts:
             out = execute_query(f"""
@@ -263,6 +282,7 @@ def api_suppliers():
                  LIMIT 1000
             """, fetch='all') or []
 
+    # sklad.dodavatel (meno)
     if not out and has_col("sklad","dodavatel"):
         if cat_col and like_parts:
             out = execute_query(f"""
@@ -285,7 +305,7 @@ def api_suppliers():
 
     return jsonify({"suppliers": out})
 
-# ---------- ITEMS for a supplier (UPRAVENÉ - Pridané balenie) ----------
+# ---------- ITEMS for ordering (S BALENÍM) ----------
 @orders_bp.get("/api/objednavky/items")
 def api_items_for_ordering():
     """
@@ -307,7 +327,7 @@ def api_items_for_ordering():
     has_dodid = has_col("sklad","dodavatel_id")
     ean_col   = pick_first_existing("sklad", ["ean","ean13","barcode","kod"])
     
-    # --- NOVÉ: Balenie ---
+    # Balenie - stĺpce
     pack_qty_col = pick_first_existing("sklad", ["balenie_mnozstvo"])
     pack_mj_col  = pick_first_existing("sklad", ["balenie_mj"])
 
@@ -316,7 +336,8 @@ def api_items_for_ordering():
     price_sql = f"COALESCE(s.{price_col}, 0)"   if price_col else "0"
     ean_sql   = f"s.{ean_col} AS ean" if ean_col else "NULL AS ean"
     cat_sql   = f"s.{cat_col} AS category" if cat_col else "'' AS category"
-
+    
+    # SQL pre balenie
     pack_q_sql = f"s.{pack_qty_col} AS pack_qty" if pack_qty_col else "NULL AS pack_qty"
     pack_m_sql = f"s.{pack_mj_col} AS pack_mj" if pack_mj_col else "NULL AS pack_mj"
 
@@ -367,10 +388,10 @@ def api_items_for_ordering():
         params = base_params + pats
         rows = run(where, params)
 
-    # Spracovanie jednotiek (bm pre obaly) a balenia
+    # Spracovanie dát (jednotky + balenie)
     for r in rows:
         cat = (r.get("category") or "").lower()
-        if 'obal' in cat or 'črev' in cat or 'crev' in cat:
+        if 'obal' in cat or 'črev' in cat:
             r["jednotka"] = "bm"
         else:
             r["jednotka"] = r.get("jednotka_raw") or "kg"
@@ -550,7 +571,6 @@ def create_order():
     try:
         cur = conn.cursor(dictionary=True)
 
-        # hlavička
         cur.execute("""
             INSERT INTO vyrobne_objednavky
                 (cislo, dodavatel_id, dodavatel_nazov, datum_objednania, stav)
@@ -558,7 +578,6 @@ def create_order():
         """, (cislo, dod_id, dod_nazov, datum))
         oid = cur.lastrowid
 
-        # položky
         for it in polozky:
             nazov = (it.get("nazov") or "").strip()
             if not nazov:
@@ -612,7 +631,6 @@ def receive_order(oid):
             cena = it.get("cena_skutocna")
             cena = float(cena) if (cena not in (None,"")) else None
 
-            # uložiť skut. údaje
             cur.execute("""
                 UPDATE vyrobne_objednavky_polozky
                    SET mnozstvo_dodane=%s, cena_skutocna=%s
@@ -629,19 +647,16 @@ def receive_order(oid):
                 name = r.get("nazov_suroviny")
                 sid  = r.get("sklad_id")
 
-                # naskladni do výrobného skladu
                 cur.execute("UPDATE sklad_vyroba SET mnozstvo = COALESCE(mnozstvo,0) + %s WHERE nazov=%s", (mnoz, name))
                 if cur.rowcount == 0:
                     cur.execute("INSERT INTO sklad_vyroba (nazov, mnozstvo) VALUES (%s, %s)", (name, mnoz))
 
-                # voliteľne navýšiť aj centrál 'sklad'
                 if qty_col:
                     if sid and id_col:
                         cur.execute(f"UPDATE sklad SET {qty_col} = COALESCE({qty_col},0) + %s WHERE {id_col}=%s", (mnoz, sid))
                     else:
                         cur.execute(f"UPDATE sklad SET {qty_col} = COALESCE({qty_col},0) + %s WHERE nazov=%s", (mnoz, name))
 
-        # uzavri hlavičku
         cur.execute("""
             UPDATE vyrobne_objednavky
                SET stav='prijate', datum_dodania=%s, poznamka=COALESCE(%s, poznamka)
