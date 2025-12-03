@@ -33,7 +33,6 @@
       if(!r.ok) throw new Error(await r.text());
       return r.json();
     },
-    // NOVÉ: DELETE
     async delete(u){
       const r = await fetch(u,{ method:"DELETE", credentials:'same-origin' });
       if(!r.ok) throw new Error(await r.text());
@@ -56,14 +55,13 @@
     return '';
   };
 
-  // Helper na dvojité potvrdenie zmazania
-  async function deleteOrderWithConfirm(id, onSuccess) {
+  // Helper na dvojité potvrdenie zmazania s RELOADOM
+  async function deleteOrderWithConfirm(id) {
       if (!confirm("Naozaj chcete zmazať túto objednávku?")) return;
       if (!confirm("Určite? Táto akcia je nevratná.")) return;
-      
       try {
           await api.delete(`/api/objednavky/${id}`);
-          if (onSuccess) onSuccess();
+          window.location.reload();
       } catch (e) {
           alert("Chyba pri mazaní: " + e.message);
       }
@@ -104,19 +102,22 @@
     const items = itemsRaw.map(raw => {
       const r = {...raw};
       r.nazov    = r.nazov ?? r.name ?? '';
+      
+      // Detekcia BM pre obaly
       const cat = (r.category || '').toLowerCase();
       if (cat.includes('obal') || cat.includes('črev') || cat.includes('crev')) {
           r.jednotka = 'bm';
       } else {
           r.jednotka = r.jednotka ?? r.unit ?? r.mj ?? 'kg';
       }
+
       r.qty      = (r.qty ?? r.mnozstvo ?? r.quantity ?? 0);
       r.min_qty  = (r.min_qty ?? r.min_mnozstvo ?? r.min_stav_kg ?? r.min_zasoba ?? 0);
       r.to_buy   = (r.to_buy != null ? r.to_buy : Math.max(num(r.min_qty) - num(r.qty), 0));
       r.dodavatel_id   = r.dodavatel_id ?? r.supplier_id ?? null;
       r.dodavatel_nazov= r.dodavatel_nazov || r.supplier_name || (r.dodavatel_id ? `Dodávateľ #${r.dodavatel_id}` : 'Bez dodávateľa');
       
-      // Balenie
+      // !!! OPRAVA: Prenos balenia z API odpovede !!!
       r.pack_info = raw.pack_info || '';
 
       return r;
@@ -213,7 +214,7 @@
           }catch(_){}
         }}, 'Posl. cena');
 
-        // Badge pre balenie
+        // !!! ZOBRAZENIE BALENIA !!!
         const packBadge = r.pack_info 
             ? el('span', {class:'badge', style:'background:#e0f2fe; color:#0369a1; padding:2px 6px; border-radius:4px; font-size:0.85em; white-space:nowrap;'}, r.pack_info) 
             : document.createTextNode('');
@@ -223,7 +224,7 @@
           el('td',{}, String(i+1)),
           el('td',{style:'font-family: monospace;'}, pickEAN(r)),
           el('td',{style:'font-weight:500'}, r.nazov),
-          el('td',{}, packBadge),  // <--- DATA BALENIA
+          el('td',{}, packBadge),  // <--- BUNKA BALENIE
           el('td',{}, r.jednotka || 'kg'),
           el('td',{}, fmt(r.qty)),
           el('td',{}, fmt(r.min_qty)),
@@ -368,8 +369,8 @@
         const btnPrint = el('button',{class:'btn btn-secondary', onclick:()=>window.open(`/kancelaria/objednavky/print/${o.id}`,'_blank')},'Tlačiť');
         const btnRecv  = o.stav==='objednane' ? el('button',{class:'btn btn-success', onclick:()=>renderReceive(container,o.id)},'Prijať') : el('span', {class:'text-muted'}, '✓');
         
-        // NOVÉ TLAČIDLO ZMAZAŤ
-        const btnDel = el('button',{class:'btn btn-danger', title:'Zmazať', onclick:()=>deleteOrderWithConfirm(o.id, ()=>renderList(container))}, el('i',{class:'fas fa-trash'}));
+        // Tlačidlo zmazať
+        const btnDel = el('button',{class:'btn btn-danger', title:'Zmazať', onclick:()=>deleteOrderWithConfirm(o.id)}, el('i',{class:'fas fa-trash'}));
 
         tb.appendChild(el('tr',{},
           el('td',{}, String(i+1)),
@@ -467,8 +468,8 @@
           const btnOpen  = el('button',{class:'btn btn-secondary', onclick:()=>renderDetail(container,o.id)},'Otvoriť');
           const btnPrint = el('button',{class:'btn btn-secondary', onclick:()=>window.open(`/kancelaria/objednavky/print/${o.id}`,'_blank')},'Tlačiť');
           
-          // NOVÉ TLAČIDLO ZMAZAŤ
-          const btnDel = el('button',{class:'btn btn-danger', title:'Zmazať', onclick:()=>deleteOrderWithConfirm(o.id, render)}, el('i',{class:'fas fa-trash'}));
+          // Tlačidlo zmazať
+          const btnDel = el('button',{class:'btn btn-danger', title:'Zmazať', onclick:()=>deleteOrderWithConfirm(o.id)}, el('i',{class:'fas fa-trash'}));
 
           tb.appendChild(el('tr',{},
             el('td',{}, String(i+1)),
@@ -556,7 +557,7 @@
           el('th',{},'#'),
           el('th',{},'EAN'),
           el('th',{},'Názov'),
-          el('th',{},'Balenie'),
+          el('th',{},'Balenie'), // NOVÝ STĹPEC
           el('th',{},'Jedn.'),
           el('th',{},'Cena (posl./def.)'),
           el('th',{},'Množstvo'),
@@ -763,13 +764,14 @@
     container.appendChild(btn);
   }
 
+  // ---------- Napojenie na sekciu v menu ----------
   function wireOrdersSection() {
     const link = document.querySelector('.sidebar-link[data-section="section-orders"]');
     if (!link) return;
     link.addEventListener('click', () => {
       setTimeout(() => {
         const sec = document.getElementById('section-orders');
-        if (sec) renderList(sec);
+        if (sec) renderList(sec); // default: zoznam objednávok (len "objednane")
       }, 0);
     });
     const sec = document.getElementById('section-orders');
@@ -780,6 +782,7 @@
 
   document.addEventListener('DOMContentLoaded', wireOrdersSection);
 
+  // pre manuálne volanie z konzoly
   window.skladObjednavky = {
     renderList,
     renderNewOrder,
