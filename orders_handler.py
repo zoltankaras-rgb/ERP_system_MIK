@@ -128,7 +128,6 @@ def generate_order_number(dodavatel_nazov: str, datum_obj: str) -> str:
 
 # ---------- Pod minimom (S BALENÍM) ----------
 # orders_handler.py
-
 @orders_bp.get("/api/sklad/under-min")
 def api_under_min():
     id_col    = pick_first_existing("sklad", ["id","sklad_id","produkt_id","product_id","id_skladu"])
@@ -156,7 +155,6 @@ def api_under_min():
     pack_m_sql = f"s.{pack_mj_col} AS pack_mj"
 
     # --- ÚPRAVA: Zohľadnenie tovaru na ceste (objednane, ale neprijate) ---
-    # Spájame cez názov (najspoľahlivejšie v tomto kontexte)
     sql = f"""
         SELECT {id_sql},
                s.nazov,
@@ -195,19 +193,13 @@ def api_under_min():
             cur_q = float(r["qty"] or 0)
             on_way = float(r["on_way"] or 0)
             
-            # Čistý nedostatok
             shortage = min_q - cur_q
-            
-            # Ak už je objednané dosť na pokrytie nedostatku, to_buy bude <= 0
-            # a frontend to vyfiltruje.
             r["to_buy"] = shortage - on_way
-            
-            # Pre info pošleme aj on_way (ak by sme to chceli zobraziť v tooltip)
             r["on_way"] = on_way
         except Exception:
             r["to_buy"] = 0.0
 
-        # 2. Detekcia jednotky (Obaly -> bm)
+        # 2. Detekcia jednotky
         cat = (r.get("category") or "").lower()
         if 'obal' in cat or 'črev' in cat or 'crev' in cat:
             r["jednotka"] = "bm"
