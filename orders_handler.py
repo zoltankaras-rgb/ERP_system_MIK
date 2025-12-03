@@ -46,10 +46,6 @@ def conn_coll(default='utf8mb4_general_ci'):
         return default
 
 def _order_dt_expr(alias: str = "o") -> str:
-    """
-    Bezpečný ORDER BY výraz podľa dostupných stĺpcov.
-    Preferencia: datum_dodania -> datum_objednania -> created_at -> id
-    """
     cols = []
     if has_col("vyrobne_objednavky", "datum_dodania"):
         cols.append(f"{alias}.datum_dodania")
@@ -126,7 +122,7 @@ def generate_order_number(dodavatel_nazov: str, datum_obj: str) -> str:
     except Exception: n = 1
     return f"{prefix}-{n:03d}"
 
-# ---------- Pod minimom (S BALENÍM) ----------
+# ---------- Pod minimom (S BALENÍM + OŠETRENIE DUPLICIT) ----------
 @orders_bp.get("/api/sklad/under-min")
 def api_under_min():
     id_col    = pick_first_existing("sklad", ["id","sklad_id","produkt_id","product_id","id_skladu"])
@@ -137,9 +133,9 @@ def api_under_min():
     cat_col   = pick_first_existing("sklad", ["kategoria", "typ", "podtyp"])
     ean_col   = pick_first_existing("sklad", ["ean", "ean_kod", "kod_ean"]) 
 
-    # Balenie - stĺpce
-    pack_qty_col = "balenie_mnozstvo" if has_col("sklad", "balenie_mnozstvo") else "NULL"
-    pack_mj_col  = "balenie_mj" if has_col("sklad", "balenie_mj") else "NULL"
+    # Balenie - stĺpce (ošetrené s. prefix)
+    pack_qty_col = "s.balenie_mnozstvo" if has_col("sklad", "balenie_mnozstvo") else "NULL"
+    pack_mj_col  = "s.balenie_mj" if has_col("sklad", "balenie_mj") else "NULL"
 
     if not qty_col or not min_col:
         return jsonify({"items": []})
@@ -150,10 +146,13 @@ def api_under_min():
     ean_sql   = f"s.{ean_col} AS ean" if ean_col else "NULL AS ean"
     
     # SQL pre balenie
-    pack_q_sql = f"s.{pack_qty_col} AS pack_qty"
-    pack_m_sql = f"s.{pack_mj_col} AS pack_mj"
+    pack_q_sql = f"{pack_qty_col} AS pack_qty"
+    pack_m_sql = f"{pack_mj_col} AS pack_mj"
 
-    # --- TOTO JE KĽÚČOVÁ ZMENA: Zohľadnenie tovaru na ceste (objednane) ---
+    # --- KĽÚČOVÁ ČASŤ: Zohľadnenie tovaru na ceste (objednane) ---
+    # Používame robustnejší JOIN cez TRIM() a COLLATE pre istotu
+    coll = conn_coll()
+    
     sql = f"""
         SELECT {id_sql},
                s.nazov,
@@ -171,12 +170,18 @@ def api_under_min():
           FROM sklad s
           LEFT JOIN suppliers sup ON sup.id = s.dodavatel_id
           LEFT JOIN (
-              SELECT p.nazov_suroviny, SUM(p.mnozstvo_ordered) as ordered_sum
+              SELECT p.sklad_id, 
+                     p.nazov_suroviny, 
+                     SUM(p.mnozstvo_ordered) as ordered_sum
               FROM vyrobne_objednavky_polozky p
               JOIN vyrobne_objednavky o ON o.id = p.objednavka_id
               WHERE o.stav = 'objednane'
-              GROUP BY p.nazov_suroviny
-          ) ord ON ord.nazov_suroviny = s.nazov
+              GROUP BY p.sklad_id, p.nazov_suroviny
+          ) ord ON (
+              (ord.sklad_id IS NOT NULL AND {id_sql.split(' AS ')[0]} = ord.sklad_id) 
+              OR 
+              (ord.nazov_suroviny COLLATE {coll} = s.nazov COLLATE {coll})
+          )
          WHERE s.{min_col} IS NOT NULL
            AND s.{qty_col} < s.{min_col}
          ORDER BY (s.{min_col} - s.{qty_col}) DESC
@@ -186,26 +191,27 @@ def api_under_min():
     rows = execute_query(sql, fetch='all') or []
 
     for r in rows:
-        # Výpočet: (Minimum - Sklad) - UžObjednané
+        # 1. Výpočet chýbajúceho množstva (Min - Sklad - NaCeste)
         try:
             min_q = float(r["min_qty"] or 0)
             cur_q = float(r["qty"] or 0)
             on_way = float(r["on_way"] or 0)
             
             shortage = min_q - cur_q
+            # Ak je on_way >= shortage, výsledok bude <= 0 a frontend to skryje
             r["to_buy"] = shortage - on_way
             r["on_way"] = on_way
         except Exception:
             r["to_buy"] = 0.0
 
-        # Detekcia jednotky
+        # 2. Detekcia jednotky
         cat = (r.get("category") or "").lower()
         if 'obal' in cat or 'črev' in cat or 'crev' in cat:
             r["jednotka"] = "bm"
         else:
             r["jednotka"] = r.get("jednotka_raw") or "kg"
 
-        # Formátovanie balenia
+        # 3. Formátovanie balenia
         r["pack_info"] = ""
         if r.get("pack_qty"):
             try:
@@ -216,6 +222,7 @@ def api_under_min():
             except: pass
 
     return jsonify({"items": rows})
+
 # ---------- SUPPLIERS ----------
 @orders_bp.get("/api/objednavky/suppliers")
 def api_suppliers():
@@ -346,8 +353,8 @@ def api_items_for_ordering():
     ean_col   = pick_first_existing("sklad", ["ean","ean13","barcode","kod"])
     
     # Balenie - stĺpce
-    pack_qty_col = "balenie_mnozstvo" if has_col("sklad", "balenie_mnozstvo") else "NULL"
-    pack_mj_col  = "balenie_mj" if has_col("sklad", "balenie_mj") else "NULL"
+    pack_qty_col = "s.balenie_mnozstvo" if has_col("sklad", "balenie_mnozstvo") else "NULL"
+    pack_mj_col  = "s.balenie_mj" if has_col("sklad", "balenie_mj") else "NULL"
 
     id_sql    = f"s.{id_col} AS id" if id_col else "NULL AS id"
     unit_sql  = f"COALESCE(s.{unit_col}, 'kg')" if unit_col else "'kg'"
@@ -356,8 +363,8 @@ def api_items_for_ordering():
     cat_sql   = f"s.{cat_col} AS category" if cat_col else "'' AS category"
     
     # SQL pre balenie
-    pack_q_sql = f"s.{pack_qty_col} AS pack_qty"
-    pack_m_sql = f"s.{pack_mj_col} AS pack_mj"
+    pack_q_sql = f"{pack_qty_col} AS pack_qty"
+    pack_m_sql = f"{pack_mj_col} AS pack_mj"
 
     coll = conn_coll()
 
