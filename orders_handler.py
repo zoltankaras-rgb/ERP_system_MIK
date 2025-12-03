@@ -125,112 +125,124 @@ def generate_order_number(dodavatel_nazov: str, datum_obj: str) -> str:
 # ---------- Pod minimom (S BALENÍM + OŠETRENIE DUPLICIT) ----------
 @orders_bp.get("/api/sklad/under-min")
 def api_under_min():
-    print("DEBUG: Spustena funkcia api_under_min (Hardcoded verzia)") # <--- TOTO HLADAJ V LOGOCH
+    # Inteligentný výber stĺpcov podľa existujúcich názvov
+    id_col    = pick_first_existing("sklad", ["id","sklad_id","produkt_id","product_id","id_skladu"])
+    qty_col   = pick_first_existing("sklad", ["mnozstvo","stav_kg","mnozstvo_kg","qty","stav_skladu"])
+    min_col   = pick_first_existing("sklad", ["min_mnozstvo","min_stav_kg","min_qty","minimum","min_sklad"])
+    price_col = pick_first_existing("sklad", ["default_cena_eur_kg","nakupna_cena","cena","cena_kg"]) or "0"
+    unit_col  = pick_first_existing("sklad", ["jednotka","unit","mj"])
+    cat_col   = pick_first_existing("sklad", ["kategoria", "typ", "podtyp"])
+    ean_col   = pick_first_existing("sklad", ["ean", "ean_kod", "kod_ean"])
 
-    # Natvrdo definované stĺpce (vieme, že v DB sú, lebo Nová objednávka ich vidí)
-    # Ak by sa volali inak, tu to padne, ale aspoň budeme vedieť prečo.
-    
-    # Základné stĺpce
-    id_col = "id" 
-    qty_col = "mnozstvo"
-    min_col = "min_zasoba"
-    price_col = "nakupna_cena"
-    unit_col = "mj"
-    cat_col = "kategoria"
-    ean_col = "ean"
+    # Balenie - stĺpce (s. prefix)
+    pack_qty_col = "s.balenie_mnozstvo" if has_col("sklad", "balenie_mnozstvo") else "NULL"
+    pack_mj_col  = "s.balenie_mj"        if has_col("sklad", "balenie_mj")        else "NULL"
 
-    # Balenie (NATVRDO, žiadne has_col)
-    pack_qty_sql = "s.balenie_mnozstvo"
-    pack_mj_sql = "s.balenie_mj"
+    if not qty_col or not min_col:
+        # Bez množstva/minima nemá zmysel nič počítať
+        return jsonify({"items": []})
 
-    coll = conn_coll()
+    # Definícia stĺpcov pre SELECT
+    id_sql   = f"s.{id_col} AS id" if id_col else "NULL AS id"
+    s_id_raw = f"s.{id_col}"       if id_col else "NULL"
 
-    # --- SQL DOTAZ ---
+    unit_sql = f"COALESCE(s.{unit_col}, 'kg')" if unit_col else "'kg'"
+    cat_sql  = f"s.{cat_col} AS category"      if cat_col  else "'' AS category"
+    ean_sql  = f"s.{ean_col} AS ean"           if ean_col  else "NULL AS ean"
+
+    # SQL pre balenie
+    pack_q_sql = f"{pack_qty_col} AS pack_qty"
+    pack_m_sql = f"{pack_mj_col} AS pack_mj"
+
+    # Collation pre porovnávanie názvov surovín
+    coll = conn_coll("utf8mb4_general_ci")
+
+    # JOIN na suppliers (ak existuje)
+    join_sup = ""
+    sup_name_sql = "NULL"
+    if has_table("suppliers") and has_col("suppliers", "id") and has_col("suppliers", "name"):
+        join_sup = "LEFT JOIN suppliers sup ON sup.id = s.dodavatel_id"
+        sup_name_sql = "sup.name"
+    else:
+        sup_name_sql = "NULL"
+
     sql = f"""
-        SELECT 
-            s.id AS id,
+        SELECT
+            {id_sql},
             s.nazov,
-            s.ean AS ean,
-            COALESCE(s.{unit_col}, 'kg') AS jednotka_raw,
-            COALESCE(s.{cat_col}, '') AS category,
+            {unit_sql} AS jednotka_raw,
+            {cat_sql},
             s.{qty_col} AS qty,
             s.{min_col} AS min_qty,
             COALESCE(s.{price_col}, 0) AS price,
-            
-            {pack_qty_sql} AS pack_qty,
-            {pack_mj_sql} AS pack_mj,
-            
-            sup.name AS supplier_name,
+            {pack_q_sql},
+            {pack_m_sql},
+            {sup_name_sql} AS supplier_name,
             s.dodavatel_id,
-            
-            -- Pod-dopyt pre tovar na ceste (AGRESÍVNY)
             (
                 SELECT COALESCE(SUM(p.mnozstvo_ordered), 0)
                 FROM vyrobne_objednavky_polozky p
                 JOIN vyrobne_objednavky o ON o.id = p.objednavka_id
                 WHERE o.stav = 'objednane'
                   AND (
-                      (p.sklad_id IS NOT NULL AND p.sklad_id = s.id)
+                      (p.sklad_id IS NOT NULL AND p.sklad_id = {s_id_raw})
                       OR
-                      (LOWER(TRIM(p.nazov_suroviny)) COLLATE {coll} = LOWER(TRIM(s.nazov)) COLLATE {coll})
+                      (TRIM(p.nazov_suroviny) COLLATE {coll} = TRIM(s.nazov) COLLATE {coll})
                   )
             ) AS on_way
-
         FROM sklad s
-        LEFT JOIN suppliers sup ON sup.id = s.dodavatel_id
-        WHERE s.{min_col} > 0             
-          AND s.{qty_col} < s.{min_col}   
+        {join_sup}
+        WHERE s.{min_col} IS NOT NULL
+          AND s.{qty_col} < s.{min_col}
         ORDER BY (s.{min_col} - s.{qty_col}) DESC
         LIMIT 1000
     """
 
     try:
         rows = execute_query(sql, fetch='all') or []
-        print(f"DEBUG: SQL uspesne vratilo {len(rows)} riadkov.")
-    except Exception as e:
-        print(f"DEBUG: SQL ERROR: {e}")
-        return jsonify({"items": [], "error": str(e)})
+    except Exception:
+        # Pri chybe radšej pošli prázdny zoznam, nech UI nespadne
+        return jsonify({"items": []})
 
-    # Post-processing
-    final_items = []
     for r in rows:
+        # Prepočet: koľko treba dokúpiť s ohľadom na tovar na ceste
         try:
-            min_q = float(r["min_qty"] or 0)
-            cur_q = float(r["qty"] or 0)
-            on_way = float(r["on_way"] or 0)
-            
-            shortage = min_q - cur_q
-            r["to_buy"] = shortage - on_way
-            r["on_way"] = on_way
-            
-            # DEBUG vypis pre konkretnu polozku (ak je na ceste)
-            if on_way > 0:
-                print(f"DEBUG ITEM: {r['nazov']} -> Min:{min_q}, Sklad:{cur_q}, NaCeste:{on_way}, ToBuy:{r['to_buy']}")
-
+            min_q  = float(r.get("min_qty") or 0)
+            cur_q  = float(r.get("qty") or 0)
+            on_way = float(r.get("on_way") or 0)
         except Exception:
-            r["to_buy"] = 0.0
+            min_q = cur_q = on_way = 0.0
 
-        # Jednotky
+        shortage = max(min_q - cur_q, 0)
+        to_buy   = max(shortage - on_way, 0)
+
+        r["to_buy"] = to_buy
+        r["on_way"] = on_way
+
+        # Jednotka – ak je kategória "obal"/"črevá" → bežné metre (bm)
         cat = (r.get("category") or "").lower()
-        if 'obal' in cat or 'črev' in cat:
+        if "obal" in cat or "črev" in cat or "crev" in cat:
             r["jednotka"] = "bm"
         else:
             r["jednotka"] = r.get("jednotka_raw") or "kg"
 
-        # Balenie string
+        # Balenie – pack_info, napr. "0.5 kg" / "20 ks"
         r["pack_info"] = ""
-        if r.get("pack_qty"):
+        pack_qty = r.get("pack_qty")
+        if pack_qty not in (None, ""):
             try:
-                pq = float(r["pack_qty"])
-                pm = r.get("pack_mj") or ""
-                # Formátovanie na celé číslo ak nemá desatinné
-                val_str = f"{pq:.0f}" if pq.is_integer() else f"{pq:.3f}"
-                r["pack_info"] = f"{val_str} {pm}"
-            except: pass
-        
-        final_items.append(r)
+                pq = float(pack_qty)
+                pm = (r.get("pack_mj") or "").strip()
+                if pq.is_integer():
+                    val_str = f"{int(pq)}"
+                else:
+                    val_str = f"{pq:.3f}".rstrip("0").rstrip(".")
+                r["pack_info"] = (val_str + (" " + pm if pm else "")).strip()
+            except Exception:
+                # pri chybe balenie radšej neukazuj než zhodiť endpoint
+                pass
 
-    return jsonify({"items": final_items})
+    return jsonify({"items": rows})
 
 # ---------- SUPPLIERS ----------
 @orders_bp.get("/api/objednavky/suppliers")
