@@ -119,7 +119,7 @@
       const r = {...raw};
       r.nazov    = r.nazov ?? r.name ?? '';
       
-      // Detekcia BM
+      // Detekcia BM (bežné metre pre obaly)
       const cat = (r.category || '').toLowerCase();
       if (cat.includes('obal') || cat.includes('črev') || cat.includes('crev')) {
           r.jednotka = 'bm';
@@ -129,15 +129,21 @@
 
       r.qty      = (r.qty ?? r.mnozstvo ?? r.quantity ?? 0);
       r.min_qty  = (r.min_qty ?? r.min_mnozstvo ?? r.min_stav_kg ?? r.min_zasoba ?? 0);
-      r.to_buy   = (r.to_buy != null ? r.to_buy : Math.max(num(r.min_qty) - num(r.qty), 0));
+      
+      // Backend teraz posiela 'to_buy' už znížené o tovar na ceste.
+      // Ak by backend neposlal to_buy, vypočítame starým spôsobom (bez on_way).
+      if (r.to_buy == null) {
+          r.to_buy = Math.max(num(r.min_qty) - num(r.qty), 0);
+      }
+
       r.dodavatel_id   = r.dodavatel_id ?? r.supplier_id ?? null;
       r.dodavatel_nazov= r.dodavatel_nazov || r.supplier_name || (r.dodavatel_id ? `Dodávateľ #${r.dodavatel_id}` : 'Bez dodávateľa');
       
-      // Balenie
+      // Balenie info
       r.pack_info = raw.pack_info || '';
 
       return r;
-    }).filter(r => num(r.to_buy) > 0);
+    }).filter(r => num(r.to_buy) > 0); // <--- TOTO SKRYJE POLOŽKY, KTORÉ UŽ SÚ OBJEDNANÉ
 
     container.innerHTML = '';
     container.appendChild(el('h2',{},'Sklad → Objednávky'));
@@ -149,10 +155,11 @@
     container.appendChild(barTop);
 
     if (!items.length){
-      container.appendChild(el('div',{class:'stat-card',style:'margin-top:8px'},'Žiadne položky pod minimom.'));
+      container.appendChild(el('div',{class:'stat-card',style:'margin-top:8px'},'Žiadne položky pod minimom (všetko je na sklade alebo už objednané).'));
       return;
     }
 
+    // Zoskupenie podľa dodávateľov
     const groupsMap = new Map();
     const keyOf = (r) => {
       const id   = r.dodavatel_id ?? null;
@@ -171,6 +178,7 @@
 
     const groups = Array.from(groupsMap.values()).sort((a,b)=> (a.nazov||'').localeCompare(b.nazov||'','sk'));
 
+    // Vykreslenie kariet dodávateľov
     for (const g of groups){
       const card = el('div',{class:'stat-card',style:'margin:10px 0;'});
       const titleRow = el('div',{style:'display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px;'});
@@ -194,13 +202,13 @@
 
       const tbl = el('table',{class:'table',style:'width:100%; border-collapse:collapse;'});
       
-      // HLAVIČKA - s Balením
+      // HLAVIČKA TABUĽKY
       tbl.appendChild(el('thead',{}, el('tr',{},
         el('th',{},''),
         el('th',{},'#'),
         el('th',{},'EAN'),
         el('th',{},'Názov'),
-        el('th',{},'Balenie'), 
+        el('th',{},'Balenie'), // STĹPEC PRE BALENIE
         el('th',{},'Jedn.'),
         el('th',{},'Na sklade'),
         el('th',{},'Min'),
@@ -230,17 +238,19 @@
           }catch(_){}
         }}, 'Posl. cena');
 
-        // Badge balenia
+        // Badge balenia - vizuálna reprezentácia
         const packBadge = r.pack_info 
-            ? el('span', {class:'badge', style:'background:#e0f2fe; color:#0369a1; padding:2px 6px; border-radius:4px; font-size:0.85em; white-space:nowrap;'}, r.pack_info) 
+            ? el('span', {
+                style: 'background:#e0f2fe; color:#0369a1; padding:2px 6px; border-radius:4px; font-size:0.85em; white-space:nowrap; display:inline-block;'
+              }, r.pack_info) 
             : document.createTextNode('');
 
         tb.appendChild(el('tr',{},
           el('td',{}, cb),
           el('td',{}, String(i+1)),
-          el('td',{style:'font-family: monospace;'}, pickEAN(r)),
+          el('td',{style:'font-family: monospace; font-size: 0.9em; color:#555;'}, pickEAN(r)),
           el('td',{style:'font-weight:500'}, r.nazov),
-          el('td',{}, packBadge), // Zobrazenie balenia
+          el('td',{}, packBadge), // BUNKA PRE BALENIE
           el('td',{}, r.jednotka || 'kg'),
           el('td',{}, fmt(r.qty)),
           el('td',{}, fmt(r.min_qty)),
@@ -282,7 +292,7 @@
           const res = await api.post('/api/objednavky', body);
           alert(`Návrh objednávky vytvorený${res.cislo ? `: ${res.cislo}` : ''}.`);
           
-          // Obnoviť zoznam, aby zmizli objednané
+          // Obnoviť zoznam, aby zmizli objednané položky (lebo teraz už budú "on way")
           viewUnderMin(container);
         }catch(e){ alert(`Chyba: ${e.message}`); }
       });
