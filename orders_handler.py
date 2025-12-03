@@ -47,8 +47,7 @@ def conn_coll(default='utf8mb4_general_ci'):
 
 def _order_dt_expr(alias: str = "o") -> str:
     """
-    Bezpečný ORDER BY výraz podľa dostupných stĺpcov (žiadne preklepy).
-    Preferencia: datum_dodania -> datum_objednania -> created_at -> id
+    Bezpečný ORDER BY výraz podľa dostupných stĺpcov.
     """
     cols = []
     if has_col("vyrobne_objednavky", "datum_dodania"):
@@ -126,7 +125,7 @@ def generate_order_number(dodavatel_nazov: str, datum_obj: str) -> str:
     except Exception: n = 1
     return f"{prefix}-{n:03d}"
 
-# ---------- Pod minimom (UPRAVENÉ: Pridané balenie + detekcia bm) ----------
+# ---------- Pod minimom (S BALENÍM) ----------
 @orders_bp.get("/api/sklad/under-min")
 def api_under_min():
     id_col    = pick_first_existing("sklad", ["id","sklad_id","produkt_id","product_id","id_skladu"])
@@ -134,9 +133,9 @@ def api_under_min():
     min_col   = pick_first_existing("sklad", ["min_mnozstvo","min_stav_kg","min_qty","minimum","min_sklad"])
     price_col = pick_first_existing("sklad", ["default_cena_eur_kg","nakupna_cena","cena","cena_kg"]) or "0"
     unit_col  = pick_first_existing("sklad", ["jednotka","unit","mj"])
-    cat_col   = pick_first_existing("sklad", ["kategoria", "typ", "podtyp"]) # Pre detekciu obalov
+    cat_col   = pick_first_existing("sklad", ["kategoria", "typ", "podtyp"])
 
-    # --- NOVÉ: Stĺpce pre balenie ---
+    # Balenie
     pack_qty_col = pick_first_existing("sklad", ["balenie_mnozstvo"])
     pack_mj_col  = pick_first_existing("sklad", ["balenie_mj"])
 
@@ -147,14 +146,13 @@ def api_under_min():
     unit_sql  = f"COALESCE(s.{unit_col}, 'kg')" if unit_col else "'kg'"
     cat_sql   = f"s.{cat_col} AS category" if cat_col else "'' AS category"
     
-    # --- NOVÉ: SQL pre balenie ---
     pack_q_sql = f"s.{pack_qty_col} AS pack_qty" if pack_qty_col else "NULL AS pack_qty"
     pack_m_sql = f"s.{pack_mj_col} AS pack_mj" if pack_mj_col else "NULL AS pack_mj"
 
     rows = execute_query(f"""
         SELECT {id_sql},
                s.nazov,
-               {unit_sql} AS jednotka_raw, -- Pôvodná z DB
+               {unit_sql} AS jednotka_raw,
                {cat_sql},
                s.{qty_col} AS qty,
                s.{min_col} AS min_qty,
@@ -169,37 +167,33 @@ def api_under_min():
     """, fetch='all') or []
 
     for r in rows:
-        # 1. Výpočet chýbajúceho množstva
         try:
             r["to_buy"] = float(r["min_qty"]) - float(r["qty"])
         except Exception:
             r["to_buy"] = 0.0
 
-        # 2. Detekcia jednotky (Obaly -> bm)
+        # Detekcia BM pre obaly
         cat = (r.get("category") or "").lower()
         if 'obal' in cat or 'črev' in cat or 'crev' in cat:
             r["jednotka"] = "bm"
         else:
             r["jednotka"] = r.get("jednotka_raw") or "kg"
 
-        # 3. Formátovanie balenia (pre frontend)
+        # Formátovanie balenia
         r["pack_info"] = ""
         if r.get("pack_qty"):
-            pq = float(r["pack_qty"])
-            pm = r.get("pack_mj") or ""
-            # Ak je celé číslo, bez desatinných
-            val_str = f"{pq:.0f}" if pq.is_integer() else f"{pq:.3f}"
-            r["pack_info"] = f"{val_str} {pm}"
+            try:
+                pq = float(r["pack_qty"])
+                pm = r.get("pack_mj") or ""
+                val_str = f"{pq:.0f}" if pq.is_integer() else f"{pq:.3f}"
+                r["pack_info"] = f"{val_str} {pm}"
+            except: pass
 
     return jsonify({"items": rows})
 
 # ---------- SUPPLIERS ----------
 @orders_bp.get("/api/objednavky/suppliers")
 def api_suppliers():
-    """
-    Dodávatelia vhodní pre výrobu – čítame z:
-      suppliers(+supplier_categories) / dodavatelia / sklad.dodavatel_id / sklad.dodavatel
-    """
     only_vyroba = (str(request.args.get("only_vyroba", "")).lower() in ("1","true","yes","on"))
     coll = conn_coll()
     cat_col = pick_first_existing("sklad", ["kategoria","typ","podtyp"])
@@ -207,18 +201,11 @@ def api_suppliers():
     like_parts = []
     allowed_params = []
     if cat_col:
-        like_parts = [
-            f"s.{cat_col} COLLATE {coll} LIKE %s",
-            f"s.{cat_col} COLLATE {coll} LIKE %s",
-            f"s.{cat_col} COLLATE {coll} LIKE %s",
-            f"s.{cat_col} COLLATE {coll} LIKE %s",
-            f"s.{cat_col} COLLATE {coll} LIKE %s",
-        ]
+        like_parts = [f"s.{cat_col} COLLATE {coll} LIKE %s"]*5
         allowed_params = ["koren%","obal%","črev%","cerv%","pomoc%"]
 
     out = []
 
-    # suppliers (+ categories)
     if has_table("suppliers") and has_col("suppliers","name"):
         has_supcats = has_table("supplier_categories") and has_col("supplier_categories","supplier_id") and has_col("supplier_categories","category")
         if only_vyroba and has_supcats:
@@ -240,7 +227,6 @@ def api_suppliers():
                  LIMIT 1000
             """, fetch='all') or []
 
-    # dodavatelia (legacy)
     if not out and has_table("dodavatelia") and has_col("dodavatelia","nazov"):
         id_col   = "id" if has_col("dodavatelia","id") else None
         flag_col = pick_first_existing("dodavatelia", ["pre_vyrobu","prijem_do_vyroby","for_production","vyroba"])
@@ -257,7 +243,6 @@ def api_suppliers():
               LIMIT 1000
         """, fetch='all') or []
 
-    # sklad.dodavatel_id -> suppliers
     if not out and has_col("sklad","dodavatel_id") and has_table("suppliers") and has_col("suppliers","id") and has_col("suppliers","name"):
         if cat_col and like_parts:
             out = execute_query(f"""
@@ -278,7 +263,6 @@ def api_suppliers():
                  LIMIT 1000
             """, fetch='all') or []
 
-    # sklad.dodavatel (meno)
     if not out and has_col("sklad","dodavatel"):
         if cat_col and like_parts:
             out = execute_query(f"""
@@ -301,7 +285,7 @@ def api_suppliers():
 
     return jsonify({"suppliers": out})
 
-# ---------- ITEMS for a supplier ----------
+# ---------- ITEMS for a supplier (UPRAVENÉ - Pridané balenie) ----------
 @orders_bp.get("/api/objednavky/items")
 def api_items_for_ordering():
     """
@@ -322,12 +306,19 @@ def api_items_for_ordering():
     has_dod   = has_col("sklad","dodavatel")
     has_dodid = has_col("sklad","dodavatel_id")
     ean_col   = pick_first_existing("sklad", ["ean","ean13","barcode","kod"])
+    
+    # --- NOVÉ: Balenie ---
+    pack_qty_col = pick_first_existing("sklad", ["balenie_mnozstvo"])
+    pack_mj_col  = pick_first_existing("sklad", ["balenie_mj"])
 
     id_sql    = f"s.{id_col} AS id" if id_col else "NULL AS id"
     unit_sql  = f"COALESCE(s.{unit_col}, 'kg')" if unit_col else "'kg'"
     price_sql = f"COALESCE(s.{price_col}, 0)"   if price_col else "0"
     ean_sql   = f"s.{ean_col} AS ean" if ean_col else "NULL AS ean"
     cat_sql   = f"s.{cat_col} AS category" if cat_col else "'' AS category"
+
+    pack_q_sql = f"s.{pack_qty_col} AS pack_qty" if pack_qty_col else "NULL AS pack_qty"
+    pack_m_sql = f"s.{pack_mj_col} AS pack_mj" if pack_mj_col else "NULL AS pack_mj"
 
     coll = conn_coll()
 
@@ -339,7 +330,9 @@ def api_items_for_ordering():
                    s.nazov,
                    {unit_sql} AS jednotka_raw,
                    {cat_sql},
-                   {price_sql} AS default_price
+                   {price_sql} AS default_price,
+                   {pack_q_sql},
+                   {pack_m_sql}
               FROM sklad s
               {where_sql}
               ORDER BY s.nazov
@@ -374,15 +367,25 @@ def api_items_for_ordering():
         params = base_params + pats
         rows = run(where, params)
 
-    # Spracovanie jednotiek (bm pre obaly)
+    # Spracovanie jednotiek (bm pre obaly) a balenia
     for r in rows:
         cat = (r.get("category") or "").lower()
         if 'obal' in cat or 'črev' in cat or 'crev' in cat:
             r["jednotka"] = "bm"
         else:
             r["jednotka"] = r.get("jednotka_raw") or "kg"
+            
+        # Formátovanie balenia
+        r["pack_info"] = ""
+        if r.get("pack_qty"):
+            try:
+                pq = float(r["pack_qty"])
+                pm = r.get("pack_mj") or ""
+                val_str = f"{pq:.0f}" if pq.is_integer() else f"{pq:.3f}"
+                r["pack_info"] = f"{val_str} {pm}"
+            except: pass
 
-    # last price helper (existujúci)
+    # last price helper
     od = _order_dt_expr("o")
     def last_price_for(sklad_id, nazov):
         if sklad_id is not None:
