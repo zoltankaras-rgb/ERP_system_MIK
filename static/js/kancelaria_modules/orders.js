@@ -44,7 +44,6 @@
   const num   = (x) => (x === null || x === undefined || x === '' || isNaN(Number(x))) ? 0 : Number(x);
   const money = (x) => num(x).toFixed(2);
 
-  // Vrati EAN z rôznych možných kľúčov
   const pickEAN = (o) => {
     if (!o || typeof o !== 'object') return '';
     const candidates = ['ean', 'EAN', 'ean_code', 'ean_kod', 'ean13', 'barcode', 'kod_ean', 'kod'];
@@ -58,10 +57,10 @@
   };
 
   // ---------- UI state ----------
-  let cart = [];                                 // košík pre novú objednávku
-  let currentSupplier = { id:null, nazov:null }; // aktuálne vybraný dodávateľ
-  let ORDERS_CACHE = [];                         // cache objednávok
-  let SUP_CHOICES = null;                        // zoznam dodávateľov (fallback)
+  let cart = [];
+  let currentSupplier = { id:null, nazov:null };
+  let ORDERS_CACHE = [];
+  let SUP_CHOICES = null;
 
   async function ensureSupplierChoices(){
     if (SUP_CHOICES) return SUP_CHOICES;
@@ -78,7 +77,7 @@
     return SUP_CHOICES;
   }
 
-  // ----------------- POD MINIMOM (zoskupené podľa dodávateľov) -----------------
+  // ----------------- POD MINIMOM (S BALENÍM) -----------------
   async function viewUnderMin(container){
     container.innerHTML = '<h2>Sklad → Objednávky</h2><div class="text-muted">Načítavam položky pod minimom…</div>';
 
@@ -87,15 +86,14 @@
     catch (e) { container.innerHTML = `<div class="text-danger">Chyba: ${e.message}</div>`; return; }
 
     const itemsRaw = Array.isArray(data?.items) ? data.items : [];
-
     await ensureSupplierChoices();
 
-    // normalizácia a výpočet to_buy
+    // Normalizácia dát
     const items = itemsRaw.map(raw => {
       const r = {...raw};
       r.nazov    = r.nazov ?? r.name ?? '';
       
-      // Detekcia BM pre obaly (UI fix)
+      // Detekcia BM pre obaly
       const cat = (r.category || '').toLowerCase();
       if (cat.includes('obal') || cat.includes('črev') || cat.includes('crev')) {
           r.jednotka = 'bm';
@@ -103,17 +101,20 @@
           r.jednotka = r.jednotka ?? r.unit ?? r.mj ?? 'kg';
       }
 
+      // Množstvá
       r.qty      = (r.qty ?? r.mnozstvo ?? r.quantity ?? 0);
       r.min_qty  = (r.min_qty ?? r.min_mnozstvo ?? r.min_stav_kg ?? r.min_zasoba ?? 0);
       r.to_buy   = (r.to_buy != null ? r.to_buy : Math.max(num(r.min_qty) - num(r.qty), 0));
-      r.dodavatel_id   = r.dodavatel_id ?? r.supplier_id ?? null;
-      r.dodavatel_nazov= r.dodavatel_nazov || r.supplier_name || (r.dodavatel_id ? `Dodávateľ #${r.dodavatel_id}` : 'Bez dodávateľa');
       
-      // Info o balení (z backendu)
-      r.pack_info = raw.pack_info || ''; 
+      // Dodávateľ
+      r.dodavatel_id    = r.dodavatel_id ?? r.supplier_id ?? null;
+      r.dodavatel_nazov = r.dodavatel_nazov || r.supplier_name || (r.dodavatel_id ? `Dodávateľ #${r.dodavatel_id}` : 'Bez dodávateľa');
+      
+      // !!! KĽÚČOVÉ: Prenesenie informácie o balení !!!
+      r.pack_info = raw.pack_info || '';
 
       return r;
-    }).filter(r => num(r.to_buy) > 0); 
+    }).filter(r => num(r.to_buy) > 0);
 
     container.innerHTML = '';
     container.appendChild(el('h2',{},'Sklad → Objednávky'));
@@ -168,14 +169,15 @@
       titleRow.appendChild(btnCreate);
       card.appendChild(titleRow);
 
-      // --- TABUĽKA S BALENÍM ---
       const tbl = el('table',{class:'table',style:'width:100%; border-collapse:collapse;'});
+      
+      // --- HLAVIČKA S BALENÍM ---
       tbl.appendChild(el('thead',{}, el('tr',{},
         el('th',{},''),
         el('th',{},'#'),
         el('th',{},'EAN'),
         el('th',{},'Názov'),
-        el('th',{},'Balenie'), // <--- STĹPEC BALENIE
+        el('th',{},'Balenie'), // <--- STĹPEC
         el('th',{},'Jedn.'),
         el('th',{},'Na sklade'),
         el('th',{},'Min'),
@@ -206,7 +208,7 @@
           }catch(_){}
         }}, 'Posl. cena');
 
-        // Badge pre balenie
+        // --- BADGE PRE BALENIE ---
         const packBadge = r.pack_info 
             ? el('span', {class:'badge', style:'background:#e0f2fe; color:#0369a1; padding:2px 6px; border-radius:4px; font-size:0.85em;'}, r.pack_info) 
             : document.createTextNode('');
@@ -216,7 +218,7 @@
           el('td',{}, String(i+1)),
           el('td',{style:'font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;'}, pickEAN(r)),
           el('td',{}, r.nazov),
-          el('td',{}, packBadge), // <--- DATA BALENIA
+          el('td',{}, packBadge), // <--- ZOBRAZENIE
           el('td',{}, r.jednotka || 'kg'),
           el('td',{}, fmt(r.qty)),
           el('td',{}, fmt(r.min_qty)),
