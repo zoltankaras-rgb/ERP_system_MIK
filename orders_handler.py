@@ -136,9 +136,9 @@ def api_under_min():
     unit_col  = pick_first_existing("sklad", ["jednotka","unit","mj"])
     cat_col   = pick_first_existing("sklad", ["kategoria", "typ", "podtyp"])
 
-    # Balenie - stĺpce
-    pack_qty_col = pick_first_existing("sklad", ["balenie_mnozstvo"])
-    pack_mj_col  = pick_first_existing("sklad", ["balenie_mj"])
+    # Balenie - stĺpce (musíme skontrolovať, či existujú)
+    pack_qty_col = "balenie_mnozstvo" if has_col("sklad", "balenie_mnozstvo") else "NULL"
+    pack_mj_col  = "balenie_mj" if has_col("sklad", "balenie_mj") else "NULL"
 
     if not qty_col or not min_col:
         return jsonify({"items": []})
@@ -147,9 +147,9 @@ def api_under_min():
     unit_sql  = f"COALESCE(s.{unit_col}, 'kg')" if unit_col else "'kg'"
     cat_sql   = f"s.{cat_col} AS category" if cat_col else "'' AS category"
     
-    # SQL pre balenie
-    pack_q_sql = f"s.{pack_qty_col} AS pack_qty" if pack_qty_col else "NULL AS pack_qty"
-    pack_m_sql = f"s.{pack_mj_col} AS pack_mj" if pack_mj_col else "NULL AS pack_mj"
+    # SQL pre balenie (dynamicky)
+    pack_q_sql = f"s.{pack_qty_col} AS pack_qty"
+    pack_m_sql = f"s.{pack_mj_col} AS pack_mj"
 
     rows = execute_query(f"""
         SELECT {id_sql},
@@ -167,8 +167,8 @@ def api_under_min():
           LEFT JOIN sklad_vyroba sv ON sv.nazov = s.nazov
           LEFT JOIN suppliers sup ON sup.id = s.dodavatel_id
          WHERE s.{min_col} IS NOT NULL
-           AND COALESCE(sv.mnozstvo, 0) < s.{min_col}
-         ORDER BY s.nazov
+           AND s.{qty_col} < s.{min_col}
+         ORDER BY (s.{min_col} - s.{qty_col}) DESC
          LIMIT 1000
     """, fetch='all') or []
 
@@ -192,6 +192,7 @@ def api_under_min():
             try:
                 pq = float(r["pack_qty"])
                 pm = r.get("pack_mj") or ""
+                # Formátovanie čísla
                 val_str = f"{pq:.0f}" if pq.is_integer() else f"{pq:.3f}"
                 r["pack_info"] = f"{val_str} {pm}"
             except: pass
