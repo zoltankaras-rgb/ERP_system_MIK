@@ -126,7 +126,7 @@ def generate_order_number(dodavatel_nazov: str, datum_obj: str) -> str:
     except Exception: n = 1
     return f"{prefix}-{n:03d}"
 
-# ---------- Pod minimom ----------
+# ---------- Pod minimom (UPRAVENÉ: Pridané balenie + detekcia bm) ----------
 @orders_bp.get("/api/sklad/under-min")
 def api_under_min():
     id_col    = pick_first_existing("sklad", ["id","sklad_id","produkt_id","product_id","id_skladu"])
@@ -134,20 +134,33 @@ def api_under_min():
     min_col   = pick_first_existing("sklad", ["min_mnozstvo","min_stav_kg","min_qty","minimum","min_sklad"])
     price_col = pick_first_existing("sklad", ["default_cena_eur_kg","nakupna_cena","cena","cena_kg"]) or "0"
     unit_col  = pick_first_existing("sklad", ["jednotka","unit","mj"])
+    cat_col   = pick_first_existing("sklad", ["kategoria", "typ", "podtyp"]) # Pre detekciu obalov
+
+    # --- NOVÉ: Stĺpce pre balenie ---
+    pack_qty_col = pick_first_existing("sklad", ["balenie_mnozstvo"])
+    pack_mj_col  = pick_first_existing("sklad", ["balenie_mj"])
 
     if not qty_col or not min_col:
         return jsonify({"items": []})
 
-    id_sql   = f"s.{id_col} AS id" if id_col else "NULL AS id"
-    unit_sql = f"COALESCE(s.{unit_col}, 'kg')" if unit_col else "'kg'"
+    id_sql    = f"s.{id_col} AS id" if id_col else "NULL AS id"
+    unit_sql  = f"COALESCE(s.{unit_col}, 'kg')" if unit_col else "'kg'"
+    cat_sql   = f"s.{cat_col} AS category" if cat_col else "'' AS category"
+    
+    # --- NOVÉ: SQL pre balenie ---
+    pack_q_sql = f"s.{pack_qty_col} AS pack_qty" if pack_qty_col else "NULL AS pack_qty"
+    pack_m_sql = f"s.{pack_mj_col} AS pack_mj" if pack_mj_col else "NULL AS pack_mj"
 
     rows = execute_query(f"""
         SELECT {id_sql},
                s.nazov,
-               {unit_sql} AS jednotka,
+               {unit_sql} AS jednotka_raw, -- Pôvodná z DB
+               {cat_sql},
                s.{qty_col} AS qty,
                s.{min_col} AS min_qty,
-               COALESCE(s.{price_col}, 0) AS price
+               COALESCE(s.{price_col}, 0) AS price,
+               {pack_q_sql},
+               {pack_m_sql}
           FROM sklad s
          WHERE s.{min_col} IS NOT NULL
            AND s.{qty_col} < s.{min_col}
@@ -156,10 +169,27 @@ def api_under_min():
     """, fetch='all') or []
 
     for r in rows:
+        # 1. Výpočet chýbajúceho množstva
         try:
             r["to_buy"] = float(r["min_qty"]) - float(r["qty"])
         except Exception:
             r["to_buy"] = 0.0
+
+        # 2. Detekcia jednotky (Obaly -> bm)
+        cat = (r.get("category") or "").lower()
+        if 'obal' in cat or 'črev' in cat or 'crev' in cat:
+            r["jednotka"] = "bm"
+        else:
+            r["jednotka"] = r.get("jednotka_raw") or "kg"
+
+        # 3. Formátovanie balenia (pre frontend)
+        r["pack_info"] = ""
+        if r.get("pack_qty"):
+            pq = float(r["pack_qty"])
+            pm = r.get("pack_mj") or ""
+            # Ak je celé číslo, bez desatinných
+            val_str = f"{pq:.0f}" if pq.is_integer() else f"{pq:.3f}"
+            r["pack_info"] = f"{val_str} {pm}"
 
     return jsonify({"items": rows})
 
@@ -223,8 +253,8 @@ def api_suppliers():
             SELECT {('d.'+id_col+' AS id,') if id_col else 'NULL AS id,'} d.nazov
               FROM dodavatelia d
               {where_sql}
-             ORDER BY d.nazov
-             LIMIT 1000
+              ORDER BY d.nazov
+              LIMIT 1000
         """, fetch='all') or []
 
     # sklad.dodavatel_id -> suppliers
@@ -254,19 +284,19 @@ def api_suppliers():
             out = execute_query(f"""
                 SELECT NULL AS id, TRIM(s.dodavatel) AS nazov
                   FROM sklad s
-                 WHERE {' OR '.join(like_parts)} AND s.dodavatel IS NOT NULL AND TRIM(s.dodavatel)<>''
-                 GROUP BY TRIM(s.dodavatel)
-                 ORDER BY TRIM(s.dodavatel)
-                 LIMIT 1000
+                  WHERE {' OR '.join(like_parts)} AND s.dodavatel IS NOT NULL AND TRIM(s.dodavatel)<>''
+                  GROUP BY TRIM(s.dodavatel)
+                  ORDER BY TRIM(s.dodavatel)
+                  LIMIT 1000
             """, tuple(allowed_params), fetch='all') or []
         if not out:
             out = execute_query("""
                 SELECT NULL AS id, TRIM(s.dodavatel) AS nazov
                   FROM sklad s
-                 WHERE s.dodavatel IS NOT NULL AND TRIM(s.dodavatel)<>''
-                 GROUP BY TRIM(s.dodavatel)
-                 ORDER BY TRIM(s.dodavatel)
-                 LIMIT 1000
+                  WHERE s.dodavatel IS NOT NULL AND TRIM(s.dodavatel)<>''
+                  GROUP BY TRIM(s.dodavatel)
+                  ORDER BY TRIM(s.dodavatel)
+                  LIMIT 1000
             """, fetch='all') or []
 
     return jsonify({"suppliers": out})
@@ -275,8 +305,7 @@ def api_suppliers():
 @orders_bp.get("/api/objednavky/items")
 def api_items_for_ordering():
     """
-    Položky zo 'sklad' pre objednávanie (Koreniny/Obaly/Pomocný materiál – ak vieme; inak heuristika).
-    Vracia aj EAN a poslednú reálnu/predpokladanú cenu (last_price), ktorú použijeme ako default.
+    Položky zo 'sklad' pre objednávanie.
     """
     dod_id  = request.args.get("dodavatel_id")
     dod_n   = (request.args.get("dodavatel_nazov") or "").strip()
@@ -298,6 +327,7 @@ def api_items_for_ordering():
     unit_sql  = f"COALESCE(s.{unit_col}, 'kg')" if unit_col else "'kg'"
     price_sql = f"COALESCE(s.{price_col}, 0)"   if price_col else "0"
     ean_sql   = f"s.{ean_col} AS ean" if ean_col else "NULL AS ean"
+    cat_sql   = f"s.{cat_col} AS category" if cat_col else "'' AS category"
 
     coll = conn_coll()
 
@@ -307,12 +337,13 @@ def api_items_for_ordering():
             SELECT {id_sql},
                    {ean_sql},
                    s.nazov,
-                   {unit_sql} AS jednotka,
+                   {unit_sql} AS jednotka_raw,
+                   {cat_sql},
                    {price_sql} AS default_price
               FROM sklad s
               {where_sql}
-             ORDER BY s.nazov
-             LIMIT %s
+              ORDER BY s.nazov
+              LIMIT %s
         """, tuple(params + [limit]), fetch='all') or []
 
     # filter dodávateľa
@@ -343,7 +374,15 @@ def api_items_for_ordering():
         params = base_params + pats
         rows = run(where, params)
 
-    # last price helper
+    # Spracovanie jednotiek (bm pre obaly)
+    for r in rows:
+        cat = (r.get("category") or "").lower()
+        if 'obal' in cat or 'črev' in cat or 'crev' in cat:
+            r["jednotka"] = "bm"
+        else:
+            r["jednotka"] = r.get("jednotka_raw") or "kg"
+
+    # last price helper (existujúci)
     od = _order_dt_expr("o")
     def last_price_for(sklad_id, nazov):
         if sklad_id is not None:
@@ -445,8 +484,8 @@ def list_orders():
                ),0) AS suma_predpoklad
           FROM vyrobne_objednavky o
           {where}
-         ORDER BY o.created_at DESC
-         LIMIT 500
+          ORDER BY o.created_at DESC
+          LIMIT 500
     """, tuple(params), fetch='all') or []
     return jsonify({"orders": rows})
 

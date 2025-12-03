@@ -94,12 +94,24 @@
     const items = itemsRaw.map(raw => {
       const r = {...raw};
       r.nazov    = r.nazov ?? r.name ?? '';
-      r.jednotka = r.jednotka ?? r.unit ?? r.mj ?? 'kg';
+      
+      // UPRAVENÁ DETEKCIA JEDNOTKY PRE OBALY
+      const cat = (r.category || '').toLowerCase();
+      if (cat.includes('obal') || cat.includes('črev') || cat.includes('crev')) {
+          r.jednotka = 'bm';
+      } else {
+          r.jednotka = r.jednotka ?? r.unit ?? r.mj ?? 'kg';
+      }
+
       r.qty      = (r.qty ?? r.mnozstvo ?? r.quantity ?? 0);
       r.min_qty  = (r.min_qty ?? r.min_mnozstvo ?? r.min_stav_kg ?? r.min_zasoba ?? 0);
       r.to_buy   = (r.to_buy != null ? r.to_buy : Math.max(num(r.min_qty) - num(r.qty), 0));
       r.dodavatel_id   = r.dodavatel_id ?? r.supplier_id ?? null;
       r.dodavatel_nazov= r.dodavatel_nazov || r.supplier_name || (r.dodavatel_id ? `Dodávateľ #${r.dodavatel_id}` : 'Bez dodávateľa');
+      
+      // Info o balení
+      r.pack_info = raw.pack_info || '';
+
       return r;
     }).filter(r => num(r.to_buy) > 0);  // iba tie, čo sú naozaj pod minimom
 
@@ -163,6 +175,7 @@
         el('th',{},'#'),
         el('th',{},'EAN'),
         el('th',{},'Názov'),
+        el('th',{},'Balenie'),    // NOVÝ STĹPEC
         el('th',{},'Jedn.'),
         el('th',{},'Na sklade'),
         el('th',{},'Min'),
@@ -193,11 +206,17 @@
           }catch(_){}
         }}, 'Posl. cena');
 
+        // Balenie badge
+        const packBadge = r.pack_info 
+            ? el('span', {class:'badge', style:'background:#e0f2fe; color:#0369a1; padding:2px 6px; border-radius:4px; font-size:0.85em;'}, r.pack_info) 
+            : document.createTextNode('');
+
         tb.appendChild(el('tr',{},
           el('td',{}, cb),
           el('td',{}, String(i+1)),
           el('td',{style:'font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;'}, pickEAN(r)),
           el('td',{}, r.nazov),
+          el('td',{}, packBadge), // NOVÝ STĹPEC
           el('td',{}, r.jednotka || 'kg'),
           el('td',{}, fmt(r.qty)),
           el('td',{}, fmt(r.min_qty)),
@@ -545,6 +564,7 @@
           el('th',{},'#'),
           el('th',{},'EAN'),
           el('th',{},'Názov'),
+          el('th',{},'Balenie'), // NOVÝ STĹPEC
           el('th',{},'Jedn.'),
           el('th',{},'Cena (posl./def.)'),
           el('th',{},'Množstvo'),
@@ -585,10 +605,16 @@
             redrawCart();
           }}, 'Pridať');
 
+          // Balenie badge
+          const packInfo = r.pack_info 
+            ? el('span', {class:'badge', style:'background:#e0f2fe; color:#0369a1; padding:2px 6px; border-radius:4px; font-size:0.85em;'}, r.pack_info) 
+            : document.createTextNode('');
+
           tb.appendChild(el('tr',{},
             el('td',{}, String(i+1)),
             el('td',{style:'font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;'}, pickEAN(r)),
             el('td',{}, r.nazov),
+            el('td',{}, packInfo), // Zobrazenie balenia
             el('td',{}, r.jednotka || 'kg'),
             el('td',{}, price),
             el('td',{}, qty),
