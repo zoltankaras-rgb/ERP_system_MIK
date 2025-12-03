@@ -123,8 +123,6 @@ def generate_order_number(dodavatel_nazov: str, datum_obj: str) -> str:
     return f"{prefix}-{n:03d}"
 
 # ---------- Pod minimom (S BALENÍM + OŠETRENIE DUPLICIT) ----------
-# orders_handler.py
-
 @orders_bp.get("/api/sklad/under-min")
 def api_under_min():
     id_col    = pick_first_existing("sklad", ["id","sklad_id","produkt_id","product_id","id_skladu"])
@@ -136,7 +134,6 @@ def api_under_min():
     ean_col   = pick_first_existing("sklad", ["ean", "ean_kod", "kod_ean"]) 
 
     # Balenie - stĺpce
-    # Používame s. prefix pre istotu, ak by kolidovali názvy
     pack_qty_col = "s.balenie_mnozstvo" if has_col("sklad", "balenie_mnozstvo") else "NULL"
     pack_mj_col  = "s.balenie_mj" if has_col("sklad", "balenie_mj") else "NULL"
 
@@ -146,8 +143,8 @@ def api_under_min():
     # Definícia stĺpcov pre SELECT
     id_sql    = f"s.{id_col} AS id" if id_col else "NULL AS id"
     
-    # Definícia čistého ID stĺpca pre WHERE klauzulu (bez aliasu AS id)
-    s_id_ref  = f"s.{id_col}" if id_col else "NULL"
+    # ID pre porovnávanie vo WHERE (bez aliasu)
+    s_id_raw  = f"s.{id_col}" if id_col else "NULL"
 
     unit_sql  = f"COALESCE(s.{unit_col}, 'kg')" if unit_col else "'kg'"
     cat_sql   = f"s.{cat_col} AS category" if cat_col else "'' AS category"
@@ -159,8 +156,9 @@ def api_under_min():
 
     coll = conn_coll()
 
-    # --- NOVE RIESENIE: SUBQUERY (Pod-dopyt) ---
-    # Toto hľadá tovar na ceste buď podľa ID skladu ALEBO podľa názvu (s TRIM a COLLATE)
+    # --- AGRESÍVNE SUBQUERY ---
+    # Hľadá zhodu podľa ID skladu ALEBO podľa názvu (s TRIM)
+    # Toto musí nájsť objednávku, aj keď sú v názve drobné rozdiely
     sql = f"""
         SELECT 
             {id_sql},
@@ -181,7 +179,7 @@ def api_under_min():
                 JOIN vyrobne_objednavky o ON o.id = p.objednavka_id
                 WHERE o.stav = 'objednane'
                   AND (
-                      (p.sklad_id IS NOT NULL AND p.sklad_id = {s_id_ref})
+                      (p.sklad_id IS NOT NULL AND p.sklad_id = {s_id_raw})
                       OR
                       (TRIM(p.nazov_suroviny) COLLATE {coll} = TRIM(s.nazov) COLLATE {coll})
                   )
@@ -197,35 +195,33 @@ def api_under_min():
     try:
         rows = execute_query(sql, fetch='all') or []
     except Exception as e:
-        # Ak by nastala chyba SQL syntaxe, vrátime prázdne pole, aby aplikácia nepadla
-        print(f"SQL Error in api_under_min: {e}")
+        print(f"SQL CHYBA v api_under_min: {e}")
         return jsonify({"items": []})
 
     for r in rows:
-        # 1. Výpočet chýbajúceho množstva
         try:
             min_q = float(r["min_qty"] or 0)
             cur_q = float(r["qty"] or 0)
             on_way = float(r["on_way"] or 0)
             
-            # Koľko chýba do minima
+            # Debug výpis do konzoly servera (uvidíš cez journalctl -u erp -f)
+            if on_way > 0:
+                print(f"DEBUG: Položka '{r['nazov']}' -> Sklad: {cur_q}, Min: {min_q}, Na Ceste: {on_way}")
+
             shortage = min_q - cur_q
-            
-            # Odpočítame to, čo už je objednané
-            # Ak je on_way > shortage, výsledok bude záporný a frontend položku skryje
             r["to_buy"] = shortage - on_way
             r["on_way"] = on_way
         except Exception:
             r["to_buy"] = 0.0
 
-        # 2. Detekcia jednotky
+        # Detekcia jednotky
         cat = (r.get("category") or "").lower()
         if 'obal' in cat or 'črev' in cat or 'crev' in cat:
             r["jednotka"] = "bm"
         else:
             r["jednotka"] = r.get("jednotka_raw") or "kg"
 
-        # 3. Formátovanie balenia
+        # Formátovanie balenia
         r["pack_info"] = ""
         if r.get("pack_qty"):
             try:
