@@ -714,3 +714,18 @@ tfoot td{{font-weight:bold}}
 </body></html>
 """
     return Response(html, mimetype="text/html")
+# --- PRIDANÉ: Mazanie objednávky ---
+@orders_bp.delete("/api/objednavky/<int:oid>")
+def delete_order(oid):
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        # Zmaže hlavičku (položky sa zmažú kaskádovito vďaka FK)
+        cur.execute("DELETE FROM vyrobne_objednavky WHERE id=%s", (oid,))
+        conn.commit()
+        return jsonify({"message": "Objednávka zmazaná."})
+    except Exception as e:
+        if conn: conn.rollback()
+        return jsonify({"error": str(e)}), 500
+    finally:
+        if conn: conn.close()

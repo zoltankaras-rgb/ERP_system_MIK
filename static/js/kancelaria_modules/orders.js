@@ -12,6 +12,7 @@
     for (const c of children) n.appendChild(typeof c === "string" ? document.createTextNode(c) : c);
     return n;
   }
+
   const api = {
     async get(u){
       const r = await fetch(u,{credentials:'same-origin'});
@@ -20,25 +21,26 @@
     },
     async post(u,b){
       const r = await fetch(u,{
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body:JSON.stringify(b),
-        credentials:'same-origin'
+        method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(b), credentials:'same-origin'
       });
       if(!r.ok) throw new Error(await r.text());
       return r.json();
     },
     async put(u,b){
       const r = await fetch(u,{
-        method:"PUT",
-        headers:{"Content-Type":"application/json"},
-        body:JSON.stringify(b),
-        credentials:'same-origin'
+        method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify(b), credentials:'same-origin'
       });
       if(!r.ok) throw new Error(await r.text());
       return r.json();
     },
+    // NOVÉ: DELETE
+    async delete(u){
+      const r = await fetch(u,{ method:"DELETE", credentials:'same-origin' });
+      if(!r.ok) throw new Error(await r.text());
+      return r.json();
+    }
   };
+
   const fmt   = (x) => (x==null||x==='') ? '' : (''+x);
   const today = ()=> new Date().toISOString().slice(0,10);
   const num   = (x) => (x === null || x === undefined || x === '' || isNaN(Number(x))) ? 0 : Number(x);
@@ -49,12 +51,23 @@
     const candidates = ['ean', 'EAN', 'ean_code', 'ean_kod', 'ean13', 'barcode', 'kod_ean', 'kod'];
     for (const k of candidates) {
       const v = o[k];
-      if (v !== null && v !== undefined && String(v).trim() !== '') {
-        return String(v).trim();
-      }
+      if (v !== null && v !== undefined && String(v).trim() !== '') return String(v).trim();
     }
     return '';
   };
+
+  // Helper na dvojité potvrdenie zmazania
+  async function deleteOrderWithConfirm(id, onSuccess) {
+      if (!confirm("Naozaj chcete zmazať túto objednávku?")) return;
+      if (!confirm("Určite? Táto akcia je nevratná.")) return;
+      
+      try {
+          await api.delete(`/api/objednavky/${id}`);
+          if (onSuccess) onSuccess();
+      } catch (e) {
+          alert("Chyba pri mazaní: " + e.message);
+      }
+  }
 
   // ---------- UI state ----------
   let cart = [];
@@ -77,7 +90,7 @@
     return SUP_CHOICES;
   }
 
-  // ----------------- POD MINIMOM (S BALENÍM) -----------------
+  // ----------------- POD MINIMOM (S BALENÍM - OPRAVENÉ) -----------------
   async function viewUnderMin(container){
     container.innerHTML = '<h2>Sklad → Objednávky</h2><div class="text-muted">Načítavam položky pod minimom…</div>';
 
@@ -88,29 +101,22 @@
     const itemsRaw = Array.isArray(data?.items) ? data.items : [];
     await ensureSupplierChoices();
 
-    // Normalizácia dát
     const items = itemsRaw.map(raw => {
       const r = {...raw};
       r.nazov    = r.nazov ?? r.name ?? '';
-      
-      // Detekcia BM pre obaly
       const cat = (r.category || '').toLowerCase();
       if (cat.includes('obal') || cat.includes('črev') || cat.includes('crev')) {
           r.jednotka = 'bm';
       } else {
           r.jednotka = r.jednotka ?? r.unit ?? r.mj ?? 'kg';
       }
-
-      // Množstvá
       r.qty      = (r.qty ?? r.mnozstvo ?? r.quantity ?? 0);
       r.min_qty  = (r.min_qty ?? r.min_mnozstvo ?? r.min_stav_kg ?? r.min_zasoba ?? 0);
       r.to_buy   = (r.to_buy != null ? r.to_buy : Math.max(num(r.min_qty) - num(r.qty), 0));
+      r.dodavatel_id   = r.dodavatel_id ?? r.supplier_id ?? null;
+      r.dodavatel_nazov= r.dodavatel_nazov || r.supplier_name || (r.dodavatel_id ? `Dodávateľ #${r.dodavatel_id}` : 'Bez dodávateľa');
       
-      // Dodávateľ
-      r.dodavatel_id    = r.dodavatel_id ?? r.supplier_id ?? null;
-      r.dodavatel_nazov = r.dodavatel_nazov || r.supplier_name || (r.dodavatel_id ? `Dodávateľ #${r.dodavatel_id}` : 'Bez dodávateľa');
-      
-      // !!! KĽÚČOVÉ: Prenesenie informácie o balení !!!
+      // Balenie
       r.pack_info = raw.pack_info || '';
 
       return r;
@@ -171,13 +177,13 @@
 
       const tbl = el('table',{class:'table',style:'width:100%; border-collapse:collapse;'});
       
-      // --- HLAVIČKA S BALENÍM ---
+      // HLAVIČKA - Explicitne s Balením
       tbl.appendChild(el('thead',{}, el('tr',{},
         el('th',{},''),
         el('th',{},'#'),
         el('th',{},'EAN'),
         el('th',{},'Názov'),
-        el('th',{},'Balenie'), // <--- STĹPEC
+        el('th',{},'Balenie'),  // <--- STĹPEC BALENIE
         el('th',{},'Jedn.'),
         el('th',{},'Na sklade'),
         el('th',{},'Min'),
@@ -186,7 +192,6 @@
         el('th',{},'Posl.')
       )));
       const tb = el('tbody',{}); tbl.appendChild(tb);
-
       const rowRefs = [];
 
       g.rows.forEach((r,i)=>{
@@ -208,17 +213,17 @@
           }catch(_){}
         }}, 'Posl. cena');
 
-        // --- BADGE PRE BALENIE ---
+        // Badge pre balenie
         const packBadge = r.pack_info 
-            ? el('span', {class:'badge', style:'background:#e0f2fe; color:#0369a1; padding:2px 6px; border-radius:4px; font-size:0.85em;'}, r.pack_info) 
+            ? el('span', {class:'badge', style:'background:#e0f2fe; color:#0369a1; padding:2px 6px; border-radius:4px; font-size:0.85em; white-space:nowrap;'}, r.pack_info) 
             : document.createTextNode('');
 
         tb.appendChild(el('tr',{},
           el('td',{}, cb),
           el('td',{}, String(i+1)),
-          el('td',{style:'font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;'}, pickEAN(r)),
-          el('td',{}, r.nazov),
-          el('td',{}, packBadge), // <--- ZOBRAZENIE
+          el('td',{style:'font-family: monospace;'}, pickEAN(r)),
+          el('td',{style:'font-weight:500'}, r.nazov),
+          el('td',{}, packBadge),  // <--- DATA BALENIA
           el('td',{}, r.jednotka || 'kg'),
           el('td',{}, fmt(r.qty)),
           el('td',{}, fmt(r.min_qty)),
@@ -229,9 +234,7 @@
         rowRefs.push({ r, cb, qty, price });
       });
 
-      chkAll.addEventListener('change', ()=> {
-        rowRefs.forEach(ref => { ref.cb.checked = chkAll.checked; });
-      });
+      chkAll.addEventListener('change', ()=> { rowRefs.forEach(ref => { ref.cb.checked = chkAll.checked; }); });
 
       btnCreate.addEventListener('click', async ()=>{
         let supId = g.id, supName = g.nazov;
@@ -240,10 +243,7 @@
           supId   = opt && opt.value ? Number(opt.value) : null;
           supName = (opt && opt.getAttribute('data-name')) || supName;
         }
-        if (!supId && !supName){
-          alert('Vyber dodávateľa pre túto skupinu.');
-          return;
-        }
+        if (!supId && !supName){ alert('Vyber dodávateľa pre túto skupinu.'); return; }
 
         const polozky = [];
         for (const ref of rowRefs){
@@ -258,23 +258,13 @@
             cena_predpoklad: (ref.price.value==='' ? null : parseFloat(ref.price.value||0))
           });
         }
-        if (!polozky.length){
-          alert('Vyber aspoň jednu položku a nastav množstvo > 0.');
-          return;
-        }
+        if (!polozky.length){ alert('Vyber aspoň jednu položku.'); return; }
 
         try{
-          const body = {
-            dodavatel_id: supId ?? null,
-            dodavatel_nazov: supName || null,
-            datum_objednania: today(),
-            polozky
-          };
+          const body = { dodavatel_id: supId ?? null, dodavatel_nazov: supName || null, datum_objednania: today(), polozky };
           const res = await api.post('/api/objednavky', body);
           alert(`Návrh objednávky vytvorený${res.cislo ? `: ${res.cislo}` : ''}.`);
-        }catch(e){
-          alert(`Chyba pri vytváraní návrhu: ${e.message}`);
-        }
+        }catch(e){ alert(`Chyba: ${e.message}`); }
       });
 
       card.appendChild(tbl);
@@ -282,18 +272,15 @@
     }
   }
 
-  // ------- Zoznam objednávok + filtre ----------------
+  // ------- Zoznam objednávok (S TLAČIDLOM ZMAZAŤ) ----------------
   async function renderList(container){
     container.innerHTML = '<h2>Objednávky</h2><div class="text-muted">Načítavam…</div>';
-
     let data, sup;
     try {
       [data, sup] = await Promise.all([
         api.get('/api/objednavky'),
         api.get('/api/objednavky/suppliers').catch(()=>({suppliers:[]}))]);
-    } catch (e) {
-      container.innerHTML = `<div class="text-danger">Chyba: ${e.message}</div>`; return;
-    }
+    } catch (e) { container.innerHTML = `<div class="text-danger">Chyba: ${e.message}</div>`; return; }
     const suppliers = (sup?.suppliers||[]).map(s => ({ id: s.id ?? null, nazov: s.nazov || '' }));
     ORDERS_CACHE = Array.isArray(data?.orders) ? data.orders : [];
 
@@ -324,10 +311,7 @@
     const search   = el('input',{type:'search', placeholder:'Hľadať číslo/dodávateľa…', style:'min-width:220px'});
 
     const btnReset = el('button',{class:'btn btn-secondary', onclick:()=>{
-      statusSel.value = 'objednane';
-      supSel.value = '';
-      dateFrom.value = ''; dateTo.value = '';
-      search.value = '';
+      statusSel.value = 'objednane'; supSel.value = ''; dateFrom.value = ''; dateTo.value = ''; search.value = '';
       renderTable();
     }}, 'Reset filtrov');
 
@@ -383,6 +367,10 @@
         const btnOpen  = el('button',{class:'btn btn-secondary', onclick:()=>renderDetail(container,o.id)},'Otvoriť');
         const btnPrint = el('button',{class:'btn btn-secondary', onclick:()=>window.open(`/kancelaria/objednavky/print/${o.id}`,'_blank')},'Tlačiť');
         const btnRecv  = o.stav==='objednane' ? el('button',{class:'btn btn-success', onclick:()=>renderReceive(container,o.id)},'Prijať') : el('span', {class:'text-muted'}, '✓');
+        
+        // NOVÉ TLAČIDLO ZMAZAŤ
+        const btnDel = el('button',{class:'btn btn-danger', title:'Zmazať', onclick:()=>deleteOrderWithConfirm(o.id, ()=>renderList(container))}, el('i',{class:'fas fa-trash'}));
+
         tb.appendChild(el('tr',{},
           el('td',{}, String(i+1)),
           el('td',{}, o.cislo),
@@ -390,7 +378,7 @@
           el('td',{}, o.datum_objednania || ''),
           el('td',{}, o.stav),
           el('td',{}, money(o.suma_predpoklad)),
-          el('td',{}, el('div',{}, btnOpen,' ',btnPrint,' ',btnRecv))
+          el('td',{}, el('div',{style:'display:flex;gap:4px;'}, btnOpen, btnPrint, btnRecv, btnDel))
         ));
       });
     }
@@ -400,7 +388,7 @@
     renderTable();
   }
 
-  // ------- História podľa dodávateľov -----------------------------
+  // ------- História podľa dodávateľov (S TLAČIDLOM ZMAZAŤ) --------
   async function renderSupplierHistory(container){
     container.innerHTML = '<h2>História objednávok podľa dodávateľov</h2><div class="text-muted">Načítavam…</div>';
     let data, sup;
@@ -408,9 +396,7 @@
       [data, sup] = await Promise.all([
         api.get('/api/objednavky'),
         api.get('/api/objednavky/suppliers').catch(()=>({suppliers:[]}))]);
-    } catch (e) {
-      container.innerHTML = `<div class="text-danger">Chyba: ${e.message}</div>`; return;
-    }
+    } catch (e) { container.innerHTML = `<div class="text-danger">Chyba: ${e.message}</div>`; return; }
     const orders = Array.isArray(data?.orders) ? data.orders : [];
     const suppliers = (sup?.suppliers||[]).map(s => ({ id: s.id ?? null, nazov: s.nazov || '' }));
     const supplierNames = [...new Set(orders.map(o => (o.dodavatel_nazov||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'sk'));
@@ -480,6 +466,10 @@
         rows.forEach((o,i)=>{
           const btnOpen  = el('button',{class:'btn btn-secondary', onclick:()=>renderDetail(container,o.id)},'Otvoriť');
           const btnPrint = el('button',{class:'btn btn-secondary', onclick:()=>window.open(`/kancelaria/objednavky/print/${o.id}`,'_blank')},'Tlačiť');
+          
+          // NOVÉ TLAČIDLO ZMAZAŤ
+          const btnDel = el('button',{class:'btn btn-danger', title:'Zmazať', onclick:()=>deleteOrderWithConfirm(o.id, render)}, el('i',{class:'fas fa-trash'}));
+
           tb.appendChild(el('tr',{},
             el('td',{}, String(i+1)),
             el('td',{}, o.cislo),
@@ -487,7 +477,7 @@
             el('td',{}, o.datum_objednania || ''),
             el('td',{}, o.stav),
             el('td',{}, money(o.suma_predpoklad)),
-            el('td',{}, el('div',{}, btnOpen,' ',btnPrint))
+            el('td',{}, el('div',{style:'display:flex;gap:4px;'}, btnOpen, btnPrint, btnDel))
           ));
         });
       }
@@ -499,7 +489,7 @@
     render();
   }
 
-  // --- Nová objednávka: dodávateľ → položky (EAN, posledná cena) ---
+  // --- Nová objednávka: dodávateľ → položky ---
   async function renderNewOrder(container){
     container.innerHTML = '';
     container.appendChild(el('h2',{}, 'Nová objednávka'));
@@ -566,7 +556,7 @@
           el('th',{},'#'),
           el('th',{},'EAN'),
           el('th',{},'Názov'),
-          el('th',{},'Balenie'), // NOVÝ STĹPEC
+          el('th',{},'Balenie'),
           el('th',{},'Jedn.'),
           el('th',{},'Cena (posl./def.)'),
           el('th',{},'Množstvo'),
@@ -589,7 +579,6 @@
               if (lp && lp.cena!=null) price.value = lp.cena;
             }catch(e){}
 
-            // údaje o sklade / minime pre info v košíku
             const qtyInStock = num(r.qty ?? r.sklad_qty ?? r.mnozstvo_skladu ?? r.quantity ?? 0);
             const minQty     = num(r.min_qty ?? r.min_mnozstvo ?? r.min_stav_kg ?? r.min_zasoba ?? 0);
             const sugg       = Math.max(minQty - qtyInStock, 0);
@@ -607,16 +596,13 @@
             redrawCart();
           }}, 'Pridať');
 
-          // Balenie badge
-          const packInfo = r.pack_info 
-            ? el('span', {class:'badge', style:'background:#e0f2fe; color:#0369a1; padding:2px 6px; border-radius:4px; font-size:0.85em;'}, r.pack_info) 
-            : document.createTextNode('');
+          const packBadge = r.pack_info ? el('span', {class:'badge', style:'background:#e0f2fe; color:#0369a1; padding:2px 6px; border-radius:4px; font-size:0.85em;'}, r.pack_info) : document.createTextNode('');
 
           tb.appendChild(el('tr',{},
             el('td',{}, String(i+1)),
-            el('td',{style:'font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;'}, pickEAN(r)),
+            el('td',{style:'font-family: monospace;'}, pickEAN(r)),
             el('td',{}, r.nazov),
-            el('td',{}, packInfo), // Zobrazenie balenia
+            el('td',{}, packBadge),
             el('td',{}, r.jednotka || 'kg'),
             el('td',{}, price),
             el('td',{}, qty),
@@ -682,7 +668,6 @@
         dodavatel_id: dod_id_attr ? Number(dod_id_attr) : null,
         dodavatel_nazov: chosen,
         datum_objednania: inpDate.value || today(),
-        // na server posielame len polia, ktoré očakáva
         polozky: cart.map(r => ({
           sklad_id: r.sklad_id,
           nazov: r.nazov,
@@ -778,14 +763,13 @@
     container.appendChild(btn);
   }
 
-  // ---------- Napojenie na sekciu v menu ----------
   function wireOrdersSection() {
     const link = document.querySelector('.sidebar-link[data-section="section-orders"]');
     if (!link) return;
     link.addEventListener('click', () => {
       setTimeout(() => {
         const sec = document.getElementById('section-orders');
-        if (sec) renderList(sec); // default: zoznam objednávok (len "objednane")
+        if (sec) renderList(sec);
       }, 0);
     });
     const sec = document.getElementById('section-orders');
@@ -796,7 +780,6 @@
 
   document.addEventListener('DOMContentLoaded', wireOrdersSection);
 
-  // pre manuálne volanie z konzoly
   window.skladObjednavky = {
     renderList,
     renderNewOrder,
