@@ -123,6 +123,8 @@ def generate_order_number(dodavatel_nazov: str, datum_obj: str) -> str:
     return f"{prefix}-{n:03d}"
 
 # ---------- Pod minimom (S BALENÍM + OŠETRENIE DUPLICIT) ----------
+# orders_handler.py
+
 @orders_bp.get("/api/sklad/under-min")
 def api_under_min():
     id_col    = pick_first_existing("sklad", ["id","sklad_id","produkt_id","product_id","id_skladu"])
@@ -133,14 +135,20 @@ def api_under_min():
     cat_col   = pick_first_existing("sklad", ["kategoria", "typ", "podtyp"])
     ean_col   = pick_first_existing("sklad", ["ean", "ean_kod", "kod_ean"]) 
 
-    # Balenie - stĺpce (ošetrené s. prefix)
+    # Balenie - stĺpce
+    # Používame s. prefix pre istotu, ak by kolidovali názvy
     pack_qty_col = "s.balenie_mnozstvo" if has_col("sklad", "balenie_mnozstvo") else "NULL"
     pack_mj_col  = "s.balenie_mj" if has_col("sklad", "balenie_mj") else "NULL"
 
     if not qty_col or not min_col:
         return jsonify({"items": []})
 
+    # Definícia stĺpcov pre SELECT
     id_sql    = f"s.{id_col} AS id" if id_col else "NULL AS id"
+    
+    # Definícia čistého ID stĺpca pre WHERE klauzulu (bez aliasu AS id)
+    s_id_ref  = f"s.{id_col}" if id_col else "NULL"
+
     unit_sql  = f"COALESCE(s.{unit_col}, 'kg')" if unit_col else "'kg'"
     cat_sql   = f"s.{cat_col} AS category" if cat_col else "'' AS category"
     ean_sql   = f"s.{ean_col} AS ean" if ean_col else "NULL AS ean"
@@ -149,56 +157,62 @@ def api_under_min():
     pack_q_sql = f"{pack_qty_col} AS pack_qty"
     pack_m_sql = f"{pack_mj_col} AS pack_mj"
 
-    # --- KĽÚČOVÁ ČASŤ: Zohľadnenie tovaru na ceste (objednane) ---
-    # Používame robustnejší JOIN cez TRIM() a COLLATE pre istotu
     coll = conn_coll()
-    
+
+    # --- NOVE RIESENIE: SUBQUERY (Pod-dopyt) ---
+    # Toto hľadá tovar na ceste buď podľa ID skladu ALEBO podľa názvu (s TRIM a COLLATE)
     sql = f"""
-        SELECT {id_sql},
-               s.nazov,
-               {ean_sql},
-               {unit_sql} AS jednotka_raw,
-               {cat_sql},
-               s.{qty_col} AS qty,
-               s.{min_col} AS min_qty,
-               COALESCE(s.{price_col}, 0) AS price,
-               {pack_q_sql},
-               {pack_m_sql},
-               sup.name AS supplier_name,
-               s.dodavatel_id,
-               COALESCE(ord.ordered_sum, 0) AS on_way
-          FROM sklad s
-          LEFT JOIN suppliers sup ON sup.id = s.dodavatel_id
-          LEFT JOIN (
-              SELECT p.sklad_id, 
-                     p.nazov_suroviny, 
-                     SUM(p.mnozstvo_ordered) as ordered_sum
-              FROM vyrobne_objednavky_polozky p
-              JOIN vyrobne_objednavky o ON o.id = p.objednavka_id
-              WHERE o.stav = 'objednane'
-              GROUP BY p.sklad_id, p.nazov_suroviny
-          ) ord ON (
-              (ord.sklad_id IS NOT NULL AND {id_sql.split(' AS ')[0]} = ord.sklad_id) 
-              OR 
-              (ord.nazov_suroviny COLLATE {coll} = s.nazov COLLATE {coll})
-          )
-         WHERE s.{min_col} IS NOT NULL
-           AND s.{qty_col} < s.{min_col}
-         ORDER BY (s.{min_col} - s.{qty_col}) DESC
-         LIMIT 1000
+        SELECT 
+            {id_sql},
+            s.nazov,
+            {ean_sql},
+            {unit_sql} AS jednotka_raw,
+            {cat_sql},
+            s.{qty_col} AS qty,
+            s.{min_col} AS min_qty,
+            COALESCE(s.{price_col}, 0) AS price,
+            {pack_q_sql},
+            {pack_m_sql},
+            sup.name AS supplier_name,
+            s.dodavatel_id,
+            (
+                SELECT COALESCE(SUM(p.mnozstvo_ordered), 0)
+                FROM vyrobne_objednavky_polozky p
+                JOIN vyrobne_objednavky o ON o.id = p.objednavka_id
+                WHERE o.stav = 'objednane'
+                  AND (
+                      (p.sklad_id IS NOT NULL AND p.sklad_id = {s_id_ref})
+                      OR
+                      (TRIM(p.nazov_suroviny) COLLATE {coll} = TRIM(s.nazov) COLLATE {coll})
+                  )
+            ) AS on_way
+        FROM sklad s
+        LEFT JOIN suppliers sup ON sup.id = s.dodavatel_id
+        WHERE s.{min_col} IS NOT NULL
+          AND s.{qty_col} < s.{min_col}
+        ORDER BY (s.{min_col} - s.{qty_col}) DESC
+        LIMIT 1000
     """
 
-    rows = execute_query(sql, fetch='all') or []
+    try:
+        rows = execute_query(sql, fetch='all') or []
+    except Exception as e:
+        # Ak by nastala chyba SQL syntaxe, vrátime prázdne pole, aby aplikácia nepadla
+        print(f"SQL Error in api_under_min: {e}")
+        return jsonify({"items": []})
 
     for r in rows:
-        # 1. Výpočet chýbajúceho množstva (Min - Sklad - NaCeste)
+        # 1. Výpočet chýbajúceho množstva
         try:
             min_q = float(r["min_qty"] or 0)
             cur_q = float(r["qty"] or 0)
             on_way = float(r["on_way"] or 0)
             
+            # Koľko chýba do minima
             shortage = min_q - cur_q
-            # Ak je on_way >= shortage, výsledok bude <= 0 a frontend to skryje
+            
+            # Odpočítame to, čo už je objednané
+            # Ak je on_way > shortage, výsledok bude záporný a frontend položku skryje
             r["to_buy"] = shortage - on_way
             r["on_way"] = on_way
         except Exception:
@@ -222,7 +236,6 @@ def api_under_min():
             except: pass
 
     return jsonify({"items": rows})
-
 # ---------- SUPPLIERS ----------
 @orders_bp.get("/api/objednavky/suppliers")
 def api_suppliers():
