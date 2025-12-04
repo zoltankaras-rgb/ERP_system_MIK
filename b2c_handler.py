@@ -94,31 +94,56 @@ def _is_numeric_col(table: str, column: str) -> bool:
 # ---------------------------------------------------------------------
 # Meta/obrázky pre produkty (doplnkové info)
 # ---------------------------------------------------------------------
+B2C_META_TABLE = "b2c_product_meta"
+
 def _b2c_meta_path() -> str:
+    # ponechané len kvôli fallbacku na starý JSON, môžeš neskôr vyhodiť
     base = os.path.dirname(__file__)
     folder = os.path.join(base, "static", "uploads", "b2c")
     os.makedirs(folder, exist_ok=True)
     return os.path.join(folder, "_b2c_meta.json")
 
 def _b2c_meta_load() -> dict:
+    """
+    Načíta meta údaje z DB (b2c_product_meta).
+    Ak tabuľka neexistuje alebo je prázdna, skúsi starý JSON.
+    """
+    try:
+        rows = db_connector.execute_query(
+            f"SELECT ean, popis, obrazok_url FROM {B2C_META_TABLE}",
+            fetch="all"
+        ) or []
+        if rows:
+            out = {}
+            for r in rows:
+                ean = (r.get("ean") or "").strip()
+                if not ean:
+                    continue
+                out[ean] = {
+                    "popis":   r.get("popis") or "",
+                    "obrazok": r.get("obrazok_url") or "",
+                }
+            return out
+    except Exception:
+        # ak padne SELECT (napr. tabuľka ešte nie je), ideme fallback
+        pass
+
+    # fallback: starý JSON
     try:
         with open(_b2c_meta_path(), "r", encoding="utf-8") as f:
             return json.load(f)
     except Exception:
         return {}
 
-def _b2c_img_map_path() -> str:
-    base = os.path.dirname(__file__)
-    folder = os.path.join(base, "static", "uploads", "b2c")
-    os.makedirs(folder, exist_ok=True)
-    return os.path.join(folder, "_images_map.json")
-
 def _b2c_img_load() -> dict:
-    try:
-        with open(_b2c_img_map_path(), "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return {}
+    """
+    Pôvodne čítalo _images_map.json.
+    Teraz to odvodené z meta (obrazok).
+    """
+    meta = _b2c_meta_load()
+    return {ean: (info or {}).get("obrazok") or "" for ean, info in (meta or {}).items()}
+
+
 
 
 # ---------------------------------------------------------------------

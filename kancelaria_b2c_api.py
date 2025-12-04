@@ -37,8 +37,22 @@ GIFTCODES_PATH      = os.path.join(B2C_DIR, "_giftcodes.json")
 GIFTCODE_USAGE_PATH = os.path.join(B2C_DIR, "_giftcode_usage.json")
 PROFILE_JSON_PATH   = os.path.join(DATA_DIR, "b2c_profile.json")
 AWARDS_LOG_PATH     = os.path.join(DATA_DIR, "b2c_birthday_awards.json")
-
+B2C_META_TABLE = "b2c_product_meta"
 # =================== pomocné I/O ===================
+def _ensure_b2c_meta_table():
+    db_connector.execute_query(f"""
+        CREATE TABLE IF NOT EXISTS {B2C_META_TABLE} (
+            ean         VARCHAR(64) NOT NULL,
+            popis       TEXT NULL,
+            obrazok_url VARCHAR(255) NULL,
+            updated_at  TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP
+                         ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (ean)
+        ) ENGINE=InnoDB
+          DEFAULT CHARSET = utf8mb4
+          COLLATE = utf8mb4_0900_ai_ci;
+    """, fetch="none")
+
 def _read_json_or(p, d):
     try:
         if os.path.isfile(p):
@@ -781,12 +795,30 @@ def get_product_meta():
     ean = request.args.get("ean")
     if not ean:
         return jsonify({})
-    
+
+    _ensure_b2c_meta_table()
+
+    # Najprv skúsime DB
+    row = db_connector.execute_query(
+        f"SELECT popis, obrazok_url FROM {B2C_META_TABLE} WHERE ean=%s",
+        (ean,),
+        fetch="one",
+    )
+
+    if row:
+        return jsonify({
+            "popis": row.get("popis") or "",
+            "obrazok": row.get("obrazok_url") or "",
+            "description": row.get("popis") or "",
+            "image_url": row.get("obrazok_url") or "",
+        })
+
+    # fallback na starý JSON (ak máš ešte nejaké staré dáta)
     meta_path = os.path.join(B2C_DIR, "_b2c_meta.json")
     meta = _read_json_or(meta_path, {})
-    
     rec = meta.get(ean) or {}
     return jsonify(rec)
+
 # =================== CUSTOMERS (výbery) ===================
 def _sk_month_genitive(m: int) -> str:
     names = ["januára","februára","marca","apríla","mája","júna","júla","augusta","septembra","októbra","novembra","decembra"]
@@ -835,26 +867,29 @@ def save_product_meta():
     ean = str(data.get("ean") or "").strip()
     if not ean:
         return jsonify({"error": "Chýba EAN."}), 400
+
     desc = (data.get("description") or "").strip()
     img  = (data.get("image_url") or "").strip()
 
-    meta_path = os.path.join(B2C_DIR, "_b2c_meta.json")
-    os.makedirs(os.path.dirname(meta_path), exist_ok=True)
-    try:
-        meta = {}
-        if os.path.isfile(meta_path):
-            with open(meta_path, "r", encoding="utf-8") as f:
-                meta = json.load(f) or {}
-    except Exception:
-        meta = {}
+    _ensure_b2c_meta_table()
 
-    rec = meta.get(ean) or {}
-    if desc != "": rec["popis"]   = desc
-    if img  != "": rec["obrazok"] = img
-    meta[ean] = rec
+    db_connector.execute_query(f"""
+        INSERT INTO {B2C_META_TABLE} (ean, popis, obrazok_url)
+        VALUES (%s, %s, %s)
+        ON DUPLICATE KEY UPDATE
+            popis       = VALUES(popis),
+            obrazok_url = VALUES(obrazok_url)
+    """, (ean, desc or None, img or None), fetch="none")
 
-    _save_json(meta_path, meta)
-    return jsonify({"message": "Produktové meta uložené.", "ean": ean, "description": rec.get("popis",""), "image_url": rec.get("obrazok","")})
+    # voliteľne: môžeš ešte chvíľu zapisovať aj do JSON ako zálohu,
+    # alebo to rovno zmazať – podľa chuti
+
+    return jsonify({
+        "message": "Produktové meta uložené.",
+        "ean": ean,
+        "description": desc,
+        "image_url": img,
+    })
 
 @kancelaria_b2c_bp.post("/api/kancelaria/b2c/run_birthday_bonus")
 def run_birthday_bonus():
