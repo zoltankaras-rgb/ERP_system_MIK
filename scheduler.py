@@ -179,15 +179,15 @@ def _schedule_b2c_birthday_bonus(sched: BlockingScheduler) -> None:
         except Exception as e:
             print(f"[scheduler] B2C birthday bonus ERROR: {e}")
 
-    # napr. každý deň o 12:40 (on si už vnútri vyrieši, komu má dať bonus)
+    # napr. každý deň o 13:10 (on si už vnútri vyrieši, komu má dať bonus)
     sched.add_job(
         run_bonus_job,
-        CronTrigger(hour=12, minute=40, timezone=TZ),
+        CronTrigger(hour=13, minute=10, timezone=TZ),
         id="b2c_birthday_bonus",
         replace_existing=True,
         misfire_grace_time=600,
     )
-    print("[scheduler] B2C birthday bonus job naplánovaný (každý deň o 12:40).")
+    print("[scheduler] B2C birthday bonus job naplánovaný (každý deň o 13:10).")
 
 
 
