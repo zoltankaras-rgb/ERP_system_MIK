@@ -158,37 +158,47 @@ def _schedule_erp_export(sched: BlockingScheduler) -> None:
 
 def _schedule_b2c_birthday_bonus(sched: BlockingScheduler) -> None:
     """
-    Spúšťa B2C narodeninový bonus cez HTTP endpoint raz za mesiac.
+    Spúšťa B2C narodeninový bonus cez HTTP endpoint raz denne.
+    Volá /api/kancelaria/b2c/run_birthday_bonus s JSON telom, aby nepadal 415.
     """
     url = os.getenv("B2C_BDAY_URL", "").strip()
     secret = os.getenv("B2C_BDAY_SECRET", "").strip()
 
-    if not url or not secret:
-        print("[scheduler] B2C birthday bonus: URL alebo SECRET nie sú nastavené, úloha sa nespustí.")
+    if not url:
+        print("[scheduler] B2C birthday bonus: B2C_BDAY_URL nie je nastavené, úloha sa nespustí.")
         return
 
     def run_bonus_job():
         try:
             print("[scheduler] B2C birthday bonus: volám endpoint...")
+
+            # query parametre (secret je voliteľný)
+            params = {}
+            if secret:
+                params["secret"] = secret
+
+            # JSON telo – prázdne = normálny beh (nie dry_run)
+            payload = {}
+
             resp = requests.post(
                 url,
-                params={"secret": secret},
+                params=params,
+                json=payload,   # dôležité – pošle Content-Type: application/json
                 timeout=30,
             )
             print(f"[scheduler] B2C birthday bonus: status={resp.status_code}, body={resp.text[:200]}")
         except Exception as e:
             print(f"[scheduler] B2C birthday bonus ERROR: {e}")
 
-    # napr. každý deň o 13:10 (on si už vnútri vyrieši, komu má dať bonus)
+    # každý deň o 13:20
     sched.add_job(
         run_bonus_job,
-        CronTrigger(hour=13, minute=10, timezone=TZ),
+        CronTrigger(hour=13, minute=20, timezone=TZ),
         id="b2c_birthday_bonus",
         replace_existing=True,
         misfire_grace_time=600,
     )
-    print("[scheduler] B2C birthday bonus job naplánovaný (každý deň o 13:10).")
-
+    print("[scheduler] B2C birthday bonus job naplánovaný (každý deň o 13:20).")
 
 
 def main() -> None:
