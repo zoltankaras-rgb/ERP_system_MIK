@@ -13,7 +13,7 @@ import os
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
 from pytz import timezone
-
+import requests
 import db_connector
 import office_handler
 from tasks import (
@@ -156,6 +156,40 @@ def _schedule_erp_export(sched: BlockingScheduler) -> None:
     except Exception as e:
         print(f"[scheduler] ERP Export: chyba pri plánovaní jobu: {e}")
 
+def _schedule_b2c_birthday_bonus(sched: BlockingScheduler) -> None:
+    """
+    Spúšťa B2C narodeninový bonus cez HTTP endpoint raz za mesiac.
+    """
+    url = os.getenv("B2C_BDAY_URL", "").strip()
+    secret = os.getenv("B2C_BDAY_SECRET", "").strip()
+
+    if not url or not secret:
+        print("[scheduler] B2C birthday bonus: URL alebo SECRET nie sú nastavené, úloha sa nespustí.")
+        return
+
+    def run_bonus_job():
+        try:
+            print("[scheduler] B2C birthday bonus: volám endpoint...")
+            resp = requests.post(
+                url,
+                params={"secret": secret},
+                timeout=30,
+            )
+            print(f"[scheduler] B2C birthday bonus: status={resp.status_code}, body={resp.text[:200]}")
+        except Exception as e:
+            print(f"[scheduler] B2C birthday bonus ERROR: {e}")
+
+    # napr. každý deň o 08:00 (on si už vnútri vyrieši, komu má dať bonus)
+    sched.add_job(
+        run_bonus_job,
+        CronTrigger(hour=8, minute=0, timezone=TZ),
+        id="b2c_birthday_bonus",
+        replace_existing=True,
+        misfire_grace_time=600,
+    )
+    print("[scheduler] B2C birthday bonus job naplánovaný (každý deň o 08:00).")
+
+
 
 def main() -> None:
     """
@@ -171,6 +205,9 @@ def main() -> None:
 
     # 3. ERP Export úloha (auto export podľa nastavení v ERP)
     _schedule_erp_export(sched)
+
+    # 3b. B2C narodeninový bonus
+    _schedule_b2c_birthday_bonus(sched)
 
     # 4. Pravidelný refresh (refreshne DB úlohy AJ ERP nastavenia)
     def refresh_all():
