@@ -106,217 +106,275 @@
 
  // ----------------- 1. POD MINIMOM (S BALENÍM A SKRÝVANÍM OBJEDNANÝCH) -----------------
   async function viewUnderMin(container){
-    container.innerHTML = '<h2>Sklad → Objednávky</h2><div class="text-muted">Načítavam položky pod minimom…</div>';
+  container.innerHTML = '<h2>Sklad → Objednávky</h2><div class="text-muted">Načítavam položky pod minimom…</div>';
 
-    let data;
-    try { 
-        // Volanie API
-        data = await api.get('/api/sklad/under-min'); 
-    }
-    catch (e) { 
-        container.innerHTML = `<div class="text-danger">Chyba: ${e.message}</div>`; 
-        return; 
-    }
+  let data;
+  try{
+    data = await api.get('/api/sklad/under-min');
+  }catch(e){
+    container.innerHTML = `<div class="text-danger">Chyba: ${e.message}</div>`;
+    return;
+  }
 
-    const itemsRaw = Array.isArray(data?.items) ? data.items : [];
-    await ensureSupplierChoices();
+  const itemsRaw = Array.isArray(data && data.items) ? data.items : [];
+  await ensureSupplierChoices();
 
-    // Spracovanie dát
-    const items = itemsRaw.map(raw => {
-      const r = {...raw};
+  // Spracovanie dát z API
+  const items = itemsRaw
+    .map(raw => {
+      const r = { ...raw };
       r.nazov = r.nazov ?? r.name ?? '';
-      
-      // Detekcia BM (bežné metre pre obaly)
+
+      // Detekcia BM (bežné metre pre obaly/črevá)
       const cat = (r.category || '').toLowerCase();
       if (cat.includes('obal') || cat.includes('črev') || cat.includes('crev')) {
-          r.jednotka = 'bm';
+        r.jednotka = 'bm';
       } else {
-          r.jednotka = r.jednotka ?? r.unit ?? r.mj ?? 'kg';
+        r.jednotka = r.jednotka ?? r.unit ?? r.mj ?? 'kg';
       }
 
-      r.qty      = (r.qty ?? r.mnozstvo ?? r.quantity ?? 0);
-      r.min_qty  = (r.min_qty ?? r.min_mnozstvo ?? r.min_stav_kg ?? r.min_zasoba ?? 0);
-      
-      // Backend teraz posiela 'to_buy' už znížené o tovar na ceste (on_way).
-      // Ak backend túto logiku nemá (neprebehol update orders_handler.py), r.to_buy môže byť null.
+      r.qty     = r.qty ?? r.mnozstvo ?? r.quantity ?? 0;
+      r.min_qty = r.min_qty ?? r.min_mnozstvo ?? r.min_stav_kg ?? r.min_zasoba ?? 0;
+
+      // Backend posiela to_buy už po odrátaní "on_way"
       if (r.to_buy == null) {
-          r.to_buy = Math.max(num(r.min_qty) - num(r.qty), 0);
+        r.to_buy = Math.max(num(r.min_qty) - num(r.qty), 0);
       }
 
-      r.dodavatel_id   = r.dodavatel_id ?? r.supplier_id ?? null;
-      r.dodavatel_nazov= r.dodavatel_nazov || r.supplier_name || (r.dodavatel_id ? `Dodávateľ #${r.dodavatel_id}` : 'Bez dodávateľa');
-      
-      // Balenie info (text napr. "0.5 kg")
+      r.dodavatel_id    = r.dodavatel_id ?? r.supplier_id ?? null;
+      r.dodavatel_nazov = r.dodavatel_nazov
+                        || r.supplier_name
+                        || (r.dodavatel_id ? `Dodávateľ #${r.dodavatel_id}` : 'Bez dodávateľa');
+
+      // Balenie – text z backendu, napr. "0.5 kg"
       r.pack_info = raw.pack_info || '';
 
       return r;
     })
-    // TOTO FILTROVANIE SKRYJE POLOŽKY, KTORÉ UŽ SÚ OBJEDNANÉ (ak to_buy <= 0)
-    .filter(r => num(r.to_buy) > 0); 
+    // Zobraz len to, čo ešte treba objednať
+    .filter(r => num(r.to_buy) > 0);
 
-    // Vykreslenie hlavičky stránky
-    container.innerHTML = '';
-    container.appendChild(el('h2',{},'Sklad → Objednávky'));
+  // Hlavička + horný toolbar
+  container.innerHTML = '';
+  container.appendChild(el('h2', {}, 'Sklad → Objednávky'));
 
-    const barTop = el('div',{style:'display:flex;gap:8px;flex-wrap:wrap;margin:8px 0;align-items:center;'},
-      el('button',{class:'btn btn-secondary', onclick:()=>renderList(container)},'← Späť na zoznam'),
-      el('button',{class:'btn btn-primary',   onclick:()=>renderNewOrder(container)},'Nová objednávka')
+  const barTop = el(
+    'div',
+    { style: 'display:flex;gap:8px;flex-wrap:wrap;margin:8px 0;align-items:center;' },
+    el('button', { class: 'btn btn-secondary', onclick: () => renderList(container) }, '← Späť na zoznam'),
+    el('button', { class: 'btn btn-primary',   onclick: () => renderNewOrder(container) }, 'Nová objednávka')
+  );
+  container.appendChild(barTop);
+
+  if (!items.length){
+    container.appendChild(
+      el(
+        'div',
+        { class: 'stat-card', style: 'margin-top:10px;' },
+        'Žiadne položky pod minimom (všetko je na sklade alebo už objednané).'
+      )
     );
-    container.appendChild(barTop);
+    return;
+  }
 
-    if (!items.length){
-      container.appendChild(el('div',{class:'stat-card',style:'margin-top:8px'},'Žiadne položky pod minimom (všetko je na sklade alebo už objednané).'));
-      return;
+  // Zoskupenie podľa dodávateľa
+  const groupsMap = new Map();
+  const keyOf = (r) => {
+    const id   = r.dodavatel_id ?? null;
+    const name = (r.dodavatel_nazov || '').trim() || (id ? `Dodávateľ #${id}` : 'Bez dodávateľa');
+    return `${id || ''}|${name}`;
+  };
+
+  for (const r of items){
+    const k = keyOf(r);
+    if (!groupsMap.has(k)){
+      const [idStr, name] = k.split('|');
+      groupsMap.set(k, {
+        id: idStr ? Number(idStr) : null,
+        nazov: name,
+        rows: []
+      });
+    }
+    groupsMap.get(k).rows.push(r);
+  }
+
+  const groups = Array.from(groupsMap.values())
+    .sort((a,b) => (a.nazov || '').localeCompare(b.nazov || '', 'sk'));
+
+  // Vykreslenie kariet pre dodávateľov
+  for (const g of groups){
+    const card = el('div', { class: 'stat-card', style: 'margin:10px 0;' });
+
+    // Hlavička skupiny
+    const titleRow = el(
+      'div',
+      { style: 'display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px;' }
+    );
+    titleRow.appendChild(
+      el('h3', { style: 'margin:0;' }, g.nazov || 'Bez dodávateľa')
+    );
+
+    let supSel = null;
+    let supId = g.id ?? null;
+    let supName = g.nazov || '';
+
+    if (!g.id){
+      supSel = el('select', { style: 'min-width:260px' });
+      supSel.appendChild(el('option', { value: '' }, '— vyber dodávateľa —'));
+      (SUP_CHOICES || []).forEach(s => {
+        const optName = s.nazov || s.name || '';
+        const opt = el('option', { value: s.id ?? '', 'data-name': optName }, optName);
+        supSel.appendChild(opt);
+      });
+      supSel.addEventListener('change', () => {
+        const opt = supSel.options[supSel.selectedIndex];
+        supId = opt && opt.value ? Number(opt.value) : null;
+        supName = opt ? (opt.getAttribute('data-name') || opt.textContent || '') : '';
+      });
+      titleRow.appendChild(supSel);
     }
 
-    // Zoskupenie podľa dodávateľov
-    const groupsMap = new Map();
-    const keyOf = (r) => {
-      const id   = r.dodavatel_id ?? null;
-      const name = (r.dodavatel_nazov || '').trim() || (id ? `Dodávateľ #${id}` : 'Bez dodávateľa');
-      return `${id || ''}|${name}`;
-    };
+    const chkAll = el('input', { type: 'checkbox' });
+    const selectAllWrap = el(
+      'label',
+      { style: 'margin-left:auto;display:flex;align-items:center;gap:4px;cursor:pointer;' },
+      chkAll,
+      document.createTextNode('Vybrať všetko')
+    );
+    titleRow.appendChild(selectAllWrap);
 
-    for (const r of items){
-      const k = keyOf(r);
-      if (!groupsMap.has(k)){
-        const [idStr, name] = k.split('|');
-        groupsMap.set(k, { id: idStr? Number(idStr) : null, nazov: name, rows: [] });
-      }
-      groupsMap.get(k).rows.push(r);
-    }
+    const btnCreate = el(
+      'button',
+      { class: 'btn btn-success' },
+      `Vytvoriť návrh pre „${g.nazov}”`
+    );
+    titleRow.appendChild(btnCreate);
 
-    const groups = Array.from(groupsMap.values()).sort((a,b)=> (a.nazov||'').localeCompare(b.nazov||'','sk'));
+    card.appendChild(titleRow);
 
-    // Vykreslenie kariet dodávateľov
-    for (const g of groups){
-      const card = el('div',{class:'stat-card',style:'margin:10px 0;'});
-      
-      // Hlavička skupiny (Dodávateľ)
-      const titleRow = el('div',{style:'display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px;'});
-      titleRow.appendChild(el('h3',{style:'margin:0;'}, g.nazov || 'Bez dodávateľa'));
+    const tbl = el('table', { class: 'table', style: 'width:100%; border-collapse:collapse;' });
 
-      let supSel = null;
-      if (!g.id){
-        supSel = el('select',{style:'min-width:260px'});
-        supSel.appendChild(el('option',{value:''},'— vyber dodávateľa —'));
-        (SUP_CHOICES||[]).forEach(s => supSel.appendChild(el('option',{value:String(s.id??''), 'data-name': s.nazov||s.name||''}, s.nazov||s.name||'')));
-        titleRow.appendChild(supSel);
-      }
+    // HLAVIČKA TABUĽKY (11 stĺpcov, vrátane "Balenie")
+    tbl.appendChild(
+      el('thead', {}, el('tr', {},
+        el('th', {}, ''),
+        el('th', {}, '#'),
+        el('th', {}, 'EAN'),
+        el('th', {}, 'Názov'),
+        el('th', {}, 'Balenie'),   // 5. stĺpec – balenie
+        el('th', {}, 'Jedn.'),
+        el('th', {}, 'Na sklade'),
+        el('th', {}, 'Min'),
+        el('th', {}, 'Navrhnúť'),
+        el('th', {}, 'Cena'),
+        el('th', {}, 'Posl.')
+      ))
+    );
+    const tb = el('tbody', {});
+    tbl.appendChild(tb);
 
-      const chkAll = el('input',{type:'checkbox'});
-      const selectAllWrap = el('label', {style:'margin-left:auto;display:flex;gap:6px;align-items:center;'}, chkAll, document.createTextNode('Vybrať všetko'));
-      titleRow.appendChild(selectAllWrap);
+    const rowRefs = [];
 
-      const btnCreate = el('button',{class:'btn btn-success'}, `Vytvoriť návrh pre „${g.nazov}”`);
-      titleRow.appendChild(btnCreate);
-      card.appendChild(titleRow);
+    // Riadky tabuľky
+    g.rows.forEach((r, i) => {
+      const toBuy = num(r.to_buy);
+      const cb    = el('input', { type: 'checkbox', checked: toBuy > 0 });
+      const qty   = el('input', { type: 'number', step: '0.001', value: toBuy.toFixed(3), style: 'width:110px' });
+      const initPrice = (r.last_price ?? r.price ?? r.default_price ?? '');
+      const price = el('input', { type: 'number', step: '0.0001', value: initPrice, style: 'width:110px' });
 
-      const tbl = el('table',{class:'table',style:'width:100%; border-collapse:collapse;'});
-      
-      // --- HLAVIČKA TABUĽKY (11 stĺpcov) ---
-      // Pridaný 5. stĺpec "Balenie"
-      tbl.appendChild(el('thead',{}, el('tr',{},
-        el('th',{},''),
-        el('th',{},'#'),
-        el('th',{},'EAN'),
-        el('th',{},'Názov'),
-        el('th',{},'Balenie'), // <--- TOTO SA MUSÍ ZOBRAZIŤ
-        el('th',{},'Jedn.'),
-        el('th',{},'Na sklade'),
-        el('th',{},'Min'),
-        el('th',{},'Navrhnúť'),
-        el('th',{},'Cena'),
-        el('th',{},'Posl.')
-      )));
-      const tb = el('tbody',{}); tbl.appendChild(tb);
-      const rowRefs = [];
-
-      // Riadky tabuľky
-      g.rows.forEach((r,i)=>{
-        const toBuy = num(r.to_buy);
-        const cb   = el('input',{type:'checkbox', checked: toBuy > 0});
-        const qty  = el('input',{type:'number', step:'0.001', value: toBuy.toFixed(3), style:'width:110px'});
-        const initPrice = (r.last_price ?? r.price ?? r.default_price ?? '');
-        const price = el('input',{type:'number', step:'0.0001', value: initPrice, style:'width:110px'});
-
-        const btnLP = el('button',{class:'btn btn-secondary', onclick: async ()=>{
+      const btnLP = el('button', {
+        class: 'btn btn-secondary',
+        onclick: async () => {
           try{
             let url;
-            if (r.id!=null) url = `/api/objednavky/last-price?sklad_id=${r.id}`;
-            else            url = `/api/objednavky/last-price?nazov=${encodeURIComponent(r.nazov)}`;
-            const dodName = g.nazov || (supSel && supSel.options[supSel.selectedIndex]?.getAttribute('data-name')) || '';
+            if (r.id != null) url = `/api/objednavky/last-price?sklad_id=${r.id}`;
+            else              url = `/api/objednavky/last-price?nazov=${encodeURIComponent(r.nazov)}`;
+            const dodName = g.nazov
+              || (supSel && supSel.options[supSel.selectedIndex]?.getAttribute('data-name'))
+              || '';
             if (dodName) url += `&dodavatel_nazov=${encodeURIComponent(dodName)}`;
             const lp = await api.get(url);
-            if (lp && lp.cena!=null) price.value = lp.cena;
+            if (lp && lp.cena != null) price.value = lp.cena;
           }catch(_){}
-        }}, 'Posl. cena');
-
-        // Badge pre Balenie
-        const packBadge = r.pack_info 
-            ? el('span', {
-                style: 'background:#e0f2fe; color:#0369a1; padding:2px 6px; border-radius:4px; font-size:0.85em; white-space:nowrap; display:inline-block;'
-              }, r.pack_info) 
-            : document.createTextNode('');
-
-        // Vykreslenie buniek (11 stĺpcov)
-        tb.appendChild(el('tr',{},
-          el('td',{}, cb),
-          el('td',{}, String(i+1)),
-          el('td',{style:'font-family: monospace; font-size: 0.9em; color:#555;'}, pickEAN(r)),
-          el('td',{style:'font-weight:500'}, r.nazov),
-          el('td',{}, packBadge), // <--- 5. BUNKA (Balenie)
-          el('td',{}, r.jednotka || 'kg'),
-          el('td',{}, fmt(r.qty)),
-          el('td',{}, fmt(r.min_qty)),
-          el('td',{}, qty),
-          el('td',{}, price),
-          el('td',{}, btnLP)
-        ));
-        rowRefs.push({ r, cb, qty, price });
-      });
-
-      chkAll.addEventListener('change', ()=> { rowRefs.forEach(ref => { ref.cb.checked = chkAll.checked; }); });
-
-      // Akcia pre vytvorenie objednávky
-      btnCreate.addEventListener('click', async ()=>{
-        let supId = g.id, supName = g.nazov;
-        if (!supId && supSel){
-          const opt = supSel.options[supSel.selectedIndex];
-          supId   = opt && opt.value ? Number(opt.value) : null;
-          supName = (opt && opt.getAttribute('data-name')) || supName;
         }
-        if (!supId && !supName){ alert('Vyber dodávateľa pre túto skupinu.'); return; }
+      }, 'Posl. cena');
 
-        const polozky = [];
-        for (const ref of rowRefs){
-          if (!ref.cb.checked) continue;
-          const q = parseFloat(ref.qty.value||0);
-          if (!(q > 0)) continue;
-          polozky.push({
-            sklad_id: ref.r.id ?? null,
-            nazov: ref.r.nazov,
-            jednotka: ref.r.jednotka || 'kg',
-            mnozstvo: q,
-            cena_predpoklad: (ref.price.value==='' ? null : parseFloat(ref.price.value||0))
-          });
-        }
-        if (!polozky.length){ alert('Vyber aspoň jednu položku.'); return; }
+      // Badge pre Balenie
+      const packBadge = r.pack_info
+        ? el('span', {
+            style: 'background:#e0f2fe;color:#0369a1;padding:2px 6px;border-radius:4px;font-size:0.85em;white-space:nowrap;display:inline-block;'
+          }, r.pack_info)
+        : document.createTextNode('');
 
-        try{
-          const body = { dodavatel_id: supId ?? null, dodavatel_nazov: supName || null, datum_objednania: today(), polozky };
-          const res = await api.post('/api/objednavky', body);
-          alert(`Návrh objednávky vytvorený${res.cislo ? `: ${res.cislo}` : ''}.`);
-          
-          // Obnoviť zoznam (položky by mali zmiznúť, ak ich backend započíta ako "on_way")
-          viewUnderMin(container);
-        }catch(e){ alert(`Chyba: ${e.message}`); }
+      const tr = el('tr', {},
+        el('td', {}, cb),
+        el('td', {}, String(i + 1)),
+        el('td', { style: 'font-family: monospace; font-size: 0.9em; color:#555;' }, pickEAN(r)),
+        el('td', { style: 'font-weight:500' }, r.nazov),
+        el('td', {}, packBadge),           // 5. bunka – Balenie
+        el('td', {}, r.jednotka || 'kg'),
+        el('td', {}, fmt(r.qty)),
+        el('td', {}, fmt(r.min_qty)),
+        el('td', {}, qty),
+        el('td', {}, price),
+        el('td', {}, btnLP)
+      );
+
+      tb.appendChild(tr);
+      rowRefs.push({ r, cb, qty, price });
+    });
+
+    // "Vybrať všetko"
+    chkAll.addEventListener('change', () => {
+      rowRefs.forEach(ref => {
+        ref.cb.checked = chkAll.checked;
       });
+    });
 
-      card.appendChild(tbl);
-      container.appendChild(card);
-    }
+    // Klik na "Vytvoriť návrh" – uloží objednávku a znovu načíta pod-minimom
+    btnCreate.addEventListener('click', async () => {
+      const polozky = [];
+      for (const ref of rowRefs){
+        if (!ref.cb.checked) continue;
+        const q = parseFloat(ref.qty.value || 0);
+        if (!(q > 0)) continue;
+        polozky.push({
+          sklad_id: ref.r.id ?? null,
+          nazov: ref.r.nazov,
+          jednotka: ref.r.jednotka || 'kg',
+          mnozstvo: q,
+          cena_predpoklad: (ref.price.value === '' ? null : parseFloat(ref.price.value || 0))
+        });
+      }
+
+      if (!polozky.length){
+        alert('Vyber aspoň jednu položku.');
+        return;
+      }
+
+      const body = {
+        dodavatel_id: supId ?? null,
+        dodavatel_nazov: (supName || g.nazov || '').trim() || null,
+        datum_objednania: today(),
+        polozky
+      };
+
+      try{
+        const res = await api.post('/api/objednavky', body);
+        alert(`Návrh objednávky vytvorený${res.cislo ? `: ${res.cislo}` : ''}.`);
+        // Po vytvorení objednávky znovu načítaj "Pod minimom"
+        viewUnderMin(container);
+      }catch(e){
+        alert(`Chyba: ${e.message}`);
+      }
+    });
+
+    card.appendChild(tbl);
+    container.appendChild(card);
   }
+}
+
   // ----------------- 2. ZOZNAM OBJEDNÁVOK (S MAZANÍM A DÁTUMOM) -----------------
   async function renderList(container){
     container.innerHTML = '<h2>Objednávky</h2><div class="text-muted">Načítavam…</div>';
