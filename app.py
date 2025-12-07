@@ -38,6 +38,7 @@ from apscheduler.triggers.cron import CronTrigger # type: ignore
 import atexit
 from flask import Blueprint, request, jsonify
 import mail_handler
+import hr_handler
 
 
 # ===================== ENTERPRISE KALENDÁR – KONŠTANTY =========================
@@ -3888,6 +3889,76 @@ def hygiene_report_page():
     }
     html = hygiene_handler.get_hygiene_report_html(filters)
     return make_response(html)
+
+# =================================================================
+# === HR & DOCHÁDZKA (Kancelária) ================================
+# =================================================================
+
+@app.get('/api/kancelaria/hr/employees')
+@login_required(role=('kancelaria','veduci','admin'))
+def hr_employees_list():
+    return handle_request(hr_handler.list_employees)
+
+
+@app.post('/api/kancelaria/hr/employee/save')
+@login_required(role=('kancelaria','veduci','admin'))
+def hr_employee_save():
+    data = request.get_json(silent=True) or {}
+    return handle_request(hr_handler.save_employee, data)
+
+
+@app.post('/api/kancelaria/hr/employee/delete')
+@login_required(role=('kancelaria','veduci','admin'))
+def hr_employee_delete():
+    data = request.get_json(silent=True) or {}
+    return handle_request(hr_handler.delete_employee, data.get('id'))
+
+
+@app.get('/api/kancelaria/hr/attendance')
+@login_required(role=('kancelaria','veduci','admin'))
+def hr_attendance_list():
+    return handle_request(hr_handler.list_attendance, request.args)
+
+
+@app.post('/api/kancelaria/hr/attendance/save')
+@login_required(role=('kancelaria','veduci','admin'))
+def hr_attendance_save():
+    data = request.get_json(silent=True) or {}
+    return handle_request(hr_handler.save_attendance, data)
+
+
+@app.post('/api/kancelaria/hr/attendance/delete')
+@login_required(role=('kancelaria','veduci','admin'))
+def hr_attendance_delete():
+    data = request.get_json(silent=True) or {}
+    return handle_request(hr_handler.delete_attendance, data)
+
+
+@app.get('/api/kancelaria/hr/leaves')
+@login_required(role=('kancelaria','veduci','admin'))
+def hr_leaves_list():
+    return handle_request(hr_handler.list_leaves, request.args)
+
+
+@app.post('/api/kancelaria/hr/leave/save')
+@login_required(role=('kancelaria','veduci','admin'))
+def hr_leave_save():
+    data = request.get_json(silent=True) or {}
+    return handle_request(hr_handler.save_leave, data)
+
+
+@app.post('/api/kancelaria/hr/leave/delete')
+@login_required(role=('kancelaria','veduci','admin'))
+def hr_leave_delete():
+    data = request.get_json(silent=True) or {}
+    return handle_request(hr_handler.delete_leave, data)
+
+
+@app.get('/api/kancelaria/hr/summary')
+@login_required(role=('kancelaria','veduci','admin'))
+def hr_labor_summary():
+    return handle_request(hr_handler.get_labor_summary, request.args)
+
 
 # =================================================================
 # === PROFITABILITY (Kancelária) ===
