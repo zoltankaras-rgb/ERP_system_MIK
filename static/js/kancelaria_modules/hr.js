@@ -29,7 +29,6 @@
       this.dom.section = document.getElementById('section-hr');
       if (!this.dom.section) return;
 
-      // nakresli layout, ak je sekcia prázdna
       if (!this.dom.section.hasChildNodes()) {
         this.renderLayout();
       }
@@ -42,7 +41,7 @@
       this.bindSummary();
 
       this.initDefaultDates();
-      this.switchTab('employees'); // default karta
+      this.switchTab('employees');
 
       this.loadEmployees()
         .then(() => {
@@ -54,7 +53,7 @@
     },
 
     // ------------------------------------------------------------------
-    // LAYOUT – všetko UI sa kreslí tu
+    // LAYOUT
     // ------------------------------------------------------------------
     renderLayout() {
       this.dom.section.innerHTML = `
@@ -157,7 +156,7 @@
                           <th>Sekcia</th>
                           <th>Mzda</th>
                           <th>Dovolenka (nárok / čerpané / zostatok)</th>
-                          <th style="width:90px;"></th>
+                          <th style="width:110px;">Akcie</th>
                         </tr>
                       </thead>
                       <tbody></tbody>
@@ -255,7 +254,7 @@
                           <th>Odchod</th>
                           <th>Hodiny</th>
                           <th>Poznámka</th>
-                          <th style="width:90px;"></th>
+                          <th style="width:110px;">Akcie</th>
                         </tr>
                       </thead>
                       <tbody></tbody>
@@ -357,7 +356,7 @@
                           <th>Typ</th>
                           <th>Dni</th>
                           <th>Poznámka</th>
-                          <th style="width:90px;"></th>
+                          <th style="width:110px;">Akcie</th>
                         </tr>
                       </thead>
                       <tbody></tbody>
@@ -443,13 +442,11 @@
     },
 
     switchTab(tabName) {
-      // panely
       this.dom.tabPanels.forEach(panel => {
         const name = panel.getAttribute('data-hr-panel');
         panel.style.display = (name === tabName) ? 'block' : 'none';
       });
 
-      // tlačidlá
       this.dom.tabButtons.forEach(btn => {
         const name = btn.getAttribute('data-hr-tab');
         if (name === tabName) {
@@ -572,8 +569,12 @@
           <td>${(emp.monthly_salary || 0).toFixed(2)} €</td>
           <td>${vacTotal.toFixed(1)} / ${vacUsed.toFixed(1)} / ${vacBal.toFixed(1)}</td>
           <td>
-            <button class="btn btn-sm btn-secondary hr-emp-edit" data-id="${emp.id}">Upraviť</button>
-            <button class="btn btn-sm btn-danger hr-emp-delete" data-id="${emp.id}">X</button>
+            <button class="btn btn-sm btn-secondary hr-emp-edit" data-id="${emp.id}" title="Upraviť">
+              <i class="fas fa-pen"></i>
+            </button>
+            <button class="btn btn-sm btn-danger hr-emp-delete" data-id="${emp.id}" title="Vymazať">
+              <i class="fas fa-trash"></i>
+            </button>
           </td>
         `;
         this.dom.empTableBody.appendChild(tr);
@@ -668,10 +669,12 @@
     },
 
     async deleteEmployee(id) {
-      if (!confirm('Naozaj chceš vymazať zamestnanca?')) return;
+      if (!confirm('Naozaj chceš vymazať zamestnanca? Odstránia sa aj jeho dochádzky a neprítomnosti.')) return;
       try {
         await api.post('/api/kancelaria/hr/employee/delete', { id });
         await this.loadEmployees();
+        await this.loadAttendance();
+        await this.loadLeaves();
       } catch (err) {
         alert(err.message || 'Chyba pri mazaní zamestnanca.');
       }
@@ -754,8 +757,12 @@
           <td>${hoursStr}</td>
           <td>${it.note || ''}</td>
           <td>
-            <button class="btn btn-sm btn-secondary hr-att-edit" data-id="${it.id}">Upraviť</button>
-            <button class="btn btn-sm btn-danger hr-att-delete" data-id="${it.id}">X</button>
+            <button class="btn btn-sm btn-secondary hr-att-edit" data-id="${it.id}" title="Upraviť">
+              <i class="fas fa-pen"></i>
+            </button>
+            <button class="btn btn-sm btn-danger hr-att-delete" data-id="${it.id}" title="Vymazať">
+              <i class="fas fa-trash"></i>
+            </button>
           </td>
         `;
         this.dom.attTableBody.appendChild(tr);
@@ -786,6 +793,7 @@
       try {
         await api.post('/api/kancelaria/hr/attendance/delete', { id });
         await this.loadAttendance();
+        await this.loadSummary();
       } catch (err) {
         alert(err.message || 'Chyba pri mazaní dochádzky.');
       }
@@ -872,8 +880,12 @@
           <td>${Number(it.days_count || 0).toFixed(2)}</td>
           <td>${it.note || ''}</td>
           <td>
-            <button class="btn btn-sm btn-secondary hr-leave-edit" data-id="${it.id}">Upraviť</button>
-            <button class="btn btn-sm btn-danger hr-leave-delete" data-id="${it.id}">X</button>
+            <button class="btn btn-sm btn-secondary hr-leave-edit" data-id="${it.id}" title="Upraviť">
+              <i class="fas fa-pen"></i>
+            </button>
+            <button class="btn btn-sm btn-danger hr-leave-delete" data-id="${it.id}" title="Vymazať">
+              <i class="fas fa-trash"></i>
+            </button>
           </td>
         `;
         this.dom.leaveTableBody.appendChild(tr);
@@ -901,11 +913,12 @@
     },
 
     async deleteLeave(id) {
-      if (!confirm('Zmazať neprítomnosť?')) return;
+      if (!confirm('Zmazať neprítomnosť? Pri dovolenke sa vráti nárok späť.')) return;
       try {
         await api.post('/api/kancelaria/hr/leave/delete', { id });
         await this.loadLeaves();
         await this.loadEmployees(); // refresh zostatkov dovolenky
+        await this.loadSummary();
       } catch (err) {
         alert(err.message || 'Chyba pri mazaní neprítomnosti.');
       }
