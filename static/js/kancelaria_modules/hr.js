@@ -566,7 +566,8 @@
         tr.innerHTML = `
           <td>${emp.full_name}</td>
           <td>${emp.section}</td>
-          <td>${(emp.monthly_salary || 0).toFixed(2)} €</td>
+          <td>${Number(emp.monthly_salary || 0).toFixed(2)} €</td>
+
           <td>${vacTotal.toFixed(1)} / ${vacUsed.toFixed(1)} / ${vacBal.toFixed(1)}</td>
           <td>
             <button class="btn btn-sm btn-secondary hr-emp-edit" data-id="${emp.id}" title="Upraviť">
