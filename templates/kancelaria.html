@@ -79,8 +79,8 @@
           <li><a class="sidebar-link" data-section="section-fleet"><i class="fas fa-truck"></i> Vozový park</a></li>
           <li><a class="sidebar-link" data-section="section-hygiene"><i class="fas fa-soap"></i> Hygienický režim</a></li>
 
-          <!-- NOVÉ: HR modul -->
-          <li><a class="sidebar-link" data-section="section-hr"><i class="fas fa-user-tie"></i> HR / Dochádzka</a></li>
+          <!-- NOVÉ: HR / Dochádzka -->
+          <li><a class="sidebar-link" data-section="section-hr"><i class="fas fa-user-clock"></i> HR / Dochádzka</a></li>
 
           <li><a class="sidebar-link" data-section="section-mail"><i class="fas fa-envelope"></i> Pošta</a></li>
           <li><a class="sidebar-link" data-section="section-sms-connector"><i class="fas fa-sms"></i> SMS Connector</a></li>
@@ -118,8 +118,10 @@
         <div id="section-fleet" class="content-section"></div>
         <div id="section-hygiene" class="content-section"></div>
 
-        <!-- NOVÉ: HR modul kontajner -->
-        <div id="section-hr" class="content-section"></div>
+        <!-- NOVÉ: HR / Dochádzka -->
+        <div id="section-hr" class="content-section">
+          <!-- obsah sem nakreslí / doplní hr.js -->
+        </div>
 
         <!-- Pošta -->
         <div id="section-mail" class="content-section"></div>
@@ -173,12 +175,11 @@
   <script src="/static/js/kancelaria_modules/orders.js" defer></script>
   <script src="/static/js/kancelaria_modules/temps.js" defer></script>
   <script src="/static/js/kancelaria_modules/mail.js" defer></script>
-  <!-- NOVÉ: SMS Connector modul -->
-  <script src="/static/js/kancelaria_modules/sms_connector.js" defer></script>
   <script src="/static/js/kancelaria_modules/meat_calc.js" defer></script>
   <script src="/static/js/kancelaria_modules/import_export.js" defer></script>
   <!-- NOVÉ: frontend modul pre Enterprise Plánovací Kalendár -->
   <script src="/static/js/kancelaria_modules/calendar.js" defer></script>
+  <!-- NOVÉ: frontend modul pre HR / Dochádzka -->
   <script src="/static/js/kancelaria_modules/hr.js" defer></script>
 
   <script src="/static/js/kancelaria.js" defer></script>
