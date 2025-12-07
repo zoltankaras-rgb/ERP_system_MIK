@@ -26,8 +26,19 @@
     dom: {},
 
     init() {
+      this.dom.section = document.getElementById('section-hr');
+      if (!this.dom.section) return; // sekcia neexistuje
+
+      // ak je sekcia prázdna, nakreslíme celé UI
+      if (!this.dom.section.hasChildNodes()) {
+        this.renderLayout();
+      }
+
       this.cacheDom();
-      if (!this.dom.section) return; // stránka ešte nie je načítaná
+      if (!this.dom.empForm) {
+        // niečo je zle s layoutom, radšej skončíme
+        return;
+      }
 
       this.bindEmployeeForm();
       this.bindAttendanceForm();
@@ -42,8 +53,289 @@
       }).catch(console.error);
     },
 
+    // Vykreslí celé HR UI do section-hr
+    renderLayout() {
+      this.dom.section.innerHTML = `
+        <h2>HR & dochádzka</h2>
+
+        <div class="hr-grid">
+          <!-- Zamestnanci -->
+          <section class="card hr-card">
+            <h3>Zamestnanci</h3>
+
+            <form id="hr-employee-form" class="form-grid">
+              <input type="hidden" id="hr-employee-id" />
+
+              <div class="form-group">
+                <label for="hr-employee-name">Meno</label>
+                <input type="text" id="hr-employee-name" required />
+              </div>
+
+              <div class="form-group">
+                <label for="hr-employee-code">Kód (interný / píchačka)</label>
+                <input type="text" id="hr-employee-code" />
+              </div>
+
+              <div class="form-group">
+                <label for="hr-employee-punch">Kód z píchačky</label>
+                <input type="text" id="hr-employee-punch" />
+              </div>
+
+              <div class="form-group">
+                <label for="hr-employee-section">Sekcia</label>
+                <select id="hr-employee-section">
+                  <option value="VYROBA">Výroba</option>
+                  <option value="EXPEDICIA">Expedícia</option>
+                  <option value="ROZVOZ">Rozvoz</option>
+                  <option value="ADMIN">Admin</option>
+                  <option value="INE">Iné</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label for="hr-employee-salary">Mesačná mzda (EUR)</label>
+                <input type="number" step="0.01" id="hr-employee-salary" />
+              </div>
+
+              <div class="form-group">
+                <label for="hr-employee-base-hours">Norma hodín / mesiac</label>
+                <input type="number" step="0.01" id="hr-employee-base-hours" value="168" />
+              </div>
+
+              <div class="form-group">
+                <label for="hr-employee-vacation-total">Nárok na dovolenku (dni/rok)</label>
+                <input type="number" step="0.5" id="hr-employee-vacation-total" />
+              </div>
+
+              <div class="form-group">
+                <label for="hr-employee-active">Aktívny</label>
+                <input type="checkbox" id="hr-employee-active" checked />
+              </div>
+
+              <div class="form-actions">
+                <button type="submit" class="btn btn-primary">Uložiť</button>
+                <button type="button" id="hr-employee-reset" class="btn btn-secondary">Nový</button>
+              </div>
+            </form>
+
+            <table class="table" id="hr-employees-table">
+              <thead>
+                <tr>
+                  <th>Meno</th>
+                  <th>Sekcia</th>
+                  <th>Mzda</th>
+                  <th>Dovolenka (nárok / čerpané / zostatok)</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </section>
+
+          <!-- Dochádzka -->
+          <section class="card hr-card">
+            <h3>Dochádzka</h3>
+
+            <div class="filters-row">
+              <label>Od: <input type="date" id="hr-att-date-from" /></label>
+              <label>Do: <input type="date" id="hr-att-date-to" /></label>
+              <label>Zamestnanec:
+                <select id="hr-att-employee-filter">
+                  <option value="">Všetci</option>
+                </select>
+              </label>
+              <button type="button" id="hr-att-filter-btn" class="btn btn-secondary">Načítať</button>
+            </div>
+
+            <form id="hr-att-form" class="form-grid small">
+              <input type="hidden" id="hr-att-id" />
+
+              <div class="form-group">
+                <label for="hr-att-employee">Zamestnanec</label>
+                <select id="hr-att-employee"></select>
+              </div>
+
+              <div class="form-group">
+                <label for="hr-att-date">Dátum</label>
+                <input type="date" id="hr-att-date" required />
+              </div>
+
+              <div class="form-group">
+                <label for="hr-att-time-in">Príchod</label>
+                <input type="time" id="hr-att-time-in" />
+              </div>
+
+              <div class="form-group">
+                <label for="hr-att-time-out">Odchod</label>
+                <input type="time" id="hr-att-time-out" />
+              </div>
+
+              <div class="form-group">
+                <label for="hr-att-section-override">Sekcia (prepis)</label>
+                <select id="hr-att-section-override">
+                  <option value="">(podľa zamestnanca)</option>
+                  <option value="VYROBA">Výroba</option>
+                  <option value="EXPEDICIA">Expedícia</option>
+                  <option value="ROZVOZ">Rozvoz</option>
+                  <option value="ADMIN">Admin</option>
+                  <option value="INE">Iné</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label for="hr-att-note">Poznámka</label>
+                <input type="text" id="hr-att-note" />
+              </div>
+
+              <div class="form-actions">
+                <button type="submit" class="btn btn-primary">Uložiť</button>
+                <button type="button" id="hr-att-reset" class="btn btn-secondary">Nový</button>
+              </div>
+            </form>
+
+            <table class="table" id="hr-att-table">
+              <thead>
+                <tr>
+                  <th>Dátum</th>
+                  <th>Meno</th>
+                  <th>Sekcia</th>
+                  <th>Príchod</th>
+                  <th>Odchod</th>
+                  <th>Hodiny</th>
+                  <th>Poznámka</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </section>
+        </div>
+
+        <!-- Neprítomnosti -->
+        <section class="card hr-card">
+          <h3>Neprítomnosti (PN, dovolenka, priepustky)</h3>
+
+          <div class="filters-row">
+            <label>Od: <input type="date" id="hr-leave-from" /></label>
+            <label>Do: <input type="date" id="hr-leave-to" /></label>
+            <label>Zamestnanec:
+              <select id="hr-leave-employee-filter">
+                <option value="">Všetci</option>
+              </select>
+            </label>
+            <button type="button" id="hr-leave-filter-btn" class="btn btn-secondary">Načítať</button>
+          </div>
+
+          <form id="hr-leave-form" class="form-grid small">
+            <input type="hidden" id="hr-leave-id" />
+
+            <div class="form-group">
+              <label for="hr-leave-employee">Zamestnanec</label>
+              <select id="hr-leave-employee"></select>
+            </div>
+
+            <div class="form-group">
+              <label for="hr-leave-from-date">Od</label>
+              <input type="date" id="hr-leave-from-date" required />
+            </div>
+
+            <div class="form-group">
+              <label for="hr-leave-to-date">Do</label>
+              <input type="date" id="hr-leave-to-date" required />
+            </div>
+
+            <div class="form-group">
+              <label for="hr-leave-type">Typ</label>
+              <select id="hr-leave-type">
+                <option value="VACATION">Dovolenka</option>
+                <option value="SICK">PN</option>
+                <option value="PASS">Priepustka</option>
+                <option value="OTHER">Iné</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label><input type="checkbox" id="hr-leave-full-day" checked /> Celé dni</label>
+            </div>
+
+            <div class="form-group">
+              <label for="hr-leave-hours">Hodiny (ak nie celé dni)</label>
+              <input type="number" step="0.25" id="hr-leave-hours" />
+            </div>
+
+            <div class="form-group">
+              <label for="hr-leave-note">Poznámka</label>
+              <input type="text" id="hr-leave-note" />
+            </div>
+
+            <div class="form-actions">
+              <button type="submit" class="btn btn-primary">Uložiť</button>
+              <button type="button" id="hr-leave-reset" class="btn btn-secondary">Nový</button>
+            </div>
+          </form>
+
+          <table class="table" id="hr-leave-table">
+            <thead>
+              <tr>
+                <th>Dátum od</th>
+                <th>Dátum do</th>
+                <th>Meno</th>
+                <th>Typ</th>
+                <th>Dni</th>
+                <th>Poznámka</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </section>
+
+        <!-- Súhrn nákladov -->
+        <section class="card hr-card">
+          <h3>Náklady na prácu & cena práce na 1 kg</h3>
+
+          <div class="filters-row">
+            <label>Od: <input type="date" id="hr-sum-from" /></label>
+            <label>Do: <input type="date" id="hr-sum-to" /></label>
+            <button type="button" id="hr-sum-refresh" class="btn btn-secondary">Prepočítať</button>
+          </div>
+
+          <div id="hr-sum-totals" class="totals-row">
+            <!-- vyplní JS -->
+          </div>
+
+          <h4>Podiel podľa sekcie</h4>
+          <table class="table" id="hr-sum-sections-table">
+            <thead>
+              <tr>
+                <th>Sekcia</th>
+                <th>Hodiny</th>
+                <th>Náklady (€)</th>
+                <th>€/kg</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+
+          <h4>Detail podľa zamestnanca</h4>
+          <table class="table" id="hr-sum-employees-table">
+            <thead>
+              <tr>
+                <th>Meno</th>
+                <th>Sekcia</th>
+                <th>Hodiny</th>
+                <th>€/hod</th>
+                <th>Náklady (€)</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </section>
+      `;
+    },
+
     cacheDom() {
-      this.dom.section = document.getElementById('section-hr');
+      // sekcia je už nastavená v init()
 
       // zamestnanci
       this.dom.empForm = document.getElementById('hr-employee-form');
@@ -317,13 +609,18 @@
 
         const fmtTime = t => (t || '').toString().slice(0, 5);
 
+        const hoursVal = it.worked_hours || 0;
+        const hoursStr = (typeof hoursVal === 'number'
+          ? hoursVal
+          : Number(hoursVal || 0)).toFixed(2);
+
         tr.innerHTML = `
           <td>${(it.work_date || '').slice(0, 10)}</td>
           <td>${it.full_name || ''}</td>
           <td>${it.section_override || it.section || ''}</td>
           <td>${fmtTime(it.time_in)}</td>
           <td>${fmtTime(it.time_out)}</td>
-          <td>${(it.worked_hours || 0).toFixed ? it.worked_hours.toFixed(2) : Number(it.worked_hours || 0).toFixed(2)}</td>
+          <td>${hoursStr}</td>
           <td>${it.note || ''}</td>
           <td>
             <button class="btn btn-sm btn-secondary hr-att-edit" data-id="${it.id}">Upraviť</button>
