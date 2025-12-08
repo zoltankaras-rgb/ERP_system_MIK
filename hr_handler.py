@@ -233,46 +233,73 @@ def delete_employee(emp_id: Any) -> Dict[str, Any]:
 def list_attendance(params: Dict[str, Any]) -> Dict[str, Any]:
     """
     Vracia zoznam dochádzky podľa dátumu/employee_id.
+    JOIN na zamestnancov robíme v Pythone, aby SQL bolo čo najjednoduchšie.
     """
     _ensure_schema()
     d_from = _parse_date(params.get("date_from")) or date.today().replace(day=1)
     d_to = _parse_date(params.get("date_to")) or date.today()
     emp_id = params.get("employee_id")
 
-    where = ["a.work_date >= %s", "a.work_date <= %s"]
+    where = ["work_date >= %s", "work_date <= %s"]
     args: List[Any] = [d_from, d_to]
     if emp_id:
-        where.append("a.employee_id = %s")
+        where.append("employee_id = %s")
         args.append(emp_id)
 
-    sql = f"""
-        SELECT
-            a.id,
-            a.employee_id,
-            e.full_name,
-            e.section,
-            a.work_date,
-            a.time_in,
-            a.time_out,
-            a.worked_hours,
-            a.section_override,
-            a.note
-        FROM hr_attendance a
-        JOIN hr_employees e ON e.id = a.employee_id
-        WHERE {" AND ".join(where)}
-        ORDER BY a.work_date DESC, e.full_name
-    """
     try:
-        rows = db_connector.execute_query(sql, tuple(args), fetch="all") or []
+        # 1) načítame dochádzku
+        sql_att = f"""
+            SELECT
+              id,
+              employee_id,
+              work_date,
+              time_in,
+              time_out,
+              worked_hours,
+              section_override,
+              note
+            FROM hr_attendance
+            WHERE {" AND ".join(where)}
+            ORDER BY work_date DESC, employee_id
+        """
+        attendance = db_connector.execute_query(
+            sql_att, tuple(args), fetch="all"
+        ) or []
+
+        # 2) načítame zamestnancov (meno, sekcia)
+        sql_emp = """
+            SELECT id, full_name, section
+            FROM hr_employees
+        """
+        employees = db_connector.execute_query(sql_emp, fetch="all") or []
+        emp_map = {e["id"]: e for e in employees}
+
+        # 3) spojíme to v Pythone
+        items: List[Dict[str, Any]] = []
+        for row in attendance:
+            e = emp_map.get(row["employee_id"], {})
+            out = dict(row)
+            out["full_name"] = e.get("full_name", "")
+            out["section"] = e.get("section", "")
+            items.append(out)
+
         return {
             "date_from": d_from.isoformat(),
             "date_to": d_to.isoformat(),
-            "items": rows,
+            "items": items,
         }
+
     except Exception:
         print("[HR] list_attendance ERROR")
         print(traceback.format_exc())
-        return {"error": "Chyba pri načítaní dochádzky."}
+        # aby frontend nespadol, vrátime prázdny zoznam a info o chybe
+        return {
+            "date_from": d_from.isoformat(),
+            "date_to": d_to.isoformat(),
+            "items": [],
+            "error": "Chyba pri načítaní dochádzky.",
+        }
+
 
 
 def save_attendance(data: Dict[str, Any]) -> Dict[str, Any]:
