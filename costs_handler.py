@@ -336,12 +336,19 @@ import calendar
 
 def auto_hr_from_hr_module(year: int, month: int) -> Dict[str, Any]:
     """
-    Vypočíta odporúčané HR náklady (superhrubá) z HR modulu a vráti ich pre modul Nákladov.
-    Použijeme hr_handler.get_labor_summary(date_from, date_to).
-    Predpoklad: hr_employees.monthly_salary je mzdový náklad firmy (superhrubá).
-    Výsledok mapujeme takto:
-      total_salaries = celkový mzdový náklad (superhrubá)
-      total_levies   = 0  (ak chceš rozbiť na hrubá + odvody, dá sa dorobiť koeficient)
+    Vypočíta odporúčané HR náklady (mzdy + odvody) z HR modulu a vráti ich
+    pre modul Nákladov.
+
+    Použije hr_handler.get_labor_summary(date_from, date_to).
+
+    Predpoklad:
+      - summary["total_labor_cost"] = superhrubá mzda (mzda + odvody)
+      - koeficient coef = 0.35 ~ 35 % odvody z hrubej mzdy
+
+    Rozdelenie:
+      superhrubá = hrubá * (1 + coef)
+      hrubá      = superhrubá / (1 + coef)
+      odvody     = superhrubá - hrubá
     """
     if not hr_handler:
         return {"error": "HR modul nie je dostupný."}
@@ -363,9 +370,14 @@ def auto_hr_from_hr_module(year: int, month: int) -> Dict[str, Any]:
 
     total_labor_cost = float(summary.get("total_labor_cost") or 0.0)
 
-    # Ak chceš hrubá + odvody samostatne, tu by si dal rozbitie podľa koeficientu
-    total_salaries = round(total_labor_cost, 2)
-    total_levies   = 0.0
+    # rozbitie superhrubej na hrubú + odvody
+    coef = 0.35  # 35 % odvody z hrubej (približne, vieš si to upraviť)
+    if total_labor_cost > 0:
+        total_salaries = round(total_labor_cost / (1.0 + coef), 2)  # hrubá
+        total_levies   = round(total_labor_cost - total_salaries, 2)  # odvody
+    else:
+        total_salaries = 0.0
+        total_levies   = 0.0
 
     return {
         "year": y,
