@@ -233,21 +233,24 @@ def delete_employee(emp_id: Any) -> Dict[str, Any]:
 def list_attendance(params: Dict[str, Any]) -> Dict[str, Any]:
     """
     Vracia zoznam dochádzky podľa dátumu/employee_id.
-    JOIN na zamestnancov robíme v Pythone, aby SQL bolo čo najjednoduchšie.
+    JOIN na zamestnancov robíme v Pythone, aby SQL bolo čo najjednoduchšie
+    a nezabíjali nás chyby v JOIN/COLLATE.
     """
-    _ensure_schema()
+    # dátumy si pripravíme mimo try, aby sme ich vedeli vrátiť aj pri chybe
     d_from = _parse_date(params.get("date_from")) or date.today().replace(day=1)
     d_to = _parse_date(params.get("date_to")) or date.today()
     emp_id = params.get("employee_id")
 
-    where = ["work_date >= %s", "work_date <= %s"]
-    args: List[Any] = [d_from, d_to]
-    if emp_id:
-        where.append("employee_id = %s")
-        args.append(emp_id)
-
     try:
+        _ensure_schema()
+
         # 1) načítame dochádzku
+        where = ["work_date >= %s", "work_date <= %s"]
+        args: List[Any] = [d_from, d_to]
+        if emp_id:
+            where.append("employee_id = %s")
+            args.append(emp_id)
+
         sql_att = f"""
             SELECT
               id,
@@ -266,7 +269,7 @@ def list_attendance(params: Dict[str, Any]) -> Dict[str, Any]:
             sql_att, tuple(args), fetch="all"
         ) or []
 
-        # 2) načítame zamestnancov (meno, sekcia)
+        # 2) načítame zamestnancov (meno + sekcia)
         sql_emp = """
             SELECT id, full_name, section
             FROM hr_employees
@@ -274,7 +277,7 @@ def list_attendance(params: Dict[str, Any]) -> Dict[str, Any]:
         employees = db_connector.execute_query(sql_emp, fetch="all") or []
         emp_map = {e["id"]: e for e in employees}
 
-        # 3) spojíme to v Pythone
+        # 3) spojíme to v Pythone – doplníme full_name a section
         items: List[Dict[str, Any]] = []
         for row in attendance:
             e = emp_map.get(row["employee_id"], {})
@@ -289,17 +292,18 @@ def list_attendance(params: Dict[str, Any]) -> Dict[str, Any]:
             "items": items,
         }
 
-    except Exception:
+    except Exception as exc:
+        # sem spadne akékoľvek SQL / schema / iná chyba – NENECHÁME to vyhodiť 500-ku
         print("[HR] list_attendance ERROR")
         print(traceback.format_exc())
-        # aby frontend nespadol, vrátime prázdny zoznam a info o chybe
+        # handle_request teraz dostane normálny dict -> HTTP 200,
+        # hr.js chytí data.error a zobrazí "Chyba pri načítaní dochádzky."
         return {
             "date_from": d_from.isoformat(),
             "date_to": d_to.isoformat(),
             "items": [],
-            "error": "Chyba pri načítaní dochádzky.",
+            "error": f"Chyba pri načítaní dochádzky: {exc}",
         }
-
 
 
 def save_attendance(data: Dict[str, Any]) -> Dict[str, Any]:
