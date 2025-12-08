@@ -238,12 +238,18 @@ def list_attendance(params: Dict[str, Any]) -> Dict[str, Any]:
          WHERE {" AND ".join(where)}
          ORDER BY a.work_date DESC, e.full_name COLLATE utf8mb4_slovak_ci
     """
-    rows = db_connector.execute_query(sql, tuple(args), fetch="all") or []
-    return {
-        "date_from": d_from.isoformat(),
-        "date_to": d_to.isoformat(),
-        "items": rows,
-    }
+    try:
+        rows = db_connector.execute_query(sql, tuple(args), fetch="all") or []
+        return {
+            "date_from": d_from.isoformat(),
+            "date_to": d_to.isoformat(),
+            "items": rows,
+        }
+    except Exception:
+        print("[HR] list_attendance ERROR")
+        print(traceback.format_exc())
+        # handle_request z toho spraví 500, ale JS aspoň dostane error text
+        return {"error": "Chyba pri načítaní dochádzky."}
 
 
 def save_attendance(data: Dict[str, Any]) -> Dict[str, Any]:
@@ -288,57 +294,62 @@ def save_attendance(data: Dict[str, Any]) -> Dict[str, Any]:
         # necháme worked_hours z requestu
         pass
 
-    if rec_id:
-        # UPDATE
-        db_connector.execute_query(
-            """
-            UPDATE hr_attendance
-               SET employee_id      = %s,
-                   work_date        = %s,
-                   time_in          = %s,
-                   time_out         = %s,
-                   worked_hours     = %s,
-                   section_override = %s,
-                   note             = %s
-             WHERE id = %s
-            """,
-            (
-                emp_id,
-                work_date,
-                time_in_str,
-                time_out_str,
-                worked_hours,
-                section_override,
-                note,
-                rec_id,
-            ),
-            fetch="none",
-        )
-        return {"message": "Dochádzka upravená.", "id": rec_id}
-    else:
-        # INSERT
-        db_connector.execute_query(
-            """
-            INSERT INTO hr_attendance
-                (employee_id, work_date, time_in, time_out,
-                 worked_hours, section_override, note)
-            VALUES (%s,%s,%s,%s,%s,%s,%s)
-            """,
-            (
-                emp_id,
-                work_date,
-                time_in_str,
-                time_out_str,
-                worked_hours,
-                section_override,
-                note,
-            ),
-            fetch="none",
-        )
-        row = db_connector.execute_query(
-            "SELECT LAST_INSERT_ID() AS id", fetch="one"
-        ) or {}
-        return {"message": "Dochádzka uložená.", "id": row.get("id")}
+    try:
+        if rec_id:
+            # UPDATE
+            db_connector.execute_query(
+                """
+                UPDATE hr_attendance
+                   SET employee_id      = %s,
+                       work_date        = %s,
+                       time_in          = %s,
+                       time_out         = %s,
+                       worked_hours     = %s,
+                       section_override = %s,
+                       note             = %s
+                 WHERE id = %s
+                """,
+                (
+                    emp_id,
+                    work_date,
+                    time_in_str,
+                    time_out_str,
+                    worked_hours,
+                    section_override,
+                    note,
+                    rec_id,
+                ),
+                fetch="none",
+            )
+            return {"message": "Dochádzka upravená.", "id": rec_id}
+        else:
+            # INSERT
+            db_connector.execute_query(
+                """
+                INSERT INTO hr_attendance
+                    (employee_id, work_date, time_in, time_out,
+                     worked_hours, section_override, note)
+                VALUES (%s,%s,%s,%s,%s,%s,%s)
+                """,
+                (
+                    emp_id,
+                    work_date,
+                    time_in_str,
+                    time_out_str,
+                    worked_hours,
+                    section_override,
+                    note,
+                ),
+                fetch="none",
+            )
+            row = db_connector.execute_query(
+                "SELECT LAST_INSERT_ID() AS id", fetch="one"
+            ) or {}
+            return {"message": "Dochádzka uložená.", "id": row.get("id")}
+    except Exception:
+        print("[HR] save_attendance ERROR")
+        print(traceback.format_exc())
+        return {"error": "Chyba pri ukladaní dochádzky."}
 
 
 def delete_attendance(data: Dict[str, Any]) -> Dict[str, Any]:
@@ -346,10 +357,15 @@ def delete_attendance(data: Dict[str, Any]) -> Dict[str, Any]:
     rec_id = (data or {}).get("id")
     if not rec_id:
         return {"error": "Chýba ID záznamu dochádzky."}
-    db_connector.execute_query(
-        "DELETE FROM hr_attendance WHERE id=%s", (rec_id,), fetch="none"
-    )
-    return {"message": "Dochádzka vymazaná."}
+    try:
+        db_connector.execute_query(
+            "DELETE FROM hr_attendance WHERE id=%s", (rec_id,), fetch="none"
+        )
+        return {"message": "Dochádzka vymazaná."}
+    except Exception:
+        print("[HR] delete_attendance ERROR")
+        print(traceback.format_exc())
+        return {"error": "Chyba pri mazaní dochádzky."}
 
 
 # -------------------------------------------------------------------
@@ -394,12 +410,17 @@ def list_leaves(params: Dict[str, Any]) -> Dict[str, Any]:
          WHERE {" AND ".join(where)}
          ORDER BY l.date_from DESC, e.full_name COLLATE utf8mb4_slovak_ci
     """
-    rows = db_connector.execute_query(sql, tuple(args), fetch="all") or []
-    return {
-        "date_from": d_from.isoformat(),
-        "date_to": d_to.isoformat(),
-        "items": rows,
-    }
+    try:
+        rows = db_connector.execute_query(sql, tuple(args), fetch="all") or []
+        return {
+            "date_from": d_from.isoformat(),
+            "date_to": d_to.isoformat(),
+            "items": rows,
+        }
+    except Exception:
+        print("[HR] list_leaves ERROR")
+        print(traceback.format_exc())
+        return {"error": "Chyba pri načítaní neprítomností."}
 
 
 def save_leave(data: Dict[str, Any]) -> Dict[str, Any]:
