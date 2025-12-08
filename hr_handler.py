@@ -351,6 +351,8 @@ def list_attendance(params: Dict[str, Any]) -> Dict[str, Any]:
         "items": items,
     }
 
+
+
 def save_attendance(data: Dict[str, Any]) -> Dict[str, Any]:
     _ensure_schema()
     if not isinstance(data, dict):

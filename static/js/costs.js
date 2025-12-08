@@ -673,29 +673,69 @@ function openEnergyHistoryModal(){
 window.openEnergyHistoryModal = openEnergyHistoryModal;
 
 /* ---------- Ľudské zdroje ---------- */
+/* ---------- Ľudské zdroje ---------- */
 function renderHrView() {
   const container = document.getElementById('costs-content');
   const hr = costsState.data?.hr || {};
+  const salaries = Number(hr.total_salaries || 0);
+  const levies   = Number(hr.total_levies   || 0);
+
   container.innerHTML = `
-    <div class="form-group"><label>Celková suma na výplatách (hrubá mzda)</label>
-      <input type="number" step="0.01" id="hr-total_salaries" value="${hr.total_salaries ?? ''}">
+    <div class="form-group">
+      <label>Celková suma na výplatách (superhrubá / mzdový náklad)</label>
+      <input type="number" step="0.01" id="hr-total_salaries" value="${salaries || ''}">
     </div>
-    <div class="form-group"><label>Celková suma odvodov (zaplatené firmou)</label>
-      <input type="number" step="0.01" id="hr-total_levies" value="${hr.total_levies ?? ''}">
+    <div class="form-group">
+      <label>Celková suma odvodov (ak chceš mať oddelene)</label>
+      <input type="number" step="0.01" id="hr-total_levies" value="${levies || ''}">
     </div>
-    <div class="stat-card"><h5>Celkový náklad na ĽZ</h5>
-      <p id="hr-total-cost">${safeToFixed((hr.total_salaries || 0) + (hr.total_levies || 0))} €</p>
+    <div class="stat-card">
+      <h5>Celkový náklad na ĽZ</h5>
+      <p id="hr-total-cost">${safeToFixed(salaries + levies)} €</p>
     </div>
-    <button class="btn btn-success" style="width:100%; margin-top:10px;" onclick="saveHrData()">Uložiť dáta</button>
+
+    <div style="display:flex; gap:.5rem; margin-top:10px; flex-wrap:wrap;">
+      <button class="btn btn-secondary" id="hr-autofill-btn">
+        <i class="fas fa-magic"></i> Načítať z HR modulu
+      </button>
+      <button class="btn btn-success" style="flex:1;" id="hr-save-btn">
+        Uložiť dáta
+      </button>
+    </div>
   `;
 
+  const salariesInput = document.getElementById('hr-total_salaries');
+  const leviesInput   = document.getElementById('hr-total_levies');
+  const totalLabel    = document.getElementById('hr-total-cost');
+
   const recalc = () => {
-    const s = parseFloat(document.getElementById('hr-total_salaries').value) || 0;
-    const l = parseFloat(document.getElementById('hr-total_levies').value) || 0;
-    document.getElementById('hr-total-cost').textContent = `${safeToFixed(s + l)} €`;
+    const s = parseFloat(salariesInput.value) || 0;
+    const l = parseFloat(leviesInput.value)   || 0;
+    totalLabel.textContent = `${safeToFixed(s + l)} €`;
   };
-  document.getElementById('hr-total_salaries').oninput =
-  document.getElementById('hr-total_levies').oninput = recalc;
+
+  salariesInput.oninput = recalc;
+  leviesInput.oninput   = recalc;
+
+  // AUTO-FILL z HR modulu (get_labor_summary)
+  document.getElementById('hr-autofill-btn').onclick = async () => {
+    try {
+      const res = await apiRequest(`/api/kancelaria/costs/autoHr?year=${costsState.year}&month=${costsState.month}`);
+      if (res && !res.error) {
+        if (res.total_salaries != null) salariesInput.value = res.total_salaries;
+        if (res.total_levies != null)   leviesInput.value   = res.total_levies;
+        recalc();
+        showStatus('Súhrn miezd natiahnutý z HR modulu.', false);
+      } else {
+        showStatus(res.error || 'Nepodarilo sa načítať dáta z HR modulu.', true);
+      }
+    } catch (e) {
+      console.error('autoHr error', e);
+      showStatus('Chyba pri načítaní dát z HR modulu.', true);
+    }
+  };
+
+  document.getElementById('hr-save-btn').onclick = saveHrData;
 }
 
 async function saveHrData() {

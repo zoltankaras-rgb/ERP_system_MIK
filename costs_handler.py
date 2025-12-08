@@ -8,13 +8,17 @@ from typing import Any, Dict, List, Optional, Tuple
 from datetime import datetime, date, timedelta
 import calendar
 import db_connector
+import hr_handler
 
 # Výnosy (pre dashboard) – voliteľné, ak modul ziskovosti existuje
 try:
     import profitability_handler  # noqa: F401
 except Exception:
     profitability_handler = None  # type: ignore
-
+try:
+    import hr_handler
+except Exception:
+    hr_handler = None 
 # -----------------------------------------------------------------
 # Pomocné numerické utility
 # -----------------------------------------------------------------
@@ -328,6 +332,48 @@ def save_hr_data(data: Dict[str, Any]) -> Dict[str, Any]:
     )
     return {"message": "Dáta o ľudských zdrojoch boli uložené."}
 
+import calendar
+
+def auto_hr_from_hr_module(year: int, month: int) -> Dict[str, Any]:
+    """
+    Vypočíta odporúčané HR náklady (superhrubá) z HR modulu a vráti ich pre modul Nákladov.
+    Použijeme hr_handler.get_labor_summary(date_from, date_to).
+    Predpoklad: hr_employees.monthly_salary je mzdový náklad firmy (superhrubá).
+    Výsledok mapujeme takto:
+      total_salaries = celkový mzdový náklad (superhrubá)
+      total_levies   = 0  (ak chceš rozbiť na hrubá + odvody, dá sa dorobiť koeficient)
+    """
+    if not hr_handler:
+        return {"error": "HR modul nie je dostupný."}
+
+    # bezpečné year/month
+    y, m = _ym(year, month)
+    first = date(y, m, 1)
+    last_day = calendar.monthrange(y, m)[1]
+    last = date(y, m, last_day)
+
+    try:
+        summary = hr_handler.get_labor_summary({
+            "date_from": first.isoformat(),
+            "date_to": last.isoformat()
+        }) or {}
+    except Exception as e:
+        print("[COSTS] auto_hr_from_hr_module ERROR:", e)
+        return {"error": "Chyba pri výpočte HR nákladov z HR modulu."}
+
+    total_labor_cost = float(summary.get("total_labor_cost") or 0.0)
+
+    # Ak chceš hrubá + odvody samostatne, tu by si dal rozbitie podľa koeficientu
+    total_salaries = round(total_labor_cost, 2)
+    total_levies   = 0.0
+
+    return {
+        "year": y,
+        "month": m,
+        "total_salaries": total_salaries,
+        "total_levies": total_levies,
+        "source": "hr_module"
+    }
 
 # -----------------------------------------------------------------
 # Prevádzkové náklady – položky a kategórie

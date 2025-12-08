@@ -4084,6 +4084,12 @@ def costs_dashboard_data():
 def report_costs_finance():
     return handle_request(costs_handler.get_finance_report_html, request.args)
 
+@app.get('/api/kancelaria/costs/autoHr')
+@login_required(role=('kancelaria','veduci','admin'))
+def api_costs_auto_hr():
+    year = request.args.get('year', type=int)
+    month = request.args.get('month', type=int)
+    return handle_request(costs_handler.auto_hr_from_hr_module, year, month)
 
 # =================================================================
 # === TRACE & REPORTS (zvyšok) ===
