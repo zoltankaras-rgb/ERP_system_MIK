@@ -30,6 +30,37 @@ def _parse_float(val, default: float = 0.0) -> float:
         return float(str(val).replace(",", "."))
     except Exception:
         return default
+    
+def _time_to_str(val: Any) -> Optional[str]:
+    """Konverzia TIME/TIMESTAMP/timedelta na 'HH:MM' string, inak None/str."""
+    if val is None:
+        return None
+    import datetime as _dt
+
+    # MySQLdb / mysql-connector môžu TIME vracať ako timedelta
+    if isinstance(val, _dt.timedelta):
+        total_seconds = int(val.total_seconds())
+        hours = (total_seconds // 3600) % 24
+        minutes = (total_seconds % 3600) // 60
+        return f"{hours:02d}:{minutes:02d}"
+
+    if isinstance(val, _dt.time):
+        return val.strftime("%H:%M")
+
+    if isinstance(val, _dt.datetime):
+        return val.time().strftime("%H:%M")
+
+    # ak už je string, necháme ho
+    return str(val)
+
+def _date_to_str(val: Any) -> Optional[str]:
+    if val is None:
+        return None
+    if isinstance(val, date):
+        return val.isoformat()
+    if isinstance(val, datetime):
+        return val.date().isoformat()
+    return str(val)
 
 
 def _ensure_schema() -> None:
@@ -233,78 +264,92 @@ def delete_employee(emp_id: Any) -> Dict[str, Any]:
 def list_attendance(params: Dict[str, Any]) -> Dict[str, Any]:
     """
     Vracia zoznam dochádzky podľa dátumu/employee_id.
-    JOIN na zamestnancov robíme v Pythone, aby SQL bolo čo najjednoduchšie
-    a nezabíjali nás chyby v JOIN/COLLATE.
+    Robíme 2 jednoduché SELECTy a spojenie v Pythone, aby sa minimalizovali
+    problémy s JOIN/COLLATE a zároveň pretypujeme TIME/DATE na stringy.
     """
-    # dátumy si pripravíme mimo try, aby sme ich vedeli vrátiť aj pri chybe
+    _ensure_schema()
+
     d_from = _parse_date(params.get("date_from")) or date.today().replace(day=1)
     d_to = _parse_date(params.get("date_to")) or date.today()
     emp_id = params.get("employee_id")
 
+    # 1) načítame dochádzku
+    where = ["work_date >= %s", "work_date <= %s"]
+    args: List[Any] = [d_from, d_to]
+    if emp_id:
+        where.append("employee_id = %s")
+        args.append(emp_id)
+
+    sql_att = f"""
+        SELECT
+          id,
+          employee_id,
+          work_date,
+          time_in,
+          time_out,
+          worked_hours,
+          section_override,
+          note
+        FROM hr_attendance
+        WHERE {" AND ".join(where)}
+        ORDER BY work_date DESC, employee_id
+    """
+
     try:
-        _ensure_schema()
-
-        # 1) načítame dochádzku
-        where = ["work_date >= %s", "work_date <= %s"]
-        args: List[Any] = [d_from, d_to]
-        if emp_id:
-            where.append("employee_id = %s")
-            args.append(emp_id)
-
-        sql_att = f"""
-            SELECT
-              id,
-              employee_id,
-              work_date,
-              time_in,
-              time_out,
-              worked_hours,
-              section_override,
-              note
-            FROM hr_attendance
-            WHERE {" AND ".join(where)}
-            ORDER BY work_date DESC, employee_id
-        """
         attendance = db_connector.execute_query(
             sql_att, tuple(args), fetch="all"
         ) or []
-
-        # 2) načítame zamestnancov (meno + sekcia)
-        sql_emp = """
-            SELECT id, full_name, section
-            FROM hr_employees
-        """
-        employees = db_connector.execute_query(sql_emp, fetch="all") or []
-        emp_map = {e["id"]: e for e in employees}
-
-        # 3) spojíme to v Pythone – doplníme full_name a section
-        items: List[Dict[str, Any]] = []
-        for row in attendance:
-            e = emp_map.get(row["employee_id"], {})
-            out = dict(row)
-            out["full_name"] = e.get("full_name", "")
-            out["section"] = e.get("section", "")
-            items.append(out)
-
-        return {
-            "date_from": d_from.isoformat(),
-            "date_to": d_to.isoformat(),
-            "items": items,
-        }
-
-    except Exception as exc:
-        # sem spadne akékoľvek SQL / schema / iná chyba – NENECHÁME to vyhodiť 500-ku
-        print("[HR] list_attendance ERROR")
+    except Exception:
+        print("[HR] list_attendance – SELECT attendance ERROR")
         print(traceback.format_exc())
-        # handle_request teraz dostane normálny dict -> HTTP 200,
-        # hr.js chytí data.error a zobrazí "Chyba pri načítaní dochádzky."
         return {
             "date_from": d_from.isoformat(),
             "date_to": d_to.isoformat(),
             "items": [],
-            "error": f"Chyba pri načítaní dochádzky: {exc}",
+            "error": "Chyba pri načítaní dochádzky.",
         }
 
+    # 2) načítame zamestnancov (meno + sekcia)
+    try:
+        employees = db_connector.execute_query(
+            "SELECT id, full_name, section FROM hr_employees",
+            fetch="all",
+        ) or []
+    except Exception:
+        print("[HR] list_attendance – SELECT employees ERROR")
+        print(traceback.format_exc())
+        employees = []
+
+    emp_map = {e["id"]: e for e in employees}
+
+    # 3) spojíme to v Pythone a prekonvertujeme typy
+    items: List[Dict[str, Any]] = []
+    for row in attendance:
+        e = emp_map.get(row["employee_id"], {})
+        out: Dict[str, Any] = {}
+
+        out["id"] = row.get("id")
+        out["employee_id"] = row.get("employee_id")
+        out["full_name"] = e.get("full_name", "")
+        out["section"] = e.get("section", "")
+
+        out["work_date"] = _date_to_str(row.get("work_date"))
+        out["time_in"] = _time_to_str(row.get("time_in"))
+        out["time_out"] = _time_to_str(row.get("time_out"))
+
+        # worked_hours – na frontend posielame vždy číslo
+        out["worked_hours"] = float(row.get("worked_hours") or 0.0)
+
+        out["section_override"] = row.get("section_override")
+        out["note"] = row.get("note")
+
+        items.append(out)
+
+    return {
+        "date_from": d_from.isoformat(),
+        "date_to": d_to.isoformat(),
+        "items": items,
+    }
 
 def save_attendance(data: Dict[str, Any]) -> Dict[str, Any]:
     _ensure_schema()
