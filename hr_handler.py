@@ -8,8 +8,6 @@ import traceback
 
 import db_connector
 
-COLL = "utf8mb4_0900_ai_ci"
-
 
 # -------------------------------------------------------------------
 # Pomocné
@@ -109,20 +107,25 @@ def _ensure_schema() -> None:
 # -------------------------------------------------------------------
 def list_employees() -> Dict[str, Any]:
     _ensure_schema()
-    rows = db_connector.execute_query(
-        """
-        SELECT id, code, full_name, section, punch_code,
-               monthly_salary, base_hours_month,
-               vacation_days_total, vacation_days_used,
-               (vacation_days_total - vacation_days_used) AS vacation_days_balance,
-               is_active,
-               created_at, updated_at
-        FROM hr_employees
-        ORDER BY is_active DESC, full_name COLLATE utf8mb4_slovak_ci
-        """,
-        fetch="all",
-    ) or []
-    return {"employees": rows}
+    try:
+        rows = db_connector.execute_query(
+            """
+            SELECT id, code, full_name, section, punch_code,
+                   monthly_salary, base_hours_month,
+                   vacation_days_total, vacation_days_used,
+                   (vacation_days_total - vacation_days_used) AS vacation_days_balance,
+                   is_active,
+                   created_at, updated_at
+            FROM hr_employees
+            ORDER BY is_active DESC, full_name
+            """,
+            fetch="all",
+        ) or []
+        return {"employees": rows}
+    except Exception:
+        print("[HR] list_employees ERROR")
+        print(traceback.format_exc())
+        return {"error": "Chyba pri načítaní zamestnancov."}
 
 
 def save_employee(data: Dict[str, Any]) -> Dict[str, Any]:
@@ -146,97 +149,118 @@ def save_employee(data: Dict[str, Any]) -> Dict[str, Any]:
     vacation_total = _parse_float(data.get("vacation_days_total"), 0.0)
     is_active = 1 if data.get("is_active", True) else 0
 
-    if emp_id:
-        # UPDATE
-        db_connector.execute_query(
-            """
-            UPDATE hr_employees
-               SET code                = %s,
-                   full_name           = %s,
-                   section             = %s,
-                   punch_code          = %s,
-                   monthly_salary      = %s,
-                   base_hours_month    = %s,
-                   vacation_days_total = %s,
-                   is_active           = %s
-             WHERE id = %s
-            """,
-            (
-                code,
-                full_name,
-                section,
-                punch_code,
-                monthly_salary,
-                base_hours_month,
-                vacation_total,
-                is_active,
-                emp_id,
-            ),
-            fetch="none",
-        )
-        return {"message": "Zamestnanec uložený.", "id": emp_id}
-    else:
-        # INSERT
-        db_connector.execute_query(
-            """
-            INSERT INTO hr_employees
-                (code, full_name, section, punch_code,
-                 monthly_salary, base_hours_month,
-                 vacation_days_total, vacation_days_used,
-                 is_active)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,0,%s)
-            """,
-            (
-                code,
-                full_name,
-                section,
-                punch_code,
-                monthly_salary,
-                base_hours_month,
-                vacation_total,
-                is_active,
-            ),
-            fetch="none",
-        )
-        row = db_connector.execute_query(
-            "SELECT LAST_INSERT_ID() AS id", fetch="one"
-        ) or {}
-        return {"message": "Zamestnanec vytvorený.", "id": row.get("id")}
+    try:
+        if emp_id:
+            # UPDATE
+            db_connector.execute_query(
+                """
+                UPDATE hr_employees
+                   SET code                = %s,
+                       full_name           = %s,
+                       section             = %s,
+                       punch_code          = %s,
+                       monthly_salary      = %s,
+                       base_hours_month    = %s,
+                       vacation_days_total = %s,
+                       is_active           = %s
+                 WHERE id = %s
+                """,
+                (
+                    code,
+                    full_name,
+                    section,
+                    punch_code,
+                    monthly_salary,
+                    base_hours_month,
+                    vacation_total,
+                    is_active,
+                    emp_id,
+                ),
+                fetch="none",
+            )
+            return {"message": "Zamestnanec uložený.", "id": emp_id}
+        else:
+            # INSERT
+            db_connector.execute_query(
+                """
+                INSERT INTO hr_employees
+                    (code, full_name, section, punch_code,
+                     monthly_salary, base_hours_month,
+                     vacation_days_total, vacation_days_used,
+                     is_active)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,0,%s)
+                """,
+                (
+                    code,
+                    full_name,
+                    section,
+                    punch_code,
+                    monthly_salary,
+                    base_hours_month,
+                    vacation_total,
+                    is_active,
+                ),
+                fetch="none",
+            )
+            row = db_connector.execute_query(
+                "SELECT LAST_INSERT_ID() AS id", fetch="one"
+            ) or {}
+            return {"message": "Zamestnanec vytvorený.", "id": row.get("id")}
+    except Exception:
+        print("[HR] save_employee ERROR")
+        print(traceback.format_exc())
+        return {"error": "Chyba pri ukladaní zamestnanca."}
 
 
 def delete_employee(emp_id: Any) -> Dict[str, Any]:
     _ensure_schema()
     if not emp_id:
         return {"error": "Chýba ID zamestnanca."}
-    db_connector.execute_query(
-        "DELETE FROM hr_employees WHERE id=%s", (emp_id,), fetch="none"
-    )
-    return {"message": "Zamestnanec vymazaný."}
+    try:
+        db_connector.execute_query(
+            "DELETE FROM hr_employees WHERE id=%s", (emp_id,), fetch="none"
+        )
+        return {"message": "Zamestnanec vymazaný."}
+    except Exception:
+        print("[HR] delete_employee ERROR")
+        print(traceback.format_exc())
+        return {"error": "Chyba pri mazaní zamestnanca."}
 
 
 # -------------------------------------------------------------------
 # Dochádzka
 # -------------------------------------------------------------------
 def list_attendance(params: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Vracia zoznam dochádzky podľa dátumu/employee_id.
+    """
     _ensure_schema()
     d_from = _parse_date(params.get("date_from")) or date.today().replace(day=1)
     d_to = _parse_date(params.get("date_to")) or date.today()
     emp_id = params.get("employee_id")
 
-    where = ["a.work_date BETWEEN %s AND %s"]
+    where = ["a.work_date >= %s", "a.work_date <= %s"]
     args: List[Any] = [d_from, d_to]
     if emp_id:
         where.append("a.employee_id = %s")
         args.append(emp_id)
 
     sql = f"""
-        SELECT a.id, a.employee_id, e.full_name, e.section,
-               a.work_date, a.time_in, a.time_out,
-               a.worked_hours, a.section_override, a.note
-          FROM hr_attendance a
-          JOIN hr_employees e ON e.id = a.employee_id
-         WHERE {" AND ".join(where)}
-         ORDER BY a.work_date DESC, e.full_name COLLATE utf8mb4_slovak_ci
+        SELECT
+            a.id,
+            a.employee_id,
+            e.full_name,
+            e.section,
+            a.work_date,
+            a.time_in,
+            a.time_out,
+            a.worked_hours,
+            a.section_override,
+            a.note
+        FROM hr_attendance a
+        JOIN hr_employees e ON e.id = a.employee_id
+        WHERE {" AND ".join(where)}
+        ORDER BY a.work_date DESC, e.full_name
     """
     try:
         rows = db_connector.execute_query(sql, tuple(args), fetch="all") or []
@@ -248,7 +272,6 @@ def list_attendance(params: Dict[str, Any]) -> Dict[str, Any]:
     except Exception:
         print("[HR] list_attendance ERROR")
         print(traceback.format_exc())
-        # handle_request z toho spraví 500, ale JS aspoň dostane error text
         return {"error": "Chyba pri načítaní dochádzky."}
 
 
@@ -286,7 +309,6 @@ def save_attendance(data: Dict[str, Any]) -> Dict[str, Any]:
                 f"{work_date} {time_out_str}", "%Y-%m-%d %H:%M"
             )
             if dt_out < dt_in:
-                # ak by náhodou šiel po polnoci
                 dt_out = dt_out.replace(day=dt_out.day + 1)
             diff_h = (dt_out - dt_in).total_seconds() / 3600.0
             worked_hours = round(max(diff_h, 0.0), 2)
@@ -369,7 +391,7 @@ def delete_attendance(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 # -------------------------------------------------------------------
-# Neprítomnosti (PN/dovolenka/priepustky) – automatický odpočet dovolenky
+# Neprítomnosti (PN/dovolenka/priepustky)
 # -------------------------------------------------------------------
 def _recalc_days_count(
     d_from: date, d_to: date, full_day: bool, hours: Optional[float]
@@ -377,7 +399,7 @@ def _recalc_days_count(
     """
     Zatiaľ jednoduchý model:
       - full_day = True -> celé dni, vrátane d_from aj d_to
-      - full_day = False -> použije hours / 8.0
+      - full_day = False -> hours / 8.0
     """
     if not d_from or not d_to:
         return 0.0
@@ -395,20 +417,27 @@ def list_leaves(params: Dict[str, Any]) -> Dict[str, Any]:
     emp_id = params.get("employee_id")
 
     where = ["l.date_from <= %s", "l.date_to >= %s"]
-    args: List[Any] = [d_to, d_from]  # prekryv s intervalom
+    args: List[Any] = [d_to, d_from]
     if emp_id:
         where.append("l.employee_id = %s")
         args.append(emp_id)
 
     sql = f"""
-        SELECT l.id, l.employee_id, e.full_name,
-               l.date_from, l.date_to,
-               l.leave_type, l.full_day, l.hours,
-               l.days_count, l.note
-          FROM hr_leaves l
-          JOIN hr_employees e ON e.id = l.employee_id
-         WHERE {" AND ".join(where)}
-         ORDER BY l.date_from DESC, e.full_name COLLATE utf8mb4_slovak_ci
+        SELECT
+            l.id,
+            l.employee_id,
+            e.full_name,
+            l.date_from,
+            l.date_to,
+            l.leave_type,
+            l.full_day,
+            l.hours,
+            l.days_count,
+            l.note
+        FROM hr_leaves l
+        JOIN hr_employees e ON e.id = l.employee_id
+        WHERE {" AND ".join(where)}
+        ORDER BY l.date_from DESC, e.full_name
     """
     try:
         rows = db_connector.execute_query(sql, tuple(args), fetch="all") or []
@@ -426,8 +455,8 @@ def list_leaves(params: Dict[str, Any]) -> Dict[str, Any]:
 def save_leave(data: Dict[str, Any]) -> Dict[str, Any]:
     """
     Uloží neprítomnosť.
-    - pri type VACATION automaticky upraví hr_employees.vacation_days_used
-    - pri UPDATE najprv odráta staré days_count a potom priráta nové
+    - pri type VACATION upraví hr_employees.vacation_days_used
+    - pri UPDATE najprv vráti staré days_count a potom pripočíta nové
     """
     _ensure_schema()
     if not isinstance(data, dict):
@@ -459,10 +488,9 @@ def save_leave(data: Dict[str, Any]) -> Dict[str, Any]:
 
     def _tx(conn):
         cur = conn.cursor(dictionary=True)
+        current_id = leave_id
 
-        current_id = leave_id  # lokálna premenná, aby sme neriešili nonlocal
-
-        # 1) ak update, načítame starý záznam a prípadne vrátime dni dovolenky
+        # starý záznam pri update
         old = None
         if current_id:
             cur.execute(
@@ -472,6 +500,7 @@ def save_leave(data: Dict[str, Any]) -> Dict[str, Any]:
             if not old:
                 return {"error": "Neplatné ID neprítomnosti."}
 
+        # vrátenie starých dní dovolenky
         if old and (old.get("leave_type") or "").upper() == "VACATION":
             old_days = float(old.get("days_count") or 0.0)
             if old_days != 0.0:
@@ -484,7 +513,7 @@ def save_leave(data: Dict[str, Any]) -> Dict[str, Any]:
                     (old_days, old["employee_id"]),
                 )
 
-        # 2) uloženie nových údajov
+        # uloženie nového záznamu
         if current_id:
             cur.execute(
                 """
@@ -534,7 +563,7 @@ def save_leave(data: Dict[str, Any]) -> Dict[str, Any]:
             )
             current_id = cur.lastrowid
 
-        # 3) ak nový typ je VACATION -> prirátame dni
+        # nový typ VACATION -> pripočítať dni
         if leave_type == "VACATION" and new_days > 0:
             cur.execute(
                 """
@@ -607,26 +636,31 @@ def get_labor_summary(params: Dict[str, Any]) -> Dict[str, Any]:
     d_from = _parse_date(params.get("date_from")) or date.today().replace(day=1)
     d_to = _parse_date(params.get("date_to")) or date.today()
 
-    # 1) Hodiny + náklady podľa zamestnanca a sekcie
-    rows = db_connector.execute_query(
-        """
-        SELECT
-            e.id AS employee_id,
-            e.full_name,
-            COALESCE(a.section_override, e.section) AS section,
-            e.monthly_salary,
-            e.base_hours_month,
-            SUM(a.worked_hours) AS total_hours
-        FROM hr_attendance a
-        JOIN hr_employees e ON e.id = a.employee_id
-        WHERE a.work_date BETWEEN %s AND %s
-        GROUP BY e.id, e.full_name,
-                 COALESCE(a.section_override, e.section),
-                 e.monthly_salary, e.base_hours_month
-        """,
-        (d_from, d_to),
-        fetch="all",
-    ) or []
+    try:
+        # 1) hodiny + náklady podľa zamestnanca a sekcie
+        rows = db_connector.execute_query(
+            """
+            SELECT
+                e.id AS employee_id,
+                e.full_name,
+                COALESCE(a.section_override, e.section) AS section,
+                e.monthly_salary,
+                e.base_hours_month,
+                SUM(a.worked_hours) AS total_hours
+            FROM hr_attendance a
+            JOIN hr_employees e ON e.id = a.employee_id
+            WHERE a.work_date BETWEEN %s AND %s
+            GROUP BY e.id, e.full_name,
+                     COALESCE(a.section_override, e.section),
+                     e.monthly_salary, e.base_hours_month
+            """,
+            (d_from, d_to),
+            fetch="all",
+        ) or []
+    except Exception:
+        print("[HR] get_labor_summary – SELECT attendance ERROR")
+        print(traceback.format_exc())
+        return {"error": "Chyba pri výpočte nákladov na prácu."}
 
     employees_out: List[Dict[str, Any]] = []
     sections_map: Dict[str, Dict[str, float]] = {}
@@ -659,18 +693,22 @@ def get_labor_summary(params: Dict[str, Any]) -> Dict[str, Any]:
         sec_rec["hours"] += hours
         sec_rec["cost"] += cost
 
-    # 2) Koľko kg sa vyrobilo v danom období (z zaznamy_vyroba)
-    #    Predpokladáme, že je stĺpec realne_mnozstvo_kg
-    prod = db_connector.execute_query(
-        """
-        SELECT SUM(COALESCE(realne_mnozstvo_kg,0)) AS total_kg
-          FROM zaznamy_vyroba
-         WHERE datum_ukoncenia BETWEEN %s AND %s
-        """,
-        (d_from, d_to),
-        fetch="one",
-    ) or {}
-    total_kg = float(prod.get("total_kg") or 0.0)
+    # 2) koľko kg sa vyrobilo v danom období (z zaznamy_vyroba)
+    try:
+        prod = db_connector.execute_query(
+            """
+            SELECT SUM(COALESCE(realne_mnozstvo_kg,0)) AS total_kg
+              FROM zaznamy_vyroba
+             WHERE datum_ukoncenia BETWEEN %s AND %s
+            """,
+            (d_from, d_to),
+            fetch="one",
+        ) or {}
+        total_kg = float(prod.get("total_kg") or 0.0)
+    except Exception:
+        print("[HR] get_labor_summary – SELECT výroba ERROR")
+        print(traceback.format_exc())
+        total_kg = 0.0
 
     cost_per_kg_total = round(total_cost / total_kg, 4) if total_kg > 0 else 0.0
 
