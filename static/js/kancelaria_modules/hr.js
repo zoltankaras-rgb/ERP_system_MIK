@@ -42,15 +42,17 @@
       this.bindSummary();
 
       this.initDefaultDates();
-      this.switchTab("employees");
+this.switchTab('employees');
 
-      this.loadEmployees()
-        .then(() => {
-          this.loadAttendance();
-          this.loadLeaves();
-          this.loadSummary();
-        })
-        .catch(console.error);
+this.loadEmployees()
+  .then(() => {
+    // Dochádzku nenačítavame hneď pri štarte,
+    // načíta sa, keď otvoríš tab "Dochádzka" alebo klikneš "Načítať".
+    this.loadLeaves();
+    this.loadSummary();
+  })
+  .catch(console.error);
+
     },
 
     // ------------------------------------------------------------------
@@ -443,23 +445,34 @@
     },
 
     switchTab(tabName) {
-      this.dom.tabPanels.forEach((panel) => {
-        const name = panel.getAttribute("data-hr-panel");
-        panel.style.display = name === tabName ? "block" : "none";
-      });
+  // prepínanie panelov
+  this.dom.tabPanels.forEach(panel => {
+    const name = panel.getAttribute('data-hr-panel');
+    panel.style.display = (name === tabName) ? 'block' : 'none';
+  });
 
-      this.dom.tabButtons.forEach((btn) => {
-        const name = btn.getAttribute("data-hr-tab");
-        if (name === tabName) {
-          btn.classList.remove("btn-secondary");
-          btn.classList.add("btn-primary");
-        } else {
-          btn.classList.add("btn-secondary");
-          btn.classList.remove("btn-primary");
-        }
-      });
-    },
+  // prepínanie tlačidiel
+  this.dom.tabButtons.forEach(btn => {
+    const name = btn.getAttribute('data-hr-tab');
+    if (name === tabName) {
+      btn.classList.remove('btn-secondary');
+      btn.classList.add('btn-primary');
+    } else {
+      btn.classList.add('btn-secondary');
+      btn.classList.remove('btn-primary');
+    }
+  });
 
+  // lazy načítanie dát podľa tabu
+  if (tabName === 'attendance') {
+    this.loadAttendance().catch(console.error);
+  } else if (tabName === 'leaves') {
+    this.loadLeaves().catch(console.error);
+  } else if (tabName === 'summary') {
+    this.loadSummary().catch(console.error);
+  }
+}
+,
     // ------------------------------------------------------------------
     // CACHE DOM
     // ------------------------------------------------------------------
