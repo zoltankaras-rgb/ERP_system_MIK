@@ -39,7 +39,12 @@ import atexit
 from flask import Blueprint, request, jsonify
 import mail_handler
 import hr_handler
-
+from flask import (
+    Flask, render_template, session, redirect,
+    url_for, request, jsonify, g
+)
+from flask import Flask, render_template, session, redirect, url_for, jsonify, request
+from auth_handler import login_required, canonicalize_role
 
 # ===================== ENTERPRISE KALENDÁR – KONŠTANTY =========================
 
@@ -134,83 +139,63 @@ erp_bp = Blueprint("erp_bp", __name__)
 # =================================================================
 # === DEKORÁTORY A POMOCNÉ FUNKCIE ===
 # =================================================================
-def login_required(role=None):
+from functools import wraps
+from flask import session, request, redirect, url_for, jsonify, g
+from auth_handler import canonicalize_role   # uisti sa, že tento import je NAD týmto kódom
+
+def login_required(view=None, *, role=None):
     """
+    Dekorátor, ktorý:
+      - skontroluje, či je používateľ prihlásený
+      - ak je zadaný `role`, skontroluje aj rolu (plus admin)
+
     Použitie:
       @login_required
-      @login_required('admin')
-      @login_required(['admin', 'manager'])
-    Admin má vždy prístup.
+      @login_required(role='kancelaria')
+      @login_required(role=['kancelaria', 'veduci'])
     """
 
-    # Umožniť aj použitie bez zátvoriek: @login_required
-    if callable(role):
-        f = role
-        required_roles = None
-
-        @wraps(f)  # zachová názov endpointu
-        def wrapper(*args, **kwargs):
-            # povoliť CORS preflight
-            if request.method == 'OPTIONS':
-                return make_response('', 204)
-
+    def decorator(func):
+        @wraps(func)
+        def wrapped(*args, **kwargs):
             user = session.get('user')
+
+            # 1) nie je prihlásený
             if not user:
                 if request.path.startswith('/api/'):
                     return jsonify({'error': 'Prístup zamietnutý. Prosím, prihláste sa.'}), 401
-                if 'expedicia' in request.path:
-                    return redirect(url_for('page_expedicia'))
-                if 'kancelaria' in request.path:
-                    return redirect(url_for('page_kancelaria'))
-                return redirect(url_for('page_vyroba'))
+                return redirect(url_for('login'))
 
-            user_role = (user.get('role') or '').lower()
-            if user_role == 'admin' or not required_roles or user_role in required_roles:
-                return f(*args, **kwargs)
+            g.user = user  # môžeš používať g.user v handleroch
 
-            if request.path.startswith('/api/'):
-                return jsonify({'error': 'Nemáte oprávnenie na túto akciu.'}), 403
-            return redirect(url_for('page_vyroba'))
+                        # 2) kontrola role, ak je zadaná
+            if role is not None:
+                # normalizuj roly rovnako ako v auth_handler.canonicalize_role
+                if isinstance(role, (list, tuple, set)):
+                    allowed_roles = {canonicalize_role(r) for r in role}
+                else:
+                    allowed_roles = {canonicalize_role(role)}
 
-        return wrapper
+                user_role = canonicalize_role(user.get('role'))
 
-    # Normalizácia požadovaných rolí (str | iterovateľné | None)
-    if role is None:
-        required_roles = None
-    elif isinstance(role, (list, tuple, set)):
-        required_roles = {str(r).lower() for r in role}
+                # admin má vždy prístup
+                if user_role not in allowed_roles and user_role != 'admin':
+                    if request.path.startswith('/api/'):
+                        return jsonify({'error': 'Nemáte oprávnenie na prístup do tejto sekcie.'}), 403
+                    return redirect(url_for('login'))
+
+
+            return func(*args, **kwargs)
+
+        return wrapped
+
+    # Podpora oboch zápisov:
+    # @login_required
+    # @login_required(role='nieco')
+    if view is None:
+        return decorator
     else:
-        required_roles = {str(role).lower()}
-
-    def decorator(f):
-        @wraps(f)  # zachová názov endpointu (zabráni "overwriting ... endpoint function")
-        def wrapper(*args, **kwargs):
-            # povoliť CORS preflight
-            if request.method == 'OPTIONS':
-                return make_response('', 204)
-
-            user = session.get('user')
-            if not user:
-                if request.path.startswith('/api/'):
-                    return jsonify({'error': 'Prístup zamietnutý. Prosím, prihláste sa.'}), 401
-                if 'expedicia' in request.path:
-                    return redirect(url_for('page_expedicia'))
-                if 'kancelaria' in request.path:
-                    return redirect(url_for('page_kancelaria'))
-                return redirect(url_for('page_vyroba'))
-
-            user_role = (user.get('role') or '').lower()
-            if user_role == 'admin' or not required_roles or user_role in required_roles:
-                return f(*args, **kwargs)
-
-            if request.path.startswith('/api/'):
-                return jsonify({'error': 'Nemáte oprávnenie na túto akciu.'}), 403
-            return redirect(url_for('page_vyroba'))
-
-        return wrapper
-
-    return decorator
-
+        return decorator(view)
 
 # Alias – kde používaš @auth_required, správa sa ako login_required(role='kancelaria')
 def auth_required(f=None):
@@ -231,25 +216,85 @@ def handle_request(handler_func, *args, **kwargs):
         print(f"!!! SERVER ERROR in handler '{getattr(handler_func,'__name__',str(handler_func))}' !!!")
         print(traceback.format_exc())
         return jsonify({'error': "Interná chyba servera. Kontaktujte administrátora."}), 500
+# ------------------------------------------------
+# HLAVNÁ STRÁNKA / A LOGIN STRÁNKA
+# ------------------------------------------------
+
+@app.route('/')
+def index():
+    user = session.get('user')
+    if not user:
+        return redirect(url_for('login'))
+
+    role = canonicalize_role(user.get('role'))
+
+    if role in ('vyroba',):
+        return redirect(url_for('page_vyroba'))
+    if role in ('expedicia', 'veduci'):
+        return redirect(url_for('page_expedicia'))
+    if role in ('kancelaria', 'office'):
+        return redirect(url_for('page_kancelaria'))
+    if role == 'admin':
+        return redirect(url_for('page_kancelaria'))
+
+    # fallback – radšej na login
+    return redirect(url_for('login'))
+
+
+@app.route('/login')
+def login():
+    user = session.get('user')
+    if user:
+        # už si prihlásený → rovno do modulu
+        role = canonicalize_role(user.get('role'))
+        if role in ('vyroba',):
+            return redirect(url_for('page_vyroba'))
+        if role in ('expedicia', 'veduci'):
+            return redirect(url_for('page_expedicia'))
+        if role in ('kancelaria', 'office'):
+            return redirect(url_for('page_kancelaria'))
+        if role == 'admin':
+            return redirect(url_for('page_kancelaria'))
+
+    return render_template('login.html')
+
+
+@app.route('/api/internal/me', methods=['GET'])
+@login_required()  # stačí, že je prihlásený; rolu tu neriešime
+def api_internal_me():
+    u = session.get('user')
+    if u:
+        u = dict(u)
+        u['role'] = canonicalize_role(u.get('role'))
+    return jsonify({'user': u})
+
 
 # =================================================================
 # === HLAVNÉ ROUTY PRE STRÁNKY (VIEWS) ===
 # =================================================================
-@app.route('/')
-def index():
-    return redirect(url_for('page_vyroba'))
 
 @app.route('/vyroba')
+@login_required(role='vyroba')   # dôležité sú tie zátvorky
 def page_vyroba():
-    return render_template('vyroba.html')
+    return render_template('vyroba.html', user=session.get('user'))
 
 @app.route('/expedicia')
-def page_expedicia():
-    return render_template('expedicia.html')
+@login_required(role=('veduci', 'admin', 'expedicia'))   # veduci určite povolený
+def expedicia_page():
+    user = session.get('user') or {}
+    from auth_handler import canonicalize_role
+    role = canonicalize_role(user.get('role'))
+    # vedúci (a admin) dostane líder portál
+    if role in ('veduci', 'admin'):
+        return render_template('leaderexpedicia.html', user=user)
+    # pracovné UI pre ostatných
+    return render_template('expedicia.html', user=user)
 
 @app.route('/kancelaria')
+@login_required(role='kancelaria')
 def page_kancelaria():
-    return render_template('kancelaria.html')
+    return render_template('kancelaria.html', user=session.get('user'))
+
 
 @app.route('/b2b')
 def page_b2b():
@@ -387,9 +432,10 @@ def internal_login():
     if not int(user.get('is_active', 1)):
         return jsonify({'error': 'Účet je deaktivovaný.'}), 401
 
-    role = (user.get('role') or '').lower()
+    # ROZDHODUJÚCA ZMENA: rolu vždy skánonizuj (strip + lower + aliasy: veduca -> veduci)
+    role = canonicalize_role(user.get('role'))
 
-    # Prístup do modulov – TU JE DÔLEŽITÉ: 'veduci' má prístup do 'expedicia'
+    # Prístup do modulov – 'veduci' má prístup do expedície
     allowed_for_module = {
         'expedicia': {'veduci', 'expedicia', 'admin'},
         'kancelaria': {'kancelaria', 'admin'},
@@ -439,8 +485,11 @@ def internal_logout():
     session.pop('user', None)
     return jsonify({'message': 'Boli ste úspešne odhlásený.'})
 
-from flask import jsonify, session
-from auth_handler import canonicalize_role  # ak používaš; inak vynechaj
+@app.route('/logout')
+def logout():
+    session.pop('user', None)
+    return redirect(url_for('login'))
+
 
 @app.get('/api/internal/check_session', endpoint='internal_check_session')
 def internal_check_session():
@@ -622,18 +671,6 @@ from auth_handler import module_required
 @login_required(role=('veduci','admin'))
 def leader_page():
     return render_template('leaderexpedicia.html')
-
-
-@app.route('/expedicia')
-@login_required(role=('veduci', 'admin', 'expedicia'))   # ← veduci určite povolený
-def expedicia_page():
-    user = session.get('user') or {}
-    role = (user.get('role') or '').lower()
-    # vedúci (a admin) dostane líder portál
-    if role in ('veduci', 'admin'):
-        return render_template('leaderexpedicia.html', user=user)
-    # pracovné UI pre ostatných (ak ich vôbec používaš)
-    return render_template('expedicia.html', user=user)
 
 
 @app.route('/api/expedicia/cancelSlicingJob', methods=['POST'])

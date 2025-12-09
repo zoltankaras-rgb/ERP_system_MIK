@@ -17,6 +17,7 @@ def generate_password_hash(password: str):
     key = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt, 250000)
     return salt.hex(), key.hex()
 
+
 def _to_bytes_hex_or_raw(value) -> bytes:
     """
     Prijme hex-string / ascii-bytes-of-hex / raw-bytes a vráti raw bytes.
@@ -27,6 +28,7 @@ def _to_bytes_hex_or_raw(value) -> bytes:
         except Exception:
             return bytes(value)
     return bytes.fromhex(str(value))
+
 
 def verify_password(password: str, salt_in, hash_in) -> bool:
     """
@@ -39,6 +41,7 @@ def verify_password(password: str, salt_in, hash_in) -> bool:
         return hmac.compare_digest(new_key, stored_key)
     except Exception:
         return False
+
 
 # =================================================================
 # === RBAC (modulové a roly)
@@ -53,6 +56,7 @@ def canonicalize_role(role_raw: str) -> str:
         return 'veduci'
     return r
 
+
 # Kto smie do ktorého modulu
 MODULE_ROLE_MATRIX = {
     'expedicia': {'veduci', 'expedicia', 'admin'},  # veduci má prístup do expedície
@@ -60,11 +64,12 @@ MODULE_ROLE_MATRIX = {
     'vyroba': {'vyroba', 'admin'},
 }
 
+
 def module_required(module_slug: str):
     """
     Dekorátor: vyžaduje prihlásenie a prístup k danému modulu podľa MODULE_ROLE_MATRIX.
     - API cesty (/api/...) vracajú JSON 401/403
-    - HTML cesty presmerujú na 'login' (uprav názov view, ak ho máš iný)
+    - HTML cesty presmerujú na 'login' (názov view musí byť 'login')
     """
     def _decorator(fn):
         @wraps(fn)
@@ -83,38 +88,84 @@ def module_required(module_slug: str):
                 msg = f"Nemáte oprávnenie pre modul '{module_slug}'. Váš účet má rolu '{role}'."
                 if request.path.startswith('/api/'):
                     return jsonify({'error': msg}), 403
+                # HTML – ponechávam pôvodné správanie (text), aby som nič nerozbil
                 return msg
 
             return fn(*args, **kwargs)
         return _wrapped
     return _decorator
 
-def login_required(role=None):
+
+# -----------------------------------------------------------------
+# login_required – univerzálny dekorátor
+#   @login_required
+#   @login_required()
+#   @login_required('vyroba')
+#   @login_required(role='vyroba')
+#   @login_required(role=['vyroba', 'kancelaria'])
+# -----------------------------------------------------------------
+
+def _make_login_decorator(required_roles=None):
     """
-    Vyžaduje prihlásenie; voliteľne kontroluje rolu (string alebo kolekcia).
-    - API cesty (/api/...) vracajú JSON 401/403
-    - HTML cesty presmerujú na 'login'
+    Vnútorná funkcia, ktorá vracia skutočný dekorátor.
+    required_roles môže byť:
+      - None  -> nekontroluje rolu, len, že je prihlásený
+      - str   -> jedna rola
+      - kolekcia -> viac rolí
     """
-    def _decorator(fn):
+    def decorator(fn):
         @wraps(fn)
-        def _wrapped(*args, **kwargs):
+        def wrapped(*args, **kwargs):
             user = session.get('user')
+
+            # 1) nie je prihlásený
             if not user:
                 if request.path.startswith('/api/'):
                     return jsonify({'error': 'Unauthorized'}), 401
+                # route musí byť pomenovaná 'login'
                 return redirect(url_for('login'))
 
-            if role:
-                allowed = {canonicalize_role(r) for r in (role if isinstance(role, (list, tuple, set)) else [role])}
+            # 2) kontrola roly, ak je požadovaná
+            if required_roles is not None:
+                if isinstance(required_roles, (list, tuple, set)):
+                    allowed = {canonicalize_role(r) for r in required_roles}
+                else:
+                    allowed = {canonicalize_role(required_roles)}
+
                 current = canonicalize_role(user.get('role'))
+
+                # admin má vždy prístup
                 if current not in allowed and current != 'admin':
                     if request.path.startswith('/api/'):
                         return jsonify({'error': 'Forbidden'}), 403
                     return redirect(url_for('login'))
 
             return fn(*args, **kwargs)
-        return _wrapped
-    return _decorator
+        return wrapped
+
+    return decorator
+
+
+def login_required(arg=None, role=None):
+    """
+    Univerzálny dekorátor pre login + rolu.
+
+    Použitie:
+      @login_required
+      @login_required()
+      @login_required('vyroba')
+      @login_required(role='vyroba')
+      @login_required(role=['vyroba', 'kancelaria'])
+    """
+
+    # Prípad: @login_required (bez zátvoriek)
+    if callable(arg) and role is None:
+        return _make_login_decorator(None)(arg)
+
+    # Prípad: @login_required(), @login_required('vyroba'), @login_required(role='vyroba')
+    required_roles = role if role is not None else arg
+    return _make_login_decorator(required_roles)
+
 
 __all__ = [
     'generate_password_hash',

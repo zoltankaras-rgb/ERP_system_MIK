@@ -32,6 +32,39 @@
         .replace(/'/g, '&#039;');
     };
   }
+  // Normalize roly tak isto ako backend (canonicalize_role)
+  function normalizeRole(roleRaw) {
+    const r = String(roleRaw || '').trim().toLowerCase();
+    if (['veduca', 'leader', 'veduca_expedicie', 'expedicia_leader'].includes(r)) {
+      return 'veduci';
+    }
+    return r;
+  }
+
+  // Zobrazí defaultnú obrazovku pre modul, aby nebola prázdna
+  function showDefaultModuleView(module) {
+    try {
+      if (module === 'vyroba') {
+        const container = document.getElementById('production-module-container');
+        if (container) {
+          container.querySelectorAll('.view').forEach(v => { v.style.display = 'none'; });
+        }
+        const menu = document.getElementById('view-production-menu');
+        if (menu) menu.style.display = 'block';
+      } else if (module === 'expedicia') {
+        const container =
+          document.querySelector('main.app-content') ||
+          document.getElementById('app-container');
+        if (container) {
+          container.querySelectorAll('.view').forEach(v => { v.style.display = 'none'; });
+        }
+        const menu = document.getElementById('view-expedition-menu');
+        if (menu) menu.style.display = 'block';
+      }
+    } catch (e) {
+      console.warn('showDefaultModuleView error:', e);
+    }
+  }
 
   // ------------------------------
   // Globálny auth stav a throttling
@@ -265,56 +298,86 @@
     if (ac) ac.classList.add('hidden');
   }
 
-  function showApp(user) {
+    function showApp(user) {
     window.__LOGGED_IN__ = true;
-    const role = String(user?.role || '').toLowerCase();
-    const path = (window.location.pathname || '').toLowerCase();
 
-    let requiredRole = null;
+    const path = (window.location.pathname || '').toLowerCase();
+    const role = normalizeRole(user && user.role);
+
+    const loginWrapper =
+      document.getElementById('login-wrapper') ||
+      document.getElementById('login');
+    const appContainer = document.getElementById('app-container');
+
+    function enableApp() {
+      if (loginWrapper) loginWrapper.classList.add('hidden');
+      if (appContainer) appContainer.classList.remove('hidden');
+
+      const userInfo = document.getElementById('user-info');
+      if (userInfo) {
+        userInfo.textContent =
+          `Vitajte, ${(user.full_name || user.username || '').trim()} (${role || 'neznáma rola'})`;
+      }
+    }
+
+    let moduleSlug = null;
     let initFn = null;
+    let allowedRoles = null;
 
     if (path.includes('/vyroba')) {
-      requiredRole = 'vyroba';
+      moduleSlug = 'vyroba';
+      allowedRoles = new Set(['vyroba', 'admin']);
       initFn = window.loadAndShowProductionMenu;
 
     } else if (path.includes('/leaderexpedicia')) {
-      const lw = document.getElementById('login-wrapper');
-      const ac = document.getElementById('app-container');
-      if (lw) lw.classList.add('hidden');
-      if (ac) ac.classList.remove('hidden');
-      return;
+      moduleSlug = 'leaderexpedicia';
+      allowedRoles = new Set(['veduci', 'admin']);
 
     } else if (path.includes('/expedicia')) {
-      if (role === 'veduci') { window.location.replace('/leaderexpedicia'); return; }
-      requiredRole = 'expedicia';
+      // vedúci expedície ide na leaderskú stránku
+      if (role === 'veduci') {
+        window.location.replace('/leaderexpedicia');
+        return;
+      }
+      moduleSlug = 'expedicia';
+      allowedRoles = new Set(['expedicia', 'admin']);
       initFn = window.loadAndShowExpeditionMenu;
 
     } else if (path.includes('/kancelaria')) {
-      requiredRole = 'kancelaria';
+      moduleSlug = 'kancelaria';
+      allowedRoles = new Set(['kancelaria', 'admin']);
       initFn = window.loadAndShowOfficeMenu;
     }
 
-    if (requiredRole && (role === requiredRole || role === 'admin')) {
-      const lw = document.getElementById('login-wrapper');
-      const ac = document.getElementById('app-container');
-      if (lw) lw.classList.add('hidden');
-      if (ac) ac.classList.remove('hidden');
-
-      const userInfo = document.getElementById('user-info');
-      if (userInfo) userInfo.textContent = `Vitajte, ${user.full_name || user.username} (${role})`;
-
-      if (typeof initFn === 'function') {
-        try { initFn(); } catch (e) { console.error('Init modulu zlyhal:', e); }
+    if (moduleSlug && allowedRoles) {
+      // kontrola oprávnení
+      if (!allowedRoles.has(role) && role !== 'admin') {
+        showStatus(`Nemáte oprávnenie pre modul '${moduleSlug}'. Vaša rola je '${role || 'neznáma'}'.`, true);
+        return;
       }
-    } else if (requiredRole) {
-      showStatus(`Nemáte oprávnenie pre modul '${requiredRole}'. Vaša rola je '${role || 'neznáma'}'.`, true);
+
+      enableApp();
+
+      // KĽÚČ: vyroba/expedicia – zobraz default menu, aby nebolo prázdno
+      if (moduleSlug === 'vyroba' || moduleSlug === 'expedicia') {
+        showDefaultModuleView(moduleSlug);
+      }
+
+      // Ak existuje pôvodný init funkcia, skús ju pustiť
+      if (typeof initFn === 'function') {
+        try {
+          initFn();
+        } catch (e) {
+          console.error('Init modulu zlyhal:', e);
+        }
+      }
     } else {
-      const lw = document.getElementById('login-wrapper');
-      const ac = document.getElementById('app-container');
-      if (lw) lw.classList.add('hidden');
-      if (ac) ac.classList.remove('hidden');
+      // stránka nie je modul – iba skry login, ak je user prihlásený
+      enableApp();
     }
   }
+
+
 
   // ------------------------------
   // Status "toast"
@@ -375,19 +438,65 @@
 
   // Export – ak ľubovoľný kancelársky skript volá window.onUnauthorized(), pôjde cez náš confirm
   window.onUnauthorized = safeOnUnauthorized;
+// ------------------------------
+// Boot – automatické spustenie modulov
+// ------------------------------
+document.addEventListener('DOMContentLoaded', () => {
+  const path = (window.location.pathname || '').toLowerCase();
 
-  // ------------------------------
-  // Boot
-  // ------------------------------
-  document.addEventListener('DOMContentLoaded', () => {
-    checkUserSession();
+  // Na /login neriešime nič – tam to má na starosti login.js
+  if (path === '/login') {
+    return;
+  }
 
-    const loginForm = document.getElementById('login-form');
-    if (loginForm) loginForm.addEventListener('submit', handleLogin);
+  // Ak stránka nemá #app-container, nie je to modul → nič nerobíme
+  const appContainer = document.getElementById('app-container');
+  if (!appContainer || !window.apiRequest) {
+    return;
+  }
 
-    const logoutButton = document.getElementById('logout-button');
-    if (logoutButton) logoutButton.addEventListener('click', handleLogout);
-  });
+  // Modulový login wrapper – v rôznych moduloch sa volá trochu inak
+  const loginWrapper =
+    document.getElementById('login-wrapper') ||
+    document.getElementById('login');
+
+  (async () => {
+    try {
+      const me = await window.apiRequest('/api/internal/me', { method: 'GET' });
+
+      if (me && me.user) {
+        // Máme prihláseného → spustíme appku
+        if (typeof window.showApp === 'function') {
+          window.showApp(me.user);
+        } else {
+          // Fallback – aspoň skry login a ukáž app-container
+          if (loginWrapper) {
+            loginWrapper.classList.add('hidden');
+          }
+          appContainer.classList.remove('hidden');
+        }
+      } else {
+        // Bez usera → späť na /login
+        window.location.href = '/login';
+      }
+    } catch (err) {
+      console.error('Chyba pri zisťovaní session /api/internal/me:', err);
+      window.location.href = '/login';
+    }
+  })();
+
+  // Logout – pre istotu, keby ho showApp nenaviazala
+  const logoutButton = document.getElementById('logout-button');
+  if (logoutButton) {
+    logoutButton.addEventListener('click', async (e) => {
+      e.preventDefault();
+      try {
+        await window.apiRequest('/api/internal/logout', { method: 'POST' });
+      } catch (_) {}
+      window.location.href = '/login';
+    });
+  }
+});
 
   // ------------------------------
   // Kontrola session
@@ -447,5 +556,12 @@
     } else {
       ensure();
     }
-  })();
+      // Export základných funkcií pre ostatné skripty
+  window.showApp = showApp;
+  window.showLogin = showLogin;
+  window.handleLogin = handleLogin;
+  window.handleLogout = handleLogout;
+  window.showStatus = showStatus;
 })();
+
+  })();

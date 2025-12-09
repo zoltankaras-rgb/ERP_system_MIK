@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+    <meta charset="UTF-8">
+    <title>Prihlásenie do systému</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <!-- Fonty / ikony (rovnako ako v ostatných moduloch) -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+
+    <!-- Tvoj existujúci štýl – obsahuje premenné a vzhľad buttonov/kárt -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/kancelaria.css') }}">
+
+    <style>
+        /* Layout len pre login stránku – farby berieme z :root (kancelaria.css) */
+        body{
+            margin:0;
+            padding:0;
+            font-family:var(--font,'Inter',sans-serif);
+            background:var(--light);
+            color:var(--dark);
+        }
+
+        .login-page{
+            min-height:100vh;
+            display:flex;
+            align-items:center;
+            justify-content:center;
+            padding:2rem 1rem;
+            background:
+                radial-gradient(circle at top left, rgba(246,92,92,0.10), transparent 55%),
+                radial-gradient(circle at bottom right, rgba(107,114,128,0.14), transparent 55%);
+        }
+
+        .login-card{
+            max-width:420px;
+            width:100%;
+        }
+
+        .login-inner{
+            padding:1.75rem 1.5rem 1.5rem;
+        }
+
+        .login-logo-wrap{
+            display:flex;
+            justify-content:center;
+            margin-bottom:1rem;
+        }
+
+        .login-logo{
+            max-width:180px;
+            max-height:80px;
+            object-fit:contain;
+        }
+
+        .login-title{
+            font-size:1.25rem;
+            font-weight:700;
+            text-align:center;
+            margin:0 0 .35rem;
+        }
+
+        .login-subtitle{
+            font-size:.9rem;
+            text-align:center;
+            color:var(--secondary-color);
+            margin:0 0 1.5rem;
+        }
+
+        .login-form-group{
+            margin-bottom:1rem;
+        }
+
+        .login-label{
+            display:block;
+            font-size:.85rem;
+            font-weight:500;
+            margin-bottom:.25rem;
+            color:#4b5563;
+        }
+
+        /* input,select,textarea už máš nastavné v kancelaria.css
+           – tu len doladíme drobnosti pre login */
+        .login-input{
+            width:100%;
+        }
+
+        .login-input::placeholder{
+            color:#9ca3af;
+        }
+
+        .btn-full{
+            width:100%;
+            justify-content:center;
+        }
+
+        #status{
+            margin-top:.75rem;
+            min-height:1rem;
+            font-size:.85rem;
+        }
+
+        #status.error{
+            color:var(--danger-color);
+        }
+
+        #status.ok{
+            color:var(--success-color);
+        }
+
+        .login-footer-note{
+            margin-top:1rem;
+            font-size:.8rem;
+            text-align:center;
+            color:#6b7280;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-page">
+        <div class="card login-card">
+            <div class="card-body login-inner">
+                <div class="login-logo-wrap">
+                    <!-- Logo firmy – súbor: static/mik logo.jpg -->
+                    <img
+                        src="{{ url_for('static', filename='mik logo.jpg') }}"
+                        alt="Logo spoločnosti"
+                        class="login-logo"
+                    >
+                </div>
+
+                <h1 class="login-title">Prihlásenie do systému</h1>
+                <p class="login-subtitle">
+                    Jedno prihlásenie &ndash; automaticky do správneho modulu podľa roly
+                </p>
+
+                <form id="login-form" autocomplete="on">
+                    <div class="login-form-group">
+                        <label for="username" class="login-label">Používateľské meno</label>
+                        <input
+                            type="text"
+                            id="username"
+                            name="username"
+                            class="login-input"
+                            required
+                            autocomplete="username"
+                            placeholder="zadajte používateľské meno"
+                        >
+                    </div>
+
+                    <div class="login-form-group">
+                        <label for="password" class="login-label">Heslo</label>
+                        <input
+                            type="password"
+                            id="password"
+                            name="password"
+                            class="login-input"
+                            required
+                            autocomplete="current-password"
+                            placeholder="zadajte heslo"
+                        >
+                    </div>
+
+                    <button type="submit" class="btn btn-primary btn-full">
+                        <i class="fas fa-sign-in-alt"></i>
+                        <span>Prihlásiť sa</span>
+                    </button>
+                </form>
+
+                <div id="status"></div>
+
+                <div class="login-footer-note">
+                    Po úspešnom prihlásení budete automaticky presmerovaní do modulu podľa Vašej roly.
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Spoločné funkcie (apiRequest, showStatus, ...) -->
+    <script src="{{ url_for('static', filename='js/common.js') }}"></script>
+    <!-- Login logika, ktorú chceš používať -->
+    <script src="{{ url_for('static', filename='js/login.js') }}"></script>
+</body>
+</html>

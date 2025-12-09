@@ -55,8 +55,8 @@
 </head>
 <body>
 
-  <!-- LOGIN WRAPPERS ktoré používa common.js -->
-  <div id="login">
+  <!-- LOGIN VÝROBY JE TERAZ RIEŠENÝ CEZ /login – TENTO BLOK NEZOBRAZUJEME -->
+  <div id="login" class="hidden">
     <div id="login-wrapper">
       <div id="login-container" class="login-container">
         <h2><i class="fas fa-cogs"></i> Modul Výroba</h2>
@@ -76,9 +76,9 @@
     </div>
   </div>
 
-  <!-- APP WRAPPER: #app je VŽDY viditeľný; skrytý je iba #app-container (toto fixuje flicker->biela) -->
+  <!-- APP – VIDITEĽNÝ HNEĎ PO VSTUPE DO MODULU -->
   <div id="app">
-    <div id="app-container" class="app-container hidden">
+    <div id="app-container" class="app-container">
       <header class="app-header">
         <div style="display:flex; justify-content:space-between; align-items:center;">
           <div>
