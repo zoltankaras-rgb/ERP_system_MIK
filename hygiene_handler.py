@@ -86,7 +86,7 @@ def log_hygiene_completion(data):
     task_id = data.get('task_id')
     date_str = data.get('completion_date')
     performer = (data.get('performer_name') or '').strip()
-    
+
     if not task_id or not date_str or not performer:
         return {"error": "Chýbajú povinné údaje."}
 
@@ -94,49 +94,104 @@ def log_hygiene_completion(data):
     start_time_str = data.get('start_time') or datetime.now().strftime("%H:%M")
     try:
         start_dt = datetime.strptime(f"{date_str} {start_time_str}", "%Y-%m-%d %H:%M")
-    except:
+    except Exception:
         start_dt = datetime.now()
-    
+
+    # Predvolený model časov – môžeš upraviť podľa reálnych expozičných časov
     exposure_end = start_dt + timedelta(minutes=10)
-    rinse_start = exposure_end 
+    rinse_start = exposure_end
     rinse_end = rinse_start + timedelta(minutes=10)
     finished_at = rinse_end
 
-    # 2. DB operácia
+    # 2. Skúsime nájsť existujúci záznam pre tú istú úlohu a deň
     exist = db_connector.execute_query(
         "SELECT id FROM hygiene_log WHERE task_id=%s AND completion_date=%s",
-        (task_id, date_str), fetch='one'
+        (task_id, date_str),
+        fetch='one'
     )
-    
+
     agent_id = data.get('agent_id') or None
     agent_batch = data.get('agent_batch') or None
     conc = data.get('concentration')
     temp = data.get('temperature') or None
     notes = data.get('notes') or None
 
-    params = (
-        performer, agent_id, agent_batch, conc, temp,
-        start_dt, exposure_end, rinse_end, finished_at, notes
-    )
-
     if exist:
+        # UPDATE existujúceho logu – task_name a location už v riadku sú
         sql = """
             UPDATE hygiene_log 
-            SET user_fullname=%s, agent_id=%s, agent_batch=%s, concentration=%s, 
-                water_temperature=%s, start_at=%s, exposure_end_at=%s, rinse_end_at=%s, finished_at=%s, notes=%s
+            SET user_fullname=%s,
+                agent_id=%s,
+                agent_batch=%s,
+                concentration=%s,
+                water_temperature=%s,
+                start_at=%s,
+                exposure_end_at=%s,
+                rinse_end_at=%s,
+                finished_at=%s,
+                notes=%s
             WHERE id=%s
         """
-        db_connector.execute_query(sql, params + (exist['id'],), fetch='none')
+        db_connector.execute_query(
+            sql,
+            (
+                performer, agent_id, agent_batch, conc, temp,
+                start_dt, exposure_end, rinse_end, finished_at, notes,
+                exist['id'],
+            ),
+            fetch='none'
+        )
         return {"message": "Záznam aktualizovaný."}
     else:
+        # INSERT nového záznamu – musíme vyplniť aj task_name a location (NOT NULL)
+        task_row = db_connector.execute_query(
+            "SELECT task_name, location FROM hygiene_tasks WHERE id = %s",
+            (task_id,),
+            fetch='one'
+        )
+        if not task_row:
+            return {"error": "Úloha hygieny neexistuje."}
+
         sql = """
             INSERT INTO hygiene_log 
-            (user_fullname, agent_id, agent_batch, concentration, water_temperature, 
-             start_at, exposure_end_at, rinse_end_at, finished_at, notes, task_id, completion_date)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                (task_id,
+                 task_name,
+                 location,
+                 user_fullname,
+                 agent_id,
+                 agent_batch,
+                 concentration,
+                 water_temperature,
+                 start_at,
+                 exposure_end_at,
+                 rinse_end_at,
+                 finished_at,
+                 notes,
+                 completion_date)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
-        db_connector.execute_query(sql, params + (task_id, date_str), fetch='none')
+        db_connector.execute_query(
+            sql,
+            (
+                task_id,
+                task_row['task_name'],
+                task_row['location'],
+                performer,
+                agent_id,
+                agent_batch,
+                conc,
+                temp,
+                start_dt,
+                exposure_end,
+                rinse_end,
+                finished_at,
+                notes,
+                date_str,
+            ),
+            fetch='none'
+        )
         return {"message": "Sanitácia zaznamenaná."}
+
 
 def check_hygiene_log(data):
     log_id = data.get('log_id')

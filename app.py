@@ -279,15 +279,17 @@ def page_vyroba():
     return render_template('vyroba.html', user=session.get('user'))
 
 @app.route('/expedicia')
-@login_required(role=('veduci', 'admin', 'expedicia'))   # veduci určite povolený
-def expedicia_page():
+@login_required(role=('veduci', 'admin', 'expedicia'))   # vedúci určite povolený
+def page_expedicia():
     user = session.get('user') or {}
-    from auth_handler import canonicalize_role
+    # použijeme canonicalize_role, nech máš rovnakú logiku ako inde
     role = canonicalize_role(user.get('role'))
+
     # vedúci (a admin) dostane líder portál
     if role in ('veduci', 'admin'):
         return render_template('leaderexpedicia.html', user=user)
-    # pracovné UI pre ostatných
+
+    # bežný pracovník expedície
     return render_template('expedicia.html', user=user)
 
 @app.route('/kancelaria')
