@@ -4,7 +4,8 @@
 
 import db_connector
 from datetime import datetime, date, timedelta
-
+AUTO_HYGIENE_PERFORMER = "Oravcová"
+AUTO_HYGIENE_CHECKER = "Riadiaci pracovník"
 # --- Pomocné funkcie ---
 
 def _fmt_time(dt):
@@ -81,6 +82,146 @@ def get_hygiene_plan_for_date(target_date_str=None):
             plan_by_location[loc].append(task)
             
     return {"plan": plan_by_location, "date": _iso_date(target_date)}
+
+def run_hygiene_autostart_tick():
+    """
+    Auto-štart hygienických úloh.
+    Volané zo scheduler.py (ideálne každú minútu).
+
+    Logika:
+      - spúšťa sa len v pracovné dni (Po–Pi)
+      - pre aktuálnu minútu nájde úlohy s auto_start=1 a nastaveným scheduled_time
+      - ak pre dnešný deň ešte neexistuje log, vytvorí ho
+      - do logu zapíše task_name, location, user_fullname aj checked_by_fullname
+        a nastaví verification_status='OK'
+    """
+    now = datetime.now()
+    today = now.date()
+
+    # 0 = pondelok, 6 = nedeľa
+    if today.weekday() >= 5:
+        # víkend – neplánujeme automatický zápis
+        return {"message": "Víkend – auto-štart hygieny sa nespúšťa.", "created": 0}
+
+    time_str = now.strftime("%H:%M")
+
+    # 1. Nájdeme úlohy, ktoré majú v danú minútu scheduled_time
+    tasks = db_connector.execute_query(
+        """
+        SELECT t.id,
+               t.task_name,
+               t.location,
+               t.default_agent_id,
+               t.default_concentration,
+               t.default_exposure_time,
+               a.agent_name
+        FROM hygiene_tasks t
+        LEFT JOIN hygiene_agents a ON a.id = t.default_agent_id
+        WHERE t.is_active = 1
+          AND t.auto_start = 1
+          AND t.scheduled_time IS NOT NULL
+          AND DATE_FORMAT(t.scheduled_time, '%%H:%%i') = %s
+        """,
+        (time_str,),
+        fetch="all",
+    ) or []
+
+    created = 0
+    skipped_existing = 0
+
+    for t in tasks:
+        task_id = t["id"]
+
+        # 2. Skontrolujeme, či už na dnešný deň existuje log
+        exist = db_connector.execute_query(
+            "SELECT id FROM hygiene_log WHERE task_id=%s AND completion_date=%s",
+            (task_id, today),
+            fetch="one",
+        )
+        if exist:
+            skipped_existing += 1
+            continue
+
+        # 3. Pripravíme údaje na INSERT
+        start_at = now.replace(second=0, microsecond=0)
+        exposure_end_at = start_at + timedelta(minutes=10)
+        rinse_end_at = exposure_end_at + timedelta(minutes=10)
+        finished_at = rinse_end_at
+
+        performer_name = AUTO_HYGIENE_PERFORMER
+        checker_name = AUTO_HYGIENE_CHECKER
+
+        agent_id = t.get("default_agent_id")
+        agent_name = t.get("agent_name")
+        concentration = t.get("default_concentration")
+        exposure_time = t.get("default_exposure_time")
+
+        db_connector.execute_query(
+            """
+            INSERT INTO hygiene_log
+                (task_id,
+                 task_name,
+                 location,
+                 user_fullname,
+                 agent_id,
+                 agent_name,
+                 concentration,
+                 exposure_time,
+                 start_at,
+                 exposure_end_at,
+                 rinse_end_at,
+                 finished_at,
+                 completion_date,
+                 checked_by_fullname,
+                 checked_at,
+                 verification_status)
+            VALUES
+                (%s,
+                 %s,
+                 %s,
+                 %s,
+                 %s,
+                 %s,
+                 %s,
+                 %s,
+                 %s,
+                 %s,
+                 %s,
+                 %s,
+                 %s,
+                 %s,
+                 %s,
+                 %s)
+            """,
+            (
+                task_id,
+                t["task_name"],
+                t["location"],
+                performer_name,
+                agent_id,
+                agent_name,
+                concentration,
+                exposure_time,
+                start_at,
+                exposure_end_at,
+                rinse_end_at,
+                finished_at,
+                today,
+                checker_name,
+                now,
+                "OK",
+            ),
+            fetch="none",
+        )
+
+        created += 1
+
+    return {
+        "message": f"Auto-štart hygieny {today.isoformat()} {time_str}",
+        "created": created,
+        "skipped_existing": skipped_existing,
+    }
+
 
 def log_hygiene_completion(data):
     task_id = data.get('task_id')

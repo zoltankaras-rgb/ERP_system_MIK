@@ -21,7 +21,7 @@ from tasks import (
     vykonaj_db_ulohu,
     check_calendar_notifications,
 )
-
+import hygiene_handler
 TZ = timezone(os.getenv("APP_TZ", "Europe/Bratislava"))
 
 
@@ -156,6 +156,31 @@ def _schedule_erp_export(sched: BlockingScheduler) -> None:
     except Exception as e:
         print(f"[scheduler] ERP Export: chyba pri plánovaní jobu: {e}")
 
+def _schedule_hygiene_autostart(sched: BlockingScheduler) -> None:
+    """
+    Hygiena – auto-štart úloh podľa scheduled_time.
+    Volá hygiene_handler.run_hygiene_autostart_tick každú minútu.
+    """
+    def run_job():
+        try:
+            result = hygiene_handler.run_hygiene_autostart_tick()
+            # prehľad do logu – ak sa niečo vytvorí, vypíšeme
+            if result and result.get("created"):
+                print(f"[scheduler] Hygiena auto-štart: {result}")
+        except Exception as e:
+            print(f"[scheduler] Hygiena auto-štart ERROR: {e}")
+
+    sched.add_job(
+        run_job,
+        CronTrigger(minute="*", timezone=TZ),
+        id="hygiene_autostart",
+        replace_existing=True,
+        misfire_grace_time=60,
+    )
+    print("[scheduler] Hygiena auto-štart job naplánovaný (každú minútu).")
+
+
+
 def _schedule_b2c_birthday_bonus(sched: BlockingScheduler) -> None:
     """
     Spúšťa B2C narodeninový bonus cez HTTP endpoint raz denne.
@@ -219,7 +244,9 @@ def main() -> None:
     # 3b. B2C narodeninový bonus
     _schedule_b2c_birthday_bonus(sched)
 
-    # 4. Pravidelný refresh (refreshne DB úlohy AJ ERP nastavenia)
+    # 3c. Hygiena – auto-štart
+    _schedule_hygiene_autostart(sched)
+  # 4. Pravidelný refresh (refreshne DB úlohy AJ ERP nastavenia)
     def refresh_all():
         _load_db_tasks(sched)
         _schedule_erp_export(sched)
