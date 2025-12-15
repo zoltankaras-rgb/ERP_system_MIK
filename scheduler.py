@@ -81,12 +81,30 @@ def _add_event_listeners(sched: BlockingScheduler) -> None:
 
     sched.add_listener(listener, EVENT_JOB_EXECUTED | EVENT_JOB_ERROR | EVENT_JOB_MISSED)
 
-
+def _safe_next_run_time(job):
+    """
+    Niektoré verzie/implementácie APScheduler Job objektu nemajú next_run_time.
+    Nechceme kvôli debug logu zabiť celý scheduler.
+    """
+    for attr in ("next_run_time", "next_fire_time"):
+        try:
+            return getattr(job, attr)
+        except Exception:
+            pass
+    return None
+ 
 def _dump_jobs(sched: BlockingScheduler) -> None:
     jobs = sched.get_jobs()
     log.info("Naplánované joby: %d", len(jobs))
-    for j in sorted(jobs, key=lambda x: (x.next_run_time or 0, x.id)):
-        log.info(" - %s | next=%s | trigger=%s", j.id, j.next_run_time, j.trigger)
+
+    # stabilné zoradenie podľa id (žiadne pády na datetime/None)
+    for j in sorted(jobs, key=lambda x: x.id):
+        next_t = _safe_next_run_time(j)
+        try:
+            trig = j.trigger
+        except Exception:
+            trig = "<unknown trigger>"
+        log.info(" - %s | next=%s | trigger=%s", j.id, next_t, trig)
 
 
 def _remove_job_if_exists(sched: BlockingScheduler, job_id: str) -> None:
@@ -164,7 +182,6 @@ def _schedule_builtin_jobs(sched: BlockingScheduler) -> None:
 def _load_db_tasks(sched: BlockingScheduler) -> None:
     """
     Načíta a zaregistruje automatizované úlohy z tabuľky automatizovane_ulohy.
-    Každá úloha má cron_retazec (napr. '0 7 * * *' alebo '0 0 7 * * *').
     """
     rows = db_connector.execute_query(
         "SELECT * FROM automatizovane_ulohy WHERE is_enabled=1",
@@ -201,9 +218,12 @@ def _load_db_tasks(sched: BlockingScheduler) -> None:
             max_instances=1,
             coalesce=True,
         )
-        log.info("DB task naplánovaný: id=%s cron='%s' next=%s", tid, cron, job.next_run_time)
 
-    # Odstráň DB joby, ktoré už nie sú enabled (alebo zmizli)
+        # BEZPEČNÉ – nesmie zabiť scheduler
+        next_t = _safe_next_run_time(job)
+        log.info("DB task naplánovaný: id=%s cron='%s' next=%s", tid, cron, next_t)
+
+    # odstráň joby, ktoré už nie sú enabled
     for j in sched.get_jobs():
         if j.id.startswith("dbtask_") and j.id not in desired_job_ids:
             sched.remove_job(j.id)
