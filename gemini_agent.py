@@ -172,8 +172,8 @@ def ask_gemini_agent(
             "3. Nevypisuj žiadne dáta ani tabuľky, tie sa pridajú automaticky pod tvoj text.\n"
             "4. Odpovedz iba čistým textom správy."
         )
-        if human_text.startswith("AI ERROR:"):
-         human_text = f"Našiel som {len(rows)} záznamov. (AI sumarizácia zlyhala)"
+        sum_resp = _call_llm(sum_prompt)
+        human_text = sum_resp if not sum_resp.startswith("AI ERROR:") else f"Našiel som {len(rows)} záznamov. (AI sumarizácia zlyhala)"
 
 
         html_table = _rows_to_email_html(rows)
