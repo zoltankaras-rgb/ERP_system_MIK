@@ -1,6 +1,6 @@
 import os
 from flask import Blueprint, request, jsonify, render_template_string
-from db_connector import get_db_connection  # Predpokladám, že takto sa pripájaš
+from db_connector import get_connection
 import mail_handler  # Tvoj existujúci mail handler
 import pdf_generator # Tvoj existujúci PDF generátor (bude treba malú úpravu)
 from datetime import datetime
