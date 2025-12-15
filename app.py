@@ -45,7 +45,7 @@ from flask import (
 )
 from flask import Flask, render_template, session, redirect, url_for, jsonify, request
 from auth_handler import login_required, canonicalize_role
-
+from pricelist_handler import pricelist_bp # Import
 # ===================== ENTERPRISE KALENDÁR – KONŠTANTY =========================
 
 EVENT_STATUS_OPEN = 'OPEN'
@@ -136,6 +136,7 @@ try:
 except Exception as e:
     print("VAROVANIE: Nepodarilo sa spustiť temperature_handler.start_generator():", e)
 erp_bp = Blueprint("erp_bp", __name__)
+app.register_blueprint(pricelist_bp)
 # =================================================================
 # === DEKORÁTORY A POMOCNÉ FUNKCIE ===
 # =================================================================

@@ -10,9 +10,12 @@
   <link rel="icon" href="data:;base64,iVBORw0KGgo=" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+  
   <script src="https://www.gstatic.com/charts/loader.js"></script>
   <script src="https://cdn.tiny.cloud/1/no-api-key/tinymce/6/tinymce.min.js" referrerpolicy="origin"></script>
-  <!-- GEMINI chat: presun na ľavý spodok -->
+  
+  <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+
   <style>
     /* Vynúť umiestnenie chat bubliniek vľavo dole, aj keby gemini.js používal 'right' */
     #gemini-fab{
@@ -32,7 +35,6 @@
   </style>
 </head>
 <body>
-  <!-- Login pre kanceláriu je teraz cez /login – tento blok je skrytý -->
   <div id="login-wrapper" class="login-wrapper hidden">
     <div class="login-container">
       <h2><i class="fas fa-briefcase"></i> Modul Kancelária</h2>
@@ -50,7 +52,6 @@
     </div>
   </div>
 
-  <!-- Aplikácia – viditeľná hneď po vstupe do modulu -->
   <div id="app-container" class="app-container">
     <header class="app-header">
       <div>
@@ -68,18 +69,19 @@
           <li><a class="sidebar-link" data-section="section-orders"><i class="fas fa-clipboard-list"></i> Objednávky výroba</a></li>
           <li><a class="sidebar-link" data-section="section-planning"><i class="fas fa-calendar-alt"></i> Plánovanie výroby</a></li>
 
-          <!-- NOVÉ: Enterprise Plánovací Kalendár -->
           <li><a class="sidebar-link" data-section="section-calendar"><i class="fas fa-calendar-check"></i> Plánovací kalendár</a></li>
 
           <li><a class="sidebar-link" data-section="section-order-forecast"><i class="fas fa-shipping-fast"></i> Expedičný Plán</a></li>
           <li><a class="sidebar-link" data-section="section-erp-admin"><i class="fas fa-cogs"></i> Správa ERP</a></li>
+          
+          <li><a class="sidebar-link" data-section="section-pricelists"><i class="fas fa-file-invoice-dollar"></i> Cenníky a Akcie</a></li>
+
           <li><a class="sidebar-link" data-section="section-b2b-admin"><i class="fas fa-users-cog"></i> B2B Admin</a></li>
           <li><a class="sidebar-link" data-section="section-b2c-admin"><i class="fas fa-shopping-basket"></i> B2C Správa</a></li>
           <li><a class="sidebar-link" data-section="section-haccp"><i class="fas fa-file-shield"></i> HACCP</a></li>
           <li><a class="sidebar-link" data-section="section-fleet"><i class="fas fa-truck"></i> Vozový park</a></li>
           <li><a class="sidebar-link" data-section="section-hygiene"><i class="fas fa-soap"></i> Hygienický režim</a></li>
 
-          <!-- NOVÉ: HR / Dochádzka -->
           <li><a class="sidebar-link" data-section="section-hr"><i class="fas fa-user-clock"></i> HR / Dochádzka</a></li>
 
           <li><a class="sidebar-link" data-section="section-mail"><i class="fas fa-envelope"></i> Pošta</a></li>
@@ -99,16 +101,19 @@
         <div id="section-orders" class="content-section" style="display:none"></div>
         <div id="section-planning" class="content-section"></div>
 
-        <!-- NOVÉ: kontajner pre Enterprise Plánovací Kalendár -->
         <div id="section-calendar" class="content-section"></div>
 
         <div id="section-order-forecast" class="content-section"></div>
         <div id="section-erp-admin" class="content-section"></div>
+        
+        <div id="section-pricelists" class="content-section">
+            <div id="pricelist-vue-app"></div>
+        </div>
+
         <div id="section-b2b-admin" class="content-section"></div>
         <div id="section-temps" class="content-section"></div>
         <div id="section-meat-calc" class="content-section"></div>
 
-        <!-- B2C Správa -->
         <div id="section-b2c-admin" class="content-section">
           <h3>B2C Správa – Cenník</h3>
           <div id="b2c-admin-pricelist"></div>
@@ -118,10 +123,8 @@
         <div id="section-fleet" class="content-section"></div>
         <div id="section-hygiene" class="content-section"></div>
 
-        <!-- HR / Dochádzka – prázdny kontajner, hr.js dovnútra kreslí UI -->
         <div id="section-hr" class="content-section"></div>
 
-        <!-- Pošta -->
         <div id="section-mail" class="content-section"></div>
         <div id="section-sms-connector" class="content-section" style="display:none"></div>
 
@@ -133,7 +136,6 @@
     </div>
   </div>
 
-  <!-- Confirmation modal template -->
   <template id="confirmation-modal-template">
     <div class="modal-confirmation">
       <p id="confirmation-message" class="modal-confirmation-message"></p>
@@ -145,7 +147,6 @@
     </div>
   </template>
 
-  <!-- Kontajner na modaly -->
   <div id="modal-container">
     <div class="modal-backdrop"></div>
     <div class="modal-content">
@@ -157,7 +158,6 @@
     </div>
   </div>
 
-  <!-- Skripty -->
   <script src="/static/js/common.js" defer></script>
 
   <script src="/static/js/kancelaria_modules/dashboard.js" defer></script>
@@ -165,6 +165,24 @@
   <script src="/static/js/kancelaria_modules/planning.js" defer></script>
   <script src="/static/js/kancelaria_modules/order_forecast.js" defer></script>
   <script src="/static/js/kancelaria_modules/erp_admin.js" defer></script>
+  
+  <script src="/static/js/kancelaria_modules/pricelist_manager.js" defer></script>
+  <script defer>
+    document.addEventListener("DOMContentLoaded", () => {
+        // Čakáme, kým sa načíta pricelist_manager.js
+        setTimeout(() => {
+            if (typeof PricelistManager !== 'undefined' && document.getElementById('pricelist-vue-app')) {
+                const app = Vue.createApp(PricelistManager);
+                app.mount('#pricelist-vue-app');
+                // Načítanie dát pri štarte
+                if (app._instance && app._instance.ctx.loadProducts) {
+                    app._instance.ctx.loadProducts();
+                }
+            }
+        }, 500); // Krátke oneskorenie pre istotu
+    });
+  </script>
+
   <script src="/static/js/kancelaria_modules/b2b_admin.js" defer></script>
   <script src="/static/js/kancelaria_modules/b2c_admin.js" defer></script>
   <script src="/static/js/kancelaria_modules/haccp.js" defer></script>
@@ -175,9 +193,7 @@
   <script src="/static/js/kancelaria_modules/mail.js" defer></script>
   <script src="/static/js/kancelaria_modules/meat_calc.js" defer></script>
   <script src="/static/js/kancelaria_modules/import_export.js" defer></script>
-  <!-- NOVÉ: frontend modul pre Enterprise Plánovací Kalendár -->
   <script src="/static/js/kancelaria_modules/calendar.js" defer></script>
-  <!-- NOVÉ: frontend modul pre HR / Dochádzka -->
   <script src="/static/js/kancelaria_modules/hr.js" defer></script>
 
   <script src="/static/js/kancelaria.js" defer></script>
