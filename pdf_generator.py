@@ -600,3 +600,75 @@ def create_order_files(order_data: dict):
         csv_filename = f"{safe_cust}_{now_str}.csv"
 
     return pdf_bytes, csv_bytes, csv_filename
+
+# ──────────────── PRIDANÉ PRE KOMPATIBILITU (CENNÍKY) ────────────────
+
+def from_string(input_string: str, output_path=None, **kwargs):
+    """
+    Metóda, ktorú volá API (/api/send_custom_pricelist).
+    Vytvorí jednoduché PDF z textu/HTML reťazca pomocou ReportLab.
+    
+    POZOR: ReportLab Paragraph podporuje len základné HTML tagy 
+    (<b>, <i>, <br/>, <font>). Zložité HTML tabuľky sa nevykreslia správne.
+    """
+    # 1. Načítanie fontov (aby fungovala diakritika)
+    base_font, bold_font = _register_fonts()
+
+    # 2. Príprava dokumentu
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buf, 
+        pagesize=A4,
+        topMargin=30, bottomMargin=30, leftMargin=30, rightMargin=30
+    )
+    
+    styles = getSampleStyleSheet()
+    # Vytvoríme štýl, ktorý používa náš registrovaný font (UTF-8)
+    # Ak by sme použili default, nezobrazí mäkčene/dĺžne.
+    style = ParagraphStyle(
+        name='PricelistStyle',
+        parent=styles['Normal'],
+        fontName=base_font,
+        fontSize=10,
+        leading=14
+    )
+
+    # 3. Spracovanie obsahu
+    # Ak input_string obsahuje zložité HTML (<table>, <div>), ReportLab to môže ignorovať alebo spadnúť.
+    # Pre istotu to zabalíme do Paragraph.
+    story = []
+    
+    # Pridáme nadpis
+    story.append(Paragraph("Cenník", styles['Title']))
+    story.append(Spacer(1, 10))
+    
+    # Pridáme samotný obsah
+    story.append(Paragraph(input_string, style))
+    
+    # Pridáme dátum generovania
+    gen_date = datetime.now().strftime("%d.%m.%Y %H:%M")
+    story.append(Spacer(1, 20))
+    story.append(Paragraph(f"<font color='#6b7280' size=8>Vygenerované: {gen_date}</font>", style))
+
+    # 4. Generovanie
+    try:
+        doc.build(story)
+    except Exception as e:
+        # Fallback pre prípad chyby parsovania HTML tagov
+        print(f"Chyba pri generovaní PDF cenníka: {e}")
+        # Skúsime to znova ako čistý text bez HTML tagov
+        clean_text = html_escape(input_string).replace("\n", "<br/>")
+        fallback_story = [Paragraph(f"Chyba formátu:<br/>{clean_text}", style)]
+        doc = SimpleDocTemplate(buf, pagesize=A4)
+        doc.build(fallback_story)
+
+    pdf_bytes = buf.getvalue()
+
+    # 5. Uloženie (ak API vyžaduje zápis na disk) alebo vrátenie bytov
+    if output_path:
+        with open(output_path, 'wb') as f:
+            f.write(pdf_bytes)
+        # Niektoré knižnice vracajú True pri úspechu
+        return True
+    
+    return pdf_bytes
