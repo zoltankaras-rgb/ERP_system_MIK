@@ -3,55 +3,55 @@
 const PricelistManager = {
     data() {
         return {
-            customersInput: '', // Sem user napíše maily oddelené čiarkou
-            products: [], // Načítané produkty z DB
-            pricelistItems: [], // Položky cenníka
+            customersInput: '', 
+            pricelistItems: [], // Tu sa budú ukladať vybrané produkty
             isLoading: false
         }
     },
-    methods: {
-        // 1. Načítanie základných produktov pri štarte
-        async loadProducts() {
-            // Predpokladám endpoint na získanie produktov
-            const response = await fetch('/api/products'); 
-            const data = await response.json();
-            
-            // Namapujeme produkty do formátu pre cenník
-            this.pricelistItems = data.map(prod => ({
-                id: prod.id,
-                name: prod.name,
-                old_price: prod.price, // Aktuálna cena v systéme
-                price: prod.price,     // Cena v novom cenníku (zatiaľ rovnaká)
-                is_action: false,
-                is_changed: false
-            }));
-        },
-
-        // 2. Automatické označovanie zmien
-        updateStatus(item) {
-            // Porovnanie
-            if (parseFloat(item.price) !== parseFloat(item.old_price)) {
-                item.is_changed = true;
-            } else {
-                item.is_changed = false;
+    mounted() {
+        // TOTO JE TÁ BRÁNA - sprístupníme funkciu pre erp_admin.js
+        window.addToPricelist = (product) => {
+            // Skontrolujeme, či už v zozname nie je
+            const exists = this.pricelistItems.find(p => p.ean === product.ean);
+            if (exists) {
+                alert(`Produkt "${product.nazov_vyrobku}" už je v cenníku pridaný.`);
+                return;
             }
-        },
 
-        // 3. Odoslanie na Backend
+            // Pridáme do zoznamu
+            this.pricelistItems.push({
+                ean: product.ean,
+                name: product.nazov_vyrobku,
+                old_price: 0,      // Cena sa z katalógu neťahá (nie je tam), musíš ju zadať ručne alebo doniesť z iného API
+                price: 0,          // Nová cena
+                is_action: false
+            });
+
+            // Ukážeme hlášku (alebo len ticho pridáme)
+            // alert(`Pridané: ${product.nazov_vyrobku}`);
+            
+            // Prepneme užívateľa do sekcie cenníkov (voliteľné)
+            // document.querySelector('[data-section="section-pricelists"]').click();
+        };
+    },
+    methods: {
+        remove(index) {
+            this.pricelistItems.splice(index, 1);
+        },
         async sendPricelist() {
             if (!this.customersInput) {
-                alert("Zadajte aspoň jeden e-mail!");
+                alert("Zadajte e-mail zákazníka!");
+                return;
+            }
+            if (this.pricelistItems.length === 0) {
+                alert("Cenník je prázdny!");
                 return;
             }
 
             this.isLoading = true;
-
-            // Spracovanie emailov (napr. "test@test.sk, firma@firma.sk")
             const emailList = this.customersInput.split(',').map(e => e.trim());
-            const customers = emailList.map(email => ({ email: email, name: 'Partner' })); // Name by sa dalo ťahať z DB
+            const customers = emailList.map(email => ({ email: email, name: 'Partner' }));
 
-            // Filtrujeme len položky, ktoré chceme poslať (napríklad všetko alebo len zmenené?)
-            // V tomto prípade posielame celý cenník
             const payload = {
                 customers: customers,
                 items: this.pricelistItems,
@@ -64,16 +64,11 @@ const PricelistManager = {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
                 });
-                
                 const result = await response.json();
-                if (result.status === 'success') {
-                    alert("Cenníky boli úspešne odoslané! 🚀");
-                } else {
-                    alert("Chyba: " + result.message);
-                }
+                alert(result.message);
             } catch (error) {
                 console.error(error);
-                alert("Chyba komunikácie so serverom.");
+                alert("Chyba spojenia so serverom.");
             } finally {
                 this.isLoading = false;
             }
@@ -81,54 +76,41 @@ const PricelistManager = {
     },
     template: `
     <div class="card p-4">
-        <h3>⚡ Generátor Veľkoobchodného Cenníka</h3>
+        <h3>⚡ Tvorba Cenníka (Položky pridávaj z ERP Katalógu)</h3>
         
         <div class="mb-3">
-            <label>Zákazníci (E-maily oddelené čiarkou):</label>
-            <input v-model="customersInput" type="text" class="form-control" placeholder="jan@mäsiarstvo.sk, hotel@tatry.sk">
+            <label>Zákazníci (E-maily):</label>
+            <input v-model="customersInput" type="text" class="form-control" placeholder="klient@firma.sk">
         </div>
 
-        <div class="table-responsive" style="max-height: 500px; overflow-y: auto;">
-            <table class="table table-bordered table-hover">
-                <thead class="sticky-top bg-light">
-                    <tr>
-                        <th>Produkt</th>
-                        <th>Bežná cena (€)</th>
-                        <th>Cena v cenníku (€)</th>
-                        <th>Akcia?</th>
-                        <th>Stav</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr v-for="item in pricelistItems" :key="item.id" 
-                        :class="{'table-warning': item.is_action, 'table-success': item.price < item.old_price, 'table-danger': item.price > item.old_price}">
-                        
-                        <td>{{ item.name }}</td>
-                        <td>{{ item.old_price }}</td>
-                        
-                        <td>
-                            <input type="number" step="0.01" v-model="item.price" @input="updateStatus(item)" class="form-control form-control-sm">
-                        </td>
-                        
-                        <td class="text-center">
-                            <input type="checkbox" v-model="item.is_action" class="form-check-input">
-                        </td>
-
-                        <td>
-                            <span v-if="item.is_action" class="badge bg-warning text-dark">AKCIA</span>
-                            <span v-else-if="item.price < item.old_price" class="badge bg-success">ZLACNENIE</span>
-                            <span v-else-if="item.price > item.old_price" class="badge bg-danger">ZDRAŽENIE</span>
-                            <span v-else class="text-muted">-</span>
-                        </td>
-                    </tr>
-                </tbody>
-            </table>
+        <div v-if="pricelistItems.length === 0" class="alert alert-info">
+            Zatiaľ si nepridal žiadne produkty. Choď do <b>Správa ERP -> Katalóg</b> a klikni na "Pridať do cenníka".
         </div>
 
-        <div class="mt-3 text-end">
-            <button @click="sendPricelist" :disabled="isLoading" class="btn btn-primary btn-lg">
-                <span v-if="isLoading">Odosielam... ⏳</span>
-                <span v-else>📤 Vygenerovať PDF a Odoslať</span>
+        <table v-else class="table table-bordered">
+            <thead>
+                <tr>
+                    <th>Produkt</th>
+                    <th>Bežná cena</th>
+                    <th>Nová cena</th>
+                    <th>Akcia</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr v-for="(item, index) in pricelistItems" :key="item.ean" :class="{'table-warning': item.is_action}">
+                    <td>{{ item.name }}</td>
+                    <td><input type="number" v-model="item.old_price" class="form-control form-control-sm" step="0.01"></td>
+                    <td><input type="number" v-model="item.price" class="form-control form-control-sm" step="0.01"></td>
+                    <td class="text-center"><input type="checkbox" v-model="item.is_action"></td>
+                    <td><button @click="remove(index)" class="btn btn-danger btn-sm">X</button></td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div class="text-end mt-2" v-if="pricelistItems.length > 0">
+            <button @click="sendPricelist" :disabled="isLoading" class="btn btn-success">
+                {{ isLoading ? 'Odosielam...' : 'Odoslať Cenník' }}
             </button>
         </div>
     </div>

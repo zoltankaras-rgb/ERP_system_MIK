@@ -219,6 +219,8 @@
 
         function renderTable() {
             const q = searchInput.value.trim().toLowerCase();
+            
+            // 1. Filtrovanie produktov (pôvodná logika)
             currentFilteredProducts = products.filter(p => {
                 if (currentCat !== 'ALL') {
                     if (currentCat === 'NO_CAT') { if (p.predajna_kategoria) return false; }
@@ -231,15 +233,28 @@
                 return true;
             });
 
+            // 2. Ak nie sú produkty
             if (currentFilteredProducts.length === 0) {
                 tableContainer.innerHTML = '<p class="text-muted" style="padding:20px; text-align:center;">Žiadne produkty.</p>';
                 return;
             }
 
-            let html = `<table class="tbl"><thead><tr>
-                    <th style="width:120px;">EAN</th><th>Názov</th><th>Typ</th><th>Kategória</th><th style="text-align:right;">DPH</th><th style="width:140px;">Akcie</th>
-                  </tr></thead><tbody>`;
+            // 3. Generovanie hlavičky tabuľky
+            // (Zväčšil som šírku stĺpca Akcie na 220px, aby sa tam zmestili 3 tlačidlá)
+            let html = `<table class="tbl">
+                <thead>
+                    <tr>
+                        <th style="width:120px;">EAN</th>
+                        <th>Názov</th>
+                        <th>Typ</th>
+                        <th>Kategória</th>
+                        <th style="text-align:right;">DPH</th>
+                        <th style="width:220px;">Akcie</th>
+                    </tr>
+                </thead>
+                <tbody>`;
 
+            // 4. Generovanie riadkov
             currentFilteredProducts.forEach(p => {
                 html += `<tr data-ean="${escapeHtml(p.ean)}">
                         <td style="font-family:monospace;">${escapeHtml(p.ean)}</td>
@@ -247,15 +262,52 @@
                         <td>${escapeHtml(p.typ_polozky)}</td>
                         <td>${escapeHtml(p.predajna_kategoria || '-')}</td>
                         <td style="text-align:right;">${Number(p.dph).toFixed(0)}%</td>
-                        <td>
+                        <td style="display:flex; gap:5px;">
+                            <button class="btn-success btn-sm btn-add-pricelist" title="Pridať do cenníka">
+                                <i class="fas fa-plus"></i> Cenník
+                            </button>
+                            
                             <button class="btn-secondary btn-sm btn-edit">Upraviť</button>
                             <button class="btn-danger btn-sm btn-del">Zmazať</button>
-                        </td></tr>`;
+                        </td>
+                    </tr>`;
             });
             html += `</tbody></table>`;
             tableContainer.innerHTML = html;
 
-            // EDIT BUTTONS
+            // =========================================================
+            // === 5. SPÁROVANIE TLAČIDIEL (Event Listeners) ===
+            // =========================================================
+
+            // A: Tlačidlo PRIDAŤ DO CENNÍKA (Toto je nové)
+            tableContainer.querySelectorAll('.btn-add-pricelist').forEach(b => {
+                b.onclick = (e) => {
+                    const tr = e.target.closest('tr');
+                    const ean = tr.dataset.ean;
+                    const p = products.find(x => String(x.ean) === ean);
+                    
+                    if (p && typeof window.addToPricelist === 'function') {
+                        // Zavoláme funkciu z pricelist_manager.js
+                        window.addToPricelist(p); 
+                        
+                        // Vizuálny efekt (zmení farbu na chvíľu)
+                        const originalHTML = b.innerHTML;
+                        b.innerHTML = '<i class="fas fa-check"></i>';
+                        b.classList.remove('btn-success');
+                        b.classList.add('btn-secondary');
+                        
+                        setTimeout(() => {
+                            b.innerHTML = originalHTML;
+                            b.classList.add('btn-success');
+                            b.classList.remove('btn-secondary');
+                        }, 800);
+                    } else {
+                        alert("Chyba: Modul 'pricelist_manager.js' nie je načítaný alebo funkcia 'addToPricelist' chýba.");
+                    }
+                };
+            });
+
+            // B: Tlačidlo UPRAVIŤ (Pôvodné)
             tableContainer.querySelectorAll('.btn-edit').forEach(b => {
                 b.onclick = (e) => {
                     const ean = e.target.closest('tr').dataset.ean;
@@ -266,7 +318,7 @@
                 };
             });
 
-            // DELETE BUTTONS - VOLÁ OPRAVENÝ CONFIRMDELETE
+            // C: Tlačidlo ZMAZAŤ (Pôvodné - volá confirmDelete)
             tableContainer.querySelectorAll('.btn-del').forEach(b => {
                 b.onclick = (e) => {
                     const ean = e.target.closest('tr').dataset.ean;
