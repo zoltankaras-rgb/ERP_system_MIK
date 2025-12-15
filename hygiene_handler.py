@@ -90,7 +90,7 @@ def run_hygiene_autostart_tick():
 
     Logika:
       - spúšťa sa len v pracovné dni (Po–Pi)
-      - pre aktuálnu minútu nájde úlohy s auto_start=1 a nastaveným scheduled_time
+      - pre aktuálnu minútu nájde úlohy s auto_start=1 a scheduled_time
       - ak pre dnešný deň ešte neexistuje log, vytvorí ho
       - do logu zapíše task_name, location, user_fullname aj checked_by_fullname
         a nastaví verification_status='OK'
@@ -100,7 +100,6 @@ def run_hygiene_autostart_tick():
 
     # 0 = pondelok, 6 = nedeľa
     if today.weekday() >= 5:
-        # víkend – neplánujeme automatický zápis
         return {"message": "Víkend – auto-štart hygieny sa nespúšťa.", "created": 0}
 
     time_str = now.strftime("%H:%M")
@@ -120,7 +119,9 @@ def run_hygiene_autostart_tick():
         WHERE t.is_active = 1
           AND t.auto_start = 1
           AND t.scheduled_time IS NOT NULL
-          AND DATE_FORMAT(t.scheduled_time, '%%H:%%i') = %s
+          AND t.scheduled_time <> ''
+          -- !!! FIX: NIKDY nepoužívaj '%%H:%%i' !!!
+          AND TIME_FORMAT(t.scheduled_time, '%H:%i') = %s
         """,
         (time_str,),
         fetch="all",
@@ -134,7 +135,7 @@ def run_hygiene_autostart_tick():
 
         # 2. Skontrolujeme, či už na dnešný deň existuje log
         exist = db_connector.execute_query(
-            "SELECT id FROM hygiene_log WHERE task_id=%s AND completion_date=%s",
+            "SELECT id FROM hygiene_log WHERE task_id=%s AND completion_date=%s LIMIT 1",
             (task_id, today),
             fetch="one",
         )
@@ -144,7 +145,16 @@ def run_hygiene_autostart_tick():
 
         # 3. Pripravíme údaje na INSERT
         start_at = now.replace(second=0, microsecond=0)
-        exposure_end_at = start_at + timedelta(minutes=10)
+
+        # ak default_exposure_time existuje, použi ho; inak 10
+        exp_minutes = 10
+        try:
+            if t.get("default_exposure_time") not in (None, "", 0):
+                exp_minutes = int(t["default_exposure_time"])
+        except Exception:
+            exp_minutes = 10
+
+        exposure_end_at = start_at + timedelta(minutes=exp_minutes)
         rinse_end_at = exposure_end_at + timedelta(minutes=10)
         finished_at = rinse_end_at
 
@@ -216,10 +226,19 @@ def run_hygiene_autostart_tick():
 
         created += 1
 
+        # Voliteľné: ak máš v hygiene_tasks stĺpec status a chceš ho prepnúť
+        # (ak stĺpec neexistuje, tak to nechaj zakomentované alebo obal try/except)
+        # db_connector.execute_query(
+        #     "UPDATE hygiene_tasks SET status='hotova' WHERE id=%s",
+        #     (task_id,),
+        #     fetch="none",
+        # )
+
     return {
         "message": f"Auto-štart hygieny {today.isoformat()} {time_str}",
         "created": created,
         "skipped_existing": skipped_existing,
+        "matched_tasks": len(tasks),  # aby si v logu videl, či vôbec našlo úlohy
     }
 
 
