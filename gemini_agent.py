@@ -61,7 +61,8 @@ def _fmt_val(val: Any, col: str) -> str:
     return s
 
 def _rows_to_email_html(rows: List[Dict[str, Any]]) -> str:
-    if not rows: return ""
+    if not rows:
+        return "<p><i>Žiadne dáta (0 riadkov).</i></p>"
     cols = list(rows[0].keys())
     
     th_style = "background:#f4f4f4;border:1px solid #ccc;padding:8px;text-align:left;font-weight:bold;"
@@ -78,12 +79,26 @@ def _rows_to_email_html(rows: List[Dict[str, Any]]) -> str:
 # === Hlavná logika ===========================================================
 
 def _call_llm(prompt: str) -> str:
-    for _ in range(GENAI_MAX_RETRIES):
+    last_err: Exception | None = None
+
+    for attempt in range(1, GENAI_MAX_RETRIES + 1):
         try:
             resp = client.models.generate_content(model=PRIMARY_MODEL, contents=prompt)
-            return (getattr(resp, "text", None) or str(resp)).strip()
-        except Exception: time.sleep(1)
-    return ""
+            text = (getattr(resp, "text", None) or str(resp) or "").strip()
+
+            if not text:
+                raise RuntimeError("Gemini vrátil prázdny text (resp.text je prázdne).")
+
+            return text
+
+        except Exception as e:
+            last_err = e
+            print(f"[gemini_agent] LLM ERROR attempt {attempt}/{GENAI_MAX_RETRIES}: {e}")
+            time.sleep(1)
+
+    # NIKDY nevracaj prázdno – vráť aspoň viditeľnú chybu
+    return f"AI ERROR: {last_err}"
+
 
 def _extract_sql_only(text: str) -> Optional[str]:
     m = re.search(r"```sql\s*(.*?)```", text, re.IGNORECASE | re.DOTALL)
@@ -130,7 +145,8 @@ def ask_gemini_agent(
         sql = _extract_sql_only(raw_resp)
         
         if not sql:
-            return {"answer": raw_resp, "answer_html": f"<p>{html.escape(raw_resp)}</p>"}
+            msg = raw_resp.strip() or "AI nevrátila SQL ani text (prázdna odpoveď)."
+            return {"answer": msg, "answer_html": f"<p>{html.escape(msg)}</p>"}
 
         # 4. Vykonanie SQL
         res = vykonaj_bezpecny_sql_prikaz(sql)
@@ -156,8 +172,9 @@ def ask_gemini_agent(
             "3. Nevypisuj žiadne dáta ani tabuľky, tie sa pridajú automaticky pod tvoj text.\n"
             "4. Odpovedz iba čistým textom správy."
         )
-        human_text = _call_llm(sum_prompt).replace('"', '').strip()
-        if not human_text: human_text = f"Našiel som {len(rows)} záznamov."
+        if human_text.startswith("AI ERROR:"):
+         human_text = f"Našiel som {len(rows)} záznamov. (AI sumarizácia zlyhala)"
+
 
         html_table = _rows_to_email_html(rows)
         
