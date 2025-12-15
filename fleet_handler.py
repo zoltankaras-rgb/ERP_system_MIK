@@ -219,16 +219,38 @@ def get_fleet_data(vehicle_id=None, year=None, month=None):
             # Ak neexistuje žiadny záznam v minulosti, vezmi initial_odometer z auta
             veh = db_connector.execute_query("SELECT initial_odometer FROM fleet_vehicles WHERE id=%s", (vehicle_id,), fetch="one")
             last_odo = int((veh or {}).get('initial_odometer') or 0)
+    last_driver = None
+    if vehicle_id:
+        ld = db_connector.execute_query(
+            "SELECT driver FROM fleet_logs "
+            "WHERE vehicle_id=%s AND driver IS NOT NULL AND driver<>'' "
+            "ORDER BY log_date DESC LIMIT 1",
+            (vehicle_id,),
+            fetch="one"
+        )
+        if ld:
+            last_driver = (ld.get("driver") or "").strip() or None
+
+    # fallback na default_driver z vozidla, ak v logoch nič nie je
+    if not last_driver:
+        v = db_connector.execute_query(
+            "SELECT default_driver FROM fleet_vehicles WHERE id=%s",
+            (vehicle_id,),
+            fetch="one"
+        )
+        last_driver = ((v or {}).get("default_driver") or "").strip() or None
 
     return {
-        "vehicles": vehicles,
-        "selected_vehicle_id": _to_int(vehicle_id) if vehicle_id else None,
-        "selected_year": year,
-        "selected_month": month,
-        "logs": logs,
-        "refuelings": refuelings,
-        "last_odometer": last_odo
-    }
+  "vehicles": vehicles,
+  "selected_vehicle_id": _to_int(vehicle_id) if vehicle_id else None,
+  "selected_year": year,
+  "selected_month": month,
+  "logs": logs,
+  "refuelings": refuelings,
+  "last_odometer": last_odo,
+  "last_driver": last_driver
+}
+
 
 def get_data(vehicle_id=None, year=None, month=None):
     return get_fleet_data(vehicle_id, year, month)
