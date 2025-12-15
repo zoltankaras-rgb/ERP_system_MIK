@@ -47,6 +47,9 @@ def run_daily_tasks():
         print("="*50)
 
 if __name__ == '__main__':
-    # Tento blok sa spustí, keď zavoláte skript priamo z príkazového riadku,
-    # napríklad: python run_scheduled_tasks.py
-    run_daily_tasks()
+    import sys
+    fn = (sys.argv[1] if len(sys.argv) > 1 else "run_daily_tasks").strip()
+    if fn == "run_daily_tasks":
+        run_daily_tasks()
+    else:
+        print(f"Neznáma úloha: {fn}")
