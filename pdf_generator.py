@@ -601,20 +601,16 @@ def create_order_files(order_data: dict):
 
     return pdf_bytes, csv_bytes, csv_filename
 
-# ──────────────── PRIDANÉ PRE KOMPATIBILITU (CENNÍKY) ────────────────
+# ──────────────── PRIDANÉ PRE KOMPATIBILITU (SMART CENNÍKY) ────────────────
+import re
 
 def from_string(input_string: str, output_path=None, **kwargs):
     """
-    Metóda, ktorú volá API (/api/send_custom_pricelist).
-    Vytvorí jednoduché PDF z textu/HTML reťazca pomocou ReportLab.
-    
-    POZOR: ReportLab Paragraph podporuje len základné HTML tagy 
-    (<b>, <i>, <br/>, <font>). Zložité HTML tabuľky sa nevykreslia správne.
+    Inteligentná funkcia, ktorá dokáže spracovať HTML tabuľku z API
+    a vyrobiť z nej peknú PDF tabuľku.
     """
-    # 1. Načítanie fontov (aby fungovala diakritika)
     base_font, bold_font = _register_fonts()
-
-    # 2. Príprava dokumentu
+    
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
         buf, 
@@ -623,52 +619,123 @@ def from_string(input_string: str, output_path=None, **kwargs):
     )
     
     styles = getSampleStyleSheet()
-    # Vytvoríme štýl, ktorý používa náš registrovaný font (UTF-8)
-    # Ak by sme použili default, nezobrazí mäkčene/dĺžne.
-    style = ParagraphStyle(
-        name='PricelistStyle',
-        parent=styles['Normal'],
-        fontName=base_font,
-        fontSize=10,
-        leading=14
-    )
-
-    # 3. Spracovanie obsahu
-    # Ak input_string obsahuje zložité HTML (<table>, <div>), ReportLab to môže ignorovať alebo spadnúť.
-    # Pre istotu to zabalíme do Paragraph.
+    style_normal = ParagraphStyle('Normal', parent=styles['Normal'], fontName=base_font, fontSize=9)
+    style_title = ParagraphStyle('Title', parent=styles['Title'], fontName=bold_font, fontSize=16, spaceAfter=20, textColor=ACC)
+    style_th = ParagraphStyle('TH', parent=styles['Normal'], fontName=bold_font, fontSize=9, textColor=colors.white, alignment=TA_CENTER)
+    style_td = ParagraphStyle('TD', parent=styles['Normal'], fontName=base_font, fontSize=9)
+    style_num = ParagraphStyle('Num', parent=styles['Normal'], fontName=base_font, fontSize=9, alignment=TA_RIGHT)
+    
     story = []
-    
-    # Pridáme nadpis
-    story.append(Paragraph("Cenník", styles['Title']))
-    story.append(Spacer(1, 10))
-    
-    # Pridáme samotný obsah
-    story.append(Paragraph(input_string, style))
-    
-    # Pridáme dátum generovania
-    gen_date = datetime.now().strftime("%d.%m.%Y %H:%M")
-    story.append(Spacer(1, 20))
-    story.append(Paragraph(f"<font color='#6b7280' size=8>Vygenerované: {gen_date}</font>", style))
 
-    # 4. Generovanie
+    # 1. Extrahovanie nadpisu (ak je v <h1>)
+    title_match = re.search(r'<h1>(.*?)</h1>', input_string, re.IGNORECASE)
+    title_text = title_match.group(1) if title_match else "Cenník"
+    # Odstránenie HTML tagov z nadpisu
+    title_text = re.sub(r'<[^>]+>', '', title_text)
+    story.append(Paragraph(title_text, style_title))
+
+    # 2. Extrahovanie dátumu (ak je v <p>)
+    date_match = re.search(r'<p>(.*?)</p>', input_string, re.IGNORECASE)
+    if date_match:
+        date_text = re.sub(r'<[^>]+>', '', date_match.group(1))
+        story.append(Paragraph(date_text, style_normal))
+        story.append(Spacer(1, 10))
+
+    # 3. PARSOVANIE HTML TABUĽKY (Zázrak, ktorý opraví chybu)
+    # Nájdi všetky riadky <tr>
+    rows = re.findall(r'<tr.*?>(.*?)</tr>', input_string, re.DOTALL | re.IGNORECASE)
+    
+    table_data = []
+    
+    if rows:
+        # Spracuj hlavičku (prvý riadok alebo <th>)
+        header_cells = re.findall(r'<th.*?>(.*?)</th>', rows[0], re.DOTALL | re.IGNORECASE)
+        if not header_cells:
+             # Skúsime či prvy riadok nie sú td
+             header_cells = re.findall(r'<td.*?>(.*?)</td>', rows[0], re.DOTALL | re.IGNORECASE)
+        
+        header_row = [Paragraph(re.sub(r'<[^>]+>', '', c).strip(), style_th) for c in header_cells]
+        if header_row:
+            table_data.append(header_row)
+
+        # Spracuj zvyšné riadky (<tbody>)
+        for i, row_html in enumerate(rows):
+            # Preskočíme hlavičku ak sme ju už spracovali
+            if i == 0 and header_cells: 
+                # Kontrola či to bol naozaj header row
+                if '<th' in rows[0]:
+                    continue
+
+            cells = re.findall(r'<td.*?>(.*?)</td>', row_html, re.DOTALL | re.IGNORECASE)
+            if not cells: continue
+
+            parsed_row = []
+            for idx, cell_html in enumerate(cells):
+                # Vyčisti HTML tagy (span, strong, atď)
+                clean_text = re.sub(r'<[^>]+>', '', cell_html).strip()
+                # Decode HTML entities (&euro; -> €)
+                clean_text = clean_text.replace('&euro;', '€').replace('&#8364;', '€')
+                
+                # Urči štýl (Cena zarovnaná doprava)
+                current_style = style_num if idx >= 1 and any(x in clean_text for x in ['€', '%']) else style_td
+                
+                # Zafarbíme zľavy na zeleno (ak to bol price-down)
+                if 'price-down' in cell_html or 'green' in cell_html:
+                    clean_text = f"<font color='green'>{clean_text}</font>"
+                
+                parsed_row.append(Paragraph(clean_text, current_style))
+            
+            if parsed_row:
+                table_data.append(parsed_row)
+
+    # 4. Vykreslenie tabuľky
+    if table_data:
+        # Dynamická šírka stĺpcov
+        col_count = len(table_data[0])
+        # Rozdelíme A4 šírku (cca 450 bodov)
+        col_widths = [None] * col_count
+        if col_count == 4:
+            col_widths = [180, 80, 80, 80] # Pre váš formát: Produkt, Stará, Nová, Zmena
+        
+        t = Table(table_data, colWidths=col_widths, repeatRows=1)
+        t.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,0), BRAND),
+            ('TEXTCOLOR', (0,0), (-1,0), colors.white),
+            ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+            ('GRID', (0,0), (-1,-1), 0.5, LINE),
+            ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.whitesmoke, colors.white]),
+            ('LEFTPADDING', (0,0), (-1,-1), 6),
+            ('RIGHTPADDING', (0,0), (-1,-1), 6),
+            ('TOPPADDING', (0,0), (-1,-1), 4),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+        ]))
+        story.append(t)
+    else:
+        # Fallback ak parsovanie zlyhá
+        clean_text = re.sub(r'<[^>]+>', ' ', input_string)
+        story.append(Paragraph(clean_text, style_normal))
+
+    # Pätička
+    gen = datetime.now().strftime("%d.%m.%Y %H:%M")
+    story.append(Spacer(1, 20))
+    story.append(Paragraph(f"<font color='#6b7280' size=7>Vygenerované {gen}</font>", style_normal))
+
     try:
         doc.build(story)
     except Exception as e:
-        # Fallback pre prípad chyby parsovania HTML tagov
-        print(f"Chyba pri generovaní PDF cenníka: {e}")
-        # Skúsime to znova ako čistý text bez HTML tagov
-        clean_text = html_escape(input_string).replace("\n", "<br/>")
-        fallback_story = [Paragraph(f"Chyba formátu:<br/>{clean_text}", style)]
-        doc = SimpleDocTemplate(buf, pagesize=A4)
-        doc.build(fallback_story)
+        print(f"CRITICAL PDF ERROR: {e}")
+        # Núdzový režim - čistý text
+        fallback = io.BytesIO()
+        fdoc = SimpleDocTemplate(fallback, pagesize=A4)
+        fdoc.build([Paragraph("Chyba spracovania cenníka. Kontaktujte správcu.", style_normal)])
+        return fallback.getvalue()
 
     pdf_bytes = buf.getvalue()
-
-    # 5. Uloženie (ak API vyžaduje zápis na disk) alebo vrátenie bytov
+    
     if output_path:
         with open(output_path, 'wb') as f:
             f.write(pdf_bytes)
-        # Niektoré knižnice vracajú True pri úspechu
         return True
-    
+
     return pdf_bytes
