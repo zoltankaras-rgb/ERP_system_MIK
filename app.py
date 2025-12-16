@@ -47,6 +47,8 @@ from flask import (
 from flask import Flask, render_template, session, redirect, url_for, jsonify, request
 from auth_handler import login_required, canonicalize_role
 from pricelist_handler import pricelist_bp # Import
+
+from pdf_generator import create_pricelist_pdf
 # ===================== ENTERPRISE KALENDÁR – KONŠTANTY =========================
 
 EVENT_STATUS_OPEN = 'OPEN'
@@ -609,7 +611,7 @@ def api_manual_writeoff():
     body = request.get_json(force=True) or {}
     return handle_request(vyroba.manual_warehouse_write_off, body)
 
-
+# ---- Cenník --------------------------------------------
 @app.route('/api/save_pricelist', methods=['POST'])
 def save_pricelist():
     data = request.json
@@ -649,6 +651,88 @@ def get_pricelists():
             "datum": c.datum_vytvorenia.strftime("%d.%m.%Y")
         })
     return jsonify(output)
+
+
+# 1. API: Uložiť nový cenník (CREATE)
+@app.route('/api/cenniky/save', methods=['POST'])
+def save_cennik():
+    data = request.json
+    # Očakávame JSON: { "nazov": "Môj Cenník", "polozky": [...] }
+    
+    novy_cennik = Cennik(
+        nazov=data.get('nazov', f"Cenník {datetime.now().strftime('%d.%m.%Y')}")
+    )
+    db.session.add(novy_cennik)
+    db.session.commit() # Tu získame ID cenníka
+    
+    # Uložíme položky
+    raw_items = data.get('polozky', [])
+    for it in raw_items:
+        polozka = PolozkaCennika(
+            cennik_id=novy_cennik.id,
+            nazov_produktu=it.get('nazov') or it.get('name'),
+            cena=float(it.get('cena') or 0),
+            povodna_cena=float(it.get('old_price') or 0),
+            mj=it.get('mj', 'ks')
+        )
+        db.session.add(polozka)
+    
+    db.session.commit()
+    return jsonify({"success": True, "message": "Cenník uložený", "id": novy_cennik.id})
+
+# 2. API: Zoznam všetkých cenníkov (LIST)
+@app.route('/api/cenniky/list', methods=['GET'])
+def list_cenniky():
+    vsetky = Cennik.query.order_by(Cennik.created_at.desc()).all()
+    out = []
+    for c in vsetky:
+        out.append({
+            "id": c.id,
+            "nazov": c.nazov,
+            "datum": c.created_at.strftime("%d.%m.%Y %H:%M"),
+            "pocet_poloziek": len(c.polozky)
+        })
+    return jsonify(out)
+
+# 3. API: Odoslať konkrétny cenník emailom (SEND)
+@app.route('/api/cenniky/<int:cennik_id>/send', methods=['POST'])
+def send_stored_pricelist(cennik_id):
+    data = request.json
+    email_to = data.get('email')
+    
+    if not email_to:
+        return jsonify({"error": "Chýba email príjemcu"}), 400
+
+    # Načítame cenník z DB
+    cennik = Cennik.query.get_or_404(cennik_id)
+    
+    # Pripravíme dáta pre PDF generátor (ten tabuľkový)
+    pdf_data = {
+        "name": cennik.nazov,
+        "items": []
+    }
+    for p in cennik.polozky:
+        pdf_data["items"].append({
+            "name": p.nazov_produktu,
+            "unit": p.mj,
+            "price": p.cena
+        })
+
+    # Vygenerujeme PDF (Byte stream)
+    # POZOR: Tu voláme tú funkciu 'create_pricelist_pdf', ktorú som ti posielal predtým
+    # (nie 'from_string', lebo už máme štruktúrované dáta!)
+    pdf_bytes = create_pricelist_pdf(pdf_data)
+
+    # Odoslanie emailu (použi svoju funkciu na mail)
+    msg = Message(subject=f"Cenník: {cennik.nazov}", recipients=[email_to])
+    msg.body = "Dobrý deň,\n\nv prílohe posielame vyžiadaný cenník."
+    msg.attach(f"Cennik_{cennik_id}.pdf", "application/pdf", pdf_bytes)
+    
+    try:
+        mail.send(msg)
+        return jsonify({"success": True, "message": f"Cenník odoslaný na {email_to}"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 # =========================== KANCELÁRIA – HACCP ===========================
 @app.route('/api/kancelaria/getHaccpDocs')
 @login_required(role='kancelaria')
