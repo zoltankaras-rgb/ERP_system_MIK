@@ -739,3 +739,91 @@ def from_string(input_string: str, output_path=None, **kwargs):
         return True
 
     return pdf_bytes
+# ──────────────── CENNÍKY (DATABÁZOVÉ PDF) ────────────────
+
+def create_pricelist_pdf(pricelist_data: dict):
+    """
+    Generuje PDF z dát (nie z HTML stringu).
+    Očakáva: { "name": "Názov", "items": [{name, unit, price}, ...] }
+    """
+    # 1. Fonty
+    base_font, bold_font = _register_fonts()
+    
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buf, pagesize=A4,
+        topMargin=30, bottomMargin=30, leftMargin=30, rightMargin=30
+    )
+    styles = getSampleStyleSheet()
+
+    # Vlastné štýly
+    style_title = ParagraphStyle('PT', parent=styles['Title'], fontName=bold_font, fontSize=16, textColor=ACC, spaceAfter=10)
+    style_sub = ParagraphStyle('PS', parent=styles['Normal'], fontName=base_font, fontSize=10, textColor=GRAY, spaceAfter=20)
+    style_th = ParagraphStyle('PTH', parent=styles['Normal'], fontName=bold_font, fontSize=9, textColor=colors.white, alignment=TA_CENTER)
+    style_td = ParagraphStyle('PTD', parent=styles['Normal'], fontName=base_font, fontSize=9)
+    style_num = ParagraphStyle('PN', parent=styles['Normal'], fontName=base_font, fontSize=9, alignment=TA_RIGHT)
+
+    story = []
+
+    # 1. Nadpis
+    name = pricelist_data.get("name", "Cenník")
+    story.append(Paragraph(name, style_title))
+    
+    dt = datetime.now().strftime("%d.%m.%Y")
+    story.append(Paragraph(f"Dátum vytvorenia: {dt}", style_sub))
+
+    # 2. Dáta do tabuľky
+    # Hlavička
+    rows = [[
+        Paragraph("Produkt", style_th),
+        Paragraph("MJ", style_th),
+        Paragraph("Cena", style_th)
+    ]]
+
+    # Položky
+    items = pricelist_data.get("items", [])
+    if not items:
+        story.append(Paragraph("Žiadne položky.", style_td))
+    else:
+        for item in items:
+            p_name = str(item.get("name", "")).strip()
+            p_unit = str(item.get("unit", "ks"))
+            try:
+                p_price = float(item.get("price", 0))
+            except:
+                p_price = 0.0
+            
+            # Formátovanie ceny
+            p_price_str = f"{p_price:.2f} €".replace(".", ",")
+
+            rows.append([
+                Paragraph(html_escape(p_name), style_td),
+                Paragraph(html_escape(p_unit), style_td),
+                Paragraph(p_price_str, style_num)
+            ])
+
+        # Vykreslenie tabuľky
+        # Šírky stĺpcov (spolu cca 480-500 bodov na A4)
+        t = Table(rows, colWidths=[330, 50, 100], repeatRows=1)
+        
+        t.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,0), BRAND),       # Červená hlavička
+            ('TEXTCOLOR', (0,0), (-1,0), colors.white), 
+            ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+            ('ALIGN', (2,0), (-1,-1), 'RIGHT'),         # Ceny doprava
+            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+            ('GRID', (0,0), (-1,-1), 0.5, LINE),        # Mriežka
+            ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.whitesmoke, colors.white]),
+            ('LEFTPADDING', (0,0), (-1,-1), 6),
+            ('RIGHTPADDING', (0,0), (-1,-1), 6),
+            ('TOPPADDING', (0,0), (-1,-1), 4),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+        ]))
+        story.append(t)
+
+    # Pätička
+    story.append(Spacer(1, 30))
+    story.append(Paragraph("Vygenerované systémom MIK, s.r.o.", style_sub))
+
+    doc.build(story)
+    return buf.getvalue()
