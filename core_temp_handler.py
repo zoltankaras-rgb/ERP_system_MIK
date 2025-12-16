@@ -12,6 +12,11 @@
 #   - NEKOPÍRUJEME výrobu do novej tabuľky. Zdrojom je `zaznamy_vyroba`.
 #   - Ukladáme iba merania + produktové defaulty.
 #
+# KRITICKÁ OPRAVA:
+#   - datum_vyroby je u teba často NULL, preto UI nič nevidelo.
+#   - Používame COALESCE(datum_vyroby, datum_spustenia, datum_ukoncenia)
+#     ako "efektívny dátum" pre filtrovanie aj zobrazovanie.
+#
 
 from __future__ import annotations
 
@@ -68,8 +73,7 @@ def _safe_float(x: Any) -> Optional[float]:
         s = str(x).strip().replace(",", ".")
         if s == "":
             return None
-        v = float(s)
-        return v
+        return float(s)
     except Exception:
         return None
 
@@ -98,35 +102,35 @@ def list_items(days: int = 365):
     if not days or days < 1:
         days = 365
     if days > 3650:
-        # ochrana pred extrémom
         days = 3650
 
     from_d = date.today() - timedelta(days=int(days))
 
     zv_name = _zv_name_col()
 
-    # Posledné meranie per batch (podľa measured_at). Ak sú duplicitné časy,
-    # môže vrátiť viac záznamov – ošetríme v Pythone výberom MAX(id).
+    # Efektívny dátum výroby (fallback ak datum_vyroby nie je vyplnené)
+    eff_dt = "COALESCE(zv.datum_vyroby, zv.datum_spustenia, zv.datum_ukoncenia)"
+
     rows = db_connector.execute_query(
         f"""
         SELECT
-            zv.id_davky               AS batchId,
-            DATE(zv.datum_vyroby)     AS productionDate,
-            zv.stav                   AS status,
-            zv.{zv_name}              AS productName,
-            zv.planovane_mnozstvo_kg  AS plannedQtyKg,
-            zv.realne_mnozstvo_kg     AS realQtyKg,
-            zv.realne_mnozstvo_ks     AS realQtyKs,
-            p.mj                      AS mj,
-            p.vaha_balenia_g          AS pieceWeightG,
-            COALESCE(d.is_required,0) AS isRequired,
-            d.limit_c                 AS defaultLimitC,
-            m.id                      AS measId,
-            m.measured_c              AS measuredC,
-            m.measured_at             AS measuredAt,
-            m.measured_by             AS measuredBy,
-            m.note                    AS note,
-            m.limit_c                 AS measuredLimitC
+            zv.id_davky                           AS batchId,
+            DATE({eff_dt})                        AS productionDate,
+            zv.stav                               AS status,
+            zv.{zv_name}                          AS productName,
+            zv.planovane_mnozstvo_kg              AS plannedQtyKg,
+            zv.realne_mnozstvo_kg                 AS realQtyKg,
+            zv.realne_mnozstvo_ks                 AS realQtyKs,
+            p.mj                                  AS mj,
+            p.vaha_balenia_g                      AS pieceWeightG,
+            COALESCE(d.is_required,0)             AS isRequired,
+            d.limit_c                             AS defaultLimitC,
+            m.id                                  AS measId,
+            m.measured_c                          AS measuredC,
+            m.measured_at                         AS measuredAt,
+            m.measured_by                         AS measuredBy,
+            m.note                                AS note,
+            m.limit_c                             AS measuredLimitC
         FROM zaznamy_vyroba zv
         LEFT JOIN produkty p
                ON TRIM(zv.{zv_name}) = TRIM(p.nazov_vyrobku)
@@ -143,16 +147,15 @@ def list_items(days: int = 365):
                 ON t.batch_id = mm.batch_id AND t.max_at = mm.measured_at
         ) m
                ON m.batch_id = zv.id_davky
-        WHERE zv.datum_vyroby IS NOT NULL
-          AND DATE(zv.datum_vyroby) >= %s
-        ORDER BY zv.datum_vyroby DESC, productName ASC
+        WHERE {eff_dt} IS NOT NULL
+          AND DATE({eff_dt}) >= %s
+        ORDER BY {eff_dt} DESC, productName ASC
         """,
         (from_d,),
     ) or []
 
     # Dedup (ak viac meraní s rovnakým measured_at) – necháme najvyššie measId
     by_batch: Dict[str, Dict[str, Any]] = {}
-    out: List[Dict[str, Any]] = []
     for r in rows:
         bid = str(r.get("batchId") or "").strip()
         if not bid:
@@ -164,9 +167,10 @@ def list_items(days: int = 365):
             if _safe_int(r.get("measId"), 0) > _safe_int(prev.get("measId"), 0):
                 by_batch[bid] = r
 
+    out: List[Dict[str, Any]] = []
     for r in by_batch.values():
         pd = r.get("productionDate")
-        if isinstance(pd, (datetime,)):
+        if isinstance(pd, datetime):
             pd = pd.date()
         if isinstance(pd, date):
             pd_str = pd.strftime("%Y-%m-%d")
@@ -181,7 +185,7 @@ def list_items(days: int = 365):
         else:
             measured_at_str = None
 
-        # zvoľ limit: limit z merania (snapshot) má prioritu, inak default
+        # limit: snapshot z merania má prioritu, inak default
         limit_c = r.get("measuredLimitC")
         if limit_c is None:
             limit_c = r.get("defaultLimitC")
@@ -199,8 +203,14 @@ def list_items(days: int = 365):
         except Exception:
             real_ks = 0
 
+        piece_w = r.get("pieceWeightG")
+        try:
+            piece_w = float(piece_w) if piece_w is not None else 0.0
+        except Exception:
+            piece_w = 0.0
+
         rec = {
-            "batchId": bid,
+            "batchId": str(r.get("batchId") or "").strip(),
             "productionDate": pd_str,
             "status": r.get("status"),
             "productName": r.get("productName"),
@@ -208,7 +218,7 @@ def list_items(days: int = 365):
             "realQtyKg": real_kg,
             "realQtyKs": real_ks,
             "mj": r.get("mj") or "kg",
-            "pieceWeightG": float(r.get("pieceWeightG") or 0.0) if r.get("pieceWeightG") is not None else 0.0,
+            "pieceWeightG": piece_w,
             "isRequired": bool(int(r.get("isRequired") or 0)),
             "limitC": float(limit_c) if limit_c is not None else None,
             "measuredC": float(r.get("measuredC")) if r.get("measuredC") is not None else None,
@@ -217,7 +227,7 @@ def list_items(days: int = 365):
             "note": r.get("note"),
         }
 
-        # odvodíme stav pre UI
+        # stav pre UI
         if rec["isRequired"]:
             if rec["measuredC"] is None:
                 rec["haccpStatus"] = "MISSING"
@@ -230,8 +240,10 @@ def list_items(days: int = 365):
 
         out.append(rec)
 
-    # späť v čase
-    out.sort(key=lambda x: (x.get("productionDate") or "", x.get("productName") or ""), reverse=True)
+    # Sort: product ASC v rámci dňa, dátum DESC celkovo
+    out.sort(key=lambda x: (x.get("productName") or ""))
+    out.sort(key=lambda x: (x.get("productionDate") or ""), reverse=True)
+
     return jsonify(out)
 
 
@@ -282,11 +294,9 @@ def save_product_default(payload: Dict[str, Any]) -> Dict[str, Any]:
     is_required = 1 if str(payload.get("isRequired") or payload.get("is_required") or "0") in ("1", "true", "True", "on") else 0
     limit_c = _safe_float(payload.get("limitC") or payload.get("limit_c"))
 
-    # Ak nie je required, limit necháme NULL (aby UI jasne ukázalo, že netreba).
     if not is_required:
         limit_c = None
     else:
-        # Pre varené výrobky, ak limit nie je zadaný, nastav default 72°C.
         if limit_c is None:
             limit_c = 72.0
 
@@ -315,11 +325,10 @@ def save_measurement(payload: Dict[str, Any]) -> Dict[str, Any]:
     if not batch_id:
         return {"error": "Chýba batchId."}
 
-    measured_c = _safe_float(payload.get("measuredC") or payload.get("temp") or payload.get("temperature"))
+    measured_c = _safe_float(payload.get("measuredC") or payload.get("measured_c") or payload.get("temp") or payload.get("temperature"))
     if measured_c is None:
         return {"error": "Chýba measuredC (nameraná teplota)."}
 
-    # Čas merania – ak príde, očakávame ISO alebo 'YYYY-MM-DD HH:MM:SS'
     measured_at_raw = payload.get("measuredAt") or payload.get("measured_at")
     if measured_at_raw:
         try:
@@ -333,20 +342,25 @@ def save_measurement(payload: Dict[str, Any]) -> Dict[str, Any]:
     else:
         measured_at = datetime.now()
 
-    # Kto meral – fallback na session user
     measured_by = _norm_name(payload.get("measuredBy") or payload.get("measured_by") or payload.get("worker"))
     if not measured_by:
         user = session.get("user") or {}
         measured_by = (user.get("full_name") or user.get("username") or "Neznámy")
 
-    note = (payload.get("note") or payload.get("poznamka") or "")
+    note = payload.get("note") or payload.get("poznamka") or ""
     note = str(note).strip() if note is not None else ""
 
-    # Nájdeme produkt a dátum výroby pre audit snapshot
+    # Snapshot: produkt + dátum (fallback logika rovnaká ako list_items)
     zv_name = _zv_name_col()
     zv = db_connector.execute_query(
-        f"""SELECT {zv_name} AS productName, DATE(datum_vyroby) AS productionDate
-            FROM zaznamy_vyroba WHERE id_davky=%s LIMIT 1""",
+        f"""
+        SELECT
+            {zv_name} AS productName,
+            DATE(COALESCE(datum_vyroby, datum_spustenia, datum_ukoncenia)) AS productionDate
+        FROM zaznamy_vyroba
+        WHERE id_davky=%s
+        LIMIT 1
+        """,
         (batch_id,),
         fetch="one",
     ) or {}
@@ -356,11 +370,16 @@ def save_measurement(payload: Dict[str, Any]) -> Dict[str, Any]:
     if isinstance(prod_date, datetime):
         prod_date = prod_date.date()
 
-    # Limit: prioritne berieme z payloadu (ak ho UI pošle), inak z defaultov
+    # Limit: prioritne z payloadu, inak z defaultov
     limit_c = _safe_float(payload.get("limitC") or payload.get("limit_c"))
     if limit_c is None and product_name:
         d = db_connector.execute_query(
-            "SELECT is_required, limit_c FROM haccp_core_temp_product_defaults WHERE TRIM(product_name)=TRIM(%s) LIMIT 1",
+            """
+            SELECT is_required, limit_c
+              FROM haccp_core_temp_product_defaults
+             WHERE TRIM(product_name)=TRIM(%s)
+             LIMIT 1
+            """,
             (product_name,),
             fetch="one",
         ) or {}
