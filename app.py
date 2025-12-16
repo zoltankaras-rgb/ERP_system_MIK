@@ -661,30 +661,25 @@ def get_pricelists():
 
 # 1. API: Uložiť nový cenník (CREATE)
 @app.route('/api/cenniky/save', methods=['POST'])
-def save_cennik():
+def save_cennik_api():
     data = request.json
-    # Očakávame JSON: { "nazov": "Môj Cenník", "polozky": [...] }
-    
-    novy_cennik = Cennik(
-        nazov=data.get('nazov', f"Cenník {datetime.now().strftime('%d.%m.%Y')}")
-    )
-    db.session.add(novy_cennik)
-    db.session.commit() # Tu získame ID cenníka
-    
-    # Uložíme položky
-    raw_items = data.get('polozky', [])
-    for it in raw_items:
-        polozka = PolozkaCennika(
-            cennik_id=novy_cennik.id,
-            nazov_produktu=it.get('nazov') or it.get('name'),
-            cena=float(it.get('cena') or 0),
-            povodna_cena=float(it.get('old_price') or 0),
-            mj=it.get('mj', 'ks')
-        )
-        db.session.add(polozka)
-    
+    c = Cennik(nazov=data.get('nazov'), email=data.get('email'))
+    db.session.add(c)
     db.session.commit()
-    return jsonify({"success": True, "message": "Cenník uložený", "id": novy_cennik.id})
+    
+    for item in data.get('polozky', []):
+        p = PolozkaCennika(
+            cennik_id=c.id,
+            nazov_produktu=item['name'],
+            mj=item.get('mj', 'kg'),      # Default kg
+            cena=float(item['price'] or 0),
+            povodna_cena=float(item['old_price'] or 0),
+            dph=float(item.get('dph', 20)), # Uložíme DPH
+            is_action=item.get('is_action', False)
+        )
+        db.session.add(p)
+    db.session.commit()
+    return jsonify({"success": True})
 
 # 2. API: Zoznam všetkých cenníkov (LIST)
 @app.route('/api/cenniky/list', methods=['GET'])
@@ -707,36 +702,36 @@ def send_stored_pricelist(cennik_id):
     email_to = data.get('email')
     
     if not email_to:
-        return jsonify({"error": "Chýba email príjemcu"}), 400
+        return jsonify({"error": "Chýba email"}), 400
 
-    # Načítame cenník z DB
     cennik = Cennik.query.get_or_404(cennik_id)
     
-    # Pripravíme dáta pre PDF generátor (ten tabuľkový)
+    # Príprava dát pre PDF - musia presne sedieť s pdf_generator.py
     pdf_data = {
         "name": cennik.nazov,
         "items": []
     }
+    
     for p in cennik.polozky:
         pdf_data["items"].append({
             "name": p.nazov_produktu,
             "unit": p.mj,
-            "price": p.cena
+            "price": p.cena, # Cena bez DPH
+            "dph": p.dph     # DPH %
         })
 
-    # Vygenerujeme PDF (Byte stream)
-    # POZOR: Tu voláme tú funkciu 'create_pricelist_pdf', ktorú som ti posielal predtým
-    # (nie 'from_string', lebo už máme štruktúrované dáta!)
+    # Generovanie
+    from pdf_generator import create_pricelist_pdf
     pdf_bytes = create_pricelist_pdf(pdf_data)
 
-    # Odoslanie emailu (použi svoju funkciu na mail)
+    # Odoslanie (použi svoj existujúci mail kód)
     msg = Message(subject=f"Cenník: {cennik.nazov}", recipients=[email_to])
-    msg.body = "Dobrý deň,\n\nv prílohe posielame vyžiadaný cenník."
-    msg.attach(f"Cennik_{cennik_id}.pdf", "application/pdf", pdf_bytes)
+    msg.body = "Dobrý deň,\n\nv prílohe posielame Váš individuálny cenník."
+    msg.attach(f"Cennik.pdf", "application/pdf", pdf_bytes)
     
     try:
         mail.send(msg)
-        return jsonify({"success": True, "message": f"Cenník odoslaný na {email_to}"})
+        return jsonify({"success": True, "message": "Odoslané"})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 # =========================== KANCELÁRIA – HACCP ===========================

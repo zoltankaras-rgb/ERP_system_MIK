@@ -743,81 +743,81 @@ def from_string(input_string: str, output_path=None, **kwargs):
 
 def create_pricelist_pdf(pricelist_data: dict):
     """
-    Generuje PDF z dát (nie z HTML stringu).
-    Očakáva: { "name": "Názov", "items": [{name, unit, price}, ...] }
+    Vytvorí tabuľku: Názov | MJ | Cena bez DPH | DPH % | Cena s DPH
     """
-    # 1. Fonty
     base_font, bold_font = _register_fonts()
     
     buf = io.BytesIO()
-    doc = SimpleDocTemplate(
-        buf, pagesize=A4,
-        topMargin=30, bottomMargin=30, leftMargin=30, rightMargin=30
-    )
+    doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=30, bottomMargin=30, leftMargin=30, rightMargin=30)
     styles = getSampleStyleSheet()
 
-    # Vlastné štýly
+    # Štýly
     style_title = ParagraphStyle('PT', parent=styles['Title'], fontName=bold_font, fontSize=16, textColor=ACC, spaceAfter=10)
     style_sub = ParagraphStyle('PS', parent=styles['Normal'], fontName=base_font, fontSize=10, textColor=GRAY, spaceAfter=20)
-    style_th = ParagraphStyle('PTH', parent=styles['Normal'], fontName=bold_font, fontSize=9, textColor=colors.white, alignment=TA_CENTER)
-    style_td = ParagraphStyle('PTD', parent=styles['Normal'], fontName=base_font, fontSize=9)
-    style_num = ParagraphStyle('PN', parent=styles['Normal'], fontName=base_font, fontSize=9, alignment=TA_RIGHT)
+    style_th = ParagraphStyle('PTH', parent=styles['Normal'], fontName=bold_font, fontSize=8, textColor=colors.white, alignment=TA_CENTER)
+    style_td = ParagraphStyle('PTD', parent=styles['Normal'], fontName=base_font, fontSize=8, leading=10)
+    style_num = ParagraphStyle('PN', parent=styles['Normal'], fontName=base_font, fontSize=8, alignment=TA_RIGHT)
+    style_bold_num = ParagraphStyle('PBN', parent=styles['Normal'], fontName=bold_font, fontSize=8, alignment=TA_RIGHT)
 
     story = []
 
-    # 1. Nadpis
+    # Hlavička dokumentu
     name = pricelist_data.get("name", "Cenník")
     story.append(Paragraph(name, style_title))
-    
     dt = datetime.now().strftime("%d.%m.%Y")
-    story.append(Paragraph(f"Dátum vytvorenia: {dt}", style_sub))
+    story.append(Paragraph(f"Platný ku dňu: {dt}", style_sub))
 
-    # 2. Dáta do tabuľky
-    # Hlavička
+    # Hlavička tabuľky
     rows = [[
         Paragraph("Produkt", style_th),
         Paragraph("MJ", style_th),
-        Paragraph("Cena", style_th)
+        Paragraph("Cena bez DPH", style_th),
+        Paragraph("DPH", style_th),
+        Paragraph("Cena s DPH", style_th)
     ]]
 
-    # Položky
     items = pricelist_data.get("items", [])
     if not items:
         story.append(Paragraph("Žiadne položky.", style_td))
     else:
         for item in items:
             p_name = str(item.get("name", "")).strip()
-            p_unit = str(item.get("unit", "ks"))
-            try:
-                p_price = float(item.get("price", 0))
-            except:
-                p_price = 0.0
+            p_unit = str(item.get("unit", "kg"))
             
-            # Formátovanie ceny
-            p_price_str = f"{p_price:.2f} €".replace(".", ",")
+            try:
+                price_net = float(item.get("price", 0)) # Cena bez DPH
+                dph_rate = float(item.get("dph", 20))   # DPH %
+            except:
+                price_net = 0.0
+                dph_rate = 20.0
+
+            # Výpočet ceny s DPH
+            price_gross = price_net * (1 + (dph_rate / 100.0))
 
             rows.append([
                 Paragraph(html_escape(p_name), style_td),
                 Paragraph(html_escape(p_unit), style_td),
-                Paragraph(p_price_str, style_num)
+                Paragraph(f"{price_net:.2f} €", style_num),
+                Paragraph(f"{dph_rate:.0f}%", style_num),
+                Paragraph(f"{price_gross:.2f} €", style_bold_num) # Tučné písmo pre konečnú cenu
             ])
 
-        # Vykreslenie tabuľky
-        # Šírky stĺpcov (spolu cca 480-500 bodov na A4)
-        t = Table(rows, colWidths=[330, 50, 100], repeatRows=1)
+        # Nastavenie tabuľky (5 stĺpcov)
+        # Šírky: Názov(230), MJ(40), Net(70), DPH(40), Gross(70) = 450 bodov
+        t = Table(rows, colWidths=[230, 40, 70, 40, 70], repeatRows=1)
         
         t.setStyle(TableStyle([
-            ('BACKGROUND', (0,0), (-1,0), BRAND),       # Červená hlavička
-            ('TEXTCOLOR', (0,0), (-1,0), colors.white), 
-            ('ALIGN', (0,0), (-1,-1), 'LEFT'),
-            ('ALIGN', (2,0), (-1,-1), 'RIGHT'),         # Ceny doprava
+            ('BACKGROUND', (0,0), (-1,0), BRAND),
+            ('TEXTCOLOR', (0,0), (-1,0), colors.white),
+            ('ALIGN', (0,0), (-1,-1), 'LEFT'),      # Text vľavo
+            ('ALIGN', (2,0), (-1,-1), 'RIGHT'),     # Čísla vpravo
             ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-            ('GRID', (0,0), (-1,-1), 0.5, LINE),        # Mriežka
+            ('GRID', (0,0), (-1,-1), 0.5, LINE),
             ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.whitesmoke, colors.white]),
-            ('LEFTPADDING', (0,0), (-1,-1), 6),
-            ('RIGHTPADDING', (0,0), (-1,-1), 6),
-            ('TOPPADDING', (0,0), (-1,-1), 4),
-            ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+            ('LEFTPADDING', (0,0), (-1,-1), 4),
+            ('RIGHTPADDING', (0,0), (-1,-1), 4),
+            ('TOPPADDING', (0,0), (-1,-1), 3),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 3),
         ]))
         story.append(t)
 

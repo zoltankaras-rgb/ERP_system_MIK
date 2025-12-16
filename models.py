@@ -1,4 +1,4 @@
-# Súbor: models.py
+# models.py
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime
 
@@ -7,11 +7,9 @@ db = SQLAlchemy()
 class Cennik(db.Model):
     __tablename__ = 'cenniky'
     id = db.Column(db.Integer, primary_key=True)
-    nazov = db.Column(db.String(100), nullable=False)  # Napr. "Cenník Jeseň 2025"
-    poznamka = db.Column(db.Text, nullable=True)
+    nazov = db.Column(db.String(100), nullable=False)
+    email = db.Column(db.String(120))
     created_at = db.Column(db.DateTime, default=datetime.now)
-    
-    # Vzťah 1:N (Jeden cenník má veľa položiek)
     polozky = db.relationship('PolozkaCennika', backref='cennik', lazy=True, cascade="all, delete-orphan")
 
 class PolozkaCennika(db.Model):
@@ -19,6 +17,14 @@ class PolozkaCennika(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     cennik_id = db.Column(db.Integer, db.ForeignKey('cenniky.id'), nullable=False)
     nazov_produktu = db.Column(db.String(200), nullable=False)
-    cena = db.Column(db.Float, nullable=False)
-    povodna_cena = db.Column(db.Float, nullable=True) # Pre výpočet zľavy
-    mj = db.Column(db.String(20), default="ks")
+    
+    # ZMENA: Predvolené je 'kg'
+    mj = db.Column(db.String(20), default="kg") 
+    
+    cena = db.Column(db.Float, nullable=False)         # Cena bez DPH
+    povodna_cena = db.Column(db.Float, default=0.0)
+    
+    # NOVÉ: Ukladáme aj DPH
+    dph = db.Column(db.Float, default=20.0)            
+    
+    is_action = db.Column(db.Boolean, default=False)

@@ -1,31 +1,39 @@
 const PricelistManager = {
     data() {
         return {
-            pricelistName: '',       // Nové: Názov cenníka
-            customersInput: '', 
-            pricelistItems: [],      // Aktuálne položky v editore
-            savedPricelists: [],     // Nové: Zoznam uložených cenníkov z DB
+            pricelistName: '',       // Názov cenníka (napr. Zima 2025)
+            customersInput: '',      // Email
+            pricelistItems: [],      // Položky v editore
+            savedPricelists: [],     // Zoznam uložených cenníkov z DB
             isLoading: false
         }
     },
     mounted() {
-        // 1. Načítame zoznam už existujúcich cenníkov z databázy
+        // 1. Načítame zoznam už existujúcich cenníkov
         this.fetchSavedPricelists();
 
-        // 2. Sprístupníme funkciu pre pridávanie z katalógu
+        // 2. Sprístupníme funkciu pre pridávanie z katalógu (volá ju erp_admin.js)
         window.addToPricelist = (product) => {
+            // Kontrola, či už produkt nie je v zozname
             const exists = this.pricelistItems.find(p => p.ean === product.ean);
             if (exists) {
                 alert(`Produkt "${product.nazov_vyrobku}" už je v cenníku pridaný.`);
                 return;
             }
 
+            // Zistenie DPH (ak v katalógu existuje, inak 20%)
+            let dphVal = 20;
+            if (product.dph) dphVal = parseFloat(product.dph);
+            else if (product.vat) dphVal = parseFloat(product.vat);
+
+            // Pridanie do lokálneho zoznamu
             this.pricelistItems.push({
                 ean: product.ean,
                 name: product.nazov_vyrobku,
                 old_price: 0, 
                 price: 0, 
-                mj: product.mj || 'ks', // Skúsime získať MJ ak existuje
+                mj: product.mj || 'kg', // ZMENA: Predvolené je 'kg'
+                dph: dphVal,            // ZMENA: Ukladáme aj DPH
                 is_action: false
             });
         };
@@ -35,7 +43,7 @@ const PricelistManager = {
             this.pricelistItems.splice(index, 1);
         },
         
-        // --- NOVÉ: Načítanie zoznamu cenníkov ---
+        // --- Načítanie zoznamu cenníkov z DB ---
         async fetchSavedPricelists() {
             try {
                 const response = await fetch('/api/cenniky/list');
@@ -47,7 +55,7 @@ const PricelistManager = {
             }
         },
 
-        // --- NOVÉ: Uloženie cenníka do DB ---
+        // --- Uloženie cenníka do DB ---
         async savePricelist() {
             if (!this.pricelistName) {
                 alert("Zadaj názov cenníka! (napr. Zima 2025)");
@@ -62,8 +70,8 @@ const PricelistManager = {
             try {
                 const payload = {
                     nazov: this.pricelistName,
-                    email: this.customersInput, // Uložíme aj predvolený email
-                    polozky: this.pricelistItems
+                    email: this.customersInput,
+                    polozky: this.pricelistItems // Posielame aj s DPH a MJ
                 };
 
                 const response = await fetch('/api/cenniky/save', {
@@ -81,12 +89,13 @@ const PricelistManager = {
                 }
             } catch (e) {
                 alert("Chyba komunikácie.");
+                console.error(e);
             } finally {
                 this.isLoading = false;
             }
         },
 
-        // --- NOVÉ: Načítanie konkrétneho cenníka do editora ---
+        // --- Načítanie konkrétneho cenníka do editora ---
         async loadPricelist(id) {
             if (this.pricelistItems.length > 0) {
                 if(!confirm("Máš rozpracovaný cenník. Chceš ho prepísať týmto uloženým?")) return;
@@ -99,7 +108,7 @@ const PricelistManager = {
                 
                 this.pricelistName = data.nazov;
                 this.customersInput = data.email || '';
-                this.pricelistItems = data.polozky; // Naplníme tabuľku
+                this.pricelistItems = data.polozky; // Naplní tabuľku (vrátane DPH a MJ)
                 
             } catch (e) {
                 alert("Nepodarilo sa načítať cenník.");
@@ -108,7 +117,7 @@ const PricelistManager = {
             }
         },
 
-        // --- NOVÉ: Odoslanie ULOŽENÉHO cenníka ---
+        // --- Odoslanie ULOŽENÉHO cenníka ---
         async sendStoredPricelist(id, nazov) {
             const email = prompt(`Na aký email odoslať cenník "${nazov}"?`, this.customersInput);
             if (!email) return;
@@ -121,9 +130,15 @@ const PricelistManager = {
                     body: JSON.stringify({ email: email })
                 });
                 const res = await response.json();
-                alert(res.message || (res.success ? "Odoslané" : "Chyba"));
+                
+                if (res.success) {
+                    alert(`✅ Cenník bol odoslaný na ${email}`);
+                } else {
+                    alert("❌ Chyba: " + (res.message || res.error));
+                }
             } catch (e) {
                 alert("Chyba odosielania.");
+                console.error(e);
             } finally {
                 this.isLoading = false;
             }
@@ -158,9 +173,10 @@ const PricelistManager = {
             <thead class="table-dark">
                 <tr>
                     <th>Produkt</th>
-                    <th style="width:100px">MJ</th>
-                    <th style="width:120px">Stará cena</th>
-                    <th style="width:120px">Nová cena</th>
+                    <th style="width:80px">MJ</th>
+                    <th style="width:80px">DPH %</th>
+                    <th style="width:120px">Cena bez DPH</th>
+                    <th style="width:120px">Pôvodná cena</th>
                     <th class="text-center">Akcia</th>
                     <th></th>
                 </tr>
@@ -169,8 +185,9 @@ const PricelistManager = {
                 <tr v-for="(item, index) in pricelistItems" :key="index" :class="{'table-warning': item.is_action}">
                     <td>{{ item.name }}</td>
                     <td><input v-model="item.mj" class="form-control form-control-sm"></td>
-                    <td><input type="number" v-model="item.old_price" class="form-control form-control-sm" step="0.01"></td>
+                    <td><input type="number" v-model="item.dph" class="form-control form-control-sm" readonly title="DPH sa ťahá z karty produktu"></td>
                     <td><input type="number" v-model="item.price" class="form-control form-control-sm" step="0.01" style="font-weight:bold"></td>
+                    <td><input type="number" v-model="item.old_price" class="form-control form-control-sm" step="0.01"></td>
                     <td class="text-center"><input type="checkbox" v-model="item.is_action"></td>
                     <td><button @click="remove(index)" class="btn btn-danger btn-sm">X</button></td>
                 </tr>
