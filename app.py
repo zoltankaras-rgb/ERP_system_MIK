@@ -90,6 +90,7 @@ app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME')
 app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD')
 app.config['MAIL_DEFAULT_SENDER'] = os.getenv("MAIL_DEFAULT_SENDER")
 app.config['MAIL_ASCII_ATTACHMENTS'] = False
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///data.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 if not all([app.config['MAIL_SERVER'], app.config['MAIL_USERNAME'], app.config['MAIL_PASSWORD'], app.config['MAIL_DEFAULT_SENDER']]):
     print("!!! VAROVANIE: Chýbajú niektoré konfiguračné premenné pre e-mail v .env súbore! Odosielanie e-mailov bude zlyhávať. !!!")
@@ -97,7 +98,9 @@ if not all([app.config['MAIL_SERVER'], app.config['MAIL_USERNAME'], app.config['
 mail = Mail(app)
 ERP_EXCHANGE_DIR = os.getenv("ERP_EXCHANGE_DIR") or "/var/app/static/erp_exchange"
 ERP_IMPORT_FILENAME = "ZASOBA.CSV"
+
 db.init_app(app)
+
 with app.app_context():
     db.create_all()
 # ──────────────────────────────────────────────────────────────
