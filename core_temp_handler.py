@@ -1,22 +1,6 @@
 # =================================================================
 # === HANDLER: HACCP – TEPLOTA JADRA VÝROBKOV ======================
 # =================================================================
-#
-# Modul pre Kanceláriu:
-#   - zoznam výroby (zaznamy_vyroba) za posledných N dní (default 365),
-#   - konfigurácia: pre ktoré výrobky sa meria teplota jadra ("varený" výrobok)
-#     + minimálny limit v °C,
-#   - záznam merania (audit): nameraná teplota, čas, kto meral, poznámka.
-#
-# Dizajn:
-#   - NEKOPÍRUJEME výrobu do novej tabuľky. Zdrojom je `zaznamy_vyroba`.
-#   - Ukladáme iba merania + produktové defaulty.
-#
-# KRITICKÁ OPRAVA:
-#   - datum_vyroby je u teba často NULL, preto UI nič nevidelo.
-#   - Používame COALESCE(datum_vyroby, datum_spustenia, datum_ukoncenia)
-#     ako "efektívny dátum" pre filtrovanie aj zobrazovanie.
-#
 
 from __future__ import annotations
 
@@ -31,7 +15,6 @@ from expedition_handler import _zv_name_col
 
 def _ensure_schema() -> None:
     """Vytvorí tabuľky pre modul, ak neexistujú."""
-
     db_connector.execute_query(
         """
         CREATE TABLE IF NOT EXISTS haccp_core_temp_product_defaults (
@@ -93,10 +76,8 @@ def _norm_name(s: Optional[str]) -> str:
 # API: dáta pre UI
 # -----------------------------------------------------------------
 
-
 def list_items(days: int = 365):
     """Zoznam výroby za posledných `days` dní + defaulty + posledné meranie."""
-
     _ensure_schema()
 
     if not days or days < 1:
@@ -105,12 +86,11 @@ def list_items(days: int = 365):
         days = 3650
 
     from_d = date.today() - timedelta(days=int(days))
-
     zv_name = _zv_name_col()
 
-    # Efektívny dátum výroby (fallback ak datum_vyroby nie je vyplnené)
     eff_dt = "COALESCE(zv.datum_vyroby, zv.datum_spustenia, zv.datum_ukoncenia)"
 
+    # DÔLEŽITÉ: bez JOIN na produkty (p.mj / p.vaha_balenia_g), aby SQL nepadalo
     rows = db_connector.execute_query(
         f"""
         SELECT
@@ -121,8 +101,8 @@ def list_items(days: int = 365):
             zv.planovane_mnozstvo_kg              AS plannedQtyKg,
             zv.realne_mnozstvo_kg                 AS realQtyKg,
             zv.realne_mnozstvo_ks                 AS realQtyKs,
-            p.mj                                  AS mj,
-            p.vaha_balenia_g                      AS pieceWeightG,
+            'kg'                                  AS mj,
+            0                                     AS pieceWeightG,
             COALESCE(d.is_required,0)             AS isRequired,
             d.limit_c                             AS defaultLimitC,
             m.id                                  AS measId,
@@ -132,8 +112,6 @@ def list_items(days: int = 365):
             m.note                                AS note,
             m.limit_c                             AS measuredLimitC
         FROM zaznamy_vyroba zv
-        LEFT JOIN produkty p
-               ON TRIM(zv.{zv_name}) = TRIM(p.nazov_vyrobku)
         LEFT JOIN haccp_core_temp_product_defaults d
                ON TRIM(d.product_name) = TRIM(zv.{zv_name})
         LEFT JOIN (
@@ -190,24 +168,11 @@ def list_items(days: int = 365):
         if limit_c is None:
             limit_c = r.get("defaultLimitC")
 
-        try:
-            planned = float(r.get("plannedQtyKg") or 0.0)
-        except Exception:
-            planned = 0.0
-        try:
-            real_kg = float(r.get("realQtyKg") or 0.0)
-        except Exception:
-            real_kg = 0.0
-        try:
-            real_ks = int(r.get("realQtyKs") or 0)
-        except Exception:
-            real_ks = 0
+        planned = _safe_float(r.get("plannedQtyKg")) or 0.0
+        real_kg = _safe_float(r.get("realQtyKg")) or 0.0
+        real_ks = _safe_int(r.get("realQtyKs"), 0)
 
-        piece_w = r.get("pieceWeightG")
-        try:
-            piece_w = float(piece_w) if piece_w is not None else 0.0
-        except Exception:
-            piece_w = 0.0
+        piece_w = _safe_float(r.get("pieceWeightG")) or 0.0
 
         rec = {
             "batchId": str(r.get("batchId") or "").strip(),
@@ -240,7 +205,6 @@ def list_items(days: int = 365):
 
         out.append(rec)
 
-    # Sort: product ASC v rámci dňa, dátum DESC celkovo
     out.sort(key=lambda x: (x.get("productName") or ""))
     out.sort(key=lambda x: (x.get("productionDate") or ""), reverse=True)
 
@@ -250,6 +214,7 @@ def list_items(days: int = 365):
 def list_product_defaults():
     """Zoznam výrobkov + nastavenie (varený?/limit)."""
     _ensure_schema()
+
     rows = db_connector.execute_query(
         """
         SELECT
@@ -265,6 +230,7 @@ def list_product_defaults():
         ORDER BY p.nazov_vyrobku
         """
     ) or []
+
     for r in rows:
         if isinstance(r.get("updatedAt"), datetime):
             r["updatedAt"] = r["updatedAt"].isoformat(sep=" ", timespec="seconds")
@@ -273,13 +239,13 @@ def list_product_defaults():
             r["limitC"] = float(r.get("limitC")) if r.get("limitC") is not None else None
         except Exception:
             r["limitC"] = None
+
     return jsonify(rows)
 
 
 # -----------------------------------------------------------------
 # API: ukladanie
 # -----------------------------------------------------------------
-
 
 def save_product_default(payload: Dict[str, Any]) -> Dict[str, Any]:
     _ensure_schema()
@@ -350,7 +316,6 @@ def save_measurement(payload: Dict[str, Any]) -> Dict[str, Any]:
     note = payload.get("note") or payload.get("poznamka") or ""
     note = str(note).strip() if note is not None else ""
 
-    # Snapshot: produkt + dátum (fallback logika rovnaká ako list_items)
     zv_name = _zv_name_col()
     zv = db_connector.execute_query(
         f"""
@@ -370,7 +335,6 @@ def save_measurement(payload: Dict[str, Any]) -> Dict[str, Any]:
     if isinstance(prod_date, datetime):
         prod_date = prod_date.date()
 
-    # Limit: prioritne z payloadu, inak z defaultov
     limit_c = _safe_float(payload.get("limitC") or payload.get("limit_c"))
     if limit_c is None and product_name:
         d = db_connector.execute_query(
@@ -412,6 +376,7 @@ def save_measurement(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 def list_measurement_history(batch_id: str):
     _ensure_schema()
+
     bid = _norm_name(batch_id)
     if not bid:
         return make_response("Chýba batchId.", 400)
@@ -438,4 +403,5 @@ def list_measurement_history(batch_id: str):
             pd = pd.date()
         if isinstance(pd, date):
             r["productionDate"] = pd.strftime("%Y-%m-%d")
+
     return jsonify(rows)
