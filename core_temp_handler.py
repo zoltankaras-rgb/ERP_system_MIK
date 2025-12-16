@@ -1,11 +1,24 @@
 # =================================================================
 # === HANDLER: HACCP – TEPLOTA JADRA VÝROBKOV ======================
 # =================================================================
+#
+# Bez zásahu do existujúcich tabuliek:
+#   - čítame iba zo zaznamy_vyroba
+#   - zapisujeme iba do:
+#       haccp_core_temp_product_defaults
+#       haccp_core_temp_measurements
+#
+# DÔLEŽITÉ:
+#   - list_items je spravené ako 3 jednoduché query (bez rizikových JOINov):
+#       1) načítaj výrobu (batchId, dátum, stav, produkt, plán/reál)
+#       2) načítaj CCP defaulty pre produkty (is_required, limit_c)
+#       3) načítaj posledné meranie pre batchId (deterministicky)
+#
 
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from flask import jsonify, make_response, session
 
@@ -13,8 +26,11 @@ import db_connector
 from expedition_handler import _zv_name_col
 
 
+# -----------------------------------------------------------------
+# Schema
+# -----------------------------------------------------------------
+
 def _ensure_schema() -> None:
-    """Vytvorí tabuľky pre modul, ak neexistujú."""
     db_connector.execute_query(
         """
         CREATE TABLE IF NOT EXISTS haccp_core_temp_product_defaults (
@@ -49,6 +65,10 @@ def _ensure_schema() -> None:
     )
 
 
+# -----------------------------------------------------------------
+# Helpers
+# -----------------------------------------------------------------
+
 def _safe_float(x: Any) -> Optional[float]:
     try:
         if x is None:
@@ -72,12 +92,18 @@ def _norm_name(s: Optional[str]) -> str:
     return (s or "").strip()
 
 
+def _chunks(lst: List[Any], n: int) -> List[List[Any]]:
+    out = []
+    for i in range(0, len(lst), n):
+        out.append(lst[i:i + n])
+    return out
+
+
 # -----------------------------------------------------------------
-# API: dáta pre UI
+# API: list pre UI
 # -----------------------------------------------------------------
 
 def list_items(days: int = 365):
-    """Zoznam výroby za posledných `days` dní + defaulty + posledné meranie."""
     _ensure_schema()
 
     if not days or days < 1:
@@ -87,113 +113,162 @@ def list_items(days: int = 365):
 
     from_d = date.today() - timedelta(days=int(days))
     zv_name = _zv_name_col()
-
     eff_dt = "COALESCE(zv.datum_vyroby, zv.datum_spustenia, zv.datum_ukoncenia)"
 
-    # DÔLEŽITÉ: bez JOIN na produkty (p.mj / p.vaha_balenia_g), aby SQL nepadalo
-    rows = db_connector.execute_query(
+    # 1) Výroba – jednoduché, overené v MySQL
+    prod_rows = db_connector.execute_query(
         f"""
         SELECT
-            zv.id_davky                           AS batchId,
-            DATE({eff_dt})                        AS productionDate,
-            zv.stav                               AS status,
-            zv.{zv_name}                          AS productName,
-            zv.planovane_mnozstvo_kg              AS plannedQtyKg,
-            zv.realne_mnozstvo_kg                 AS realQtyKg,
-            zv.realne_mnozstvo_ks                 AS realQtyKs,
-            'kg'                                  AS mj,
-            0                                     AS pieceWeightG,
-            COALESCE(d.is_required,0)             AS isRequired,
-            d.limit_c                             AS defaultLimitC,
-            m.id                                  AS measId,
-            m.measured_c                          AS measuredC,
-            m.measured_at                         AS measuredAt,
-            m.measured_by                         AS measuredBy,
-            m.note                                AS note,
-            m.limit_c                             AS measuredLimitC
+          zv.id_davky AS batchId,
+          DATE({eff_dt}) AS productionDate,
+          zv.stav AS status,
+          zv.{zv_name} AS productName,
+          zv.planovane_mnozstvo_kg AS plannedQtyKg,
+          zv.realne_mnozstvo_kg AS realQtyKg,
+          zv.realne_mnozstvo_ks AS realQtyKs
         FROM zaznamy_vyroba zv
-        LEFT JOIN haccp_core_temp_product_defaults d
-               ON TRIM(d.product_name) = TRIM(zv.{zv_name})
-        LEFT JOIN (
-            SELECT mm.*
-              FROM haccp_core_temp_measurements mm
-              JOIN (
-                    SELECT batch_id, MAX(measured_at) AS max_at
-                      FROM haccp_core_temp_measurements
-                     GROUP BY batch_id
-              ) t
-                ON t.batch_id = mm.batch_id AND t.max_at = mm.measured_at
-        ) m
-               ON m.batch_id = zv.id_davky
         WHERE {eff_dt} IS NOT NULL
           AND DATE({eff_dt}) >= %s
-        ORDER BY {eff_dt} DESC, productName ASC
+        ORDER BY {eff_dt} DESC, zv.{zv_name} ASC
         """,
         (from_d,),
     ) or []
 
-    # Dedup (ak viac meraní s rovnakým measured_at) – necháme najvyššie measId
-    by_batch: Dict[str, Dict[str, Any]] = {}
-    for r in rows:
-        bid = str(r.get("batchId") or "").strip()
-        if not bid:
-            continue
-        prev = by_batch.get(bid)
-        if prev is None:
-            by_batch[bid] = r
-        else:
-            if _safe_int(r.get("measId"), 0) > _safe_int(prev.get("measId"), 0):
-                by_batch[bid] = r
+    if not prod_rows:
+        return jsonify([])
 
-    out: List[Dict[str, Any]] = []
-    for r in by_batch.values():
+    # normalizácia + zber kľúčov
+    batch_ids: List[str] = []
+    product_names: List[str] = []
+
+    norm_prod: List[Dict[str, Any]] = []
+    for r in prod_rows:
+        bid = _norm_name(r.get("batchId"))
+        pname = _norm_name(r.get("productName"))
+        if not bid or not r.get("productionDate"):
+            continue
+
+        batch_ids.append(bid)
+        if pname:
+            product_names.append(pname)
+
         pd = r.get("productionDate")
         if isinstance(pd, datetime):
             pd = pd.date()
-        if isinstance(pd, date):
-            pd_str = pd.strftime("%Y-%m-%d")
-        else:
-            pd_str = str(pd) if pd else None
+        pd_str = pd.strftime("%Y-%m-%d") if isinstance(pd, date) else str(pd)
 
-        measured_at = r.get("measuredAt")
-        if isinstance(measured_at, datetime):
-            measured_at_str = measured_at.isoformat(sep=" ", timespec="seconds")
-        elif measured_at:
-            measured_at_str = str(measured_at)
-        else:
-            measured_at_str = None
-
-        # limit: snapshot z merania má prioritu, inak default
-        limit_c = r.get("measuredLimitC")
-        if limit_c is None:
-            limit_c = r.get("defaultLimitC")
-
-        planned = _safe_float(r.get("plannedQtyKg")) or 0.0
-        real_kg = _safe_float(r.get("realQtyKg")) or 0.0
-        real_ks = _safe_int(r.get("realQtyKs"), 0)
-
-        piece_w = _safe_float(r.get("pieceWeightG")) or 0.0
-
-        rec = {
-            "batchId": str(r.get("batchId") or "").strip(),
+        norm_prod.append({
+            "batchId": bid,
             "productionDate": pd_str,
             "status": r.get("status"),
-            "productName": r.get("productName"),
-            "plannedQtyKg": planned,
-            "realQtyKg": real_kg,
-            "realQtyKs": real_ks,
-            "mj": r.get("mj") or "kg",
-            "pieceWeightG": piece_w,
-            "isRequired": bool(int(r.get("isRequired") or 0)),
+            "productName": pname,
+            "plannedQtyKg": float(r.get("plannedQtyKg") or 0.0),
+            "realQtyKg": float(r.get("realQtyKg") or 0.0),
+            "realQtyKs": int(r.get("realQtyKs") or 0),
+        })
+
+    # 2) Defaulty CCP/limit pre produkty (iba pre tie, ktoré sa vyskytli)
+    defaults_map: Dict[str, Dict[str, Any]] = {}
+    uniq_products = sorted(set(product_names))
+    if uniq_products:
+        # IN query v chunk-och (ak by bolo veľa produktov)
+        for ch in _chunks(uniq_products, 500):
+            placeholders = ",".join(["%s"] * len(ch))
+            drows = db_connector.execute_query(
+                f"""
+                SELECT product_name AS productName, is_required AS isRequired, limit_c AS limitC
+                FROM haccp_core_temp_product_defaults
+                WHERE TRIM(product_name) IN ({placeholders})
+                """,
+                tuple(ch),
+            ) or []
+            for d in drows:
+                n = _norm_name(d.get("productName"))
+                defaults_map[n] = {
+                    "isRequired": bool(int(d.get("isRequired") or 0)),
+                    "limitC": _safe_float(d.get("limitC")),
+                }
+
+    # 3) Posledné meranie pre batchId – deterministicky (measured_at + id)
+    meas_map: Dict[str, Dict[str, Any]] = {}
+    uniq_batches = sorted(set(batch_ids))
+    if uniq_batches:
+        for ch in _chunks(uniq_batches, 500):
+            placeholders = ",".join(["%s"] * len(ch))
+            mrows = db_connector.execute_query(
+                f"""
+                SELECT mm.*
+                FROM haccp_core_temp_measurements mm
+                JOIN (
+                  SELECT batch_id,
+                         MAX(CONCAT(DATE_FORMAT(measured_at,'%Y%m%d%H%i%s'), LPAD(id,10,'0'))) AS mx
+                  FROM haccp_core_temp_measurements
+                  WHERE batch_id IN ({placeholders})
+                  GROUP BY batch_id
+                ) t
+                  ON t.batch_id = mm.batch_id
+                 AND CONCAT(DATE_FORMAT(mm.measured_at,'%Y%m%d%H%i%s'), LPAD(mm.id,10,'0')) = t.mx
+                """,
+                tuple(ch),
+            ) or []
+            for m in mrows:
+                bid = _norm_name(m.get("batch_id"))
+                if not bid:
+                    continue
+                meas_at = m.get("measured_at")
+                if isinstance(meas_at, datetime):
+                    meas_at_str = meas_at.isoformat(sep=" ", timespec="seconds")
+                else:
+                    meas_at_str = str(meas_at) if meas_at else None
+
+                meas_map[bid] = {
+                    "measuredC": _safe_float(m.get("measured_c")),
+                    "measuredAt": meas_at_str,
+                    "measuredBy": m.get("measured_by"),
+                    "note": m.get("note"),
+                    "measuredLimitC": _safe_float(m.get("limit_c")),
+                }
+
+    # Výstup pre UI
+    out: List[Dict[str, Any]] = []
+    for r in norm_prod:
+        pname = r.get("productName") or ""
+        bid = r.get("batchId")
+
+        d = defaults_map.get(pname, {"isRequired": False, "limitC": None})
+        m = meas_map.get(bid, None)
+
+        is_required = bool(d.get("isRequired"))
+        default_limit = _safe_float(d.get("limitC"))
+        measured_limit = _safe_float(m.get("measuredLimitC")) if m else None
+
+        # limit: priorita snapshot z merania, inak default
+        limit_c = measured_limit if measured_limit is not None else default_limit
+
+        measured_c = _safe_float(m.get("measuredC")) if m else None
+        measured_at = m.get("measuredAt") if m else None
+        measured_by = m.get("measuredBy") if m else None
+        note = m.get("note") if m else None
+
+        rec = {
+            "batchId": bid,
+            "productionDate": r.get("productionDate"),
+            "status": r.get("status"),
+            "productName": pname,
+            "plannedQtyKg": float(r.get("plannedQtyKg") or 0.0),
+            "realQtyKg": float(r.get("realQtyKg") or 0.0),
+            "realQtyKs": int(r.get("realQtyKs") or 0),
+            "mj": "kg",
+            "pieceWeightG": 0.0,
+            "isRequired": is_required,
             "limitC": float(limit_c) if limit_c is not None else None,
-            "measuredC": float(r.get("measuredC")) if r.get("measuredC") is not None else None,
-            "measuredAt": measured_at_str,
-            "measuredBy": r.get("measuredBy"),
-            "note": r.get("note"),
+            "measuredC": float(measured_c) if measured_c is not None else None,
+            "measuredAt": measured_at,
+            "measuredBy": measured_by,
+            "note": note,
         }
 
-        # stav pre UI
-        if rec["isRequired"]:
+        if is_required:
             if rec["measuredC"] is None:
                 rec["haccpStatus"] = "MISSING"
             elif rec["limitC"] is not None and rec["measuredC"] < rec["limitC"]:
@@ -205,16 +280,20 @@ def list_items(days: int = 365):
 
         out.append(rec)
 
+    # sort: dátum DESC, potom názov ASC
     out.sort(key=lambda x: (x.get("productName") or ""))
     out.sort(key=lambda x: (x.get("productionDate") or ""), reverse=True)
 
     return jsonify(out)
 
 
-def list_product_defaults():
-    """Zoznam výrobkov + nastavenie (varený?/limit)."""
-    _ensure_schema()
+# -----------------------------------------------------------------
+# API: defaults (CCP/limit)
+# -----------------------------------------------------------------
 
+def list_product_defaults():
+    _ensure_schema()
+    # ponechávam to takto – ak by ti to padalo kvôli schéme "produkty", upravíme podľa DESCRIBE produkty
     rows = db_connector.execute_query(
         """
         SELECT
@@ -230,7 +309,6 @@ def list_product_defaults():
         ORDER BY p.nazov_vyrobku
         """
     ) or []
-
     for r in rows:
         if isinstance(r.get("updatedAt"), datetime):
             r["updatedAt"] = r["updatedAt"].isoformat(sep=" ", timespec="seconds")
@@ -239,13 +317,8 @@ def list_product_defaults():
             r["limitC"] = float(r.get("limitC")) if r.get("limitC") is not None else None
         except Exception:
             r["limitC"] = None
-
     return jsonify(rows)
 
-
-# -----------------------------------------------------------------
-# API: ukladanie
-# -----------------------------------------------------------------
 
 def save_product_default(payload: Dict[str, Any]) -> Dict[str, Any]:
     _ensure_schema()
@@ -280,6 +353,10 @@ def save_product_default(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     return {"message": "Uložené.", "productName": name, "isRequired": bool(is_required), "limitC": limit_c}
 
+
+# -----------------------------------------------------------------
+# API: merania
+# -----------------------------------------------------------------
 
 def save_measurement(payload: Dict[str, Any]) -> Dict[str, Any]:
     _ensure_schema()
@@ -335,15 +412,11 @@ def save_measurement(payload: Dict[str, Any]) -> Dict[str, Any]:
     if isinstance(prod_date, datetime):
         prod_date = prod_date.date()
 
+    # limit snapshot: z payloadu, inak z defaultov
     limit_c = _safe_float(payload.get("limitC") or payload.get("limit_c"))
     if limit_c is None and product_name:
         d = db_connector.execute_query(
-            """
-            SELECT is_required, limit_c
-              FROM haccp_core_temp_product_defaults
-             WHERE TRIM(product_name)=TRIM(%s)
-             LIMIT 1
-            """,
+            "SELECT is_required, limit_c FROM haccp_core_temp_product_defaults WHERE TRIM(product_name)=TRIM(%s) LIMIT 1",
             (product_name,),
             fetch="one",
         ) or {}
@@ -376,7 +449,6 @@ def save_measurement(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 def list_measurement_history(batch_id: str):
     _ensure_schema()
-
     bid = _norm_name(batch_id)
     if not bid:
         return make_response("Chýba batchId.", 400)
