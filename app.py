@@ -47,7 +47,8 @@ from flask import (
 from flask import Flask, render_template, session, redirect, url_for, jsonify, request
 from auth_handler import login_required, canonicalize_role
 from pricelist_handler import pricelist_bp # Import
-
+import temperature_handler
+import core_temp_handler
 from pdf_generator import create_pricelist_pdf
 # ===================== ENTERPRISE KALENDÁR – KONŠTANTY =========================
 
@@ -3537,6 +3538,36 @@ def temps_report():
     to_now    = (request.args.get('to') == 'now')
     layout    = request.args.get('layout') or 'detail'
     return temperature_handler.report_html(date_str, device_id, to_now, layout)
+# =================================================================
+# === HACCP – TEPLOTA JADRA VÝROBKOV (Kancelária) ==================
+# =================================================================
+
+@app.get('/api/kancelaria/core_temp/list')
+@login_required(role=('kancelaria','veduci','admin'))
+def api_core_temp_list():
+    days = request.args.get('days', type=int) or 365
+    return core_temp_handler.list_items(days=days)
+
+@app.get('/api/kancelaria/core_temp/product_defaults')
+@login_required(role=('kancelaria','veduci','admin'))
+def api_core_temp_product_defaults():
+    return core_temp_handler.list_product_defaults()
+
+@app.post('/api/kancelaria/core_temp/product_defaults/save')
+@login_required(role=('kancelaria','veduci','admin'))
+def api_core_temp_product_defaults_save():
+    return handle_request(core_temp_handler.save_product_default, request.json)
+
+@app.post('/api/kancelaria/core_temp/measurement/save')
+@login_required(role=('kancelaria','veduci','admin'))
+def api_core_temp_measurement_save():
+    return handle_request(core_temp_handler.save_measurement, request.json)
+
+@app.get('/api/kancelaria/core_temp/measurement/history')
+@login_required(role=('kancelaria','veduci','admin'))
+def api_core_temp_measurement_history():
+    batch_id = request.args.get('batchId') or request.args.get('batch_id')
+    return core_temp_handler.list_measurement_history(batch_id)
 
 # =================================================================
 # === SMS notifikácie – B2C =======================================

@@ -91,6 +91,18 @@ table{width:100%;border-collapse:collapse}
 th,td{padding:.75rem 1rem;text-align:left;border-bottom:1px solid var(--mid)}
 th{background:#f8fafc;font-weight:700;position:sticky;top:0;z-index:5}
 
+/* ---------- GLOBÁLNE UTILKY (použiteľné vo všetkých moduloch) ---------- */
+.analysis-card{background:#fff;border:1px solid var(--mid);border-radius:12px;box-shadow:var(--shadow);padding:1rem}
+.table-container{width:100%;overflow:auto;border:1px solid var(--mid);border-radius:12px;background:#fff}
+.muted{color:#6b7280;font-size:.9rem}
+.kpi-badge{
+  display:inline-flex;align-items:center;gap:.4rem;
+  padding:.35rem .65rem;border-radius:9999px;
+  font-weight:700;font-size:.85rem;
+  background:var(--light);
+  box-shadow:0 1px 2px rgba(0,0,0,.06) inset;
+}
+
 /* ---------- MODAL ---------- */
 #modal-container{display:none;position:fixed;inset:0;z-index:1000;justify-content:center;align-items:center}
 #modal-container.visible{display:flex}
@@ -104,6 +116,117 @@ th{background:#f8fafc;font-weight:700;position:sticky;top:0;z-index:5}
 /* ---------- UTIL GRID ---------- */
 .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
 @media (max-width:900px){ .form-grid{grid-template-columns:1fr} }
+
+
+/* =====================================================================
+   HACCP – TEPLOTA JADRA (scoped na #section-core-temp)
+   ===================================================================== */
+
+#section-core-temp .coretemp-grid{
+  display:grid;
+  grid-template-columns:minmax(320px, 520px) 1fr;
+  gap:16px;
+  align-items:start;
+  min-height:0;
+}
+
+#section-core-temp .coretemp-aside{min-height:0}
+#section-core-temp .coretemp-main{min-height:0}
+
+#section-core-temp .coretemp-toolbar{
+  display:flex;
+  flex-wrap:wrap;
+  gap:10px;
+  align-items:center;
+}
+
+#section-core-temp .coretemp-toolbar .spacer{flex:1}
+#section-core-temp .coretemp-toolbar input[type="text"]{max-width:420px}
+#section-core-temp .coretemp-toolbar select{max-width:260px}
+
+#section-core-temp .tree{
+  display:grid;
+  grid-template-columns:1fr 1fr 1fr;
+  gap:10px;
+  min-height:0;
+}
+
+#section-core-temp .tree-col h4{
+  margin:.25rem 0 .5rem 0;
+  font-size:1rem;
+  color:#111827;
+}
+
+#section-core-temp .tree-list{
+  list-style:none;
+  margin:0;
+  padding:0;
+  border:1px solid var(--mid);
+  border-radius:12px;
+  background:#fff;
+  overflow:hidden;
+  max-height:420px;
+  overflow:auto;
+}
+
+#section-core-temp .tree-list button{
+  width:100%;
+  text-align:left;
+  background:transparent;
+  border:0;
+  padding:10px 12px;
+  cursor:pointer;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  font-weight:800;
+  color:#111827;
+}
+#section-core-temp .tree-list button:hover{background:#f9fafb}
+#section-core-temp .tree-list button.active{background:#eef2ff}
+
+#section-core-temp .tree-list .count{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-width:28px;
+  padding:2px 8px;
+  border-radius:9999px;
+  border:1px solid var(--mid);
+  background:var(--light);
+  font-weight:800;
+  font-size:.85rem;
+}
+
+#section-core-temp .status-pill{
+  display:inline-flex;
+  align-items:center;
+  gap:.4rem;
+  padding:.25rem .6rem;
+  border-radius:9999px;
+  font-weight:900;
+  font-size:.78rem;
+  border:1px solid transparent;
+  white-space:nowrap;
+}
+
+#section-core-temp .status-ok{background:#ecfdf5;color:#065f46;border-color:#a7f3d0}
+#section-core-temp .status-missing{background:#fffbeb;color:#92400e;border-color:#fde68a}
+#section-core-temp .status-low{background:#fef2f2;color:#991b1b;border-color:#fecaca}
+
+#section-core-temp .mini-row{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  align-items:center;
+}
+
+@media (max-width:1200px){
+  #section-core-temp .coretemp-grid{grid-template-columns:1fr}
+  #section-core-temp .tree{grid-template-columns:1fr}
+  #section-core-temp .tree-list{max-height:unset}
+}
+
 
 /* =====================================================================
    MAIL PRO (prísne namespacované na #section-mail)
@@ -170,6 +293,7 @@ th{background:#f8fafc;font-weight:700;position:sticky;top:0;z-index:5}
 /* Malé utilky pre poštu (len v scope pošty) */
 #section-mail .text-danger{color:var(--danger-color)}
 #section-mail .btn-group-vertical{display:flex;flex-direction:column;gap:.5rem}
+
 /* ===== Mail – detail (komfortné čítanie) ===== */
 #section-mail .detail         { display:grid; gap:16px; padding:14px; }
 #section-mail .detail-header  { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
@@ -187,7 +311,7 @@ th{background:#f8fafc;font-weight:700;position:sticky;top:0;z-index:5}
 
 #section-mail .attachments   { padding-top:10px; border-top:1px dashed var(--mid); }
 #section-mail .att-list      { display:flex; flex-wrap:wrap; gap:8px; margin-top:6px; }
-#section-mail .chip          { display:inline-flex; align-items:center; gap:8px; background:#fff; border:1px solid var(--mid); border-radius:999px; padding:6px 10px; }
+#section-mail .chip          { display:inline-flex; align-items:center; gap:8px; background:#fff; border:1px solid var(--mid); border-radius:9999px; padding:6px 10px; }
 #section-mail .chip i        { opacity:.75; }
 
 #section-mail .body-wrap     { border:1px solid var(--mid); border-radius:10px; padding:14px; background:#fff; }
@@ -196,10 +320,13 @@ th{background:#f8fafc;font-weight:700;position:sticky;top:0;z-index:5}
 
 /* Zoznam – komfortnejšie riadky a hover */
 #section-mail #mail-table tbody tr td { padding:12px 14px; }
-#section-mail #mail-table tbody tr:hover { background:#f9fafb; }
+#section-mail #mail-table tbody tr:hover { background: #f9fafb; }
+
 /* Single-panel prepínač (len Pošta) */
 #section-mail .view { display:none; }
 #section-mail .view.active { display:block; }
+
+
 /* ===========================
    THEME v2 – GLOBAL OVERRIDES
    (vložiť na úplný koniec súboru)
@@ -211,7 +338,7 @@ th{background:#f8fafc;font-weight:700;position:sticky;top:0;z-index:5}
   --primary-color: #ff5d6a;   /* koralová – hl. akcie, hlavička */
   --secondary-color: #3b82f6; /* jemná modrá – sekundárne akcie */
 
-  /* stavy (ponechané, ale mierne zjemnené ak treba) */
+  /* stavy */
   --success-color:#16a34a;
   --warning-color:#f59e0b;
   --danger-color:#ef4444;
@@ -236,14 +363,14 @@ th{background:#f8fafc;font-weight:700;position:sticky;top:0;z-index:5}
   display: inline-flex!important;
   align-items: center;
   gap: .55rem;
-  margin: 4px 10px 10px 0;      /* --- rozostupy medzi tlačidlami --- */
+  margin: 4px 10px 10px 0;      /* rozostupy medzi tlačidlami */
 }
 
 /* 3) Jednotné farby variánt tlačidiel (žiadna hnedá/sivá) */
 .btn,
 button.btn,
 a.btn,
-.btn-secondary{ /* default aj sekundárne = modré */
+.btn-secondary{
   color:#fff!important;
   background: linear-gradient(180deg, rgba(255,255,255,.12), rgba(0,0,0,.06)), var(--secondary-color)!important;
   box-shadow: var(--btn-shadow)!important;
@@ -254,7 +381,7 @@ a.btn,
   box-shadow: var(--btn-shadow-hover)!important;
 }
 
-.btn-primary{  /* primárna – koralová */
+.btn-primary{
   color:#fff!important;
   background: linear-gradient(180deg, rgba(255,255,255,.12), rgba(0,0,0,.06)), var(--primary-color)!important;
   box-shadow: var(--btn-shadow)!important;
@@ -282,7 +409,7 @@ a.btn,
   box-shadow: none!important;
 }
 
-/* 4) TOOLBARY – nech sa ovládanie neradí pod seba, ale vedľa seba s medzerou */
+/* 4) TOOLBARY – flex s medzerou */
 #section-stock .toolbar,
 #section-order-forecast .toolbar,
 #section-b2b-admin .toolbar,
@@ -294,7 +421,7 @@ a.btn,
   display:flex; flex-wrap:wrap; align-items:center; gap:10px;
 }
 
-/* fallback: veľa strán nemá .toolbar – aspoň prvý „riadok“ zarovnáme do flexu */
+/* fallback: header prvých kariet */
 #section-stock > .card:first-of-type > .card-header,
 #section-order-forecast > .card:first-of-type > .card-header,
 #section-b2b-admin   > .card:first-of-type > .card-header,
@@ -305,7 +432,7 @@ a.btn,
   display:flex; flex-wrap:wrap; align-items:center; gap:10px;
 }
 
-/* 5) „Nalepené“ prvky v starších moduloch – univerzálny spacing */
+/* 5) Univerzálny spacing v starších moduloch */
 #section-stock .btn,             #section-stock select,             #section-stock input[type="text"],
 #section-order-forecast .btn,    #section-order-forecast select,    #section-order-forecast input[type="text"],
 #section-b2b-admin .btn,         #section-b2b-admin select,         #section-b2b-admin input[type="text"],
@@ -317,7 +444,7 @@ a.btn,
   margin-bottom:10px;
 }
 
-/* 6) Tabuľky – o chlp vzdušnejšie riadky pre prehľadnosť */
+/* 6) Tabuľky – o chlp vzdušnejšie */
 #section-stock table td,              #section-stock table th,
 #section-order-forecast table td,     #section-order-forecast table th,
 #section-b2b-admin table td,          #section-b2b-admin table th,
@@ -335,13 +462,13 @@ a.btn,
   border-radius: var(--btn-radius)!important;
 }
 
-/* 8) Doplnky pre Expedičný plán – sekundárne akcie nech sú rovnako pekné */
+/* 8) Doplnky pre Expedičný plán */
 #section-order-forecast .btn-secondary {
   background: linear-gradient(180deg, rgba(255,255,255,.12), rgba(0,0,0,.06)), var(--secondary-color)!important;
   color:#fff!important;
 }
 
-/* 9) (Voliteľné) Zjednotenie malých ikon-tlačidiel */
+/* 9) Zjednotenie ikon-tlačidiel */
 #section-stock .btn-icon, #section-order-forecast .btn-icon, #section-b2b-admin .btn-icon, #section-b2c-admin .btn-icon,
 #section-fleet .btn-icon, #section-profitability .btn-icon, #section-costs .btn-icon {
   width: 2.35rem; height: 2.35rem; border-radius: 9999px; padding: .55rem;
@@ -384,4 +511,3 @@ a.btn,
 #section-fleet .delta { font-weight: 700; }
 #section-fleet .delta.up { color: var(--success-color); }
 #section-fleet .delta.down { color: var(--danger-color); }
-
