@@ -5,15 +5,19 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Modul Kancelária</title>
 
+  <!-- CSS -->
   <link rel="stylesheet" href="{{ url_for('static', filename='css/kancelaria.css') }}?v=7" />
 
+  <!-- Favicon (bez requestu) -->
   <link rel="icon" href="data:;base64,iVBORw0KGgo=" />
+
+  <!-- Fonts + Icons -->
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
-  
+
+  <!-- External libs -->
   <script src="https://www.gstatic.com/charts/loader.js"></script>
   <script src="https://cdn.tiny.cloud/1/no-api-key/tinymce/6/tinymce.min.js" referrerpolicy="origin"></script>
-  
   <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
 
   <style>
@@ -34,7 +38,9 @@
     }
   </style>
 </head>
+
 <body>
+  <!-- LOGIN -->
   <div id="login-wrapper" class="login-wrapper hidden">
     <div class="login-container">
       <h2><i class="fas fa-briefcase"></i> Modul Kancelária</h2>
@@ -52,16 +58,20 @@
     </div>
   </div>
 
+  <!-- APP -->
   <div id="app-container" class="app-container">
     <header class="app-header">
       <div>
         <h1>Modul Kancelária</h1>
         <p id="user-info">Vitajte, ...</p>
       </div>
-      <button id="logout-button" class="btn btn-danger"><i class="fas fa-sign-out-alt"></i> Odhlásiť sa</button>
+      <button id="logout-button" class="btn btn-danger">
+        <i class="fas fa-sign-out-alt"></i> Odhlásiť sa
+      </button>
     </header>
 
     <div class="main-layout">
+      <!-- SIDEBAR -->
       <aside class="sidebar">
         <ul class="sidebar-nav">
           <li><a class="sidebar-link active" data-section="section-dashboard"><i class="fas fa-chart-line"></i> Dashboard</a></li>
@@ -73,12 +83,15 @@
 
           <li><a class="sidebar-link" data-section="section-order-forecast"><i class="fas fa-shipping-fast"></i> Expedičný Plán</a></li>
           <li><a class="sidebar-link" data-section="section-erp-admin"><i class="fas fa-cogs"></i> Správa ERP</a></li>
-          
+
           <li><a class="sidebar-link" data-section="section-pricelists"><i class="fas fa-file-invoice-dollar"></i> Cenníky a Akcie</a></li>
 
           <li><a class="sidebar-link" data-section="section-b2b-admin"><i class="fas fa-users-cog"></i> B2B Admin</a></li>
           <li><a class="sidebar-link" data-section="section-b2c-admin"><i class="fas fa-shopping-basket"></i> B2C Správa</a></li>
+
           <li><a class="sidebar-link" data-section="section-haccp"><i class="fas fa-file-shield"></i> HACCP</a></li>
+
+          <!-- NOVÉ: Teplota jadra -->
           <li><a class="sidebar-link" data-section="section-core-temp"><i class="fas fa-thermometer-half"></i> Teplota jadra</a></li>
 
           <li><a class="sidebar-link" data-section="section-fleet"><i class="fas fa-truck"></i> Vozový park</a></li>
@@ -88,17 +101,21 @@
 
           <li><a class="sidebar-link" data-section="section-mail"><i class="fas fa-envelope"></i> Pošta</a></li>
           <li><a class="sidebar-link" data-section="section-sms-connector"><i class="fas fa-sms"></i> SMS Connector</a></li>
+
           <li><a class="sidebar-link" data-section="section-temps"><i class="fas fa-temperature-low"></i> Teploty</a></li>
           <li><a class="sidebar-link" data-section="section-meat-calc"><i class="fas fa-drumstick-bite"></i> Kalkulátor rozrábky</a></li>
           <li><a class="sidebar-link" data-section="section-profitability"><i class="fas fa-euro-sign"></i> Ziskovosť/Kalkulácie</a></li>
           <li><a class="sidebar-link" data-section="section-costs"><i class="fas fa-wallet"></i> Správa Nákladov</a></li>
+
           <li><a class="sidebar-link" data-section="section-gemini-assistant"><i class="fas fa-robot"></i> Asistent Gemini</a></li>
           <li><a class="sidebar-link" data-section="section-import-export"><i class="fas fa-exchange-alt"></i> Import-Export ERP</a></li>
         </ul>
       </aside>
 
+      <!-- MAIN -->
       <main class="main-content">
         <div id="section-dashboard" class="content-section active"></div>
+
         <div id="section-stock" class="content-section"></div>
         <div id="section-orders" class="content-section" style="display:none"></div>
         <div id="section-planning" class="content-section"></div>
@@ -107,14 +124,12 @@
 
         <div id="section-order-forecast" class="content-section"></div>
         <div id="section-erp-admin" class="content-section"></div>
-        
+
         <div id="section-pricelists" class="content-section">
-            <div id="pricelist-vue-app"></div>
+          <div id="pricelist-vue-app"></div>
         </div>
 
         <div id="section-b2b-admin" class="content-section"></div>
-        <div id="section-temps" class="content-section"></div>
-        <div id="section-meat-calc" class="content-section"></div>
 
         <div id="section-b2c-admin" class="content-section">
           <h3>B2C Správa – Cenník</h3>
@@ -122,6 +137,8 @@
         </div>
 
         <div id="section-haccp" class="content-section"></div>
+
+        <!-- NOVÉ: kontajner pre modul Teplota jadra -->
         <div id="section-core-temp" class="content-section"></div>
 
         <div id="section-fleet" class="content-section"></div>
@@ -132,6 +149,9 @@
         <div id="section-mail" class="content-section"></div>
         <div id="section-sms-connector" class="content-section" style="display:none"></div>
 
+        <div id="section-temps" class="content-section"></div>
+        <div id="section-meat-calc" class="content-section"></div>
+
         <div id="section-profitability" class="content-section"></div>
         <div id="section-costs" class="content-section"></div>
         <div id="section-gemini-assistant" class="content-section"></div>
@@ -140,6 +160,7 @@
     </div>
   </div>
 
+  <!-- CONFIRMATION MODAL TEMPLATE -->
   <template id="confirmation-modal-template">
     <div class="modal-confirmation">
       <p id="confirmation-message" class="modal-confirmation-message"></p>
@@ -151,6 +172,7 @@
     </div>
   </template>
 
+  <!-- GLOBAL MODAL CONTAINER -->
   <div id="modal-container">
     <div class="modal-backdrop"></div>
     <div class="modal-content">
@@ -162,50 +184,61 @@
     </div>
   </div>
 
-  <script src="/static/js/common.js" defer></script>
+  <!-- COMMON (helpers, auth, modal, fetch wrappers...) -->
+  <script src="{{ url_for('static', filename='js/common.js') }}" defer></script>
 
-  <script src="/static/js/kancelaria_modules/dashboard.js" defer></script>
-  <script src="/static/js/kancelaria_modules/stock.js" defer></script>
-  <script src="/static/js/kancelaria_modules/planning.js" defer></script>
-  <script src="/static/js/kancelaria_modules/order_forecast.js" defer></script>
-  <script src="/static/js/kancelaria_modules/erp_admin.js" defer></script>
-  
-  <script src="/static/js/kancelaria_modules/pricelist_manager.js" defer></script>
+  <!-- Kancelária modules -->
+  <script src="{{ url_for('static', filename='js/kancelaria_modules/dashboard.js') }}" defer></script>
+  <script src="{{ url_for('static', filename='js/kancelaria_modules/stock.js') }}" defer></script>
+  <script src="{{ url_for('static', filename='js/kancelaria_modules/planning.js') }}" defer></script>
+  <script src="{{ url_for('static', filename='js/kancelaria_modules/order_forecast.js') }}" defer></script>
+  <script src="{{ url_for('static', filename='js/kancelaria_modules/erp_admin.js') }}" defer></script>
+
+  <!-- Pricelist Vue manager -->
+  <script src="{{ url_for('static', filename='js/kancelaria_modules/pricelist_manager.js') }}" defer></script>
   <script defer>
     document.addEventListener("DOMContentLoaded", () => {
-        // Čakáme, kým sa načíta pricelist_manager.js
-        setTimeout(() => {
-            if (typeof PricelistManager !== 'undefined' && document.getElementById('pricelist-vue-app')) {
-                const app = Vue.createApp(PricelistManager);
-                app.mount('#pricelist-vue-app');
-                // Načítanie dát pri štarte
-                if (app._instance && app._instance.ctx.loadProducts) {
-                    app._instance.ctx.loadProducts();
-                }
-            }
-        }, 500); // Krátke oneskorenie pre istotu
+      // Čakáme, kým sa načíta pricelist_manager.js
+      setTimeout(() => {
+        if (typeof PricelistManager !== "undefined" && document.getElementById("pricelist-vue-app")) {
+          const app = Vue.createApp(PricelistManager);
+          app.mount("#pricelist-vue-app");
+          // Načítanie dát pri štarte
+          if (app._instance && app._instance.ctx && app._instance.ctx.loadProducts) {
+            app._instance.ctx.loadProducts();
+          }
+        }
+      }, 500);
     });
   </script>
 
-  <script src="/static/js/kancelaria_modules/b2b_admin.js" defer></script>
-  <script src="/static/js/kancelaria_modules/b2c_admin.js" defer></script>
-  <script src="/static/js/kancelaria_modules/haccp.js" defer></script>
-  <script src="/static/js/kancelaria_modules/core_temp.js" defer></script>
-  <script src="/static/js/kancelaria_modules/fleet.js" defer></script>
-  <script src="/static/js/kancelaria_modules/hygiene.js" defer></script>
-  <script src="/static/js/kancelaria_modules/orders.js" defer></script>
-  <script src="/static/js/kancelaria_modules/temps.js" defer></script>
-  <script src="/static/js/kancelaria_modules/mail.js" defer></script>
-  <script src="/static/js/kancelaria_modules/meat_calc.js" defer></script>
-  <script src="/static/js/kancelaria_modules/import_export.js" defer></script>
-  <script src="/static/js/kancelaria_modules/calendar.js" defer></script>
-  <script src="/static/js/kancelaria_modules/hr.js" defer></script>
+  <script src="{{ url_for('static', filename='js/kancelaria_modules/b2b_admin.js') }}" defer></script>
+  <script src="{{ url_for('static', filename='js/kancelaria_modules/b2c_admin.js') }}" defer></script>
+  <script src="{{ url_for('static', filename='js/kancelaria_modules/haccp.js') }}" defer></script>
 
-  <script src="/static/js/kancelaria.js" defer></script>
-  <script src="/static/js/profitability.js" defer></script>
-  <script src="/static/js/costs.js" defer></script>
-  <script src="/static/js/gemini.js"></script>
-  <script src="/static/js/task_planner.js"></script>
-  <script src="/static/js/kancelaria_modules/gemini_tasks.js" defer></script>
+  <!-- NOVÉ: Teplota jadra modul -->
+  <script src="{{ url_for('static', filename='js/kancelaria_modules/core_temp.js') }}?v=1" defer></script>
+
+  <script src="{{ url_for('static', filename='js/kancelaria_modules/fleet.js') }}" defer></script>
+  <script src="{{ url_for('static', filename='js/kancelaria_modules/hygiene.js') }}" defer></script>
+  <script src="{{ url_for('static', filename='js/kancelaria_modules/orders.js') }}" defer></script>
+  <script src="{{ url_for('static', filename='js/kancelaria_modules/temps.js') }}" defer></script>
+  <script src="{{ url_for('static', filename='js/kancelaria_modules/mail.js') }}" defer></script>
+  <script src="{{ url_for('static', filename='js/kancelaria_modules/meat_calc.js') }}" defer></script>
+  <script src="{{ url_for('static', filename='js/kancelaria_modules/import_export.js') }}" defer></script>
+  <script src="{{ url_for('static', filename='js/kancelaria_modules/calendar.js') }}" defer></script>
+  <script src="{{ url_for('static', filename='js/kancelaria_modules/hr.js') }}" defer></script>
+
+  <!-- Shell/Router for kancelária (prepínanie sekcií) -->
+  <script src="{{ url_for('static', filename='js/kancelaria.js') }}" defer></script>
+
+  <!-- Ostatné moduly (existujúce) -->
+  <script src="{{ url_for('static', filename='js/profitability.js') }}" defer></script>
+  <script src="{{ url_for('static', filename='js/costs.js') }}" defer></script>
+
+  <!-- Gemini + tasks -->
+  <script src="{{ url_for('static', filename='js/gemini.js') }}" defer></script>
+  <script src="{{ url_for('static', filename='js/task_planner.js') }}" defer></script>
+  <script src="{{ url_for('static', filename='js/kancelaria_modules/gemini_tasks.js') }}" defer></script>
 </body>
 </html>
