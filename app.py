@@ -11,6 +11,7 @@ from flask import (
 )
 from flask_mail import Mail
 from flask import request
+from models import db, Cennik, PolozkaCennika
 # === B2C BLUEPRINTY (VERejný + Admin) ===========================
 from b2c_public_api_nodb import b2c_public_bp
 from erp_import import process_erp_stock_bytes
@@ -609,8 +610,45 @@ def api_manual_writeoff():
     return handle_request(vyroba.manual_warehouse_write_off, body)
 
 
+@app.route('/api/save_pricelist', methods=['POST'])
+def save_pricelist():
+    data = request.json
+    
+    # 1. Vytvoríme hlavičku cenníka
+    novy_cennik = Cennik(
+        nazov=data.get('nazov', 'Nový Cenník'),
+        email=data.get('email', '')
+    )
+    db.session.add(novy_cennik)
+    db.session.commit() # Tu sa pridelí ID
 
+    # 2. Uložíme položky k tomuto cenníku
+    polozky_data = data.get('polozky', [])
+    for p in polozky_data:
+        nova_polozka = PolozkaCennika(
+            cennik_id=novy_cennik.id,
+            nazov_produktu=p['nazov'],
+            mj=p.get('mj', 'ks'),
+            cena=float(p['cena'])
+        )
+        db.session.add(nova_polozka)
+    
+    db.session.commit() # Uložíme všetko naraz
+    
+    return jsonify({"message": "Cenník uložený", "id": novy_cennik.id})
 
+@app.route('/api/get_pricelists', methods=['GET'])
+def get_pricelists():
+    cenniky = Cennik.query.order_by(Cennik.datum_vytvorenia.desc()).all()
+    output = []
+    for c in cenniky:
+        output.append({
+            "id": c.id,
+            "nazov": c.nazov,
+            "email": c.email,
+            "datum": c.datum_vytvorenia.strftime("%d.%m.%Y")
+        })
+    return jsonify(output)
 # =========================== KANCELÁRIA – HACCP ===========================
 @app.route('/api/kancelaria/getHaccpDocs')
 @login_required(role='kancelaria')
