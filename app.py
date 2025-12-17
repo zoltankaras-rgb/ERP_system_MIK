@@ -12,6 +12,7 @@ from flask import (
 from flask_mail import Mail
 from flask import request
 from models import db, Cennik, PolozkaCennika
+from sqlalchemy import text
 # === B2C BLUEPRINTY (VERejný + Admin) ===========================
 from b2c_public_api_nodb import b2c_public_bp
 from erp_import import process_erp_stock_bytes
@@ -826,6 +827,47 @@ def update_cennik(id):
         db.session.rollback()
         print(f"CHYBA UPDATE: {e}")
         return jsonify({"error": str(e)}), 500
+# --- ADRESÁR KONTAKTOV (Cenníky) ---
+
+@app.route('/api/contacts/list', methods=['GET'])
+def list_contacts():
+    try:
+        # Používame priame SQL pre rýchlosť, keďže je to v SQLite
+        # Predpokladám, že db session je dostupná ako 'db'
+        result = db.session.execute(text("SELECT id, name, email FROM saved_contacts ORDER BY name ASC"))
+        contacts = [{"id": r[0], "name": r[1], "email": r[2]} for r in result]
+        return jsonify(contacts)
+    except Exception as e:
+        # Fallback ak tabuľka ešte nie je v SQLAlchemy modeli
+        return jsonify([])
+
+@app.route('/api/contacts/add', methods=['POST'])
+def add_contact():
+    try:
+        data = request.json
+        name = data.get('name')
+        email = data.get('email')
+        if not name or not email:
+            return jsonify({"error": "Chýba meno alebo email"}), 400
+        
+        db.session.execute(
+            text("INSERT INTO saved_contacts (name, email) VALUES (:name, :email)"),
+            {"name": name, "email": email}
+        )
+        db.session.commit()
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/contacts/delete/<int:id>', methods=['DELETE'])
+def delete_contact(id):
+    try:
+        db.session.execute(text("DELETE FROM saved_contacts WHERE id = :id"), {"id": id})
+        db.session.commit()
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+        
 # =========================== KANCELÁRIA – HACCP ===========================
 @app.route('/api/kancelaria/getHaccpDocs')
 @login_required(role='kancelaria')
