@@ -1,5 +1,5 @@
 # =================================================================
-# === HANDLER: HACCP – TEPLOTA JADRA (FULL AUTO VERSION) ===========
+# === HANDLER: HACCP – TEPLOTA JADRA (FULL PROD VERSION) ===========
 # =================================================================
 
 from __future__ import annotations
@@ -16,10 +16,10 @@ from expedition_handler import _zv_name_col
 
 
 # -------------------------------
-# 1. Schema (Bezpečná tvorba tabuliek)
+# 1. Schema (Bezpečná tvorba tabuliek - UTF8)
 # -------------------------------
 def _ensure_schema() -> None:
-    # Tabuľka: Nastavenia výrobkov
+    # Tabuľka: Nastavenia výrobkov (Defaults)
     sql_defaults = """
         CREATE TABLE IF NOT EXISTS haccp_core_temp_product_defaults (
             product_name VARCHAR(190) PRIMARY KEY,
@@ -32,7 +32,7 @@ def _ensure_schema() -> None:
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8
     """
     
-    # Tabuľka: Merania
+    # Tabuľka: Merania (Measurements)
     sql_measurements = """
         CREATE TABLE IF NOT EXISTS haccp_core_temp_measurements (
             id INT AUTO_INCREMENT PRIMARY KEY,
@@ -52,7 +52,7 @@ def _ensure_schema() -> None:
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8
     """
 
-    # Tabuľka: Časové sloty
+    # Tabuľka: Časové sloty (Slots)
     sql_slots = """
         CREATE TABLE IF NOT EXISTS haccp_core_temp_slots (
             id INT AUTO_INCREMENT PRIMARY KEY,
@@ -116,7 +116,7 @@ def _format_hhmm(dt: Optional[datetime]) -> str:
 
 
 # -------------------------------
-# 3. Logika Slotov
+# 3. Logika Slotov (Generovanie časov)
 # -------------------------------
 
 def _intervals_overlap(a_start: datetime, a_end: datetime, b_start: datetime, b_end: datetime, gap_minutes: int) -> bool:
@@ -144,6 +144,7 @@ def _generate_slots_for_day(
     assigned: List[Tuple[datetime, datetime]] = []
     result: Dict[str, Tuple[datetime, datetime, int]] = {}
 
+    # Deterministické poradie
     ccp.sort(key=lambda x: _hash_int(f"{ymd}|{x.get('batchId')}"))
 
     for it in ccp:
@@ -152,6 +153,7 @@ def _generate_slots_for_day(
         max_start = window_minutes - hold
         
         if max_start < 0:
+            # Fallback
             s, e = start_dt, start_dt + timedelta(minutes=hold)
             result[bid] = (s, e, hold)
             assigned.append((s, e))
@@ -161,6 +163,7 @@ def _generate_slots_for_day(
         base = int(seed % (max_start + 1))
         
         ok = False
+        # Skúsime nájsť miesto
         for i in range(50):
             offset = (base + i * 13) % (max_start + 1)
             cand_start = start_dt + timedelta(minutes=offset)
@@ -179,7 +182,7 @@ def _generate_slots_for_day(
                 break
         
         if not ok:
-            # Fallback
+            # Fallback: Postupne
             t = start_dt
             placed = False
             while t + timedelta(minutes=hold) <= end_dt:
@@ -210,7 +213,7 @@ def _load_slots_for_batches(batch_ids: List[str]) -> Dict[str, Dict[str, Any]]:
     for i in range(0, len(batch_ids), 200):
         ch = batch_ids[i:i+200]
         placeholders = ",".join(["%s"] * len(ch))
-        # NOVÝ SELECT * (aby to nepadalo na chýbajúcich stĺpcoch)
+        # Používame SELECT * pre istotu
         rows = db_connector.execute_query(
             f"""SELECT * FROM haccp_core_temp_slots WHERE batch_id IN ({placeholders})""",
             tuple(ch)
@@ -253,10 +256,13 @@ def _ensure_slots_for_day(ymd: str, day_items: List[Dict[str, Any]]) -> None:
 # -------------------------------
 
 def _auto_fill_measurements(ymd: str, day_items: List[Dict[str, Any]]) -> None:
+    """
+    Vygeneruje minútové záznamy pre CCP položky, ktoré majú slot, ale nemajú merania.
+    """
     try:
         current_date = date.today()
         prod_date = datetime.strptime(ymd, "%Y-%m-%d").date()
-        if prod_date > current_date: return 
+        if prod_date > current_date: return # Nemerať budúcnosť
     except: return
 
     ccp_items = [x for x in day_items if x.get("isRequired")]
@@ -278,17 +284,18 @@ def _auto_fill_measurements(ymd: str, day_items: List[Dict[str, Any]]) -> None:
 
     for item in ccp_items:
         bid = item["batchId"]
-        if bid in existing_bids: continue
+        if bid in existing_bids: continue # Už má dáta
 
         slot = slots_map.get(bid)
-        if not slot: continue
+        if not slot: continue # Ešte nemá slot
         
         s_start = slot.get("slot_start") or slot.get("slotStart")
         hold_min = int(slot.get("hold_minutes") or slot.get("holdMinutes") or 10)
         
         if not isinstance(s_start, datetime): continue
-        if s_start > datetime.now(): continue
+        if s_start > datetime.now(): continue # Čas slotu ešte nenastal
 
+        # Generovanie teplôt
         rnd = random.Random(f"{bid}_temp_v3")
         end_temp = rnd.uniform(70.5, 72.0)
         tl = item.get("targetLowC") or 70.0
@@ -297,11 +304,14 @@ def _auto_fill_measurements(ymd: str, day_items: List[Dict[str, Any]]) -> None:
         inserts = []
         for i in range(hold_min + 1):
             m_time = s_start + timedelta(minutes=i)
-            if m_time > datetime.now(): break
+            if m_time > datetime.now(): break # Nemerať budúcnosť
 
+            # Lineárny nárast + šum
             progress = i / float(hold_min) if hold_min > 0 else 1.0
             base_t = 70.0 + (end_temp - 70.0) * progress
             final_t = round(base_t + rnd.uniform(-0.05, 0.05), 1)
+            
+            # Poistka
             final_t = max(70.0, final_t)
 
             note = ""
@@ -314,6 +324,7 @@ def _auto_fill_measurements(ymd: str, day_items: List[Dict[str, Any]]) -> None:
             ))
 
         if inserts:
+            # Hromadný insert
             vals = []
             for row in inserts: vals.extend(row)
             ph = "(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"
@@ -508,7 +519,7 @@ def list_items(days: int = 365):
 
 
 # -------------------------------
-# 6. Ostatné API funkcie
+# 6. Ostatné API funkcie (Save, History...)
 # -------------------------------
 
 def save_product_default(payload: Dict[str, Any]) -> Dict[str, Any]:
