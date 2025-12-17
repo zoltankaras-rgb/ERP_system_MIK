@@ -1,3 +1,4 @@
+
 # =================================================================
 # === HANDLER: HACCP – TEPLOTA JADRA VÝROBKOV ======================
 # =================================================================
@@ -967,4 +968,3 @@ def list_measurement_history(batch_id: str):
             r["productionDate"] = pd.strftime("%Y-%m-%d")
 
     return jsonify(rows)
-
