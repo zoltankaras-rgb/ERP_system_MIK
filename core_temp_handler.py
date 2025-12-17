@@ -291,13 +291,7 @@ def list_items(days: int = 365):
 # API: defaults (CCP/limit)
 # -----------------------------------------------------------------
 def list_product_defaults():
-    """Zoznam výrobkov pre nastavenie CCP/limit.
-
-    Stabilné:
-      - berieme názvy výrobkov priamo z zaznamy_vyroba (čo reálne vyrábaš)
-      - plus aj už uložené defaulty (aby sa nastavenia nestratili)
-    Robustné na casing kľúčov z db_connector.
-    """
+    """Zoznam výrobkov pre nastavenie CCP/limit – berieme z výroby."""
     _ensure_schema()
 
     zv_name = _zv_name_col()
@@ -306,20 +300,18 @@ def list_product_defaults():
         f"""
         SELECT
             c.productName AS productName,
+            'VÝROBA'      AS itemType,
             COALESCE(d.is_required,0) AS isRequired,
             d.limit_c     AS limitC,
             d.updated_at  AS updatedAt
         FROM (
-            SELECT TRIM(productName) AS productName
-            FROM (
-                SELECT DISTINCT TRIM(zv.{zv_name}) AS productName
-                FROM zaznamy_vyroba zv
-                WHERE zv.{zv_name} IS NOT NULL AND TRIM(zv.{zv_name}) <> ''
-                UNION
-                SELECT DISTINCT TRIM(product_name) AS productName
-                FROM haccp_core_temp_product_defaults
-                WHERE product_name IS NOT NULL AND TRIM(product_name) <> ''
-            ) x
+            SELECT DISTINCT TRIM(zv.{zv_name}) AS productName
+            FROM zaznamy_vyroba zv
+            WHERE zv.{zv_name} IS NOT NULL AND TRIM(zv.{zv_name}) <> ''
+            UNION
+            SELECT DISTINCT TRIM(product_name) AS productName
+            FROM haccp_core_temp_product_defaults
+            WHERE product_name IS NOT NULL AND TRIM(product_name) <> ''
         ) c
         LEFT JOIN haccp_core_temp_product_defaults d
                ON TRIM(d.product_name) = TRIM(c.productName)
@@ -327,32 +319,21 @@ def list_product_defaults():
         """
     ) or []
 
-    def g(r, k, default=None):
-        if not isinstance(r, dict):
-            return default
-        if k in r:
-            return r.get(k)
-        lk = k.lower()
-        if lk in r:
-            return r.get(lk)
-        return default
-
     out = []
     for r in rows:
-        updated = g(r, "updatedAt")
+        updated = r.get("updatedAt") or r.get("updatedat")
         if isinstance(updated, datetime):
             updated = updated.isoformat(sep=" ", timespec="seconds")
 
         out.append({
-            "productName": g(r, "productName"),
+            "productName": r.get("productName") or r.get("productname"),
             "itemType": "VÝROBA",
-            "isRequired": bool(int(g(r, "isRequired", 0) or 0)),
-            "limitC": float(g(r, "limitC")) if g(r, "limitC") is not None else None,
+            "isRequired": bool(int((r.get("isRequired") or r.get("isrequired") or 0))),
+            "limitC": float(r.get("limitC") or r.get("limitc")) if (r.get("limitC") or r.get("limitc")) is not None else None,
             "updatedAt": updated,
         })
 
     return jsonify(out)
-
 
 
 def save_product_default(payload: Dict[str, Any]) -> Dict[str, Any]:
