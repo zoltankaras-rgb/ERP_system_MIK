@@ -35,52 +35,52 @@ from expedition_handler import _zv_name_col
 # -------------------------------
 
 def _ensure_schema() -> None:
-    # defaults
+    # 1. Tabuľka defaultov (OPRAVENÉ KÓDOVANIE na utf8)
     db_connector.execute_query(
         """
         CREATE TABLE IF NOT EXISTS haccp_core_temp_product_defaults (
-            product_name VARCHAR(255) PRIMARY KEY,
+            product_name VARCHAR(190) PRIMARY KEY,
             is_required TINYINT(1) NOT NULL DEFAULT 0,
             limit_c DECIMAL(5,2) NULL,
             target_low_c DECIMAL(5,2) NULL,
             target_high_c DECIMAL(5,2) NULL,
             hold_minutes INT NULL,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_slovak_ci
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8
         """,
         fetch="none",
     )
 
-    # merania
+    # 2. Tabuľka meraní (OPRAVENÉ KÓDOVANIE na utf8)
     db_connector.execute_query(
         """
         CREATE TABLE IF NOT EXISTS haccp_core_temp_measurements (
             id INT AUTO_INCREMENT PRIMARY KEY,
-            batch_id VARCHAR(255) NOT NULL,
-            product_name VARCHAR(255) NULL,
+            batch_id VARCHAR(190) NOT NULL,
+            product_name VARCHAR(190) NULL,
             production_date DATE NULL,
             target_low_c DECIMAL(5,2) NULL,
             target_high_c DECIMAL(5,2) NULL,
             hold_minutes INT NULL,
             measured_c DECIMAL(5,2) NOT NULL,
             measured_at DATETIME NOT NULL,
-            measured_by VARCHAR(255) NULL,
+            measured_by VARCHAR(190) NULL,
             note TEXT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             INDEX idx_coretemp_batch (batch_id),
             INDEX idx_coretemp_date (production_date),
             INDEX idx_coretemp_prod (product_name)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_slovak_ci
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8
         """,
         fetch="none",
     )
 
-    # sloty (časové okná)
+    # 3. Tabuľka slotov (OPRAVENÉ KÓDOVANIE na utf8)
     db_connector.execute_query(
         """
         CREATE TABLE IF NOT EXISTS haccp_core_temp_slots (
             id INT AUTO_INCREMENT PRIMARY KEY,
-            batch_id VARCHAR(255) NOT NULL,
+            batch_id VARCHAR(190) NOT NULL,
             production_date DATE NOT NULL,
             slot_start DATETIME NOT NULL,
             slot_end DATETIME NOT NULL,
@@ -89,7 +89,7 @@ def _ensure_schema() -> None:
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             UNIQUE KEY uq_slot_batch (batch_id),
             INDEX idx_slot_date (production_date)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_slovak_ci
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8
         """,
         fetch="none",
     )
@@ -479,6 +479,7 @@ def _auto_fill_measurements(ymd: str, day_items: List[Dict[str, Any]]) -> None:
 # -----------------------------------------------------------------
 
 def list_items(days: int = 365):
+    # CRITICAL: Kontrola schémy pri každom volaní
     _ensure_schema()
 
     if not days or days < 1:
@@ -964,4 +965,3 @@ def list_measurement_history(batch_id: str):
             r["productionDate"] = pd.strftime("%Y-%m-%d")
 
     return jsonify(rows)
-
