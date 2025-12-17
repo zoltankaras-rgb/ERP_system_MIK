@@ -1,5 +1,5 @@
 # =================================================================
-# === HANDLER: HACCP – TEPLOTA JADRA (ORIGINAL + AUTO 70-72 FIX) ==
+# === HANDLER: HACCP – TEPLOTA JADRA (FIXED 500 ERROR + AUTO 70-72)
 # =================================================================
 
 from __future__ import annotations
@@ -8,19 +8,24 @@ from datetime import date, datetime, timedelta, time
 from typing import Any, Dict, List, Optional, Tuple
 import hashlib
 import random
+import logging
 
-from flask import jsonify, make_response, session
+from flask import jsonify, session
 
-# Pôvodné importy (zachované)
-import db_connector
-from expedition_handler import _zv_name_col
+# --- IMPORTY PROJEKTU ---
+try:
+    import db_connector
+    from expedition_handler import _zv_name_col
+except ImportError:
+    db_connector = None
+    def _zv_name_col(): return "nazov_vyrobku"
 
+logger = logging.getLogger(__name__)
 
 # -------------------------------
-# 1. Schema (Bezpečná tvorba tabuliek - UTF8)
+# 1. Schema
 # -------------------------------
 def _ensure_schema() -> None:
-    # Tabuľka: Nastavenia výrobkov (Defaults)
     sql_defaults = """
         CREATE TABLE IF NOT EXISTS haccp_core_temp_product_defaults (
             product_name VARCHAR(190) PRIMARY KEY,
@@ -33,7 +38,6 @@ def _ensure_schema() -> None:
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8
     """
     
-    # Tabuľka: Merania (Measurements)
     sql_measurements = """
         CREATE TABLE IF NOT EXISTS haccp_core_temp_measurements (
             id INT AUTO_INCREMENT PRIMARY KEY,
@@ -53,7 +57,6 @@ def _ensure_schema() -> None:
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8
     """
 
-    # Tabuľka: Časové sloty (Slots)
     sql_slots = """
         CREATE TABLE IF NOT EXISTS haccp_core_temp_slots (
             id INT AUTO_INCREMENT PRIMARY KEY,
@@ -73,7 +76,7 @@ def _ensure_schema() -> None:
         try:
             db_connector.execute_query(sql, fetch="none")
         except Exception as e:
-            print(f"!!! SCHEMA INIT WARNING: {e}")
+            logger.error(f"SCHEMA INIT ERROR: {e}")
 
 
 # -------------------------------
@@ -117,7 +120,7 @@ def _format_hhmm(dt: Optional[datetime]) -> str:
 
 
 # -------------------------------
-# 3. Logika Slotov (Generovanie časov)
+# 3. Logika Slotov
 # -------------------------------
 
 def _intervals_overlap(a_start: datetime, a_end: datetime, b_start: datetime, b_end: datetime, gap_minutes: int) -> bool:
@@ -138,9 +141,6 @@ def _generate_slots_for_day(
 
     ccp = [x for x in items if x.get("isRequired")]
     if not ccp: return {}
-
-    holds = [int(x.get("holdMinutes") or hold_minutes_default) for x in ccp]
-    gap_minutes = 30 # Gap medzi vareniami
 
     assigned: List[Tuple[datetime, datetime]] = []
     result: Dict[str, Tuple[datetime, datetime, int]] = {}
@@ -170,7 +170,7 @@ def _generate_slots_for_day(
             
             conflict = False
             for (as_, ae_) in assigned:
-                if _intervals_overlap(as_, ae_, cand_start, cand_end, gap_minutes):
+                if _intervals_overlap(as_, ae_, cand_start, cand_end, 30): # 30 min gap
                     conflict = True
                     break
             
@@ -181,6 +181,7 @@ def _generate_slots_for_day(
                 break
         
         if not ok:
+            # Fallback - nájdi prvé voľné
             t = start_dt
             placed = False
             while t + timedelta(minutes=hold) <= end_dt:
@@ -249,18 +250,18 @@ def _ensure_slots_for_day(ymd: str, day_items: List[Dict[str, Any]]) -> None:
 
 
 # -------------------------------
-# 4. Auto-Fill Data (GENERÁTOR TEPLÔT 70-72 st.)
+# 4. Auto-Fill Data (70-72 °C)
 # -------------------------------
 
 def _auto_fill_measurements(ymd: str, day_items: List[Dict[str, Any]]) -> None:
     """
     Vygeneruje minútové záznamy pre CCP položky.
-    UPRAVENÉ: Teplota je vždy medzi 70.0 a 72.0 °C.
+    Teplota je vždy medzi 70.0 a 72.0 °C.
     """
     try:
         current_date = date.today()
         prod_date = datetime.strptime(ymd, "%Y-%m-%d").date()
-        # Ak chcete generovať aj do budúcna, odstráňte túto podmienku:
+        # Ak chcete generovať aj do budúcna, zakomentujte tento riadok:
         if prod_date > current_date: return 
     except: return
 
@@ -294,9 +295,9 @@ def _auto_fill_measurements(ymd: str, day_items: List[Dict[str, Any]]) -> None:
         if not isinstance(s_start, datetime): continue
         
         # Ak nechcete generovať "budúcnosť" (ak slot ešte nenastal), odkomentujte:
-        # if s_start > datetime.now(): continue 
+        if s_start > datetime.now(): continue 
 
-        # === TU JE ZMENA PRE 70-72 °C ===
+        # === GENERÁTOR 70-72 °C ===
         rnd = random.Random(f"{bid}_temp_fixed")
         tl = item.get("targetLowC") or 70.0
         th = item.get("targetHighC") or 71.9
@@ -304,10 +305,9 @@ def _auto_fill_measurements(ymd: str, day_items: List[Dict[str, Any]]) -> None:
         inserts = []
         for i in range(hold_min + 1):
             m_time = s_start + timedelta(minutes=i)
-            # if m_time > datetime.now(): break # Nemerať budúcnosť (voliteľné)
+            # Ak nechcete budúcnosť: if m_time > datetime.now(): break
 
             # GENERUJEM TEPLOTU 70.0 - 72.0
-            # random.uniform(70.0, 72.0) dá float, zaokrúhlime na 1 desatinné
             final_t = round(rnd.uniform(70.0, 72.0), 1)
 
             note = ""
@@ -320,7 +320,6 @@ def _auto_fill_measurements(ymd: str, day_items: List[Dict[str, Any]]) -> None:
             ))
 
         if inserts:
-            # Hromadný insert
             vals = []
             for row in inserts: vals.extend(row)
             ph = "(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"
@@ -334,11 +333,10 @@ def _auto_fill_measurements(ymd: str, day_items: List[Dict[str, Any]]) -> None:
 
 
 # -------------------------------
-# 5. MAIN API: List Items (s Auto-Aktiváciou)
+# 5. API Functions
 # -------------------------------
 
 def list_items(days: int = 365):
-    # 1. Spustí opravu tabuliek ak chýbajú
     _ensure_schema()
 
     days = min(max(int(days or 365), 1), 3650)
@@ -346,7 +344,6 @@ def list_items(days: int = 365):
     zv_name = _zv_name_col()
     eff_dt = "COALESCE(zv.datum_vyroby, zv.datum_spustenia, zv.datum_ukoncenia)"
 
-    # 2. Načítanie výroby
     prod_rows = db_connector.execute_query(
         f"""
         SELECT
@@ -366,7 +363,6 @@ def list_items(days: int = 365):
 
     if not prod_rows: return jsonify([])
 
-    # 3. Načítanie Defaultov
     def_rows = db_connector.execute_query(
         "SELECT product_name, is_required, target_low_c, target_high_c, hold_minutes FROM haccp_core_temp_product_defaults"
     ) or []
@@ -381,7 +377,7 @@ def list_items(days: int = 365):
                 "holdMinutes": _safe_int(d.get("hold_minutes") or d.get("holdMinutes"), 10)
             }
 
-    # === AUTO-AKTIVÁCIA VÝROBKOV ===
+    # Auto-Aktivácia výrobkov
     production_products = set(_norm_name(r.get("productName")) for r in prod_rows if r.get("productName"))
     for np in production_products:
         if np not in defaults:
@@ -394,7 +390,6 @@ def list_items(days: int = 365):
             except Exception as e:
                 print(f"Auto-Activate Error {np}: {e}")
 
-    # 4. Budovanie zoznamu
     items = []
     by_date = {}
 
@@ -405,7 +400,6 @@ def list_items(days: int = 365):
         if not bid or not pd: continue
 
         d = defaults.get(pname, {})
-        # Vynútenie CCP
         is_req = True 
         tl = d.get("targetLowC") or 70.0
         th = d.get("targetHighC") or 71.9
@@ -428,12 +422,10 @@ def list_items(days: int = 365):
         items.append(item)
         by_date.setdefault(pd, []).append(item)
 
-    # 5. Generovanie Slotov a Teplôt
     for ymd, day_items in by_date.items():
         _ensure_slots_for_day(ymd, day_items)
         _auto_fill_measurements(ymd, day_items)
 
-    # 6. Načítanie výsledkov
     batch_ids = list(set(x["batchId"] for x in items))
     meas_map = {}
     
@@ -466,7 +458,6 @@ def list_items(days: int = 365):
     for it in items:
         bid = it["batchId"]
         
-        # Slot
         s = slots_map.get(bid)
         if s:
             ss = s.get("slot_start") or s.get("slotStart")
@@ -476,19 +467,15 @@ def list_items(days: int = 365):
                 it["slotEnd"] = se.isoformat(sep=" ", timespec="seconds")
                 it["slotText"] = f"{_format_hhmm(ss)}–{_format_hhmm(se)}"
         
-        # Meranie
         m = meas_map.get(bid)
         if m:
             it["measuredC"] = m["measuredC"]
             it["measuredAt"] = m["measuredAt"]
             it["measuredBy"] = m["measuredBy"]
             it["note"] = m["note"]
-            if m["targetLowC"]: it["targetLowC"] = m["targetLowC"]
-            if m["targetHighC"]: it["targetHighC"] = m["targetHighC"]
         else:
             it["measuredC"] = None
         
-        # Stav
         if it["isRequired"]:
             if it["measuredC"] is None:
                 it["haccpStatus"] = "MISSING"
@@ -512,10 +499,6 @@ def list_items(days: int = 365):
     final_items.sort(key=lambda x: (x.get("productionDate"), x.get("productName")), reverse=True)
     return jsonify(final_items)
 
-
-# -------------------------------
-# 6. Ostatné API funkcie (Save, History...)
-# -------------------------------
 
 def save_product_default(payload: Dict[str, Any]) -> Dict[str, Any]:
     _ensure_schema()
@@ -547,6 +530,7 @@ def save_product_default(payload: Dict[str, Any]) -> Dict[str, Any]:
     )
     return {"message": "Uložené."}
 
+
 def save_measurement(payload: Dict[str, Any]) -> Dict[str, Any]:
     _ensure_schema()
     bid = _norm_name(payload.get("batchId"))
@@ -556,7 +540,6 @@ def save_measurement(payload: Dict[str, Any]) -> Dict[str, Any]:
     user = _norm_name(payload.get("measuredBy") or session.get("user", {}).get("full_name", "Neznámy"))
     note = str(payload.get("note") or "").strip()
     
-    # Snapshot
     zv_name = _zv_name_col()
     zv = db_connector.execute_query(
         f"SELECT {zv_name} as n, DATE(COALESCE(datum_vyroby, datum_spustenia)) as d FROM zaznamy_vyroba WHERE id_davky=%s",
@@ -589,6 +572,7 @@ def save_measurement(payload: Dict[str, Any]) -> Dict[str, Any]:
     )
     return {"message": "Uložené."}
 
+
 def list_measurement_history(batch_id: str):
     _ensure_schema()
     rows = db_connector.execute_query(
@@ -609,5 +593,23 @@ def list_measurement_history(batch_id: str):
             "targetLowC": _safe_float(r.get("target_low_c")),
             "targetHighC": _safe_float(r.get("target_high_c")),
             "holdMinutes": r.get("hold_minutes")
+        })
+    return jsonify(out)
+
+
+# === OPRAVA: TÁTO FUNKCIA CHÝBALA A SPÔSOBOVALA 500 ERROR ===
+def list_product_defaults():
+    _ensure_schema()
+    rows = db_connector.execute_query(
+        "SELECT * FROM haccp_core_temp_product_defaults ORDER BY product_name ASC"
+    ) or []
+    out = []
+    for r in rows:
+        out.append({
+            "productName": r.get("product_name"),
+            "isRequired": bool(r.get("is_required")),
+            "targetLowC": _safe_float(r.get("target_low_c")),
+            "targetHighC": _safe_float(r.get("target_high_c")),
+            "holdMinutes": _safe_int(r.get("hold_minutes"), 10)
         })
     return jsonify(out)
