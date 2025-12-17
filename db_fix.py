@@ -58,7 +58,7 @@ queries = [
         slot_start DATETIME NOT NULL,
         slot_end DATETIME NOT NULL,
         hold_minutes INT NOT NULL DEFAULT 10,
-        generated TINYINT(1) NOT NULL DEFAULT 1,
+        `generated` TINYINT(1) NOT NULL DEFAULT 1,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE KEY uq_slot_batch (batch_id),
         INDEX idx_slot_date (production_date)
