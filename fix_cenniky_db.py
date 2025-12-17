@@ -1,60 +1,58 @@
 import sqlite3
 import os
 
-# ==========================================
-# SKRIPT NA OPRAVU SQLite TABUĽKY "CENNIKY"
-# ==========================================
+print("=== ZAČÍNAM HROMADNÚ OPRAVU DATABÁZ ===")
 
-# 1. Nájdenie databázy
-# Flask zvyčajne ukladá DB do priečinka 'instance'
-possible_paths = [
+# Všetky možné cesty, kde Flask zvykne mať databázu
+search_paths = [
     "instance/erp.db",
     "instance/database.db",
     "instance/data.db",
     "erp.db",
     "database.db",
-    "vyroba.db"
+    "vyroba.db",
+    "data.db"
 ]
 
-db_path = None
-for p in possible_paths:
-    if os.path.exists(p):
-        db_path = p
-        break
+# Pridáme absolútnu cestu pre istotu
+base_dir = os.getcwd()
+paths_to_check = [os.path.join(base_dir, p) for p in search_paths]
 
-if not db_path:
-    print("!!! CHYBA: Nenašiel som žiadny súbor .db (SQLite).")
-    print("Skontroluj, kde máš uloženú databázu pre cenníky.")
-    exit(1)
+fixed_count = 0
 
-print(f"--- Našiel som databázu: {db_path} ---")
+for db_path in paths_to_check:
+    if not os.path.exists(db_path):
+        continue
 
-# 2. Pripojenie a oprava
-try:
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-
-    # Kontrola, či tabuľka existuje
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='cenniky';")
-    if not cursor.fetchone():
-        print("!!! Tabuľka 'cenniky' neexistuje. Najprv musíš spustiť migráciu app.")
-        exit(1)
-
-    print("Pridávam stĺpec 'email' do tabuľky 'cenniky'...")
+    print(f"\n🔎 Našiel som databázu: {db_path}")
     
     try:
-        cursor.execute("ALTER TABLE cenniky ADD COLUMN email VARCHAR(150)")
-        conn.commit()
-        print(">>> ÚSPECH: Stĺpec 'email' bol pridaný.")
-    except sqlite3.OperationalError as e:
-        if "duplicate column name" in str(e):
-            print(">>> INFO: Stĺpec 'email' už existoval, netreba nič robiť.")
-        else:
-            print(f"!!! CHYBA SQL: {e}")
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
 
-    conn.close()
+        # 1. Kontrola, či je to databáza cenníkov (či má tabuľku 'cenniky')
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='cenniky';")
+        if not cursor.fetchone():
+            print("   ⚠️  Preskakujem (nie je to databáza cenníkov, chýba tabuľka).")
+            conn.close()
+            continue
 
-except Exception as e:
-    print(f"!!! KRITICKÁ CHYBA: {e}")
+        # 2. Pokus o pridanie stĺpca
+        try:
+            cursor.execute("ALTER TABLE cenniky ADD COLUMN email VARCHAR(255)")
+            conn.commit()
+            print("   ✅ ÚSPECH: Stĺpec 'email' bol pridaný.")
+            fixed_count += 1
+        except sqlite3.OperationalError as e:
+            if "duplicate column name" in str(e):
+                print("   ℹ️  INFO: Stĺpec 'email' tu už existuje (OK).")
+                fixed_count += 1
+            else:
+                print(f"   ❌ CHYBA SQL: {e}")
 
-print("--- HOTOVO ---")
+        conn.close()
+
+    except Exception as e:
+        print(f"   ❌ Kritická chyba pri otváraní: {e}")
+
+print(f"\n=== HOTOVO. Skontrolovaných a pripravených databáz: {fixed_count} ===")
