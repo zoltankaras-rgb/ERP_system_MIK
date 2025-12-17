@@ -76,7 +76,7 @@ def _generate_slots_for_day(ymd: str, items: List[Dict]) -> None:
         try:
             # MySQL: INSERT IGNORE
             db_connector.execute_query(
-                "INSERT IGNORE INTO haccp_core_temp_slots (batch_id, production_date, slot_start, slot_end, hold_minutes, generated) VALUES (%s, %s, %s, %s, %s, 1)",
+                "INSERT IGNORE INTO haccp_core_temp_slots (batch_id, production_date, slot_start, slot_end, hold_minutes, `generated`) VALUES (%s, %s, %s, %s, %s, 1)",
                 (bid, ymd, current_time, end_t, hold), fetch="none"
             )
         except Exception as e:
