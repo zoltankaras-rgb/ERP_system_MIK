@@ -1,32 +1,30 @@
 import os
-from flask import Blueprint, request, jsonify, render_template_string
-from db_connector import get_connection
-import mail_handler  # Tvoj existujúci mail handler
-import pdf_generator # Tvoj existujúci PDF generátor (bude treba malú úpravu)
+from flask import Blueprint, request, jsonify
+from flask_mail import Message
 from datetime import datetime
+
+# Importujeme mail instanciu z app (alebo lazy import vo funkcii, ak je circular import)
+try:
+    from app import mail
+except ImportError:
+    mail = None
 
 pricelist_bp = Blueprint('pricelist', __name__)
 
-# --- POMOCNÁ FUNKCIA NA GENEROVANIE HTML PRE PDF ---
+# --- POMOCNÁ FUNKCIA NA GENEROVANIE HTML ---
 def generate_pricelist_html(items, customer_name, valid_from):
-    """
-    Vytvorí HTML tabuľku pre PDF. 
-    Červená = Zdraženie
-    Zelená = Zlacnenie
-    Žltá = AKCIA
-    """
     html_content = f"""
     <html>
     <head>
         <style>
-            body {{ font-family: DejaVu Sans, Arial; }}
+            body {{ font-family: DejaVu Sans, Arial, sans-serif; font-size: 12px; }}
             h1 {{ color: #333; }}
             table {{ width: 100%; border-collapse: collapse; margin-top: 20px; }}
-            th {{ background-color: #f2f2f2; padding: 10px; border: 1px solid #ddd; text-align: left; }}
+            th {{ background-color: #f2f2f2; padding: 8px; border: 1px solid #ddd; text-align: left; }}
             td {{ padding: 8px; border: 1px solid #ddd; }}
             .price-up {{ color: red; font-weight: bold; }}
             .price-down {{ color: green; font-weight: bold; }}
-            .action-row {{ background-color: #fffacd; }} /* Žlté pozadie pre akciu */
+            .action-row {{ background-color: #fffacd; }}
             .action-badge {{ background-color: #ff9800; color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.8em; }}
         </style>
     </head>
@@ -37,8 +35,8 @@ def generate_pricelist_html(items, customer_name, valid_from):
             <thead>
                 <tr>
                     <th>Produkt</th>
-                    <th>Pôvodná cena</th>
-                    <th>Nová cena</th>
+                    <th>MJ</th>
+                    <th>Cena (bez DPH)</th>
                     <th>Zmena</th>
                 </tr>
             </thead>
@@ -46,110 +44,106 @@ def generate_pricelist_html(items, customer_name, valid_from):
     """
 
     for item in items:
-        # Logika pre farby
         row_class = "action-row" if item.get('is_action') else ""
         price_class = ""
         diff_text = "-"
         
-        old = float(item.get('old_price', 0))
-        new = float(item.get('price', 0))
+        old = float(item.get('old_price', 0) or 0)
+        new = float(item.get('price', 0) or 0)
 
         if old > 0:
             if new > old:
                 price_class = "price-up"
-                diff_text = f"+{round(((new - old) / old) * 100, 1)}% ⬆"
+                pct = ((new - old) / old) * 100
+                diff_text = f"+{pct:.1f}% ⬆"
             elif new < old:
                 price_class = "price-down"
-                diff_text = f"{round(((new - old) / old) * 100, 1)}% ⬇"
+                pct = ((old - new) / old) * 100
+                diff_text = f"-{pct:.1f}% ⬇"
 
-        product_name = item['name']
+        product_name = item.get('name', 'Produkt')
         if item.get('is_action'):
             product_name += ' <span class="action-badge">AKCIA!</span>'
+
+        mj = item.get('mj', 'kg')
 
         html_content += f"""
             <tr class="{row_class}">
                 <td>{product_name}</td>
-                <td>{f"{old:.2f} €" if old > 0 else "-"}</td>
+                <td>{mj}</td>
                 <td class="{price_class}">{new:.2f} €</td>
                 <td class="{price_class}">{diff_text}</td>
             </tr>
         """
 
-    html_content += """
+    html_content += f"""
             </tbody>
         </table>
-        <p><small>Vygenerované systémom ERP MIK dňa """ + datetime.now().strftime("%d.%m.%Y") + """</small></p>
+        <p><small>Vygenerované dňa {datetime.now().strftime("%d.%m.%Y")}</small></p>
     </body>
     </html>
     """
     return html_content
 
-# --- API ENDPOINT PRE ODOSLANIE CENNÍKA ---
+# --- API ENDPOINT ---
 @pricelist_bp.route('/api/send_custom_pricelist', methods=['POST'])
 def send_custom_pricelist():
+    # Lazy import pre mail, aby sme predišli circular import errorom
+    from app import mail
+    if not mail:
+        return jsonify({'status': 'error', 'message': 'Mail služba nie je inicializovaná.'}), 500
+
     try:
         data = request.json
-        customers = data.get('customers', []) # Zoznam emailov: [{'email': '...', 'name': '...'}]
-        items = data.get('items', [])         # Zoznam produktov s cenami
+        customers = data.get('customers', []) 
+        items = data.get('items', [])         
         valid_from = data.get('valid_from', datetime.now().strftime("%d.%m.%Y"))
 
         if not customers or not items:
             return jsonify({'status': 'error', 'message': 'Chýbajú zákazníci alebo položky'}), 400
 
-        # 1. Vygenerovanie PDF (jedno PDF pre všetkých alebo custom pre každého)
-        # Tu generujeme HTML, ktoré potom PDF generátor prerobí
-        
-        # Pre každého zákazníka vygenerujeme a pošleme mail
         sent_count = 0
+        import pdfkit # Uistite sa, že máte nainštalované: pip install pdfkit a wkhtmltopdf v systéme
+
+        # Nastavenie pre PDF (ak treba cestu k binárke)
+        # config = pdfkit.configuration(wkhtmltopdf='/usr/bin/wkhtmltopdf') 
         
         for customer in customers:
-            # Generujeme HTML cenník
-            html_source = generate_pricelist_html(items, customer['name'], valid_from)
-            
-            # Uloženie dočasného PDF
-            pdf_filename = f"cennik_{customer['name'].replace(' ', '_')}_{datetime.now().strftime('%Y%m%d')}.pdf"
-            pdf_path = os.path.join('static', 'temp_pdf', pdf_filename)
-            
-            # Volať tvoj existujúci PDF generátor (alebo použiť knižnicu napr. pdfkit/weasyprint)
-            # Tu predpokladám, že tvoj pdf_generator má funkciu 'create_from_html'
-            # Ak nie, dá sa to spraviť jednoducho cez 'pdfkit.from_string(html_source, pdf_path)'
-            import pdf_generator # Prípadne použi tvoj pdf_generator
-            try:
-                # Konfigurácia pre wkhtmltopdf (treba mať nainštalované na serveri)
-              pdf_generator.from_string(html_source, pdf_path)
-            except Exception as e:
-                # Fallback ak nemáš pdfkit, len pre ukážku
-                print(f"Chyba PDF generovania: {e}")
+            customer_name = customer.get('name', 'Zákazník')
+            customer_email = customer.get('email')
+
+            if not customer_email:
                 continue
 
-            # 2. Odoslanie mailu cez tvoj mail_handler
-            subject = f"Nový Cenník MIK (Platný od {valid_from})"
-            body = f"""
-            Dobrý deň {customer['name']},
+            # 1. Generovanie HTML
+            html_source = generate_pricelist_html(items, customer_name, valid_from)
             
-            v prílohe vám zasielame aktualizovaný cenník platný od {valid_from}.
-            
-            V cenníku sú vyznačené zmeny cien a aktuálne AKCIE.
-            
-            S pozdravom,
-            Tím MIK
-            """
-            
-            # Odoslanie
-            mail_handler.send_email_with_attachment(
-                to_email=customer['email'],
-                subject=subject,
-                body=body,
-                attachment_path=pdf_path
+            # 2. Generovanie PDF do pamäte (nie na disk, je to rýchlejšie)
+            try:
+                pdf_data = pdfkit.from_string(html_source, False) # False = vráti bytes
+            except Exception as e:
+                print(f"Chyba PDF: {e}")
+                return jsonify({'status': 'error', 'message': f'Chyba pri generovaní PDF: {str(e)}'}), 500
+
+            # 3. Odoslanie emailu
+            msg = Message(
+                subject=f"Nový Cenník MIK (Platný od {valid_from})",
+                recipients=[customer_email],
+                body=f"Dobrý deň {customer_name},\n\nv prílohe vám zasielame nový cenník platný od {valid_from}.\n\nS pozdravom,\nTím MIK"
             )
             
-            sent_count += 1
-            
-            # Upratanie (zmazanie PDF po odoslaní)
-            # os.remove(pdf_path) 
+            # Pridanie PDF ako prílohy
+            msg.attach(
+                filename=f"Cennik_{valid_from}.pdf",
+                content_type="application/pdf",
+                data=pdf_data
+            )
 
-        return jsonify({'status': 'success', 'message': f'Cenník odoslaný {sent_count} zákazníkom.'})
+            mail.send(msg)
+            sent_count += 1
+
+        return jsonify({'status': 'success', 'message': f'Cenník úspešne odoslaný {sent_count} zákazníkom.'})
 
     except Exception as e:
-        print(f"CRITICAL ERROR: {e}")
+        print(f"CRITICAL ERROR sending pricelist: {e}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
