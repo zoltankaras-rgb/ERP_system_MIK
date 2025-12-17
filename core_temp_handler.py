@@ -1,5 +1,5 @@
 # =================================================================
-# === HANDLER: TEPLOTA JADRA (SQLITE COMPATIBLE + AUTO 70-72) =====
+# === HANDLER: HACCP (MySQL VERSION + AUTO 70-72 + FIX) ===========
 # =================================================================
 
 from __future__ import annotations
@@ -43,10 +43,10 @@ def _format_dt(dt: Any) -> Optional[str]:
     return str(dt) if dt else None
 
 # -------------------------------
-# 2. SCHÉMA (SQLite Version)
+# 2. SCHÉMA (MySQL Version)
 # -------------------------------
 def _ensure_schema() -> None:
-    # Len pre istotu, hlavná oprava je v db_fix.py
+    # Schéma sa rieši v db_fix.py, tu je len poistka
     pass 
 
 # -------------------------------
@@ -74,9 +74,9 @@ def _generate_slots_for_day(ymd: str, items: List[Dict]) -> None:
         end_t = current_time + timedelta(minutes=hold)
         
         try:
-            # SQLite: INSERT OR IGNORE
+            # MySQL: INSERT IGNORE
             db_connector.execute_query(
-                "INSERT OR IGNORE INTO haccp_core_temp_slots (batch_id, production_date, slot_start, slot_end, hold_minutes) VALUES (%s, %s, %s, %s, %s)",
+                "INSERT IGNORE INTO haccp_core_temp_slots (batch_id, production_date, slot_start, slot_end, hold_minutes, generated) VALUES (%s, %s, %s, %s, %s, 1)",
                 (bid, ymd, current_time, end_t, hold), fetch="none"
             )
         except Exception as e:
@@ -87,8 +87,8 @@ def _generate_slots_for_day(ymd: str, items: List[Dict]) -> None:
 def _autofill_measurements(batch_id: str, slot_start: datetime, hold_minutes: int, product_name: str, p_date: date):
     # Generuje 70.0 - 72.0 °C
     now = datetime.now()
-    # if slot_start > now: return # (Voliteľné: nepredbiehať čas)
-
+    
+    # Check if measurements exist
     check = db_connector.execute_query(
         "SELECT id FROM haccp_core_temp_measurements WHERE batch_id=%s LIMIT 1", 
         (batch_id,), fetch="one"
@@ -96,11 +96,11 @@ def _autofill_measurements(batch_id: str, slot_start: datetime, hold_minutes: in
     if check: return
 
     inserts = []
-    rnd = random.Random(f"{batch_id}_sqlite_v1")
+    rnd = random.Random(f"{batch_id}_mysql_v1")
 
     for i in range(hold_minutes + 1):
         measure_time = slot_start + timedelta(minutes=i)
-        # if measure_time > now: break 
+        # if measure_time > now: break # (Voliteľné)
 
         val = rnd.uniform(70.0, 72.0)
         final_temp = round(val, 1)
@@ -118,7 +118,7 @@ def _autofill_measurements(batch_id: str, slot_start: datetime, hold_minutes: in
         vals = []
         for row in inserts: vals.extend(row)
         ph = "(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
-        # SQLite syntax
+        # MySQL syntax
         sql = f"""
             INSERT INTO haccp_core_temp_measurements 
             (batch_id, product_name, production_date, hold_minutes, measured_c, measured_at, measured_by, note, target_low_c, target_high_c)
@@ -163,9 +163,9 @@ def list_items(days: int = 365):
         
         if pname and pname not in def_map:
              try:
-                 # SQLite: INSERT OR IGNORE
+                 # MySQL: INSERT IGNORE
                  db_connector.execute_query(
-                     "INSERT OR IGNORE INTO haccp_core_temp_product_defaults (product_name, is_required, hold_minutes) VALUES (%s, 1, 10)", 
+                     "INSERT IGNORE INTO haccp_core_temp_product_defaults (product_name, is_required, hold_minutes) VALUES (%s, 1, 10)", 
                      (pname,), fetch="none"
                  )
              except: pass
@@ -250,6 +250,7 @@ def list_measurement_history(batch_id: str):
         })
     return jsonify(out)
 
+# === OPRAVENÁ FUNKCIA PRE MODAL OKNO ===
 def list_product_defaults():
     rows = db_connector.execute_query(
         "SELECT * FROM haccp_core_temp_product_defaults ORDER BY product_name ASC"
@@ -272,11 +273,13 @@ def save_product_default(payload: Dict):
     req = 1 if payload.get("isRequired") else 0
     hm = _safe_int(payload.get("holdMinutes"), 10)
 
-    # SQLite: INSERT OR REPLACE
+    # MySQL: ON DUPLICATE KEY UPDATE
     db_connector.execute_query(
-        """INSERT OR REPLACE INTO haccp_core_temp_product_defaults 
+        """INSERT INTO haccp_core_temp_product_defaults 
            (product_name, is_required, hold_minutes, target_low_c, target_high_c) 
-           VALUES (%s, %s, %s, 70.0, 72.0)""",
+           VALUES (%s, %s, %s, 70.0, 72.0)
+           ON DUPLICATE KEY UPDATE 
+           is_required=VALUES(is_required), hold_minutes=VALUES(hold_minutes)""",
         (name, req, hm), fetch="none"
     )
     return {"status": "ok"}
