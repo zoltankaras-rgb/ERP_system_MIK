@@ -35,7 +35,8 @@ from expedition_handler import _zv_name_col
 # -------------------------------
 
 def _ensure_schema() -> None:
-    # 1. Tabuľka defaultov (OPRAVENÉ KÓDOVANIE na utf8)
+    # defaults
+    # OPRAVENÉ: Používame čisté utf8, aby to prešlo na každej DB
     db_connector.execute_query(
         """
         CREATE TABLE IF NOT EXISTS haccp_core_temp_product_defaults (
@@ -51,7 +52,8 @@ def _ensure_schema() -> None:
         fetch="none",
     )
 
-    # 2. Tabuľka meraní (OPRAVENÉ KÓDOVANIE na utf8)
+    # merania
+    # OPRAVENÉ: Používame čisté utf8
     db_connector.execute_query(
         """
         CREATE TABLE IF NOT EXISTS haccp_core_temp_measurements (
@@ -75,7 +77,8 @@ def _ensure_schema() -> None:
         fetch="none",
     )
 
-    # 3. Tabuľka slotov (OPRAVENÉ KÓDOVANIE na utf8)
+    # sloty (časové okná)
+    # OPRAVENÉ: Používame čisté utf8
     db_connector.execute_query(
         """
         CREATE TABLE IF NOT EXISTS haccp_core_temp_slots (
@@ -479,7 +482,6 @@ def _auto_fill_measurements(ymd: str, day_items: List[Dict[str, Any]]) -> None:
 # -----------------------------------------------------------------
 
 def list_items(days: int = 365):
-    # CRITICAL: Kontrola schémy pri každom volaní
     _ensure_schema()
 
     if not days or days < 1:
@@ -965,3 +967,4 @@ def list_measurement_history(batch_id: str):
             r["productionDate"] = pd.strftime("%Y-%m-%d")
 
     return jsonify(rows)
+
