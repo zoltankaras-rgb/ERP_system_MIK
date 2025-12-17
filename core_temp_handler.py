@@ -293,10 +293,10 @@ def list_items(days: int = 365):
 def list_product_defaults():
     """Zoznam výrobkov pre nastavenie CCP/limit.
 
-    Berieme názvy výrobkov z:
-      - zaznamy_vyroba (čo reálne vyrábaš)
-      - haccp_core_temp_product_defaults (už uložené nastavenia)
-    Bez závislosti na tabuľke produkty.
+    Stabilné:
+      - berieme názvy výrobkov priamo z zaznamy_vyroba (čo reálne vyrábaš)
+      - plus aj už uložené defaulty (aby sa nastavenia nestratili)
+    Robustné na casing kľúčov z db_connector.
     """
     _ensure_schema()
 
@@ -306,7 +306,6 @@ def list_product_defaults():
         f"""
         SELECT
             c.productName AS productName,
-            'VÝROBA'      AS itemType,
             COALESCE(d.is_required,0) AS isRequired,
             d.limit_c     AS limitC,
             d.updated_at  AS updatedAt
@@ -328,17 +327,27 @@ def list_product_defaults():
         """
     ) or []
 
+    def g(r, k, default=None):
+        if not isinstance(r, dict):
+            return default
+        if k in r:
+            return r.get(k)
+        lk = k.lower()
+        if lk in r:
+            return r.get(lk)
+        return default
+
     out = []
     for r in rows:
-        updated = r.get("updatedAt")
+        updated = g(r, "updatedAt")
         if isinstance(updated, datetime):
             updated = updated.isoformat(sep=" ", timespec="seconds")
 
         out.append({
-            "productName": r.get("productName"),
-            "itemType": r.get("itemType") or "VÝROBA",
-            "isRequired": bool(int(r.get("isRequired") or 0)),
-            "limitC": float(r.get("limitC")) if r.get("limitC") is not None else None,
+            "productName": g(r, "productName"),
+            "itemType": "VÝROBA",
+            "isRequired": bool(int(g(r, "isRequired", 0) or 0)),
+            "limitC": float(g(r, "limitC")) if g(r, "limitC") is not None else None,
             "updatedAt": updated,
         })
 
