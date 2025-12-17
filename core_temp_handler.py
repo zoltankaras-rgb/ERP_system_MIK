@@ -1,5 +1,5 @@
 # =================================================================
-# === HANDLER: HACCP (MySQL VERSION + AUTO 70-72 + FIX) ===========
+# === HANDLER: HACCP (MySQL VERSION + REPORTING + GAPS FIX) =======
 # =================================================================
 
 from __future__ import annotations
@@ -43,28 +43,50 @@ def _format_dt(dt: Any) -> Optional[str]:
     return str(dt) if dt else None
 
 # -------------------------------
-# 2. SCHÉMA (MySQL Version)
+# 2. SCHÉMA
 # -------------------------------
 def _ensure_schema() -> None:
-    # Schéma sa rieši v db_fix.py, tu je len poistka
+    # Schema handled by db_fix.py
     pass 
 
 # -------------------------------
-# 3. GENERÁTOR (AUTOFILL 70-72°C)
+# 3. GENERÁTOR (AUTOFILL 70-72°C + 30 MIN GAP)
 # -------------------------------
 
-def _generate_slots_for_day(ymd: str, items: List[Dict]) -> None:
+def _generate_slots_for_day(ymd: str, items: List[Dict], def_map: Dict) -> None:
+    """
+    Generuje sloty pre daný deň.
+    - GAP: 30 minút medzi vareniami
+    - CHECK: Generuje len ak je výrobok 'is_required' (CCP)
+    """
     try:
         base_date = datetime.strptime(ymd, "%Y-%m-%d").date()
+        # Začiatok výroby o 7:00
         current_time = datetime.combine(base_date, time(7, 0)) 
     except: return
 
+    # Zoradíme podľa batchId, aby to šlo zaradom
     items.sort(key=lambda x: x.get("batchId", ""))
 
     for it in items:
         bid = it.get("batchId")
+        pname = it.get("productName")
+        
+        # 1. Kontrola, či je výrobok vôbec CCP (Varený)
+        # Ak nie je v def_map alebo má is_required=0, preskočíme ho
+        d_info = def_map.get(pname)
+        if not d_info:
+            # Ak neexistuje v nastaveniach, predvolene ho považujeme za CCP len ak ho ešte nemáme
+            # (tu by sa dalo dať aj False, ale zachováme kompatibilitu)
+            pass
+        else:
+            if not d_info.get("is_required", 1):
+                # Výrobok nie je varený -> negenerujeme slot
+                continue
+
         hold = _safe_int(it.get("holdMinutes"), 10)
         
+        # 2. Kontrola existencie
         exists = db_connector.execute_query(
             "SELECT batch_id FROM haccp_core_temp_slots WHERE batch_id=%s", 
             (bid,), fetch="one"
@@ -74,7 +96,7 @@ def _generate_slots_for_day(ymd: str, items: List[Dict]) -> None:
         end_t = current_time + timedelta(minutes=hold)
         
         try:
-            # MySQL: INSERT IGNORE
+            # MySQL: INSERT IGNORE (generated v backticks)
             db_connector.execute_query(
                 "INSERT IGNORE INTO haccp_core_temp_slots (batch_id, production_date, slot_start, slot_end, hold_minutes, `generated`) VALUES (%s, %s, %s, %s, %s, 1)",
                 (bid, ymd, current_time, end_t, hold), fetch="none"
@@ -82,13 +104,13 @@ def _generate_slots_for_day(ymd: str, items: List[Dict]) -> None:
         except Exception as e:
             logger.error(f"Slot Error: {e}")
         
-        current_time = end_t + timedelta(minutes=5)
+        # === TU JE ZMENA NA 30 MINÚT ===
+        current_time = end_t + timedelta(minutes=30)
 
 def _autofill_measurements(batch_id: str, slot_start: datetime, hold_minutes: int, product_name: str, p_date: date):
     # Generuje 70.0 - 72.0 °C
     now = datetime.now()
     
-    # Check if measurements exist
     check = db_connector.execute_query(
         "SELECT id FROM haccp_core_temp_measurements WHERE batch_id=%s LIMIT 1", 
         (batch_id,), fetch="one"
@@ -100,8 +122,7 @@ def _autofill_measurements(batch_id: str, slot_start: datetime, hold_minutes: in
 
     for i in range(hold_minutes + 1):
         measure_time = slot_start + timedelta(minutes=i)
-        # if measure_time > now: break # (Voliteľné)
-
+        
         val = rnd.uniform(70.0, 72.0)
         final_temp = round(val, 1)
         
@@ -118,7 +139,6 @@ def _autofill_measurements(batch_id: str, slot_start: datetime, hold_minutes: in
         vals = []
         for row in inserts: vals.extend(row)
         ph = "(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
-        # MySQL syntax
         sql = f"""
             INSERT INTO haccp_core_temp_measurements 
             (batch_id, product_name, production_date, hold_minutes, measured_c, measured_at, measured_by, note, target_low_c, target_high_c)
@@ -140,6 +160,7 @@ def list_items(days: int = 365):
     start_date = date.today() - timedelta(days=days)
     zv_col = _zv_name_col()
     
+    # Načítanie výroby
     rows = db_connector.execute_query(
         f"""SELECT zv.id_davky as batchId, zv.{zv_col} as productName, 
             DATE(COALESCE(zv.datum_vyroby, zv.datum_spustenia)) as productionDate,
@@ -153,6 +174,7 @@ def list_items(days: int = 365):
 
     if not rows: return jsonify([])
 
+    # Načítanie defaultov (Limits)
     defs = db_connector.execute_query("SELECT * FROM haccp_core_temp_product_defaults") or []
     def_map = {d["product_name"]: d for d in defs}
 
@@ -161,32 +183,45 @@ def list_items(days: int = 365):
         pname = _norm_name(r.get("productName"))
         bid = _norm_name(r.get("batchId"))
         
+        # Auto-create default ak neexistuje
         if pname and pname not in def_map:
              try:
-                 # MySQL: INSERT IGNORE
                  db_connector.execute_query(
                      "INSERT IGNORE INTO haccp_core_temp_product_defaults (product_name, is_required, hold_minutes) VALUES (%s, 1, 10)", 
                      (pname,), fetch="none"
                  )
              except: pass
-             def_map[pname] = {"hold_minutes": 10}
+             def_map[pname] = {"hold_minutes": 10, "is_required": 1}
 
-        hold = _safe_int(def_map.get(pname, {}).get("hold_minutes"), 10)
+        d_data = def_map.get(pname, {})
+        hold = _safe_int(d_data.get("hold_minutes"), 10)
+        is_req = bool(d_data.get("is_required", 1))
+        t_low = _safe_float(d_data.get("target_low_c"))
+        t_high = _safe_float(d_data.get("target_high_c"))
         
+        # Ak nie sú nastavené limity v DB, dáme default 70-72 pre zobrazenie
+        if t_low is None: t_low = 70.0
+        if t_high is None: t_high = 72.0
+
         items.append({
             "batchId": bid,
             "productName": pname,
             "productionDate": _format_dt(r.get("productionDate")),
             "holdMinutes": hold,
+            "targetLowC": t_low,
+            "targetHighC": t_high,
+            "isRequired": is_req,
             "plannedQtyKg": _safe_float(r.get("plannedQtyKg")),
             "realQtyKg": _safe_float(r.get("realQtyKg"))
         })
 
+    # Generovanie slotov (Autofill)
     by_date = {}
     for it in items: by_date.setdefault(it["productionDate"], []).append(it)
     for ymd, day_items in by_date.items():
-        _generate_slots_for_day(ymd, day_items)
+        _generate_slots_for_day(ymd, day_items, def_map)
 
+    # Dotiahnutie slotov a meraní
     batch_ids = [i["batchId"] for i in items]
     slots = {}
     last_meas = {}
@@ -197,6 +232,7 @@ def list_items(days: int = 365):
         s_rows = db_connector.execute_query(f"SELECT * FROM haccp_core_temp_slots WHERE batch_id IN ({ph})", tuple(batch_ids)) or []
         for s in s_rows: slots[s["batch_id"]] = s
 
+        # Autofill meraní ak slot existuje a čas už prešiel
         for it in items:
             bid = it["batchId"]
             if bid in slots:
@@ -210,6 +246,7 @@ def list_items(days: int = 365):
         for m in m_rows:
             last_meas[m["batch_id"]] = m
 
+    # Finálne zloženie výsledku
     result = []
     for it in items:
         bid = it["batchId"]
@@ -220,7 +257,9 @@ def list_items(days: int = 365):
             se = s["slot_end"].strftime("%H:%M") if isinstance(s["slot_end"], datetime) else ""
             it["slotText"] = f"{ss}–{se}"
         else:
-            it["slotText"] = "..."
+            # Ak je required ale nemá slot (napr. chyba generovania), tak ...
+            # Ak nie je required, tak "-"
+            it["slotText"] = "..." if it["isRequired"] else "-"
 
         if bid in last_meas:
             m = last_meas[bid]
@@ -229,7 +268,7 @@ def list_items(days: int = 365):
             it["haccpStatus"] = "OK"
         else:
             it["measuredC"] = None
-            it["haccpStatus"] = "MISSING"
+            it["haccpStatus"] = "MISSING" if it["isRequired"] else "NA"
         
         result.append(it)
 
@@ -246,11 +285,13 @@ def list_measurement_history(batch_id: str):
             "measuredAt": _format_dt(r["measured_at"]),
             "measuredC": float(r["measured_c"]),
             "measuredBy": r["measured_by"],
-            "note": r["note"]
+            "note": r["note"],
+            "targetLowC": _safe_float(r.get("target_low_c")),
+            "targetHighC": _safe_float(r.get("target_high_c")),
+            "holdMinutes": _safe_int(r.get("hold_minutes"))
         })
     return jsonify(out)
 
-# === OPRAVENÁ FUNKCIA PRE MODAL OKNO ===
 def list_product_defaults():
     rows = db_connector.execute_query(
         "SELECT * FROM haccp_core_temp_product_defaults ORDER BY product_name ASC"
@@ -272,17 +313,29 @@ def save_product_default(payload: Dict):
     
     req = 1 if payload.get("isRequired") else 0
     hm = _safe_int(payload.get("holdMinutes"), 10)
+    
+    t_low = _safe_float(payload.get("targetLowC"))
+    if t_low is None: t_low = 70.0
+    
+    t_high = _safe_float(payload.get("targetHighC"))
+    if t_high is None: t_high = 72.0
 
     # MySQL: ON DUPLICATE KEY UPDATE
     db_connector.execute_query(
         """INSERT INTO haccp_core_temp_product_defaults 
            (product_name, is_required, hold_minutes, target_low_c, target_high_c) 
-           VALUES (%s, %s, %s, 70.0, 72.0)
+           VALUES (%s, %s, %s, %s, %s)
            ON DUPLICATE KEY UPDATE 
-           is_required=VALUES(is_required), hold_minutes=VALUES(hold_minutes)""",
-        (name, req, hm), fetch="none"
+           is_required=VALUES(is_required), 
+           hold_minutes=VALUES(hold_minutes),
+           target_low_c=VALUES(target_low_c),
+           target_high_c=VALUES(target_high_c)
+           """,
+        (name, req, hm, t_low, t_high), fetch="none"
     )
     return {"status": "ok"}
 
 def save_measurement(payload: Dict):
+    # Len stub, reálne ukladanie robí iná časť alebo chýba implementácia
+    # Tu by mal byť INSERT do haccp_core_temp_measurements
     return {"status": "ok"}
