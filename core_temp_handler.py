@@ -290,35 +290,59 @@ def list_items(days: int = 365):
 # -----------------------------------------------------------------
 # API: defaults (CCP/limit)
 # -----------------------------------------------------------------
-
 def list_product_defaults():
+    """Zoznam výrobkov pre nastavenie CCP/limit.
+
+    Stabilné: berieme názvy výrobkov z:
+      - zaznamy_vyroba (čo reálne vyrábaš)
+      - haccp_core_temp_product_defaults (už uložené nastavenia)
+    Bez závislosti na tabuľke produkty.
+    """
     _ensure_schema()
-    # ponechávam to takto – ak by ti to padalo kvôli schéme "produkty", upravíme podľa DESCRIBE produkty
+
+    zv_name = _zv_name_col()
+
     rows = db_connector.execute_query(
-        """
+        f"""
         SELECT
-            p.nazov_vyrobku AS productName,
-            p.typ_polozky   AS itemType,
+            c.productName AS productName,
+            'VÝROBA'      AS itemType,
             COALESCE(d.is_required,0) AS isRequired,
-            d.limit_c       AS limitC,
-            d.updated_at    AS updatedAt
-        FROM produkty p
+            d.limit_c     AS limitC,
+            d.updated_at  AS updatedAt
+        FROM (
+            SELECT TRIM(productName) AS productName
+            FROM (
+                SELECT DISTINCT TRIM(zv.{zv_name}) AS productName
+                FROM zaznamy_vyroba zv
+                WHERE zv.{zv_name} IS NOT NULL AND TRIM(zv.{zv_name}) <> ''
+                UNION
+                SELECT DISTINCT TRIM(product_name) AS productName
+                FROM haccp_core_temp_product_defaults
+                WHERE product_name IS NOT NULL AND TRIM(product_name) <> ''
+            ) x
+        ) c
         LEFT JOIN haccp_core_temp_product_defaults d
-               ON TRIM(d.product_name) = TRIM(p.nazov_vyrobku)
-        WHERE TRIM(UPPER(p.typ_polozky)) IN ('VÝROBOK','VÝROBOK_KUSOVY','VÝROBOK_KRAJANY','PRODUKT')
-        ORDER BY p.nazov_vyrobku
+               ON TRIM(d.product_name) = TRIM(c.productName)
+        ORDER BY c.productName
         """
     ) or []
-    for r in rows:
-        if isinstance(r.get("updatedAt"), datetime):
-            r["updatedAt"] = r["updatedAt"].isoformat(sep=" ", timespec="seconds")
-        r["isRequired"] = bool(int(r.get("isRequired") or 0))
-        try:
-            r["limitC"] = float(r.get("limitC")) if r.get("limitC") is not None else None
-        except Exception:
-            r["limitC"] = None
-    return jsonify(rows)
 
+    out = []
+    for r in rows:
+        updated = r.get("updatedAt")
+        if isinstance(updated, datetime):
+            updated = updated.isoformat(sep=" ", timespec="seconds")
+
+        out.append({
+            "productName": r.get("productName"),
+            "itemType": r.get("itemType") or "VÝROBA",
+            "isRequired": bool(int(r.get("isRequired") or 0)),
+            "limitC": float(r.get("limitC")) if r.get("limitC") is not None else None,
+            "updatedAt": updated,
+        })
+
+    return jsonify(out)
 
 def save_product_default(payload: Dict[str, Any]) -> Dict[str, Any]:
     _ensure_schema()
