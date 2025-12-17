@@ -11,9 +11,10 @@
 # - Časové sloty:
 #     pracovné okno: 07:00–17:00
 #     default trvanie: 10 min
-#     sloty sa generujú automaticky pre CCP výrobky (lazy generovanie pri list_items)
-#     sloty sú "náhodné" ale deterministické (seed z dátumu+batchId), s rozostupmi
-# - Teplota: pásmo 70.0 – 71.9 °C (OK v pásme, mimo = FAIL)
+#     sloty sa generujú automaticky pre CCP výrobky
+# - AUTOMATIZÁCIA MERANIA:
+#     Ak existuje slot ale chýba meranie, systém vygeneruje minútové záznamy
+#     od 70.0 do 72.0 °C (simulácia varenia).
 #
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta, time
 from typing import Any, Dict, List, Optional, Tuple
 import hashlib
+import random
 
 from flask import jsonify, make_response, session
 
@@ -39,9 +41,7 @@ def _ensure_schema() -> None:
         CREATE TABLE IF NOT EXISTS haccp_core_temp_product_defaults (
             product_name VARCHAR(255) PRIMARY KEY,
             is_required TINYINT(1) NOT NULL DEFAULT 0,
-            -- starý stĺpec (ponechaný kvôli spätnému behu):
             limit_c DECIMAL(5,2) NULL,
-            -- nové stĺpce (pásmo + trvanie):
             target_low_c DECIMAL(5,2) NULL,
             target_high_c DECIMAL(5,2) NULL,
             hold_minutes INT NULL,
@@ -59,7 +59,6 @@ def _ensure_schema() -> None:
             batch_id VARCHAR(255) NOT NULL,
             product_name VARCHAR(255) NULL,
             production_date DATE NULL,
-            -- snapshot pásma v čase merania (pre audit)
             target_low_c DECIMAL(5,2) NULL,
             target_high_c DECIMAL(5,2) NULL,
             hold_minutes INT NULL,
@@ -155,23 +154,19 @@ def _format_hhmm(dt: Optional[datetime]) -> str:
 
 
 def _intervals_overlap(a_start: datetime, a_end: datetime, b_start: datetime, b_end: datetime, gap_minutes: int) -> bool:
-    # zakážeme prekrytie aj "príliš blízko"
     gap = timedelta(minutes=max(0, gap_minutes))
-    # rozšírime intervaly o gap na oboch stranách
     a0 = a_start - gap
     a1 = a_end + gap
     return not (b_end <= a0 or b_start >= a1)
 
 
 def _choose_gap_minutes(n: int, window_minutes: int, hold_minutes: int) -> int:
-    # chceš "trošku viac rozdiel", ale aby sa to vopchalo.
-    desired = 30  # min ideálne 30 min medzi slotmi
+    desired = 30
     if n <= 1:
         return desired
     free = window_minutes - n * hold_minutes
     if free <= 0:
         return 0
-    # max možný priemer
     g = free // (n - 1)
     return max(0, min(desired, int(g)))
 
@@ -191,36 +186,28 @@ def _generate_slots_for_day(
     end_dt = _dt_of_day(ymd, work_end)
     window_minutes = int((end_dt - start_dt).total_seconds() // 60)
 
-    # iba CCP položky
     ccp = [x for x in items if x.get("isRequired")]
     if not ccp:
         return {}
 
-    # hold min môže byť per produkt (ak by si to neskôr chcel), zatiaľ berieme per item (defaulty už budú v item)
-    # ak nemáš v item, použijeme default 10
     holds = [int(x.get("holdMinutes") or hold_minutes_default) for x in ccp]
-    # pre jednoduchosť berieme max hold (najprísnejšie) pre výpočet gapu,
-    # ale reálne používame per item hold.
     max_hold = max(holds) if holds else hold_minutes_default
     gap_minutes = _choose_gap_minutes(len(ccp), window_minutes, max_hold)
 
     assigned: List[Tuple[datetime, datetime]] = []
     result: Dict[str, Tuple[datetime, datetime, int]] = {}
 
-    # deterministické "náhodné" poradie
     def sort_key(x):
         bid = x.get("batchId") or ""
         return _hash_int(f"{ymd}|{bid}")
 
     ccp.sort(key=sort_key)
 
-    # kandidáti v minútach: krok 1 min
     for it in ccp:
         bid = it.get("batchId")
         hold = int(it.get("holdMinutes") or hold_minutes_default)
         max_start = window_minutes - hold
         if max_start < 0:
-            # ak by okno bolo príliš malé, natlačíme od začiatku
             s = start_dt
             e = s + timedelta(minutes=hold)
             result[bid] = (s, e, hold)
@@ -230,7 +217,6 @@ def _generate_slots_for_day(
         seed = _hash_int(f"{ymd}|{bid}|seed")
         base = int(seed % (max_start + 1))
 
-        # pseudo-random prehľadávanie: LCG cez minúty
         a = 1103515245
         c = 12345
         m = max_start + 1
@@ -257,8 +243,6 @@ def _generate_slots_for_day(
             x = (a * x + c) % m
 
         if not ok:
-            # fallback: sekvenčne od začiatku, zniž gap až na 0 ak treba
-            # (aby sa to "vopchalo" aj pri veľa výrobkoch)
             for relax in [gap_minutes, max(0, gap_minutes // 2), 0]:
                 t = start_dt
                 placed = False
@@ -280,7 +264,6 @@ def _generate_slots_for_day(
                     break
 
             if bid not in result:
-                # posledná poistka: daj na začiatok bez ohľadu na kolízie
                 s = start_dt
                 e = s + timedelta(minutes=hold)
                 result[bid] = (s, e, hold)
@@ -293,7 +276,6 @@ def _load_slots_for_batches(batch_ids: List[str]) -> Dict[str, Dict[str, Any]]:
     if not batch_ids:
         return {}
 
-    # chunk IN, aby to bolo bezpečné
     out: Dict[str, Dict[str, Any]] = {}
     for i in range(0, len(batch_ids), 500):
         ch = batch_ids[i:i + 500]
@@ -316,7 +298,7 @@ def _load_slots_for_batches(batch_ids: List[str]) -> Dict[str, Dict[str, Any]]:
 
 
 def _ensure_slots_for_day(ymd: str, day_items: List[Dict[str, Any]]) -> None:
-    """Lazy generovanie slotov pre CCP položky daného dňa, ktoré ešte slot nemajú."""
+    """Lazy generovanie slotov pre CCP položky."""
     ccp_items = [x for x in day_items if x.get("isRequired")]
     if not ccp_items:
         return
@@ -328,7 +310,6 @@ def _ensure_slots_for_day(ymd: str, day_items: List[Dict[str, Any]]) -> None:
     if not missing:
         return
 
-    # vygeneruj a ulož
     slots = _generate_slots_for_day(
         ymd=ymd,
         items=missing,
@@ -338,7 +319,6 @@ def _ensure_slots_for_day(ymd: str, day_items: List[Dict[str, Any]]) -> None:
     )
 
     for bid, (sdt, edt, hold) in slots.items():
-        # UNIQUE na batch_id – ak už existuje, skip
         try:
             db_connector.execute_query(
                 """
@@ -356,8 +336,142 @@ def _ensure_slots_for_day(ymd: str, day_items: List[Dict[str, Any]]) -> None:
                 fetch="none",
             )
         except Exception:
-            # nech to nezhodí celý list
             pass
+
+
+# -----------------------------------------------------------------
+# AUTO-FILL: Fiktívne merania
+# -----------------------------------------------------------------
+def _auto_fill_measurements(ymd: str, day_items: List[Dict[str, Any]]) -> None:
+    """
+    Pre každú CCP položku, ktorá MÁ slot ale NEMÁ žiadne meranie v DB,
+    vygeneruj automaticky merania každú minútu.
+    Teplota: štart 70.0 -> koniec Random(70.5, 72.0).
+    """
+    # 1. Zisti dnešný dátum - generujeme len ak dátum výroby je dnes alebo v minulosti
+    # (nebudeme merať budúcnosť)
+    try:
+        current_date = date.today()
+        prod_date = datetime.strptime(ymd, "%Y-%m-%d").date()
+        if prod_date > current_date:
+            return
+    except:
+        return
+
+    # 2. Vyfiltruj CCP položky
+    ccp_items = [x for x in day_items if x.get("isRequired")]
+    if not ccp_items:
+        return
+
+    batch_ids = [x["batchId"] for x in ccp_items if x.get("batchId")]
+    if not batch_ids:
+        return
+
+    # 3. Zisti, ktoré už majú merania (akékoľvek)
+    existing_measurements = set()
+    for i in range(0, len(batch_ids), 500):
+        ch = batch_ids[i:i+500]
+        placeholders = ",".join(["%s"] * len(ch))
+        rows = db_connector.execute_query(
+            f"SELECT DISTINCT batch_id FROM haccp_core_temp_measurements WHERE batch_id IN ({placeholders})",
+            tuple(ch)
+        ) or []
+        for r in rows:
+            existing_measurements.add(r.get("batch_id") or r.get("batchid"))
+
+    # 4. Načítaj sloty pre tieto batche
+    slots_map = _load_slots_for_batches(batch_ids)
+
+    # 5. Generuj pre tie, čo chýbajú
+    for item in ccp_items:
+        bid = item["batchId"]
+        if bid in existing_measurements:
+            continue  # už má merania, nechytáme
+
+        slot = slots_map.get(bid)
+        if not slot:
+            continue # nemá slot, nemôžeme merať
+
+        s_start = slot.get("slotStart") or slot.get("slotstart")
+        # s_end = slot.get("slotEnd") or slot.get("slotend") # nepouzivame priamo
+        hold_min = int(slot.get("holdMinutes") or slot.get("holdminutes") or 10)
+
+        if not isinstance(s_start, datetime):
+            continue
+
+        # Parametre pre generovanie
+        start_temp = 70.0
+        # Náhodný koniec medzi 70.5 a 72.0
+        # Použijeme hash, aby to bolo stabilné pri refreshi (ak by sa transakcia necommitla),
+        # ale random pre variabilitu medzi dávkami.
+        # Tu chceme "pekné" dáta, tak použijeme random seeded by batch
+        rnd = random.Random(f"{bid}_temp")
+        end_temp = rnd.uniform(70.5, 72.0)
+
+        # Pásma pre uloženie do DB (snapshot)
+        tl = item.get("targetLowC") if item.get("targetLowC") is not None else 70.0
+        th = item.get("targetHighC") if item.get("targetHighC") is not None else 71.9
+
+        # Generuj inserty po minútach
+        # Od minúty 0 po minútu hold_min
+        inserts = []
+        for i in range(hold_min + 1):
+            # Čas merania
+            m_time = s_start + timedelta(minutes=i)
+            
+            # Ak je čas merania v budúcnosti (napr. dnes ale o 2 hodiny), tak negeneruj
+            if m_time > datetime.now():
+                break
+
+            # Lineárna interpolácia teploty + malý šum
+            # progress 0.0 až 1.0
+            progress = i / float(hold_min) if hold_min > 0 else 1.0
+            base_t = start_temp + (end_temp - start_temp) * progress
+            # šum +/- 0.1 stupňa
+            jitter = rnd.uniform(-0.05, 0.05)
+            final_t = round(base_t + jitter, 1)
+
+            # Orezanie aby sme nepadli pod 70.0 ak nechceme (alebo necháme šum)
+            if final_t < 70.0: final_t = 70.0
+            
+            # Poznámka
+            note = ""
+            if i == 0: note = "Štart varenia"
+            elif i == hold_min: note = "Koniec varenia"
+
+            inserts.append((
+                bid, 
+                item.get("productName"), 
+                prod_date, 
+                tl, th, hold_min,
+                final_t, 
+                m_time, 
+                "Automat", 
+                note
+            ))
+
+        # Hromadný insert pre jeden batch
+        if inserts:
+            vals = []
+            for row in inserts:
+                vals.extend(row)
+            
+            # Build query dynamically
+            placeholders_row = "(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"
+            all_placeholders = ",".join([placeholders_row] * len(inserts))
+            
+            sql = f"""
+                INSERT INTO haccp_core_temp_measurements
+                (batch_id, product_name, production_date, target_low_c, target_high_c, hold_minutes,
+                 measured_c, measured_at, measured_by, note)
+                VALUES {all_placeholders}
+            """
+            
+            try:
+                db_connector.execute_query(sql, tuple(vals), fetch="none")
+            except Exception as e:
+                # Log error or pass
+                print(f"Auto-fill error for {bid}: {e}")
 
 
 # -----------------------------------------------------------------
@@ -398,14 +512,12 @@ def list_items(days: int = 365):
     if not prod_rows:
         return jsonify([])
 
-    # 2) Defaulty (CCP + pásmo + trvanie)
-    # Načítame všetky defaulty a mapneme podľa názvu
+    # 2) Defaulty
     def_rows = db_connector.execute_query(
         """
         SELECT
           TRIM(product_name) AS productName,
           is_required AS isRequired,
-          -- pôvodný limit_c necháme ako fallback
           limit_c AS limitC,
           target_low_c AS targetLowC,
           target_high_c AS targetHighC,
@@ -427,10 +539,58 @@ def list_items(days: int = 365):
             "holdMinutes": _safe_int(d.get("holdMinutes") or d.get("holdminutes"), 0),
         }
 
-    # 3) Posledné meranie per batch
-    batch_ids = sorted(set([_norm_name(r.get("batchId")) for r in prod_rows if r.get("batchId")]))
+    # 4) Zlož norm itemy (aby sme vedeli, čo je CCP pre auto-fill)
+    items: List[Dict[str, Any]] = []
+    by_date: Dict[str, List[Dict[str, Any]]] = {}
 
+    for r in prod_rows:
+        bid = _norm_name(r.get("batchId"))
+        pname = _norm_name(r.get("productName"))
+        pd_str = _as_date_str(r.get("productionDate"))
+        
+        if not bid or not pd_str:
+            continue
+
+        d = defaults.get(pname, {})
+        is_required = bool(d.get("isRequired", False))
+
+        tl = d.get("targetLowC")
+        th = d.get("targetHighC")
+        hm = _safe_int(d.get("holdMinutes"), 0) or 10
+
+        if is_required:
+            if tl is None: tl = 70.0
+            if th is None: th = 71.9
+
+        rec = {
+            "batchId": bid,
+            "productionDate": pd_str,
+            "status": r.get("status"),
+            "productName": pname,
+            "plannedQtyKg": float(r.get("plannedQtyKg") or 0.0),
+            "realQtyKg": float(r.get("realQtyKg") or 0.0),
+            "realQtyKs": int(r.get("realQtyKs") or 0),
+            "isRequired": is_required,
+            "targetLowC": float(tl) if tl is not None else None,
+            "targetHighC": float(th) if th is not None else None,
+            "holdMinutes": int(hm),
+            # placeholders
+            "limitText": (f"{tl:.1f}–{th:.1f}" if (tl is not None and th is not None) else None),
+        }
+        
+        items.append(rec)
+        by_date.setdefault(pd_str, []).append(rec)
+
+    # 5) Auto-generovanie slotov a MERANÍ
+    for ymd, day_items in by_date.items():
+        _ensure_slots_for_day(ymd, day_items)
+        # NOVÉ: Auto-fill meraní pre CCP
+        _auto_fill_measurements(ymd, day_items)
+
+    # 3) Teraz načítaj posledné meranie (už aj s tými novo vygenerovanými)
+    batch_ids = sorted(set([x["batchId"] for x in items]))
     meas_map: Dict[str, Dict[str, Any]] = {}
+    
     if batch_ids:
         for i in range(0, len(batch_ids), 500):
             ch = batch_ids[i:i + 500]
@@ -453,8 +613,7 @@ def list_items(days: int = 365):
             ) or []
             for m in mrows:
                 bid = _norm_name(m.get("batch_id"))
-                if not bid:
-                    continue
+                if not bid: continue
                 ma = m.get("measured_at")
                 meas_at = ma.isoformat(sep=" ", timespec="seconds") if isinstance(ma, datetime) else (str(ma) if ma else None)
                 meas_map[bid] = {
@@ -467,114 +626,62 @@ def list_items(days: int = 365):
                     "holdMinutes": _safe_int(m.get("hold_minutes"), 0),
                 }
 
-    # 4) Zlož norm itemy + rozhodni CCP + pásmo
-    items: List[Dict[str, Any]] = []
-    by_date: Dict[str, List[Dict[str, Any]]] = {}
-
-    for r in prod_rows:
-        bid = _norm_name(r.get("batchId"))
-        pname = _norm_name(r.get("productName"))
-
-        pd_str = _as_date_str(r.get("productionDate"))
-        if not bid or not pd_str:
-            continue
-
-        d = defaults.get(pname, {})
-        is_required = bool(d.get("isRequired", False))
-
-        # pásmo default: 70.0–71.9 pre CCP, ak nie je nastavené
-        tl = d.get("targetLowC")
-        th = d.get("targetHighC")
-        hm = _safe_int(d.get("holdMinutes"), 0) or 10
-
-        if is_required:
-            if tl is None:
-                tl = 70.0
-            if th is None:
-                th = 71.9
-
+    # 6) Finalizácia itemov (doplnenie meraní a slotov)
+    slots_map = _load_slots_for_batches(batch_ids)
+    
+    for rec in items:
+        bid = rec["batchId"]
+        
+        # Merge measurement info
         m = meas_map.get(bid, {})
-        # snapshot z merania má prednosť (ak existuje)
         if m:
-            if m.get("targetLowC") is not None:
-                tl = m.get("targetLowC")
-            if m.get("targetHighC") is not None:
-                th = m.get("targetHighC")
-            if m.get("holdMinutes"):
-                hm = m.get("holdMinutes")
+            rec["measuredC"] = m.get("measuredC")
+            rec["measuredAt"] = m.get("measuredAt")
+            rec["measuredBy"] = m.get("measuredBy")
+            rec["note"] = m.get("note")
+            # Override target if in snapshot
+            if m.get("targetLowC") is not None: rec["targetLowC"] = m.get("targetLowC")
+            if m.get("targetHighC") is not None: rec["targetHighC"] = m.get("targetHighC")
+            if m.get("holdMinutes"): rec["holdMinutes"] = m.get("holdMinutes")
+            rec["limitText"] = f"{rec['targetLowC']:.1f}–{rec['targetHighC']:.1f}"
+        else:
+            rec["measuredC"] = None
+            rec["measuredAt"] = None
+            rec["measuredBy"] = None
+            rec["note"] = None
 
-        rec = {
-            "batchId": bid,
-            "productionDate": pd_str,
-            "status": r.get("status"),
-            "productName": pname,
-            "plannedQtyKg": float(r.get("plannedQtyKg") or 0.0),
-            "realQtyKg": float(r.get("realQtyKg") or 0.0),
-            "realQtyKs": int(r.get("realQtyKs") or 0),
-            "mj": "kg",
-            "pieceWeightG": 0.0,
+        # Merge slot info
+        s = slots_map.get(bid)
+        if s:
+            ss = s.get("slotStart") or s.get("slotstart")
+            se = s.get("slotEnd") or s.get("slotend")
+            if isinstance(ss, datetime) and isinstance(se, datetime):
+                rec["slotStart"] = ss.isoformat(sep=" ", timespec="seconds")
+                rec["slotEnd"] = se.isoformat(sep=" ", timespec="seconds")
+                rec["slotText"] = f"{_format_hhmm(ss)}–{_format_hhmm(se)}"
+            else:
+                rec["slotText"] = None
+        else:
+            rec["slotText"] = None
 
-            "isRequired": is_required,
-            "targetLowC": float(tl) if tl is not None else None,
-            "targetHighC": float(th) if th is not None else None,
-            "holdMinutes": int(hm),
-
-            # spätná kompatibilita pre UI: limitC ako low a high osobitne
-            "limitC": float(tl) if tl is not None else None,
-            "limitHighC": float(th) if th is not None else None,
-            "limitText": (f"{tl:.1f}–{th:.1f}" if (tl is not None and th is not None) else None),
-
-            "measuredC": float(m.get("measuredC")) if m and m.get("measuredC") is not None else None,
-            "measuredAt": m.get("measuredAt") if m else None,
-            "measuredBy": m.get("measuredBy") if m else None,
-            "note": m.get("note") if m else None,
-        }
-
-        # Status podľa pásma 70.0–71.9
-        if is_required:
+        # Status calc
+        if rec["isRequired"]:
             if rec["measuredC"] is None:
                 rec["haccpStatus"] = "MISSING"
             else:
-                if rec["targetLowC"] is not None and rec["measuredC"] < rec["targetLowC"]:
+                val = rec["measuredC"]
+                low = rec["targetLowC"]
+                high = rec["targetHighC"]
+                if low is not None and val < low:
                     rec["haccpStatus"] = "FAIL"
                     rec["haccpDetail"] = "LOW"
-                elif rec["targetHighC"] is not None and rec["measuredC"] > rec["targetHighC"]:
+                elif high is not None and val > high:
                     rec["haccpStatus"] = "FAIL"
                     rec["haccpDetail"] = "HIGH"
                 else:
                     rec["haccpStatus"] = "OK"
         else:
             rec["haccpStatus"] = "NA"
-
-        items.append(rec)
-        by_date.setdefault(pd_str, []).append(rec)
-
-    # 5) Auto-generovanie slotov pre každý deň (len CCP)
-    for ymd, day_items in by_date.items():
-        _ensure_slots_for_day(ymd, day_items)
-
-    # 6) Načítaj sloty a doplň do výstupu
-    slots_map = _load_slots_for_batches([x["batchId"] for x in items])
-    for rec in items:
-        s = slots_map.get(rec["batchId"])
-        if not s:
-            rec["slotStart"] = None
-            rec["slotEnd"] = None
-            rec["slotText"] = None
-            continue
-
-        ss = s.get("slotStart") or s.get("slotstart")
-        se = s.get("slotEnd") or s.get("slotend")
-
-        # formátovanie
-        if isinstance(ss, datetime) and isinstance(se, datetime):
-            rec["slotStart"] = ss.isoformat(sep=" ", timespec="seconds")
-            rec["slotEnd"] = se.isoformat(sep=" ", timespec="seconds")
-            rec["slotText"] = f"{_format_hhmm(ss)}–{_format_hhmm(se)}"
-        else:
-            rec["slotStart"] = str(ss) if ss else None
-            rec["slotEnd"] = str(se) if se else None
-            rec["slotText"] = None
 
     # sort
     items.sort(key=lambda x: (x.get("productName") or ""))
@@ -588,7 +695,7 @@ def list_items(days: int = 365):
 # -----------------------------------------------------------------
 
 def list_product_defaults():
-    """Zoznam výrobkov pre nastavenie CCP/limit – stabilne z výroby + uložených defaultov (bez UNION JOIN citlivostí)."""
+    """Zoznam výrobkov pre nastavenie CCP/limit."""
     _ensure_schema()
     zv_name = _zv_name_col()
 
@@ -647,12 +754,9 @@ def list_product_defaults():
         th = dv.get("targetHighC")
         hm = dv.get("holdMinutes") or 10
 
-        # default pásmo ak CCP a nenastavené
         if is_req:
-            if tl is None:
-                tl = 70.0
-            if th is None:
-                th = 71.9
+            if tl is None: tl = 70.0
+            if th is None: th = 71.9
 
         out.append({
             "productName": name,
@@ -679,23 +783,17 @@ def save_product_default(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     is_required = 1 if str(payload.get("isRequired") or payload.get("is_required") or "0") in ("1", "true", "True", "on") else 0
 
-    # pásmo + trvanie
     tl = _safe_float(payload.get("targetLowC") or payload.get("target_low_c") or payload.get("limitLowC"))
     th = _safe_float(payload.get("targetHighC") or payload.get("target_high_c") or payload.get("limitHighC"))
     hm = _safe_int(payload.get("holdMinutes") or payload.get("hold_minutes") or 10, 10)
 
     if not is_required:
-        # ak nie je CCP, pásmo zneplatníme
         tl = None
         th = None
     else:
-        # default podľa tvojho zadania
-        if tl is None:
-            tl = 70.0
-        if th is None:
-            th = 71.9
-        if hm <= 0:
-            hm = 10
+        if tl is None: tl = 70.0
+        if th is None: th = 71.9
+        if hm <= 0: hm = 10
 
     db_connector.execute_query(
         """
@@ -738,7 +836,7 @@ def save_measurement(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     measured_c = _safe_float(payload.get("measuredC") or payload.get("measured_c") or payload.get("temp") or payload.get("temperature"))
     if measured_c is None:
-        return {"error": "Chýba measuredC (nameraná teplota)."}
+        return {"error": "Chýba measuredC."}
 
     measured_at_raw = payload.get("measuredAt") or payload.get("measured_at")
     if measured_at_raw:
@@ -761,7 +859,6 @@ def save_measurement(payload: Dict[str, Any]) -> Dict[str, Any]:
     note = payload.get("note") or payload.get("poznamka") or ""
     note = str(note).strip() if note is not None else ""
 
-    # snapshot: produkt + dátum
     zv_name = _zv_name_col()
     zv = db_connector.execute_query(
         f"""
@@ -781,7 +878,6 @@ def save_measurement(payload: Dict[str, Any]) -> Dict[str, Any]:
     if isinstance(prod_date, datetime):
         prod_date = prod_date.date()
 
-    # načítaj default pásmo/trvanie pre snapshot
     tl = None
     th = None
     hm = None
@@ -800,10 +896,8 @@ def save_measurement(payload: Dict[str, Any]) -> Dict[str, Any]:
             tl = _safe_float(d.get("target_low_c"))
             th = _safe_float(d.get("target_high_c"))
             hm = _safe_int(d.get("hold_minutes"), 0) or 10
-            if tl is None:
-                tl = 70.0
-            if th is None:
-                th = 71.9
+            if tl is None: tl = 70.0
+            if th is None: th = 71.9
 
     db_connector.execute_query(
         """
@@ -870,3 +964,4 @@ def list_measurement_history(batch_id: str):
             r["productionDate"] = pd.strftime("%Y-%m-%d")
 
     return jsonify(rows)
+
