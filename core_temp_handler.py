@@ -291,55 +291,77 @@ def list_items(days: int = 365):
 # API: defaults (CCP/limit)
 # -----------------------------------------------------------------
 def list_product_defaults():
-    """Zoznam výrobkov pre nastavenie CCP/limit – stabilne z výroby."""
+    """Zoznam výrobkov pre nastavenie CCP/limit (varený/nevarený).
+
+    Robustné riešenie:
+      - 1. zoberieme názvy výrobkov zo zaznamy_vyroba
+      - 2. zoberieme už uložené defaulty z haccp_core_temp_product_defaults
+      - 3. spojíme to v Pythone (bez UNION/JOIN v SQL, ktoré ti padali)
+    """
     _ensure_schema()
 
     zv_name = _zv_name_col()
 
-    rows = db_connector.execute_query(
+    # 1) výrobky z výroby
+    prod_rows = db_connector.execute_query(
         f"""
-        SELECT
-            c.productName AS productName,
-            'VÝROBA'      AS itemType,
-            COALESCE(d.is_required,0) AS isRequired,
-            d.limit_c     AS limitC,
-            d.updated_at  AS updatedAt
-        FROM (
-            SELECT DISTINCT TRIM(zv.{zv_name}) AS productName
-            FROM zaznamy_vyroba zv
-            WHERE zv.{zv_name} IS NOT NULL AND TRIM(zv.{zv_name}) <> ''
-            UNION
-            SELECT DISTINCT TRIM(product_name) AS productName
-            FROM haccp_core_temp_product_defaults
-            WHERE product_name IS NOT NULL AND TRIM(product_name) <> ''
-        ) c
-        LEFT JOIN haccp_core_temp_product_defaults d
-               ON TRIM(d.product_name) = TRIM(c.productName)
-        ORDER BY c.productName
+        SELECT DISTINCT TRIM({zv_name}) AS productName
+        FROM zaznamy_vyroba
+        WHERE {zv_name} IS NOT NULL AND TRIM({zv_name}) <> ''
+        ORDER BY productName
         """
     ) or []
 
-    out = []
-    for r in rows:
-        # db_connector niekedy dáva kľúče lowercase
+    prod_names = []
+    for r in prod_rows:
         pn = r.get("productName") or r.get("productname")
-        it = r.get("itemType") or r.get("itemtype") or "VÝROBA"
-        ir = r.get("isRequired") if "isRequired" in r else r.get("isrequired")
-        lc = r.get("limitC") if "limitC" in r else r.get("limitc")
-        ua = r.get("updatedAt") if "updatedAt" in r else r.get("updatedat")
+        if pn:
+            prod_names.append(str(pn).strip())
 
-        if isinstance(ua, datetime):
-            ua = ua.isoformat(sep=" ", timespec="seconds")
+    # 2) uložené defaulty (CCP/limit)
+    def_rows = db_connector.execute_query(
+        """
+        SELECT
+            TRIM(product_name) AS productName,
+            is_required        AS isRequired,
+            limit_c            AS limitC,
+            updated_at         AS updatedAt
+        FROM haccp_core_temp_product_defaults
+        WHERE product_name IS NOT NULL AND TRIM(product_name) <> ''
+        """
+    ) or []
+
+    defaults_map = {}
+    for d in def_rows:
+        pn = d.get("productName") or d.get("productname")
+        if not pn:
+            continue
+        defaults_map[str(pn).strip()] = {
+            "isRequired": bool(int((d.get("isRequired") or d.get("isrequired") or 0))),
+            "limitC": float(d.get("limitC") or d.get("limitc")) if (d.get("limitC") or d.get("limitc")) is not None else None,
+            "updatedAt": d.get("updatedAt") or d.get("updatedat"),
+        }
+
+    # 3) union názvov: výroba + už uložené defaulty
+    all_names = sorted(set(prod_names) | set(defaults_map.keys()))
+
+    out = []
+    for name in all_names:
+        dv = defaults_map.get(name, {})
+        updated = dv.get("updatedAt")
+        if isinstance(updated, datetime):
+            updated = updated.isoformat(sep=" ", timespec="seconds")
 
         out.append({
-            "productName": pn,
-            "itemType": it,
-            "isRequired": bool(int(ir or 0)),
-            "limitC": float(lc) if lc is not None else None,
-            "updatedAt": ua,
+            "productName": name,
+            "itemType": "VÝROBA",
+            "isRequired": bool(dv.get("isRequired", False)),
+            "limitC": dv.get("limitC", None),
+            "updatedAt": updated,
         })
 
     return jsonify(out)
+
 
 
 def save_product_default(payload: Dict[str, Any]) -> Dict[str, Any]:
