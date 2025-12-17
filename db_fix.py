@@ -59,5 +59,14 @@ for i, sql in enumerate(queries):
         print(f" -> OK.")
     except Exception as e:
         print(f" -> CHYBA: {e}")
-
+# 4. Oprava tabuľky Cenníky (Fix pre chýbajúci email)
+    print("Opravujem tabuľku cenniky...")
+    sql_cenniky = "ALTER TABLE cenniky ADD COLUMN email VARCHAR(255) NULL;"
+    try:
+        # Skúsime pridať stĺpec. Ak už existuje, vyhodí to chybu, ktorú odchytíme.
+        db_connector.execute_query(sql_cenniky, fetch="none")
+        print(" -> OK (stĺpec 'email' pridaný).")
+    except Exception as e:
+        # Ignorujeme chybu, ak stĺpec už existuje
+        print(f" -> Info: {e}")
 print("--- HOTOVO ---")
