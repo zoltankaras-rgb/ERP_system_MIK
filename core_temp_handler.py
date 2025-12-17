@@ -293,7 +293,7 @@ def list_items(days: int = 365):
 def list_product_defaults():
     """Zoznam výrobkov pre nastavenie CCP/limit.
 
-    Stabilné: berieme názvy výrobkov z:
+    Berieme názvy výrobkov z:
       - zaznamy_vyroba (čo reálne vyrábaš)
       - haccp_core_temp_product_defaults (už uložené nastavenia)
     Bez závislosti na tabuľke produkty.
