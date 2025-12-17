@@ -1,25 +1,20 @@
 /* ============================================================
    Kancelária – HACCP: Teplota jadra (Core Temp)
-   ------------------------------------------------------------
-   Backend:
-     GET  /api/kancelaria/core_temp/list?days=365
+   kompatibilné s backendom:
+     GET  /api/kancelaria/core_temp/list?days=...
      GET  /api/kancelaria/core_temp/product_defaults
      POST /api/kancelaria/core_temp/product_defaults/save
      POST /api/kancelaria/core_temp/measurement/save
      GET  /api/kancelaria/core_temp/measurement/history?batchId=...
 
-   Očakávaný formát list_items:
-     [
-       {
-         batchId, productionDate (YYYY-MM-DD),
-         status, productName,
-         plannedQtyKg, realQtyKg, realQtyKs,
-         mj, pieceWeightG,
-         isRequired, limitC,
-         measuredC, measuredAt, measuredBy, note,
-         haccpStatus: "OK"|"MISSING"|"FAIL"|"NA"
-       }, ...
-     ]
+   Backend posiela (list):
+     batchId, productionDate, status, productName,
+     plannedQtyKg, realQtyKg, realQtyKs,
+     isRequired, targetLowC, targetHighC, holdMinutes,
+     limitText (napr. 70.0–71.9),
+     measuredC, measuredAt, measuredBy, note,
+     slotText (napr. 08:25–08:35), slotStart, slotEnd,
+     haccpStatus ("OK","MISSING","FAIL","NA") + voliteľne haccpDetail ("LOW"/"HIGH")
    ============================================================ */
 
 (function () {
@@ -37,8 +32,6 @@
   // Helpers
   // -----------------------
   function $(sel, root = document) { return root.querySelector(sel); }
-  function $all(sel, root = document) { return Array.from(root.querySelectorAll(sel)); }
-
   function el(tag, attrs = {}, children = []) {
     const n = document.createElement(tag);
     for (const [k, v] of Object.entries(attrs || {})) {
@@ -56,19 +49,24 @@
     return n;
   }
 
+  function safeStr(x) { return (x === null || x === undefined) ? "" : String(x); }
+
   function safeNum(x) {
     if (x === null || x === undefined || x === "") return null;
     const v = Number(String(x).replace(",", "."));
     return Number.isFinite(v) ? v : null;
   }
 
-  function safeStr(x) {
-    return (x === null || x === undefined) ? "" : String(x);
+  function fmtQtyKg(v) {
+    const n = safeNum(v);
+    if (n === null) return "-";
+    return n.toFixed(3);
   }
 
-  function fmtDateYMD(ymd) {
-    // ymd: "YYYY-MM-DD"
-    return safeStr(ymd);
+  function fmtFloat(v, d = 1) {
+    const n = safeNum(v);
+    if (n === null) return "-";
+    return n.toFixed(d);
   }
 
   function ymdParts(ymd) {
@@ -78,29 +76,21 @@
     return { y: p[0], m: p[1], d: p[2] };
   }
 
-  function fmtFloat(v, digits = 2) {
-    const n = safeNum(v);
-    if (n === null) return "-";
-    return n.toFixed(digits);
+  function statusLabel(it) {
+    // haccpStatus: OK/MISSING/FAIL/NA, haccpDetail: LOW/HIGH
+    const st = safeStr(it.haccpStatus || "NA");
+    const det = safeStr(it.haccpDetail || "");
+    if (st === "OK") return { text: "OK", cls: "status-ok" };
+    if (st === "MISSING") return { text: "CHÝBA", cls: "status-missing" };
+    if (st === "FAIL" && det === "HIGH") return { text: "VYSOKÁ", cls: "status-low" };
+    if (st === "FAIL" && det === "LOW") return { text: "NÍZKA", cls: "status-low" };
+    if (st === "FAIL") return { text: "MIMO", cls: "status-low" };
+    return { text: "NEVYŽADUJE", cls: "" };
   }
 
-  function fmtQtyKg(v) {
-    const n = safeNum(v);
-    if (n === null) return "-";
-    // kg bežne stačí 3 desatinné pre výrobu
-    return n.toFixed(3);
-  }
-
-  function pill(status) {
-    // status: OK/MISSING/FAIL/NA
-    let cls = "";
-    let label = status;
-    if (status === "OK") { cls = "status-ok"; label = "OK"; }
-    else if (status === "MISSING") { cls = "status-missing"; label = "CHÝBA"; }
-    else if (status === "FAIL") { cls = "status-low"; label = "NÍZKA"; }
-    else { cls = ""; label = "NEVYŽADUJE"; }
-
-    return el("span", { class: `status-pill ${cls}` }, label);
+  function pill(it) {
+    const s = statusLabel(it);
+    return el("span", { class: `status-pill ${s.cls}` }, s.text);
   }
 
   async function apiGet(url) {
@@ -122,10 +112,7 @@
     try { return JSON.parse(text); } catch { return text; }
   }
 
-  function toast(msg) {
-    // jednoduché, bezpečné – nech to nerozbije UI
-    alert(msg);
-  }
+  function toast(msg) { alert(msg); }
 
   // -----------------------
   // Modal (použije existujúci #modal-container)
@@ -142,18 +129,14 @@
   function openModal(titleText, bodyNode, footerNode) {
     const m = getModal();
     if (!m) { toast("Modal container chýba v HTML."); return; }
-
     m.title.textContent = titleText || "—";
     m.body.innerHTML = "";
     if (bodyNode) m.body.appendChild(bodyNode);
     if (footerNode) m.body.appendChild(footerNode);
-
     m.wrap.classList.add("visible");
 
     const onClose = () => closeModal();
-    if (m.closeBtn) {
-      m.closeBtn.onclick = onClose;
-    }
+    if (m.closeBtn) m.closeBtn.onclick = onClose;
     const backdrop = $(".modal-backdrop", m.wrap);
     if (backdrop) backdrop.onclick = onClose;
   }
@@ -166,7 +149,7 @@
   }
 
   // -----------------------
-  // UI / State
+  // State
   // -----------------------
   const state = {
     loadedOnce: false,
@@ -177,9 +160,9 @@
     onlyMissing: false,
 
     tree: {
-      years: [],                 // ["2025","2024",...]
-      monthsByYear: new Map(),   // year -> ["12","11"...]
-      daysByYM: new Map(),       // "YYYY-MM" -> ["16","15"...]
+      years: [],
+      monthsByYear: new Map(),
+      daysByYM: new Map(),
     },
 
     selected: { y: null, m: null, d: null }
@@ -188,10 +171,9 @@
   function buildSkeleton(section) {
     section.innerHTML = "";
 
-    // Header card
     const header = el("div", { class: "card" }, [
       el("div", { class: "card-header" }, [
-        el("div", { html: "<h3 style='margin:0;border:none;padding:0'>Teplota jadra</h3><div class='muted'>Rok → Mesiac → Deň. Dáta sa berú z výroby (zaznamy_vyroba) + merania HACCP.</div>" }),
+        el("div", { html: "<h3 style='margin:0;border:none;padding:0'>Teplota jadra</h3><div class='muted'>CCP výrobky majú pásmo 70.0–71.9 °C a automaticky pridelený čas merania v pracovnom okne 07:00–17:00.</div>" }),
         el("div", { class: "coretemp-toolbar" }, [
           el("label", { class: "muted", for: "ct-days", style: "margin-right:6px" }, "Rozsah:"),
           el("select", { id: "ct-days" }, [
@@ -224,7 +206,6 @@
       ]),
       el("div", { class: "card-body" }, [
         el("div", { class: "coretemp-grid" }, [
-          // Left: tree
           el("div", { class: "coretemp-aside" }, [
             el("div", { class: "analysis-card" }, [
               el("div", { class: "tree" }, [
@@ -238,12 +219,11 @@
                 ]),
                 el("div", { class: "tree-col" }, [
                   el("h4", {}, "Deň"),
-                  el("ul", { class: "tree-list", id: "ct-days" }, [])
+                  el("ul", { class: "tree-list", id: "ct-dayslist" }, [])
                 ]),
               ])
             ])
           ]),
-          // Right: table
           el("div", { class: "coretemp-main" }, [
             el("div", { class: "analysis-card" }, [
               el("div", { class: "mini-row", style: "justify-content:space-between" }, [
@@ -260,12 +240,13 @@
                     el("th", {}, "Reál (kg)"),
                     el("th", {}, "Reál (ks)"),
                     el("th", {}, "Limit °C"),
+                    el("th", {}, "Čas"),
                     el("th", {}, "Meranie °C"),
                     el("th", {}, "Stav"),
                     el("th", {}, "Akcie"),
                   ])),
                   el("tbody", { id: "ct-tbody" }, [
-                    el("tr", {}, el("td", { colspan: "10", class: "muted" }, "Načítavam…"))
+                    el("tr", {}, el("td", { colspan: "11", class: "muted" }, "Načítavam…"))
                   ])
                 ])
               ])
@@ -281,7 +262,7 @@
   function normalizeItems(raw) {
     if (!Array.isArray(raw)) return [];
     return raw
-      .filter(x => x && x.batchId && x.productionDate) // musíme mať dátum pre strom
+      .filter(x => x && x.batchId && x.productionDate)
       .map(x => ({
         batchId: safeStr(x.batchId).trim(),
         productionDate: safeStr(x.productionDate).trim(),
@@ -290,15 +271,18 @@
         plannedQtyKg: safeNum(x.plannedQtyKg) ?? 0,
         realQtyKg: safeNum(x.realQtyKg) ?? 0,
         realQtyKs: safeNum(x.realQtyKs) ?? 0,
-        mj: safeStr(x.mj || "kg"),
-        pieceWeightG: safeNum(x.pieceWeightG) ?? 0,
         isRequired: !!x.isRequired,
-        limitC: safeNum(x.limitC),
+        targetLowC: safeNum(x.targetLowC),
+        targetHighC: safeNum(x.targetHighC),
+        holdMinutes: safeNum(x.holdMinutes) ?? 10,
+        limitText: safeStr(x.limitText),
         measuredC: safeNum(x.measuredC),
         measuredAt: safeStr(x.measuredAt),
         measuredBy: safeStr(x.measuredBy),
         note: safeStr(x.note),
+        slotText: safeStr(x.slotText),
         haccpStatus: safeStr(x.haccpStatus || "NA"),
+        haccpDetail: safeStr(x.haccpDetail || ""),
       }));
   }
 
@@ -310,8 +294,8 @@
     for (const it of items) {
       const p = ymdParts(it.productionDate);
       if (!p) continue;
-      yearsSet.add(p.y);
 
+      yearsSet.add(p.y);
       if (!monthsByYear.has(p.y)) monthsByYear.set(p.y, new Set());
       monthsByYear.get(p.y).add(p.m);
 
@@ -320,149 +304,31 @@
       daysByYM.get(ym).add(p.d);
     }
 
-    const years = Array.from(yearsSet).sort((a, b) => b.localeCompare(a));
-    const monthsMap = new Map();
+    state.tree.years = Array.from(yearsSet).sort((a, b) => b.localeCompare(a));
+
+    const mm = new Map();
     for (const [y, set] of monthsByYear.entries()) {
-      monthsMap.set(y, Array.from(set).sort((a, b) => b.localeCompare(a)));
+      mm.set(y, Array.from(set).sort((a, b) => b.localeCompare(a)));
     }
-    const daysMap = new Map();
+    state.tree.monthsByYear = mm;
+
+    const dd = new Map();
     for (const [ym, set] of daysByYM.entries()) {
-      daysMap.set(ym, Array.from(set).sort((a, b) => b.localeCompare(a)));
+      dd.set(ym, Array.from(set).sort((a, b) => b.localeCompare(a)));
     }
-
-    state.tree.years = years;
-    state.tree.monthsByYear = monthsMap;
-    state.tree.daysByYM = daysMap;
-  }
-
-  function countForYear(y) {
-    let c = 0;
-    for (const it of state.items) {
-      const p = ymdParts(it.productionDate);
-      if (p && p.y === y) c++;
-    }
-    return c;
-  }
-
-  function countForMonth(y, m) {
-    let c = 0;
-    for (const it of state.items) {
-      const p = ymdParts(it.productionDate);
-      if (p && p.y === y && p.m === m) c++;
-    }
-    return c;
-  }
-
-  function countForDay(y, m, d) {
-    let c = 0;
-    for (const it of state.items) {
-      const p = ymdParts(it.productionDate);
-      if (p && p.y === y && p.m === m && p.d === d) c++;
-    }
-    return c;
-  }
-
-  function renderTreeUI(section) {
-    const yearsUl = $("#ct-years", section);
-    const monthsUl = $("#ct-months", section);
-    const daysUl = $("#ct-days", section);
-
-    yearsUl.innerHTML = "";
-    monthsUl.innerHTML = "";
-    daysUl.innerHTML = "";
-
-    if (!state.tree.years.length) {
-      yearsUl.appendChild(el("li", {}, el("div", { class: "muted", style: "padding:10px 12px" }, "Žiadne dáta.")));
-      return;
-    }
-
-    // Years
-    for (const y of state.tree.years) {
-      const btn = el("button", {
-        type: "button",
-        class: (state.selected.y === y) ? "active" : ""
-      }, [
-        el("span", {}, y),
-        el("span", { class: "count" }, String(countForYear(y)))
-      ]);
-      btn.addEventListener("click", () => {
-        state.selected.y = y;
-        state.selected.m = null;
-        state.selected.d = null;
-        renderTreeUI(section);
-        renderTableUI(section);
-      });
-      yearsUl.appendChild(el("li", {}, btn));
-    }
-
-    // Months (only when year selected)
-    if (state.selected.y) {
-      const months = state.tree.monthsByYear.get(state.selected.y) || [];
-      if (!months.length) {
-        monthsUl.appendChild(el("li", {}, el("div", { class: "muted", style: "padding:10px 12px" }, "—")));
-      } else {
-        for (const m of months) {
-          const btn = el("button", {
-            type: "button",
-            class: (state.selected.m === m) ? "active" : ""
-          }, [
-            el("span", {}, m),
-            el("span", { class: "count" }, String(countForMonth(state.selected.y, m)))
-          ]);
-          btn.addEventListener("click", () => {
-            state.selected.m = m;
-            state.selected.d = null;
-            renderTreeUI(section);
-            renderTableUI(section);
-          });
-          monthsUl.appendChild(el("li", {}, btn));
-        }
-      }
-    } else {
-      monthsUl.appendChild(el("li", {}, el("div", { class: "muted", style: "padding:10px 12px" }, "Vyber rok.")));
-    }
-
-    // Days (only when year+month selected)
-    if (state.selected.y && state.selected.m) {
-      const ym = `${state.selected.y}-${state.selected.m}`;
-      const days = state.tree.daysByYM.get(ym) || [];
-      if (!days.length) {
-        daysUl.appendChild(el("li", {}, el("div", { class: "muted", style: "padding:10px 12px" }, "—")));
-      } else {
-        for (const d of days) {
-          const btn = el("button", {
-            type: "button",
-            class: (state.selected.d === d) ? "active" : ""
-          }, [
-            el("span", {}, d),
-            el("span", { class: "count" }, String(countForDay(state.selected.y, state.selected.m, d)))
-          ]);
-          btn.addEventListener("click", () => {
-            state.selected.d = d;
-            renderTreeUI(section);
-            renderTableUI(section);
-          });
-          daysUl.appendChild(el("li", {}, btn));
-        }
-      }
-    } else {
-      daysUl.appendChild(el("li", {}, el("div", { class: "muted", style: "padding:10px 12px" }, "Vyber mesiac.")));
-    }
+    state.tree.daysByYM = dd;
   }
 
   function applyFilters(items) {
     let out = items;
 
     const ft = state.filterText.trim().toLowerCase();
-    if (ft) {
-      out = out.filter(x => x.productName.toLowerCase().includes(ft));
-    }
-    if (state.onlyRequired) {
-      out = out.filter(x => x.isRequired);
-    }
-    if (state.onlyMissing) {
-      out = out.filter(x => x.isRequired && (x.haccpStatus === "MISSING"));
-    }
+    if (ft) out = out.filter(x => x.productName.toLowerCase().includes(ft));
+
+    if (state.onlyRequired) out = out.filter(x => x.isRequired);
+
+    if (state.onlyMissing) out = out.filter(x => x.isRequired && x.haccpStatus === "MISSING");
+
     return out;
   }
 
@@ -470,6 +336,82 @@
     if (!state.selected.y || !state.selected.m || !state.selected.d) return [];
     const day = `${state.selected.y}-${state.selected.m}-${state.selected.d}`;
     return items.filter(x => x.productionDate === day);
+  }
+
+  function countForYear(y) {
+    return state.items.filter(it => (ymdParts(it.productionDate)?.y === y)).length;
+  }
+  function countForMonth(y, m) {
+    return state.items.filter(it => {
+      const p = ymdParts(it.productionDate);
+      return p && p.y === y && p.m === m;
+    }).length;
+  }
+  function countForDay(y, m, d) {
+    const day = `${y}-${m}-${d}`;
+    return state.items.filter(it => it.productionDate === day).length;
+  }
+
+  function renderList(container, entries, onClick, activeKey) {
+    container.innerHTML = "";
+    for (const e of entries) {
+      const btn = el("button", { type: "button", class: (activeKey === e.key) ? "active" : "" }, [
+        el("span", {}, e.label),
+        el("span", { class: "count" }, String(e.count ?? ""))
+      ]);
+      btn.addEventListener("click", () => onClick(e.key));
+      container.appendChild(el("li", {}, btn));
+    }
+  }
+
+  function renderTreeUI(section) {
+    const yearsUl = $("#ct-years", section);
+    const monthsUl = $("#ct-months", section);
+    const daysUl = $("#ct-dayslist", section);
+
+    // years
+    const yEntries = state.tree.years.map(y => ({ key: y, label: y, count: countForYear(y) }));
+    renderList(yearsUl, yEntries, (y) => {
+      state.selected.y = y;
+      state.selected.m = null;
+      state.selected.d = null;
+      renderTreeUI(section);
+      renderTableUI(section);
+    }, state.selected.y);
+
+    // months
+    if (!state.selected.y) {
+      monthsUl.innerHTML = "";
+      monthsUl.appendChild(el("li", {}, el("div", { class: "muted", style: "padding:10px 12px" }, "Vyber rok.")));
+      daysUl.innerHTML = "";
+      daysUl.appendChild(el("li", {}, el("div", { class: "muted", style: "padding:10px 12px" }, "Vyber mesiac.")));
+      return;
+    }
+
+    const months = state.tree.monthsByYear.get(state.selected.y) || [];
+    const mEntries = months.map(m => ({ key: m, label: m, count: countForMonth(state.selected.y, m) }));
+    renderList(monthsUl, mEntries, (m) => {
+      state.selected.m = m;
+      state.selected.d = null;
+      renderTreeUI(section);
+      renderTableUI(section);
+    }, state.selected.m);
+
+    // days
+    if (!state.selected.m) {
+      daysUl.innerHTML = "";
+      daysUl.appendChild(el("li", {}, el("div", { class: "muted", style: "padding:10px 12px" }, "Vyber mesiac.")));
+      return;
+    }
+
+    const ym = `${state.selected.y}-${state.selected.m}`;
+    const days = state.tree.daysByYM.get(ym) || [];
+    const dEntries = days.map(d => ({ key: d, label: d, count: countForDay(state.selected.y, state.selected.m, d) }));
+    renderList(daysUl, dEntries, (d) => {
+      state.selected.d = d;
+      renderTreeUI(section);
+      renderTableUI(section);
+    }, state.selected.d);
   }
 
   function renderTableUI(section) {
@@ -484,32 +426,31 @@
       title.textContent = "Vyber deň vľavo.";
       summary.textContent = "";
       tbody.innerHTML = "";
-      tbody.appendChild(el("tr", {}, el("td", { colspan: "10", class: "muted" }, "Najprv vyber Rok → Mesiac → Deň.")));
+      tbody.appendChild(el("tr", {}, el("td", { colspan: "11", class: "muted" }, "Najprv vyber Rok → Mesiac → Deň.")));
       return;
     }
 
     const dayKey = `${state.selected.y}-${state.selected.m}-${state.selected.d}`;
     title.textContent = `Záznamy pre: ${dayKey}`;
 
-    // Summary
     const total = dayItems.length;
     const missing = dayItems.filter(x => x.haccpStatus === "MISSING").length;
     const fail = dayItems.filter(x => x.haccpStatus === "FAIL").length;
     const ok = dayItems.filter(x => x.haccpStatus === "OK").length;
-    summary.textContent = `Spolu: ${total} | OK: ${ok} | Chýba: ${missing} | Nízka: ${fail}`;
+    summary.textContent = `Spolu: ${total} | OK: ${ok} | Chýba: ${missing} | Mimo pásma: ${fail}`;
 
     tbody.innerHTML = "";
     if (!dayItems.length) {
-      tbody.appendChild(el("tr", {}, el("td", { colspan: "10", class: "muted" }, "Pre tento deň nie sú záznamy (alebo ich skryli filtre).")));
+      tbody.appendChild(el("tr", {}, el("td", { colspan: "11", class: "muted" }, "Pre tento deň nie sú záznamy (alebo ich skryli filtre).")));
       return;
     }
 
-    // Sort: product ASC
     dayItems.sort((a, b) => a.productName.localeCompare(b.productName, "sk"));
 
     for (const it of dayItems) {
-      const limit = (it.limitC === null || it.limitC === undefined) ? "-" : fmtFloat(it.limitC, 1);
-      const meas = (it.measuredC === null || it.measuredC === undefined) ? "-" : fmtFloat(it.measuredC, 1);
+      const limitText = it.isRequired ? (it.limitText || `${fmtFloat(it.targetLowC,1)}–${fmtFloat(it.targetHighC,1)}`) : "-";
+      const slotText = it.isRequired ? (it.slotText || "-") : "-";
+      const measText = (it.measuredC === null) ? "-" : fmtFloat(it.measuredC, 1);
 
       const actions = el("div", { class: "mini-row" }, []);
 
@@ -526,46 +467,47 @@
       actions.appendChild(btnMeasure);
       actions.appendChild(btnHist);
 
-      const tr = el("tr", {}, [
-        el("td", {}, fmtDateYMD(it.productionDate)),
+      tbody.appendChild(el("tr", {}, [
+        el("td", {}, it.productionDate),
         el("td", {}, it.productName || "-"),
         el("td", {}, it.batchId || "-"),
         el("td", {}, fmtQtyKg(it.plannedQtyKg)),
         el("td", {}, fmtQtyKg(it.realQtyKg)),
-        el("td", {}, (it.realQtyKs ? String(it.realQtyKs) : "-")),
-        el("td", {}, limit),
-        el("td", {}, meas),
-        el("td", {}, pill(it.haccpStatus)),
+        el("td", {}, it.realQtyKs ? String(it.realQtyKs) : "-"),
+        el("td", {}, limitText),
+        el("td", {}, slotText),
+        el("td", {}, measText),
+        el("td", {}, pill(it)),
         el("td", {}, actions),
-      ]);
-
-      tbody.appendChild(tr);
+      ]));
     }
   }
 
   // -----------------------
-  // Measurement modal
+  // Modals
   // -----------------------
+
   function openMeasureModal(item, section) {
-    const limit = (item.limitC === null || item.limitC === undefined) ? null : Number(item.limitC);
+    const low = safeNum(item.targetLowC);
+    const high = safeNum(item.targetHighC);
 
     const body = el("div", {}, [
       el("div", { class: "analysis-card" }, [
         el("div", { class: "muted" }, `Výrobok: ${item.productName}`),
         el("div", { class: "muted" }, `Šarža: ${item.batchId}`),
         el("div", { class: "muted" }, `Dátum: ${item.productionDate}`),
-        el("div", { class: "muted" }, `Plán: ${fmtQtyKg(item.plannedQtyKg)} kg | Reál: ${fmtQtyKg(item.realQtyKg)} kg | Reál: ${item.realQtyKs || 0} ks`),
-        el("div", { class: "muted", style: "margin-top:8px" }, item.isRequired ? `CCP: ÁNO (limit ${limit !== null ? fmtFloat(limit, 1) : "—"} °C)` : "CCP: NIE (meranie sa nevyžaduje)"),
+        el("div", { class: "muted" }, `Čas merania: ${item.slotText || "—"} (držanie ${item.holdMinutes || 10} min)`),
+        el("div", { class: "muted", style: "margin-top:8px" }, item.isRequired ? `CCP: ÁNO (pásmo ${fmtFloat(low,1)}–${fmtFloat(high,1)} °C)` : "CCP: NIE (meranie sa nevyžaduje)"),
       ]),
       el("div", { style: "height:12px" }),
       el("div", { class: "form-grid" }, [
         el("div", { class: "form-group" }, [
           el("label", { for: "ct-measured" }, "Nameraná teplota (°C)"),
-          el("input", { id: "ct-measured", type: "number", step: "0.1", placeholder: "napr. 74.5" })
+          el("input", { id: "ct-measured", type: "number", step: "0.1", placeholder: "napr. 70.8" })
         ]),
         el("div", { class: "form-group" }, [
           el("label", { for: "ct-note" }, "Poznámka / nápravné opatrenie"),
-          el("textarea", { id: "ct-note", rows: "3", placeholder: "povinné pri nízkej teplote" })
+          el("textarea", { id: "ct-note", rows: "3", placeholder: "povinné ak je mimo pásma" })
         ])
       ])
     ]);
@@ -575,38 +517,36 @@
       el("button", { class: "btn btn-primary", type: "button" }, "Uložiť meranie")
     ]);
 
-    const btnCancel = footer.children[0];
-    const btnSave = footer.children[1];
+    footer.children[0].addEventListener("click", closeModal);
 
-    btnCancel.addEventListener("click", closeModal);
-
-    btnSave.addEventListener("click", async () => {
+    footer.children[1].addEventListener("click", async () => {
       const measuredC = safeNum($("#ct-measured")?.value);
       if (measuredC === null) { toast("Zadaj nameranú teplotu."); return; }
 
       const note = safeStr($("#ct-note")?.value).trim();
 
-      if (item.isRequired && limit !== null && measuredC < limit && !note) {
-        toast("Pri nízkej teplote je povinná poznámka / nápravné opatrenie.");
-        return;
+      if (item.isRequired && low != null && high != null) {
+        const ok = (measuredC >= low && measuredC <= high);
+        if (!ok && !note) {
+          toast("Pri meraní mimo pásma je povinná poznámka / nápravné opatrenie.");
+          return;
+        }
       }
 
-      btnSave.disabled = true;
+      footer.children[1].disabled = true;
       try {
         await apiPost(API.saveMeasurement, {
           batchId: item.batchId,
           measuredC: measuredC,
-          limitC: item.limitC,   // snapshot limitu (ak je)
           note: note
         });
-
         closeModal();
         await loadDataAndRender(section, { keepSelection: true });
         toast("Meranie uložené.");
       } catch (e) {
         toast(`Chyba pri ukladaní: ${e.message}`);
       } finally {
-        btnSave.disabled = false;
+        footer.children[1].disabled = false;
       }
     });
 
@@ -614,18 +554,17 @@
   }
 
   async function openHistoryModal(batchId) {
-    const body = el("div", {}, [
-      el("div", { class: "muted" }, `Načítavam históriu pre šaržu: ${batchId}…`)
-    ]);
-    openModal("História meraní", body, null);
+    openModal("História meraní", el("div", { class: "muted" }, `Načítavam históriu pre šaržu: ${batchId}…`), null);
 
     try {
       const rows = await apiGet(API.history(batchId));
+
       const table = el("table", {}, [
         el("thead", {}, el("tr", {}, [
           el("th", {}, "Čas merania"),
           el("th", {}, "Teplota (°C)"),
-          el("th", {}, "Limit (°C)"),
+          el("th", {}, "Pásmo (°C)"),
+          el("th", {}, "Trvanie"),
           el("th", {}, "Kto"),
           el("th", {}, "Poznámka"),
         ])),
@@ -634,13 +573,19 @@
 
       const tb = table.querySelector("tbody");
       if (!Array.isArray(rows) || rows.length === 0) {
-        tb.appendChild(el("tr", {}, el("td", { colspan: "5", class: "muted" }, "Bez histórie meraní.")));
+        tb.appendChild(el("tr", {}, el("td", { colspan: "6", class: "muted" }, "Bez histórie meraní.")));
       } else {
         for (const r of rows) {
+          const tl = safeNum(r.targetLowC);
+          const th = safeNum(r.targetHighC);
+          const band = (tl != null && th != null) ? `${fmtFloat(tl,1)}–${fmtFloat(th,1)}` : "-";
+          const hm = r.holdMinutes ? `${r.holdMinutes} min` : "-";
+
           tb.appendChild(el("tr", {}, [
             el("td", {}, safeStr(r.measuredAt || "")),
             el("td", {}, (r.measuredC != null ? fmtFloat(r.measuredC, 1) : "-")),
-            el("td", {}, (r.limitC != null ? fmtFloat(r.limitC, 1) : "-")),
+            el("td", {}, band),
+            el("td", {}, hm),
             el("td", {}, safeStr(r.measuredBy || "")),
             el("td", {}, safeStr(r.note || "")),
           ]));
@@ -654,41 +599,37 @@
         ])
       ]);
 
-      openModal("História meraní", wrap, el("div", { style: "display:flex;justify-content:flex-end;margin-top:12px" }, [
+      const footer = el("div", { style: "display:flex;justify-content:flex-end;margin-top:12px" }, [
         el("button", { class: "btn btn-secondary", type: "button" }, "Zavrieť")
-      ]));
+      ]);
+      footer.querySelector("button").addEventListener("click", closeModal);
 
-      const btnClose = $(".modal-body button.btn.btn-secondary");
-      if (btnClose) btnClose.addEventListener("click", closeModal);
-
+      openModal("História meraní", wrap, footer);
     } catch (e) {
-      openModal("História meraní", el("div", { class: "muted" }, `Chyba: ${e.message}`), el("div", { style: "display:flex;justify-content:flex-end;margin-top:12px" }, [
+      const footer = el("div", { style: "display:flex;justify-content:flex-end;margin-top:12px" }, [
         el("button", { class: "btn btn-secondary", type: "button" }, "Zavrieť")
-      ]));
-      const btnClose = $(".modal-body button.btn.btn-secondary");
-      if (btnClose) btnClose.addEventListener("click", closeModal);
+      ]);
+      footer.querySelector("button").addEventListener("click", closeModal);
+
+      openModal("História meraní", el("div", { class: "muted" }, `Chyba: ${e.message}`), footer);
     }
   }
 
-  // -----------------------
-  // Product defaults modal (CCP / limit)
-  // -----------------------
-  async function openSettingsModal() {
-    const body = el("div", {}, [
-      el("div", { class: "muted" }, "Načítavam výrobky…")
-    ]);
-    openModal("Nastavenia výrobkov – Teplota jadra", body, null);
+  async function openSettingsModal(section) {
+    openModal("Nastavenia výrobkov – Teplota jadra", el("div", { class: "muted" }, "Načítavam výrobky…"), null);
 
     try {
       const rows = await apiGet(API.productDefaults);
 
       const search = el("input", { type: "text", placeholder: "Hľadať výrobok…", id: "ct-prod-search" });
+
       const table = el("table", {}, [
         el("thead", {}, el("tr", {}, [
           el("th", {}, "Výrobok"),
-          el("th", {}, "Typ"),
           el("th", {}, "Varený (CCP)"),
-          el("th", {}, "Limit °C"),
+          el("th", {}, "Pásmo od (°C)"),
+          el("th", {}, "Pásmo do (°C)"),
+          el("th", {}, "Trvanie (min)"),
           el("th", {}, "Akcia"),
         ])),
         el("tbody", { id: "ct-prod-tbody" }, [])
@@ -705,27 +646,39 @@
         });
 
         if (!filtered.length) {
-          tb.appendChild(el("tr", {}, el("td", { colspan: "5", class: "muted" }, "Žiadne položky.")));
+          tb.appendChild(el("tr", {}, el("td", { colspan: "6", class: "muted" }, "Žiadne položky.")));
           return;
         }
 
         for (const r of filtered) {
           const name = safeStr(r.productName);
-          const type = safeStr(r.itemType);
           const isReq = !!r.isRequired;
-          const limitC = (r.limitC == null) ? "" : String(r.limitC);
 
           const chk = el("input", { type: "checkbox" });
           chk.checked = isReq;
 
-          const inp = el("input", { type: "number", step: "0.1", placeholder: "napr. 72.0", style: "max-width:140px" });
-          inp.value = limitC;
-          inp.disabled = !chk.checked;
+          const inpLow = el("input", { type: "number", step: "0.1", style: "max-width:120px" });
+          const inpHigh = el("input", { type: "number", step: "0.1", style: "max-width:120px" });
+          const inpHold = el("input", { type: "number", step: "1", min: "1", style: "max-width:120px" });
+
+          inpLow.value = (r.targetLowC != null ? String(r.targetLowC) : "70.0");
+          inpHigh.value = (r.targetHighC != null ? String(r.targetHighC) : "71.9");
+          inpHold.value = (r.holdMinutes != null ? String(r.holdMinutes) : "10");
+
+          const setEnabled = (on) => {
+            inpLow.disabled = !on;
+            inpHigh.disabled = !on;
+            inpHold.disabled = !on;
+          };
+          setEnabled(chk.checked);
 
           chk.addEventListener("change", () => {
-            inp.disabled = !chk.checked;
-            if (chk.checked && !inp.value) inp.value = "72.0";
-            if (!chk.checked) inp.value = "";
+            setEnabled(chk.checked);
+            if (chk.checked) {
+              if (!inpLow.value) inpLow.value = "70.0";
+              if (!inpHigh.value) inpHigh.value = "71.9";
+              if (!inpHold.value) inpHold.value = "10";
+            }
           });
 
           const btnSave = el("button", { class: "btn btn-primary", type: "button" }, "Uložiť");
@@ -735,10 +688,14 @@
               const payload = {
                 productName: name,
                 isRequired: chk.checked,
-                limitC: chk.checked ? safeNum(inp.value) : null
+                targetLowC: chk.checked ? safeNum(inpLow.value) : null,
+                targetHighC: chk.checked ? safeNum(inpHigh.value) : null,
+                holdMinutes: chk.checked ? Number(inpHold.value || 10) : null
               };
               await apiPost(API.saveProductDefault, payload);
               toast("Uložené.");
+              // refresh data to reflect new CCP
+              await loadDataAndRender(section, { keepSelection: true });
             } catch (e) {
               toast(`Chyba: ${e.message}`);
             } finally {
@@ -748,21 +705,21 @@
 
           tb.appendChild(el("tr", {}, [
             el("td", {}, name),
-            el("td", {}, type),
             el("td", {}, chk),
-            el("td", {}, inp),
+            el("td", {}, inpLow),
+            el("td", {}, inpHigh),
+            el("td", {}, inpHold),
             el("td", {}, btnSave),
           ]));
         }
       }
 
       renderProducts("");
-
       search.addEventListener("input", () => renderProducts(search.value));
 
       const wrap = el("div", {}, [
         el("div", { class: "analysis-card" }, [
-          el("div", { class: "muted" }, "Označ varené výrobky ako CCP a nastav minimálnu teplotu jadra. Ak necháš limit prázdny, použije sa 72 °C."),
+          el("div", { class: "muted" }, "Označ varené výrobky ako CCP. Predvolené pásmo je 70.0–71.9 °C, trvanie 10 min (časové sloty sú automaticky generované 07:00–17:00)."),
           el("div", { style: "margin-top:10px" }, search),
           el("div", { class: "table-container", style: "margin-top:10px" }, [table]),
         ])
@@ -775,11 +732,11 @@
 
       openModal("Nastavenia výrobkov – Teplota jadra", wrap, footer);
     } catch (e) {
-      openModal("Nastavenia výrobkov – Teplota jadra", el("div", { class: "muted" }, `Chyba: ${e.message}`), el("div", { style: "display:flex;justify-content:flex-end;margin-top:12px" }, [
+      const footer = el("div", { style: "display:flex;justify-content:flex-end;margin-top:12px" }, [
         el("button", { class: "btn btn-secondary", type: "button" }, "Zavrieť")
-      ]));
-      const btnClose = $(".modal-body button.btn.btn-secondary");
-      if (btnClose) btnClose.addEventListener("click", closeModal);
+      ]);
+      footer.querySelector("button").addEventListener("click", closeModal);
+      openModal("Nastavenia výrobkov – Teplota jadra", el("div", { class: "muted" }, `Chyba: ${e.message}`), footer);
     }
   }
 
@@ -792,19 +749,15 @@
     const tbody = $("#ct-tbody", section);
     if (tbody) {
       tbody.innerHTML = "";
-      tbody.appendChild(el("tr", {}, el("td", { colspan: "10", class: "muted" }, "Načítavam…")));
+      tbody.appendChild(el("tr", {}, el("td", { colspan: "11", class: "muted" }, "Načítavam…")));
     }
 
     const raw = await apiGet(API.list(state.days));
     state.items = normalizeItems(raw);
-
-    // build tree on full set (bez filtrov), ale záznamy bez productionDate sa už vyhodili
     buildTreeFromItems(state.items);
 
-    // default selection (ak nemáme)
     if (!keepSelection || !state.selected.y) {
-      const years = state.tree.years;
-      state.selected.y = years.length ? years[0] : null;
+      state.selected.y = state.tree.years.length ? state.tree.years[0] : null;
       state.selected.m = null;
       state.selected.d = null;
 
@@ -839,13 +792,11 @@
 
     inpFilter.addEventListener("input", () => {
       state.filterText = inpFilter.value || "";
-      // tree zostáva z full datasetu, tabuľka sa filtruje
       renderTableUI(section);
     });
 
     chkReq.addEventListener("change", () => {
       state.onlyRequired = !!chkReq.checked;
-      // strom necháme stabilný, mení sa len tabuľka
       renderTableUI(section);
     });
 
@@ -858,32 +809,28 @@
       await loadDataAndRender(section, { keepSelection: true });
     });
 
-    btnSettings.addEventListener("click", openSettingsModal);
+    btnSettings.addEventListener("click", () => openSettingsModal(section));
   }
 
   function initOnce() {
     const section = document.getElementById(SECTION_ID);
     if (!section) return;
-
     if (state.loadedOnce) return;
     state.loadedOnce = true;
 
     buildSkeleton(section);
     bindControls(section);
 
-    // initial load
     loadDataAndRender(section, { keepSelection: false }).catch(e => {
       const tbody = $("#ct-tbody", section);
       if (tbody) {
         tbody.innerHTML = "";
-        tbody.appendChild(el("tr", {}, el("td", { colspan: "10", class: "muted" }, `Chyba pri načítaní: ${e.message}`)));
+        tbody.appendChild(el("tr", {}, el("td", { colspan: "11", class: "muted" }, `Chyba pri načítaní: ${e.message}`)));
       } else {
         toast(`Chyba pri načítaní: ${e.message}`);
       }
     });
   }
 
-  // Init on DOM ready (sekcia je v HTML stále prítomná, len sa prepína .active)
   document.addEventListener("DOMContentLoaded", initOnce);
-
 })();
