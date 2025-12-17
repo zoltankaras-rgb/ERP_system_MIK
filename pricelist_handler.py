@@ -40,19 +40,15 @@ def get_logo_base64():
     Načíta logo zo zložky static a vráti ho ako base64 string pre vloženie do HTML.
     """
     try:
-        # Cesta k logu: /root/ERP_system_MIK/static/mik logo.jpg
-        # Použijeme current_app.root_path pre absolútnu istotu
         logo_path = os.path.join(current_app.root_path, 'static', 'mik logo.jpg')
         
         if not os.path.exists(logo_path):
-            print(f"LOGO NOT FOUND at: {logo_path}")
             return None
 
         with open(logo_path, "rb") as image_file:
             encoded_string = base64.b64encode(image_file.read()).decode('utf-8')
             return f"data:image/jpeg;base64,{encoded_string}"
-    except Exception as e:
-        print(f"Error loading logo: {e}")
+    except Exception:
         return None
 
 def generate_pricelist_html(items, customer_name, valid_from):
@@ -60,7 +56,7 @@ def generate_pricelist_html(items, customer_name, valid_from):
     logo_src = get_logo_base64()
     logo_html = ""
     if logo_src:
-        logo_html = f'<div style="text-align:center; margin-bottom:20px;"><img src="{logo_src}" style="max-height:80px; width:auto;"></div>'
+        logo_html = f'<div style="text-align:center; margin-bottom:10px;"><img src="{logo_src}" style="max-height:80px; width:auto;"></div>'
 
     html_content = f"""
     <!DOCTYPE html>
@@ -69,8 +65,14 @@ def generate_pricelist_html(items, customer_name, valid_from):
         <meta charset="UTF-8">
         <style>
             body {{ font-family: DejaVu Sans, Arial, sans-serif; font-size: 12px; }}
-            h1 {{ color: #333; text-align: center; margin-top: 0; }}
-            .meta {{ margin-bottom: 20px; font-size: 14px; text-align: center; color: #555; }}
+            
+            /* HLAVIČKA */
+            h1 {{ color: #333; text-align: center; margin-bottom: 2px; margin-top: 0; font-size: 22px; }}
+            .sub-header {{ text-align: center; font-size: 12px; color: #555; margin-bottom: 25px; }}
+            
+            .meta {{ margin-bottom: 15px; font-size: 14px; text-align: center; color: #000; border-top: 1px solid #eee; border-bottom: 1px solid #eee; padding: 10px; }}
+            
+            /* TABUĽKA */
             table {{ width: 100%; border-collapse: collapse; margin-top: 10px; }}
             th {{ background-color: #333; color: #fff; padding: 8px; border: 1px solid #000; text-align: left; }}
             td {{ padding: 8px; border: 1px solid #ddd; }}
@@ -90,11 +92,17 @@ def generate_pricelist_html(items, customer_name, valid_from):
     </head>
     <body>
         {logo_html}
-        <h1>Cenník produktov</h1>
+        
+        <h1>Cenník produktov MIK, s.r.o.</h1>
+        <div class="sub-header">
+            Hollého č.1999/13, 927 05 Šaľa
+        </div>
+
         <div class="meta">
             <strong>Partner:</strong> {customer_name} &nbsp;|&nbsp; 
             <strong>Platnosť od:</strong> {valid_from}
         </div>
+
         <table>
             <thead>
                 <tr>
@@ -188,7 +196,6 @@ def send_custom_pricelist():
                 errors.append(f"Zákazník {cust.get('name')} nemá platný email.")
                 continue
 
-            # === GENEROVANIE HTML S LOGOM ===
             html = generate_pricelist_html(items, cust.get('name', 'Zákazník'), valid_from)
             
             try:
