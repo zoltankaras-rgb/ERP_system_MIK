@@ -1,4 +1,5 @@
 import os
+import subprocess
 from flask import Blueprint, request, jsonify
 from flask_mail import Message
 from datetime import datetime
@@ -11,8 +12,45 @@ except ImportError:
 
 pricelist_bp = Blueprint('pricelist', __name__)
 
+def get_wkhtmltopdf_config():
+    """
+    Nájde cestu k wkhtmltopdf. Skúša štandardné cesty.
+    """
+    import pdfkit
+    
+    # Zoznam miest, kde to zvyčajne býva na Linuxe
+    possible_paths = [
+        '/usr/bin/wkhtmltopdf',
+        '/usr/local/bin/wkhtmltopdf',
+        '/opt/bin/wkhtmltopdf'
+    ]
+
+    # 1. Skúsime nájsť súbor v bežných cestách
+    found_path = None
+    for path in possible_paths:
+        if os.path.exists(path):
+            found_path = path
+            break
+    
+    # 2. Ak sme nenašli, skúsime príkaz 'which'
+    if not found_path:
+        try:
+            found_path = subprocess.check_output(['which', 'wkhtmltopdf']).decode('utf-8').strip()
+        except:
+            pass
+
+    # 3. Ak máme cestu, vrátime konfiguráciu
+    if found_path:
+        print(f"DEBUG: wkhtmltopdf found at {found_path}")
+        return pdfkit.configuration(wkhtmltopdf=found_path)
+    
+    # 4. Ak nič, vrátime None (pdfkit skúsi default, ale asi zlyhá)
+    print("DEBUG: wkhtmltopdf NOT FOUND")
+    return None
+
 def generate_pricelist_html(items, customer_name, valid_from):
     html_content = f"""
+    <!DOCTYPE html>
     <html>
     <head>
         <meta charset="UTF-8">
@@ -109,38 +147,68 @@ def send_custom_pricelist():
         valid_from = data.get('valid_from', datetime.now().strftime("%d.%m.%Y"))
 
         import pdfkit
-        # Konfigurácia pre server (ak je potrebná)
-        # config = pdfkit.configuration(wkhtmltopdf='/usr/bin/wkhtmltopdf')
+        # Získame konfiguráciu s cestou k exe súboru
+        config = get_wkhtmltopdf_config()
+        
+        # Nastavenia pre PDFKit
+        options = {
+            'encoding': "UTF-8",
+            'no-outline': None,
+            'enable-local-file-access': None,
+            'quiet': ''
+        }
 
         sent_count = 0
+        errors = []
         
         for cust in customers:
-            # Ak je v poli 'email' viac adries oddelených čiarkou
+            # Spracovanie emailov (oddeľovač čiarka alebo bodkočiarka)
             raw_emails = cust.get('email', '').replace(';', ',').split(',')
             valid_emails = [e.strip() for e in raw_emails if '@' in e]
 
-            if not valid_emails: continue
+            if not valid_emails: 
+                errors.append(f"Zákazník {cust.get('name')} nemá platný email.")
+                continue
 
             html = generate_pricelist_html(items, cust.get('name', 'Zákazník'), valid_from)
             
             try:
-                pdf_bytes = pdfkit.from_string(html, False) # options={'encoding': 'UTF-8'}
+                # Generovanie PDF s použitím konfigurácie
+                if config:
+                    pdf_bytes = pdfkit.from_string(html, False, configuration=config, options=options)
+                else:
+                    # Pokus bez configu (ak sa nenašla cesta), ale pravdepodobne zlyhá
+                    pdf_bytes = pdfkit.from_string(html, False, options=options)
+
             except Exception as e:
-                print(f"PDF Error: {e}")
+                err_msg = f"CHYBA PDF pre {cust.get('name')}: {str(e)}"
+                print(err_msg)
+                errors.append(err_msg)
                 continue
 
-            msg = Message(
-                subject=f"Cenník MIK (od {valid_from})",
-                recipients=valid_emails, # Flask-Mail berie zoznam ['a@a.sk', 'b@b.sk']
-                body=f"Dobrý deň,\n\nv prílohe posielame aktuálny cenník.\n\nS pozdravom,\nMIK"
-            )
-            msg.attach(f"Cennik_{valid_from}.pdf", "application/pdf", pdf_bytes)
-            
-            mail.send(msg)
-            sent_count += len(valid_emails)
+            # Odoslanie emailu
+            try:
+                msg = Message(
+                    subject=f"Cenník MIK (od {valid_from})",
+                    recipients=valid_emails,
+                    body=f"Dobrý deň,\n\nv prílohe posielame aktuálny cenník.\n\nS pozdravom,\nMIK"
+                )
+                msg.attach(f"Cennik_{valid_from}.pdf", "application/pdf", pdf_bytes)
+                
+                mail.send(msg)
+                sent_count += len(valid_emails)
+            except Exception as e:
+                errors.append(f"CHYBA SMTP pre {valid_emails}: {str(e)}")
 
-        return jsonify({'success': True, 'message': f'Odoslané na {sent_count} adries.'})
+        if sent_count == 0 and errors:
+            return jsonify({'error': 'Nepodarilo sa odoslať žiadny email.', 'details': errors}), 500
+
+        msg_text = f'Odoslané na {sent_count} adries.'
+        if errors:
+            msg_text += f" (Chyby: {'; '.join(errors)})"
+
+        return jsonify({'success': True, 'message': msg_text})
 
     except Exception as e:
-        print(f"MAIL ERROR: {e}")
+        print(f"CRITICAL MAIL ERROR: {e}")
         return jsonify({'error': str(e)}), 500
