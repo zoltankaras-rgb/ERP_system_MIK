@@ -1,6 +1,7 @@
 import os
 import subprocess
-from flask import Blueprint, request, jsonify
+import base64
+from flask import Blueprint, request, jsonify, current_app
 from flask_mail import Message
 from datetime import datetime
 
@@ -14,41 +15,53 @@ pricelist_bp = Blueprint('pricelist', __name__)
 
 def get_wkhtmltopdf_config():
     """
-    Nájde cestu k wkhtmltopdf. Skúša štandardné cesty.
+    Nájde cestu k wkhtmltopdf.
     """
     import pdfkit
-    
-    # Zoznam miest, kde to zvyčajne býva na Linuxe
     possible_paths = [
         '/usr/bin/wkhtmltopdf',
         '/usr/local/bin/wkhtmltopdf',
         '/opt/bin/wkhtmltopdf'
     ]
+    found_path = next((p for p in possible_paths if os.path.exists(p)), None)
 
-    # 1. Skúsime nájsť súbor v bežných cestách
-    found_path = None
-    for path in possible_paths:
-        if os.path.exists(path):
-            found_path = path
-            break
-    
-    # 2. Ak sme nenašli, skúsime príkaz 'which'
     if not found_path:
         try:
             found_path = subprocess.check_output(['which', 'wkhtmltopdf']).decode('utf-8').strip()
         except:
             pass
 
-    # 3. Ak máme cestu, vrátime konfiguráciu
     if found_path:
-        print(f"DEBUG: wkhtmltopdf found at {found_path}")
         return pdfkit.configuration(wkhtmltopdf=found_path)
-    
-    # 4. Ak nič, vrátime None (pdfkit skúsi default, ale asi zlyhá)
-    print("DEBUG: wkhtmltopdf NOT FOUND")
     return None
 
+def get_logo_base64():
+    """
+    Načíta logo zo zložky static a vráti ho ako base64 string pre vloženie do HTML.
+    """
+    try:
+        # Cesta k logu: /root/ERP_system_MIK/static/mik logo.jpg
+        # Použijeme current_app.root_path pre absolútnu istotu
+        logo_path = os.path.join(current_app.root_path, 'static', 'mik logo.jpg')
+        
+        if not os.path.exists(logo_path):
+            print(f"LOGO NOT FOUND at: {logo_path}")
+            return None
+
+        with open(logo_path, "rb") as image_file:
+            encoded_string = base64.b64encode(image_file.read()).decode('utf-8')
+            return f"data:image/jpeg;base64,{encoded_string}"
+    except Exception as e:
+        print(f"Error loading logo: {e}")
+        return None
+
 def generate_pricelist_html(items, customer_name, valid_from):
+    # Načítanie loga
+    logo_src = get_logo_base64()
+    logo_html = ""
+    if logo_src:
+        logo_html = f'<div style="text-align:center; margin-bottom:20px;"><img src="{logo_src}" style="max-height:80px; width:auto;"></div>'
+
     html_content = f"""
     <!DOCTYPE html>
     <html>
@@ -56,9 +69,9 @@ def generate_pricelist_html(items, customer_name, valid_from):
         <meta charset="UTF-8">
         <style>
             body {{ font-family: DejaVu Sans, Arial, sans-serif; font-size: 12px; }}
-            h1 {{ color: #333; }}
-            .meta {{ margin-bottom: 20px; font-size: 14px; }}
-            table {{ width: 100%; border-collapse: collapse; margin-top: 20px; }}
+            h1 {{ color: #333; text-align: center; margin-top: 0; }}
+            .meta {{ margin-bottom: 20px; font-size: 14px; text-align: center; color: #555; }}
+            table {{ width: 100%; border-collapse: collapse; margin-top: 10px; }}
             th {{ background-color: #333; color: #fff; padding: 8px; border: 1px solid #000; text-align: left; }}
             td {{ padding: 8px; border: 1px solid #ddd; }}
             
@@ -66,9 +79,9 @@ def generate_pricelist_html(items, customer_name, valid_from):
             .action-row {{ background-color: #ffff99 !important; font-weight: bold; }}
             .action-badge {{ 
                 background-color: #d32f2f; color: white; 
-                padding: 3px 8px; border-radius: 4px; 
-                font-size: 0.9em; font-weight: bold; text-transform: uppercase;
-                margin-left: 5px;
+                padding: 2px 6px; border-radius: 4px; 
+                font-size: 0.8em; font-weight: bold; text-transform: uppercase;
+                float: right;
             }}
             
             .price-up {{ color: red; font-weight: bold; }}
@@ -76,19 +89,20 @@ def generate_pricelist_html(items, customer_name, valid_from):
         </style>
     </head>
     <body>
+        {logo_html}
         <h1>Cenník produktov</h1>
         <div class="meta">
-            <strong>Pre:</strong> {customer_name}<br>
-            <strong>Platný od:</strong> {valid_from}
+            <strong>Partner:</strong> {customer_name} &nbsp;|&nbsp; 
+            <strong>Platnosť od:</strong> {valid_from}
         </div>
         <table>
             <thead>
                 <tr>
                     <th>Produkt</th>
-                    <th>MJ</th>
-                    <th>DPH</th>
-                    <th>Cena (bez DPH)</th>
-                    <th>Zmena</th>
+                    <th style="width: 50px;">MJ</th>
+                    <th style="width: 50px;">DPH</th>
+                    <th style="width: 100px;">Cena (bez DPH)</th>
+                    <th style="width: 80px;">Zmena</th>
                 </tr>
             </thead>
             <tbody>
@@ -107,18 +121,19 @@ def generate_pricelist_html(items, customer_name, valid_from):
         if old > 0:
             if new > old:
                 price_class = "price-up"
-                diff_text = f"⬆"
+                diff_text = "⬆"
             elif new < old:
                 price_class = "price-down"
-                diff_text = f"⬇"
+                diff_text = "⬇"
 
         product_name = item.get('name', 'Produkt')
+        badge = ""
         if is_action:
-            product_name += ' <span class="action-badge">AKCIA</span>'
+            badge = '<span class="action-badge">AKCIA</span>'
 
         html_content += f"""
             <tr class="{row_class}">
-                <td>{product_name}</td>
+                <td>{product_name} {badge}</td>
                 <td>{item.get('mj', 'kg')}</td>
                 <td>{int(dph)}%</td>
                 <td class="{price_class}">{new:.2f} €</td>
@@ -129,7 +144,9 @@ def generate_pricelist_html(items, customer_name, valid_from):
     html_content += f"""
             </tbody>
         </table>
-        <p><small>Vygenerované dňa {datetime.now().strftime("%d.%m.%Y %H:%M")}</small></p>
+        <p style="text-align:center; margin-top:30px; color:#888; font-size:10px;">
+            Vygenerované systémom MIK dňa {datetime.now().strftime("%d.%m.%Y %H:%M")}
+        </p>
     </body>
     </html>
     """
@@ -147,22 +164,23 @@ def send_custom_pricelist():
         valid_from = data.get('valid_from', datetime.now().strftime("%d.%m.%Y"))
 
         import pdfkit
-        # Získame konfiguráciu s cestou k exe súboru
         config = get_wkhtmltopdf_config()
         
-        # Nastavenia pre PDFKit
         options = {
             'encoding': "UTF-8",
             'no-outline': None,
             'enable-local-file-access': None,
-            'quiet': ''
+            'quiet': '',
+            'margin-top': '10mm',
+            'margin-bottom': '10mm',
+            'margin-left': '10mm',
+            'margin-right': '10mm'
         }
 
         sent_count = 0
         errors = []
         
         for cust in customers:
-            # Spracovanie emailov (oddeľovač čiarka alebo bodkočiarka)
             raw_emails = cust.get('email', '').replace(';', ',').split(',')
             valid_emails = [e.strip() for e in raw_emails if '@' in e]
 
@@ -170,23 +188,20 @@ def send_custom_pricelist():
                 errors.append(f"Zákazník {cust.get('name')} nemá platný email.")
                 continue
 
+            # === GENEROVANIE HTML S LOGOM ===
             html = generate_pricelist_html(items, cust.get('name', 'Zákazník'), valid_from)
             
             try:
-                # Generovanie PDF s použitím konfigurácie
                 if config:
                     pdf_bytes = pdfkit.from_string(html, False, configuration=config, options=options)
                 else:
-                    # Pokus bez configu (ak sa nenašla cesta), ale pravdepodobne zlyhá
                     pdf_bytes = pdfkit.from_string(html, False, options=options)
-
             except Exception as e:
                 err_msg = f"CHYBA PDF pre {cust.get('name')}: {str(e)}"
                 print(err_msg)
                 errors.append(err_msg)
                 continue
 
-            # Odoslanie emailu
             try:
                 msg = Message(
                     subject=f"Cenník MIK (od {valid_from})",
