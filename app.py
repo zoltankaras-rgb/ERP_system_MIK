@@ -773,6 +773,59 @@ def get_cennik_detail(id):
     except Exception as e:
         print(f"CHYBA pri načítaní cenníka {id}: {e}")
         return jsonify({"error": str(e)}), 500
+        # --- MAZANIE CENNÍKA ---
+@app.route('/api/cenniky/<int:id>/delete', methods=['DELETE'])
+def delete_cennik(id):
+    try:
+        cennik = Cennik.query.get(id)
+        if not cennik:
+            return jsonify({"error": "Cenník neexistuje"}), 404
+        
+        # Zmažeme najprv položky (ak nemáš nastavené cascade delete v modeli)
+        PolozkaCennika.query.filter_by(cennik_id=id).delete()
+        
+        db.session.delete(cennik)
+        db.session.commit()
+        return jsonify({"success": True, "message": "Cenník zmazaný."})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+# --- AKTUALIZÁCIA (PREPÍSANIE) CENNÍKA ---
+@app.route('/api/cenniky/<int:id>/update', methods=['PUT'])
+def update_cennik(id):
+    try:
+        data = request.json
+        cennik = Cennik.query.get(id)
+        if not cennik:
+            return jsonify({"error": "Cenník neexistuje"}), 404
+
+        # 1. Aktualizácia hlavičky
+        cennik.nazov = data.get('nazov', cennik.nazov)
+        cennik.email = data.get('email', cennik.email)
+        
+        # 2. Zmazanie starých položiek a vloženie nových
+        PolozkaCennika.query.filter_by(cennik_id=id).delete()
+        
+        for item in data.get('polozky', []):
+            p = PolozkaCennika(
+                cennik_id=cennik.id,
+                nazov_produktu=item['name'],
+                mj=item.get('mj', 'kg'),
+                cena=float(item['price']),
+                povodna_cena=float(item.get('old_price', 0)),
+                dph=float(item.get('dph', 20)),
+                is_action=item.get('is_action', False)
+            )
+            db.session.add(p)
+
+        db.session.commit()
+        return jsonify({"success": True, "message": "Cenník aktualizovaný."})
+
+    except Exception as e:
+        db.session.rollback()
+        print(f"CHYBA UPDATE: {e}")
+        return jsonify({"error": str(e)}), 500
 # =========================== KANCELÁRIA – HACCP ===========================
 @app.route('/api/kancelaria/getHaccpDocs')
 @login_required(role='kancelaria')
