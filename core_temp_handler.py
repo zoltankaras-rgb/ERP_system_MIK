@@ -344,6 +344,8 @@ def list_product_defaults():
 
     return jsonify(out)
 
+
+
 def save_product_default(payload: Dict[str, Any]) -> Dict[str, Any]:
     _ensure_schema()
 
