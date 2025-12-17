@@ -735,6 +735,44 @@ def send_stored_pricelist(cennik_id):
         return jsonify({"success": True, "message": "Odoslané"})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+        # --- PRIDAJ TOTO DO app.py ---
+
+@app.route('/api/cenniky/<int:id>', methods=['GET'])
+def get_cennik_detail(id):
+    try:
+        # Nájdenie cenníka podľa ID
+        cennik = Cennik.query.get(id)
+        
+        if not cennik:
+            return jsonify({"error": "Cenník s týmto ID neexistuje."}), 404
+
+        # Spracovanie položiek cenníka
+        items = []
+        for p in cennik.polozky:
+            items.append({
+                "id": p.id,
+                "name": p.nazov_produktu,
+                # Použijeme bezpečné hodnoty, ak by boli v DB náhodou NULL
+                "mj": p.mj if hasattr(p, 'mj') and p.mj else 'kg',
+                "price": float(p.cena or 0),
+                "old_price": float(p.povodna_cena or 0),
+                "dph": float(p.dph or 20),
+                "is_action": bool(p.is_action) if hasattr(p, 'is_action') else False
+            })
+
+        # Odpoveď pre frontend
+        return jsonify({
+            "id": cennik.id,
+            "nazov": cennik.nazov,
+            "email": cennik.email,
+            "datum": cennik.created_at.strftime("%Y-%m-%d %H:%M"),
+            "polozky": items
+        })
+
+    except Exception as e:
+        print(f"CHYBA pri načítaní cenníka {id}: {e}")
+        return jsonify({"error": str(e)}), 500
 # =========================== KANCELÁRIA – HACCP ===========================
 @app.route('/api/kancelaria/getHaccpDocs')
 @login_required(role='kancelaria')
