@@ -291,7 +291,7 @@ def list_items(days: int = 365):
 # API: defaults (CCP/limit)
 # -----------------------------------------------------------------
 def list_product_defaults():
-    """Zoznam výrobkov pre nastavenie CCP/limit – berieme z výroby."""
+    """Zoznam výrobkov pre nastavenie CCP/limit – stabilne z výroby."""
     _ensure_schema()
 
     zv_name = _zv_name_col()
@@ -321,16 +321,22 @@ def list_product_defaults():
 
     out = []
     for r in rows:
-        updated = r.get("updatedAt") or r.get("updatedat")
-        if isinstance(updated, datetime):
-            updated = updated.isoformat(sep=" ", timespec="seconds")
+        # db_connector niekedy dáva kľúče lowercase
+        pn = r.get("productName") or r.get("productname")
+        it = r.get("itemType") or r.get("itemtype") or "VÝROBA"
+        ir = r.get("isRequired") if "isRequired" in r else r.get("isrequired")
+        lc = r.get("limitC") if "limitC" in r else r.get("limitc")
+        ua = r.get("updatedAt") if "updatedAt" in r else r.get("updatedat")
+
+        if isinstance(ua, datetime):
+            ua = ua.isoformat(sep=" ", timespec="seconds")
 
         out.append({
-            "productName": r.get("productName") or r.get("productname"),
-            "itemType": "VÝROBA",
-            "isRequired": bool(int((r.get("isRequired") or r.get("isrequired") or 0))),
-            "limitC": float(r.get("limitC") or r.get("limitc")) if (r.get("limitC") or r.get("limitc")) is not None else None,
-            "updatedAt": updated,
+            "productName": pn,
+            "itemType": it,
+            "isRequired": bool(int(ir or 0)),
+            "limitC": float(lc) if lc is not None else None,
+            "updatedAt": ua,
         })
 
     return jsonify(out)
