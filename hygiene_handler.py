@@ -437,19 +437,43 @@ def delete_hygiene_agent(data):
 # --- REPORTY (A4 Formát) ---
 
 def get_hygiene_report_html(filters):
+    """
+    Report hygieny v HTML (A4) – doplnený stĺpec Dátum v tabuľke (DD.MM.YYYY).
+    """
     date_from = filters.get('date_from')
     date_to = filters.get('date_to')
     task_id = filters.get('task_id')
-    
-    if not date_from: date_from = date.today().strftime("%Y-%m-%d")
-    if not date_to: date_to = date_from
+    agent_id = filters.get('agent_id')
+
+    if not date_from:
+        date_from = date.today().strftime("%Y-%m-%d")
+    if not date_to:
+        date_to = date_from
+
+    def _fmt_date_sk(d):
+        """Formátuje date/datetime/str na DD.MM.YYYY."""
+        if not d:
+            return ""
+        if isinstance(d, (datetime, date)):
+            return d.strftime("%d.%m.%Y")
+        s = str(d)
+        # typicky 'YYYY-MM-DD' alebo 'YYYY-MM-DD HH:MM:SS'
+        try:
+            return datetime.strptime(s[:10], "%Y-%m-%d").strftime("%d.%m.%Y")
+        except Exception:
+            return s
 
     where = ["l.completion_date BETWEEN %s AND %s"]
     params = [date_from, date_to]
 
-    if task_id and task_id != 'null' and task_id != '':
+    if task_id and task_id not in ("null", ""):
         where.append("l.task_id = %s")
         params.append(task_id)
+
+    # Filter agent_id je už posielaný z app.py, tak ho tu reálne podporíme
+    if agent_id and agent_id not in ("null", ""):
+        where.append("l.agent_id = %s")
+        params.append(agent_id)
 
     sql = f"""
         SELECT l.*, t.task_name, t.location, t.frequency, a.agent_name
@@ -459,28 +483,32 @@ def get_hygiene_report_html(filters):
         WHERE {' AND '.join(where)}
         ORDER BY l.completion_date, t.location, l.start_at
     """
-    
+
     rows = db_connector.execute_query(sql, tuple(params)) or []
 
     html_rows = ""
     for r in rows:
+        d_comp = _fmt_date_sk(r.get('completion_date'))
+
         t_start = _fmt_time(r.get('start_at'))
         t_exp_end = _fmt_time(r.get('exposure_end_at'))
-        t_rinse_start = t_exp_end 
+        t_rinse_start = t_exp_end
         t_rinse_end = _fmt_time(r.get('rinse_end_at'))
 
         status = r.get('verification_status') or "Čaká"
         row_bg = "#fff"
-        if status == 'NOK': row_bg = "#fff0f0"
-        
+        if status == 'NOK':
+            row_bg = "#fff0f0"
+
         html_rows += f"""
         <tr style="background:{row_bg};">
+            <td style="text-align:center;">{d_comp}</td>
             <td>
                 <b>{r['task_name']}</b><br>
                 <span class="meta">{r['frequency']}</span>
             </td>
             <td style="text-align:center;">{status}</td>
-            <td>{r['user_fullname']}</td>
+            <td>{r.get('user_fullname') or ''}</td>
             <td style="text-align:center;">{t_start}</td>
             <td style="text-align:center;">{t_exp_end}</td>
             <td style="text-align:center;">{t_rinse_start}</td>
@@ -492,6 +520,10 @@ def get_hygiene_report_html(filters):
             <td>{r.get('checked_by_fullname') or ''}</td>
         </tr>
         """
+
+    disp_from = _fmt_date_sk(date_from)
+    disp_to = _fmt_date_sk(date_to)
+    date_label = disp_from if disp_from == disp_to else f"{disp_from} – {disp_to}"
 
     return f"""
     <!DOCTYPE html>
@@ -514,25 +546,26 @@ def get_hygiene_report_html(filters):
     <body>
         <h1>Záznam o čistení a dezinfekcii</h1>
         <div class="header">
-            Dátum: {date_from} – {date_to} | Vygeneroval: Systém MIK | ISO 22000
+            Dátum: {date_label} | Vygeneroval: Systém MIK | ISO 22000
         </div>
 
         <table>
             <thead>
                 <tr>
-                    <th style="width:18%;">Úloha / Frekvencia</th>
-                    <th style="width:8%;">Stav</th>
-                    <th style="width:12%;">Vykonal</th>
-                    <th style="width:8%;">Začiatok<br>pôsobenia</th>
-                    <th style="width:8%;">Koniec<br>pôsobenia</th>
-                    <th style="width:8%;">Začiatok<br>oplachu</th>
-                    <th style="width:8%;">Koniec<br>oplachu</th>
-                    <th style="width:15%;">Prostriedok / Teplota</th>
-                    <th style="width:15%;">Skontroloval</th>
+                    <th style="width:9%;">Dátum</th>
+                    <th style="width:17%;">Úloha / Frekvencia</th>
+                    <th style="width:7%;">Stav</th>
+                    <th style="width:11%;">Vykonal</th>
+                    <th style="width:7%;">Začiatok<br>pôsobenia</th>
+                    <th style="width:7%;">Koniec<br>pôsobenia</th>
+                    <th style="width:7%;">Začiatok<br>oplachu</th>
+                    <th style="width:7%;">Koniec<br>oplachu</th>
+                    <th style="width:14%;">Prostriedok / Teplota</th>
+                    <th style="width:14%;">Skontroloval</th>
                 </tr>
             </thead>
             <tbody>
-                {html_rows or '<tr><td colspan="9" style="text-align:center;padding:20px;">Žiadne záznamy.</td></tr>'}
+                {html_rows or '<tr><td colspan="10" style="text-align:center;padding:20px;">Žiadne záznamy.</td></tr>'}
             </tbody>
         </table>
 
