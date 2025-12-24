@@ -572,4 +572,4 @@
   // (Ponechávame aj staré funkcie, ak by ich volalo niečo iné)
   window.initializePlanningModule = window.initializePlanningModule || function(){};
 
-})();
+})(); 
