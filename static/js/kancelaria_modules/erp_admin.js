@@ -947,7 +947,7 @@
     return { html, onReady };
   }
 
- // ===================== EDITOR RECEPTU (INTELIGENTNÉ NAČÍTANIE) ===================
+ // ===================== EDITOR RECEPTU (SÚČET MNOŽSTVA AJ CENY) ===================
   async function renderRecipeEditorInline(productName){
     // 1. Načítanie základných dát
     await ensureOfficeDataIsLoaded();
@@ -957,38 +957,32 @@
     // Získame detaily receptu
     const details = await apiRequest('/api/kancelaria/getRecipeDetails', { method: 'POST', body: { productName } });
 
-    // Pripravíme možnosti pre kategóriu RECEPTU (nie surovín)
+    // Pripravíme možnosti pre kategóriu RECEPTU
     const catOpts = (base.recipeCategories || [])
       .map(c => `<option value="${escapeHtml(c)}"${details && details.category === c ? ' selected' : ''}>${escapeHtml(c)}</option>`)
       .join('');
 
-    // --- KROK NAVYŠE: Prednačítanie všetkých surovín pre správne zatriedenie ---
-    // Toto vyrieši problém, že sa nezobrazujú názvy alebo je zlá kategória
+    // --- Prednačítanie surovín (Cache) ---
     const apiCats = ['maso', 'koreniny', 'obal', 'pomocny_material'];
-    const ingredientsCache = {}; // { 'maso': [...], 'koreniny': [...] }
-    const ingredientToCatMap = {}; // { 'Sol': 'koreniny', 'Bravcove': 'maso' }
+    const ingredientsCache = {}; 
+    const ingredientToCatMap = {}; 
 
-    // Mapovanie medzi API kľúčmi a názvami v Selecte
     const catMapping = {
         'maso': 'Mäso',
         'koreniny': 'Koreniny',
         'obal': 'Obaly - Črevá',
         'pomocny_material': 'Pomocný materiál'
     };
-    // Opačné mapovanie pre prácu s UI
-    const uiToApi = Object.fromEntries(Object.entries(catMapping).map(([k,v]) => [v, k]));
-    
-    // Zoznam kategórií pre Selectbox v tabuľke
     const uiCategories = Object.values(catMapping); 
+    const uiToApi = Object.fromEntries(Object.entries(catMapping).map(([k,v]) => [v, k]));
 
-    // Paralelné načítanie všetkých číselníkov
+    // Paralelné načítanie číselníkov
     await Promise.all(apiCats.map(async (key) => {
         try {
             const res = await apiRequest('/api/kancelaria/stock/allowed-names?category=' + key);
             const items = res?.items || [];
             ingredientsCache[key] = items;
             items.forEach(item => {
-                // Uložíme si, kam surovina patrí (podľa názvu)
                 ingredientToCatMap[item.name] = key; 
             });
         } catch(e) { console.error("Chyba load cat:", key, e); }
@@ -1000,7 +994,7 @@
         <div style="border-bottom: 1px solid #e2e8f0; padding-bottom: 1rem; margin-bottom: 1.5rem; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem;">
           <div>
             <h3 style="margin:0; color:#1e293b;"><i class="fas fa-scroll" style="color:#3b82f6; margin-right:8px;"></i>${escapeHtml(productName)}</h3>
-            <span class="text-muted" style="font-size:0.9rem;">Úprava výrobnej receptúry (Automatická detekcia surovín)</span>
+            <span class="text-muted" style="font-size:0.9rem;">Úprava výrobnej receptúry</span>
           </div>
           
           <div style="display:flex; gap: 0.5rem;">
@@ -1033,7 +1027,7 @@
                     <tr>
                         <th style="width: 25%; padding:12px;">Typ Suroviny</th>
                         <th style="width: 30%; padding:12px;">Názov Suroviny</th>
-                        <th style="width: 15%; padding:12px; text-align:right;">Aktuálna Cena</th>
+                        <th style="width: 15%; padding:12px; text-align:right;">Cena (€/kg)</th>
                         <th style="width: 15%; padding:12px; text-align:right;">Množstvo (kg)</th>
                         <th style="width: 10%; padding:12px; text-align:right;">Spolu (€)</th>
                         <th style="width: 5%; padding:12px; text-align:center;"></th>
@@ -1042,7 +1036,8 @@
                 <tbody id="rcp-ingredients-body"></tbody>
                 <tfoot style="background:#f1f5f9; font-weight:bold; border-top:1px solid #e2e8f0;">
                     <tr>
-                        <td colspan="4" style="text-align:right; padding:12px; color:#475569;">Odhadovaná nákladová cena dávky:</td>
+                        <td colspan="3" style="text-align:right; padding:12px; color:#475569;">SÚČET:</td>
+                        <td id="rcp-total-qty" style="text-align:right; padding:12px; color:#1e293b;">0.000 kg</td>
                         <td id="rcp-total-cost" style="text-align:right; padding:12px; color:#059669; font-size:1.1em;">0.00 €</td>
                         <td></td>
                     </tr>
@@ -1072,12 +1067,13 @@
     const onReady = () => {
       const tbody = $('#rcp-ingredients-body');
       const totalCostEl = $('#rcp-total-cost');
+      const totalQtyEl = $('#rcp-total-qty'); // Element pre súčet kg
+      
       const parseNum = v => { if(!v) return 0; return parseFloat(String(v).replace(',','.').replace(/\s/g,'')) || 0; };
 
-      // Naplní select so surovinami podľa vybranej kategórie
+      // Naplní select
       function populateNames(catKey, selectEl, selectedName = null, priceEl, subtotalEl, qtyEl) {
           const items = ingredientsCache[catKey] || [];
-          
           selectEl.innerHTML = '<option value="">-- Vyberte --</option>' +
               items.map(i => {
                   const price = i.last_price != null ? i.last_price : '';
@@ -1085,7 +1081,6 @@
                   return `<option data-price="${price}" value="${escapeHtml(String(i.name))}" ${sel}>${escapeHtml(String(i.name))}</option>`;
               }).join('');
 
-          // Ak máme vybranú hodnotu, aktualizujeme cenu
           if (selectedName) {
               const item = items.find(i => i.name === selectedName);
               updateRowPrice(item ? item.last_price : 0, priceEl, subtotalEl, qtyEl);
@@ -1104,13 +1099,21 @@
           recomputeTotal();
       }
 
+      // Prepočet celkových súčtov (Cena aj KG)
       function recomputeTotal() {
-        let total = 0;
+        let totalCost = 0;
+        let totalQty = 0;
+
         tbody.querySelectorAll('tr').forEach(tr => {
             const sub = parseNum(tr.querySelector('.rcp-subtotal').dataset.value);
-            total += sub;
+            const qty = parseNum(tr.querySelector('.rcp-qty').value);
+            
+            totalCost += sub;
+            totalQty += qty;
         });
-        totalCostEl.textContent = total.toFixed(2) + " €";
+
+        totalCostEl.textContent = totalCost.toFixed(2) + " €";
+        totalQtyEl.textContent = totalQty.toFixed(3) + " kg";
       }
 
       function addRow(prefill) {
@@ -1118,16 +1121,10 @@
           tr.className = 'recipe-ingredient-row';
           tr.style.borderBottom = "1px solid #f1f5f9";
           
-          // 1. ZISTENIE KATEGÓRIE
-          // Ak je to existujúci riadok, pozrieme sa do mapy, kam surovina patrí
-          let detectedApiCat = 'maso'; // Default
+          let detectedApiCat = 'maso'; 
           if (prefill && prefill.name && ingredientToCatMap[prefill.name]) {
               detectedApiCat = ingredientToCatMap[prefill.name];
-          } else if (prefill && prefill.name) {
-              // Ak sme ju nenašli v mape (napr. zmazaná surovina), skúsime nechať default 'maso'
-              // alebo môžeme skúsiť nájsť string 'koren' v názve? Radšej nie, necháme default.
-              console.warn(`Surovina "${prefill.name}" nebola nájdená v číselníkoch.`);
-          }
+          } 
 
           const detectedUiCat = catMapping[detectedApiCat];
 
@@ -1163,24 +1160,21 @@
           const subtotalEl = tr.querySelector('.rcp-subtotal');
           const btnDel = tr.querySelector('.btn-icon-del');
 
-          // Inicializácia hodnôt
+          // Inicializácia
           if (prefill) {
               qtyEl.value = prefill.quantity;
-              // Naplníme select správnym zoznamom a vyberieme surovinu
               populateNames(detectedApiCat, selName, prefill.name, priceEl, subtotalEl, qtyEl);
               
-              // Fallback pre cenu: Ak API nevrátilo aktuálnu cenu (last_price), ale máme ju v histórii receptu
+              // Fallback ceny z histórie receptu
               if (prefill.last_price && (!priceEl.dataset.value || priceEl.dataset.value == 0)) {
                   updateRowPrice(prefill.last_price, priceEl, subtotalEl, qtyEl);
               }
           } else {
-              // Nový riadok - naplníme default kategóriou
               populateNames(detectedApiCat, selName, null, priceEl, subtotalEl, qtyEl);
           }
 
-          // LISTENERS
+          // Listeners
           selCat.addEventListener('change', () => {
-              // Pri zmene kategórie resetujeme výber suroviny
               populateNames(selCat.value, selName, null, priceEl, subtotalEl, qtyEl);
           });
 
@@ -1231,7 +1225,7 @@
             });
             if(!resp.error) {
                 showStatus('Recept bol úspešne uložený.', false);
-                renderRecipeEditorInline(productName); // Refresh
+                renderRecipeEditorInline(productName); 
             }
             else showStatus('Chyba: ' + resp.error, true);
         } catch(e) {
