@@ -4458,15 +4458,8 @@ def b2c_notify_email_completed(data: dict):
 
 def calculate_production_plan():
     """
-    Týždenný plán výroby – iba vlastné výrobky z centrálneho katalógu:
-    typy VÝROBOK a VÝROBOK_KUSOVY (bez krájaných VÝROBOK_KRAJANY).
-
-    Tabuľky:
-      - produkty (nazov_vyrobku, minimalna_zasoba_kg, aktualny_sklad_finalny_kg,
-                  kategoria_pre_recepty, predajna_kategoria, vyrobna_davka_kg, ean, vaha_balenia_g, typ_polozky)
-      - b2b_objednavky + b2b_objednavky_polozky
-
-    Výstup (pre planning.js): { "Kategória": [ {nazov_vyrobku, celkova_potreba, aktualny_sklad, navrhovana_vyroba}, ... ], ... }
+    Týždenný plán výroby – iba vlastné výrobky, ktoré MAJÚ RECEPT.
+    Filtruje produkty podľa typu (VÝROBOK/VÝROBOK_KUSOVY) a existencie v tabuľke recepty.
     """
     import math
     import db_connector
@@ -4474,7 +4467,7 @@ def calculate_production_plan():
     COLL = "utf8mb4_0900_ai_ci"
     ALLOWED_MAIN_TYPES = ("VÝROBOK", "VÝROBOK_KUSOVY")
 
-    # --- zisti, podľa čoho filtrovať v 'produkty' ---
+    # --- 1. Zistenie názvov stĺpcov v tabuľke produkty ---
     cols = db_connector.execute_query(
         "SELECT COLUMN_NAME FROM information_schema.COLUMNS "
         "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'produkty'",
@@ -4482,22 +4475,37 @@ def calculate_production_plan():
     ) or []
     colset = {c["COLUMN_NAME"] for c in cols}
 
-    # preferuj typ_polozky, ak existuje
+    # Preferuj typ_polozky, ak existuje, inak fallbacky
     type_col = None
     if "typ_polozky" in colset:
         type_col = "typ_polozky"
     else:
-        # fallback – pôvodné heuristiky, ak by si mal typ inde
         for cand in ("typ_produktu", "typ", "product_type", "centralny_typ", "typ_katalogu", "kategoria_centralna"):
             if cand in colset:
                 type_col = cand
                 break
 
-    where_type = ""
+    # --- 2. Konštrukcia WHERE podmienky ---
+    where_parts = []
+    
+    # A) Filter na typ (VÝROBOK atď.)
     if type_col:
         in_list = ", ".join([f"CONVERT('{v}' USING utf8mb4) COLLATE {COLL}" for v in ALLOWED_MAIN_TYPES])
-        where_type = f"WHERE CONVERT(p.{type_col} USING utf8mb4) COLLATE {COLL} IN ({in_list})"
+        where_parts.append(f"CONVERT(p.{type_col} USING utf8mb4) COLLATE {COLL} IN ({in_list})")
+    
+    # B) Filter: Musí mať recept! (Toto je tá oprava)
+    # Používame EXISTS, čo je rýchlejšie ako IN
+    where_parts.append(f"""
+        EXISTS (
+            SELECT 1 FROM recepty r 
+            WHERE CONVERT(r.nazov_vyrobku USING utf8mb4) COLLATE {COLL} 
+                = CONVERT(p.nazov_vyrobku USING utf8mb4) COLLATE {COLL}
+        )
+    """)
 
+    where_sql = "WHERE " + " AND ".join(where_parts) if where_parts else ""
+
+    # --- 3. Načítanie produktov ---
     products_sql = f"""
         SELECT
             p.nazov_vyrobku                                        AS name,
@@ -4508,14 +4516,14 @@ def calculate_production_plan():
             p.ean                                                  AS ean,
             COALESCE(p.vaha_balenia_g, 0)                          AS pack_g
         FROM produkty p
-        {where_type}
+        {where_sql}
     """
     products = db_connector.execute_query(products_sql, fetch="all") or []
 
-    # mapa pre lookup a limitovanie len na "tvoje" výrobky
+    # mapa pre lookup
     by_name = {(r["name"] or "").strip(): r for r in products}
 
-    # --- dopyt z otvorených b2b objednávok (kg) ---
+    # --- 4. Dopyt z otvorených B2B objednávok (kg) ---
     demand_sql = f"""
         SELECT
             COALESCE(
@@ -4556,7 +4564,7 @@ def calculate_production_plan():
             q = 0.0
         demand_map[n] = demand_map.get(n, 0.0) + max(q, 0.0)
 
-    # --- zostav výstup po kategóriách, len pre tvoje výrobky ---
+    # --- 5. Zostavenie výstupu po kategóriách ---
     out = {}
     for name, prod in by_name.items():
         cat       = prod.get("cat") or "Nezaradené"
@@ -4580,7 +4588,7 @@ def calculate_production_plan():
         }
         out.setdefault(cat, []).append(item)
 
-    # zoradenie
+    # Zoradenie: Najprv tie s najväčšou navrhovanou výrobou
     for cat, items in out.items():
         items.sort(key=lambda x: (-x["navrhovana_vyroba"], -x["celkova_potreba"], x["nazov_vyrobku"]))
 
