@@ -947,7 +947,7 @@
     return { html, onReady };
   }
 
- // ===================== EDITOR RECEPTU (PROFESIONÁLNY DIZAJN) ===================
+ // ===================== EDITOR RECEPTU (PROFESIONÁLNY REDESIGN) ===================
   async function renderRecipeEditorInline(productName){
     // 1. Načítanie dát
     await ensureOfficeDataIsLoaded();
@@ -957,61 +957,62 @@
     // Získame detaily receptu
     const details = await apiRequest('/api/kancelaria/getRecipeDetails', { method: 'POST', body: { productName } });
 
-    // Pripravíme možnosti pre kategóriu
+    // Pripravíme možnosti pre kategóriu receptu
     const catOpts = (base.recipeCategories || [])
       .map(c => `<option value="${escapeHtml(c)}"${details && details.category === c ? ' selected' : ''}>${escapeHtml(c)}</option>`)
       .join('');
 
-    // 2. HTML Šablóna (Moderná)
+    // 2. HTML Šablóna (Moderná tabuľková forma)
     const html = `
       <div class="stat-card recipe-editor">
         <div style="border-bottom: 1px solid #e2e8f0; padding-bottom: 1rem; margin-bottom: 1.5rem; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem;">
           <div>
-            <h3 style="margin:0; color:#1e293b;">${escapeHtml(productName)}</h3>
+            <h3 style="margin:0; color:#1e293b;"><i class="fas fa-scroll" style="color:#3b82f6; margin-right:8px;"></i>${escapeHtml(productName)}</h3>
             <span class="text-muted" style="font-size:0.9rem;">Úprava výrobnej receptúry</span>
           </div>
           
           <div style="display:flex; gap: 0.5rem;">
             <button id="rcp-delete" class="btn-danger btn-sm">
-                <i class="fas fa-trash"></i> Vymazať
+                <i class="fas fa-trash"></i> Vymazať recept
             </button>
-            <button id="rcp-save" class="btn-success btn-sm" style="min-width: 120px;">
+            <button id="rcp-save" class="btn-success btn-sm" style="min-width: 140px;">
                 <i class="fas fa-save"></i> Uložiť zmeny
             </button>
           </div>
         </div>
 
-        <div class="form-grid" style="margin-bottom: 1.5rem;">
+        <div class="form-grid" style="margin-bottom: 1.5rem; max-width: 800px;">
           <div class="form-group">
-            <label style="font-weight:600; color:#475569;">Kategória receptu</label>
+            <label style="font-weight:600; color:#475569;">Kategória produktu (v systéme)</label>
             <div style="display:flex; gap:0.5rem;">
-                <select id="rcp-cat" style="flex:1;">
+                <select id="rcp-cat" style="flex:1; padding:8px; border:1px solid #cbd5e1; border-radius:6px;">
                     <option value="">-- Vyberte existujúcu --</option>
                     ${catOpts}
                 </select>
-                <input id="rcp-newcat" type="text" placeholder="...alebo nová kategória" style="flex:1;">
+                <input id="rcp-newcat" type="text" placeholder="...alebo zadajte novú" style="flex:1; padding:8px; border:1px solid #cbd5e1; border-radius:6px;">
             </div>
           </div>
         </div>
 
-        <h4 style="margin:0 0 0.5rem 0; color:#334155;">Zoznam surovín</h4>
-        <div class="table-container" style="border:1px solid #e2e8f0; border-radius:8px; overflow:hidden;">
+        <h4 style="margin:0 0 0.5rem 0; color:#334155;">Zloženie receptúry</h4>
+        <div class="table-container" style="border:1px solid #e2e8f0; border-radius:8px; overflow:hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
             <table class="tbl" id="rcp-table" style="width:100%; border-collapse:collapse;">
-                <thead style="background:#f8fafc; color:#475569; font-size:0.85rem; text-transform:uppercase;">
+                <thead style="background:#f8fafc; color:#475569; font-size:0.85rem; text-transform:uppercase; border-bottom:1px solid #e2e8f0;">
                     <tr>
-                        <th style="width: 20%; padding:10px;">Typ Suroviny</th>
-                        <th style="width: 35%; padding:10px;">Názov Suroviny</th>
-                        <th style="width: 15%; padding:10px; text-align:right;">Cena (€/kg)</th>
-                        <th style="width: 20%; padding:10px; text-align:right;">Množstvo (kg)</th>
-                        <th style="width: 10%; padding:10px; text-align:center;">Akcia</th>
+                        <th style="width: 20%; padding:12px;">Typ Suroviny</th>
+                        <th style="width: 30%; padding:12px;">Názov Suroviny</th>
+                        <th style="width: 15%; padding:12px; text-align:right;">Aktuálna Cena</th>
+                        <th style="width: 15%; padding:12px; text-align:right;">Množstvo (kg)</th>
+                        <th style="width: 10%; padding:12px; text-align:right;">Spolu (€)</th>
+                        <th style="width: 10%; padding:12px; text-align:center;">Akcia</th>
                     </tr>
                 </thead>
                 <tbody id="rcp-ingredients-body">
                     </tbody>
-                <tfoot style="background:#f1f5f9; font-weight:bold;">
+                <tfoot style="background:#f1f5f9; font-weight:bold; border-top:1px solid #e2e8f0;">
                     <tr>
-                        <td colspan="3" style="text-align:right; padding:10px;">Celkom odhadovaná cena:</td>
-                        <td id="rcp-total-cost" style="text-align:right; padding:10px; color:#0f766e;">0.00 €</td>
+                        <td colspan="4" style="text-align:right; padding:12px; color:#475569;">Odhadovaná nákladová cena dávky:</td>
+                        <td id="rcp-total-cost" style="text-align:right; padding:12px; color:#059669; font-size:1.1em;">0.00 €</td>
                         <td></td>
                     </tr>
                 </tfoot>
@@ -1019,35 +1020,43 @@
         </div>
 
         <div style="margin-top: 1rem; text-align:center;">
-          <button type="button" id="rcp-add-row" class="btn-secondary" style="border-radius:20px; padding: 6px 20px;">
-            <i class="fas fa-plus-circle"></i> Pridať ďalšiu surovinu
+          <button type="button" id="rcp-add-row" class="btn-secondary" style="border-radius:20px; padding: 8px 24px; font-weight:500;">
+            <i class="fas fa-plus-circle"></i> Pridať surovinu
           </button>
         </div>
       </div>
       
       <style>
-        .recipe-editor input, .recipe-editor select {
-            border: 1px solid #cbd5e1;
+        .recipe-editor input.rcp-input, .recipe-editor select.rcp-select {
+            border: 1px solid transparent;
             border-radius: 4px;
             padding: 6px;
             width: 100%;
+            background: transparent;
+            transition: all 0.2s;
         }
-        .recipe-editor input:focus, .recipe-editor select:focus {
+        .recipe-editor input.rcp-input:hover, .recipe-editor select.rcp-select:hover {
+            background: #f8fafc;
+            border-color: #cbd5e1;
+        }
+        .recipe-editor input.rcp-input:focus, .recipe-editor select.rcp-select:focus {
+            background: #fff;
             border-color: #3b82f6;
             outline: none;
             box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
         }
         .recipe-editor .btn-icon-del {
-            background: #fee2e2;
+            background: transparent;
             color: #ef4444;
-            border: none;
+            border: 1px solid #fee2e2;
             width: 32px; height: 32px;
-            border-radius: 50%;
+            border-radius: 6px;
             cursor: pointer;
             transition: all 0.2s;
+            display: inline-flex; align-items:center; justify-content:center;
         }
         .recipe-editor .btn-icon-del:hover {
-            background: #ef4444; color: #fff;
+            background: #fee2e2; color: #dc2626;
         }
       </style>
       `;
@@ -1056,15 +1065,19 @@
     const onReady = () => {
       const tbody = $('#rcp-ingredients-body');
       const totalCostEl = $('#rcp-total-cost');
+      // Toto sú kategórie pre SELECT
       const categories = base.itemTypes || ['Mäso','Koreniny','Obaly - Črevá','Pomocný materiál'];
-      const parseNum = v => parseFloat(String(v).replace(',','.')) || 0;
+      const parseNum = v => {
+          if(!v) return 0;
+          return parseFloat(String(v).replace(',','.').replace(/\s/g,'')) || 0;
+      };
 
       // Funkcia na načítanie možností do selectu (suroviny)
-      async function buildNameOptions(cat, selectEl, priceEl, selectedValue = null){
+      async function buildNameOptions(cat, selectEl, priceEl, subtotalEl, qtyEl, selectedValue = null){
           try {
             const c = String(cat || '').toLowerCase().trim();
             let key = c;
-            // Mapovanie názvov na kľúče API
+            // Mapovanie názvov na kľúče API (musí sedieť so stock_handler.py)
             if (c.includes('mäso') || c.includes('maso')) key = 'maso';
             else if (c.includes('koren')) key = 'koreniny';
             else if (c.includes('obal')) key = 'obal';
@@ -1075,121 +1088,154 @@
             const items = (data && data.items) || [];
             
             // Vyrenderovanie možností
-            selectEl.innerHTML = '<option value="">-- Vyberte surovinu --</option>' +
+            selectEl.innerHTML = '<option value="">-- Vyberte --</option>' +
               items.map(i => {
+                  // Cenu berieme z API (last_price)
                   const price = i.last_price != null ? i.last_price : '';
                   const sel = selectedValue === i.name ? 'selected' : '';
                   return `<option data-price="${price}" value="${escapeHtml(String(i.name))}" ${sel}>${escapeHtml(String(i.name))}</option>`;
               }).join('');
             
-            // Handler zmeny
+            // Handler zmeny suroviny
             selectEl.onchange = function(){
                 const opt = selectEl.selectedOptions[0];
                 const p = opt?.dataset.price;
-                priceEl.textContent = p ? parseFloat(p).toFixed(2) : '—';
-                priceEl.dataset.value = p || 0;
-                recomputeCost();
+                
+                // Aktualizácia UI ceny
+                if(p) {
+                    priceEl.textContent = parseFloat(p).toFixed(3) + ' €';
+                    priceEl.dataset.value = p;
+                } else {
+                    priceEl.textContent = '—';
+                    priceEl.dataset.value = 0;
+                }
+                
+                // Prepočet riadku a celku
+                updateSubtotal(qtyEl, priceEl, subtotalEl);
+                recomputeTotal();
             };
 
-            // Inicializácia ceny ak je niečo vybrané
-            if(selectedValue) selectEl.onchange();
+            // Inicializácia ceny ak je niečo vybrané (pri načítaní receptu)
+            if(selectedValue) {
+                // Manuálne zavoláme onchange, aby sa vyplnila cena
+                selectEl.onchange(); 
+            }
 
           } catch(e){ console.error(e); }
+      }
+
+      // Funkcia na aktualizáciu medzisúčtu riadku
+      function updateSubtotal(qtyEl, priceEl, subtotalEl) {
+          const qty = parseNum(qtyEl.value);
+          const price = parseNum(priceEl.dataset.value);
+          const sub = qty * price;
+          subtotalEl.textContent = sub > 0 ? sub.toFixed(2) + ' €' : '';
+          subtotalEl.dataset.value = sub;
       }
 
       // Funkcia na pridanie riadku do tabuľky
       function addRow(prefill){
           const tr = document.createElement('tr');
           tr.className = 'recipe-ingredient-row';
+          tr.style.borderBottom = "1px solid #f1f5f9";
           
           tr.innerHTML = `
             <td style="padding: 5px;">
-                <select class="rcp-cat-sel">
+                <select class="rcp-cat-sel rcp-select">
                     <option value="">-- Typ --</option>
-                    ${categories.map(c => `<option ${prefill && isCategoryMatch(c, prefill.name) ? 'selected' : ''}>${escapeHtml(c)}</option>`).join('')}
+                    ${categories.map(c => `<option>${escapeHtml(c)}</option>`).join('')}
                 </select>
             </td>
             <td style="padding: 5px;">
-                <select class="rcp-name-sel"></select>
+                <select class="rcp-name-sel rcp-select"></select>
             </td>
-            <td style="padding: 10px; text-align:right; vertical-align:middle;">
+            <td style="padding: 10px; text-align:right; vertical-align:middle; color:#64748b; font-family:monospace;">
                 <span class="rcp-price" data-value="0">—</span>
             </td>
             <td style="padding: 5px;">
-                <input class="rcp-qty" type="number" step="0.001" min="0" placeholder="0.000" style="text-align:right;">
+                <input class="rcp-qty rcp-input" type="number" step="0.001" min="0" placeholder="0.000" style="text-align:right; font-weight:500;">
+            </td>
+            <td style="padding: 10px; text-align:right; vertical-align:middle; font-weight:bold; color:#334155;">
+                <span class="rcp-subtotal" data-value="0"></span>
             </td>
             <td style="padding: 5px; text-align:center;">
-                <button type="button" class="btn-icon-del" title="Odstrániť riadok"><i class="fas fa-times"></i></button>
+                <button type="button" class="btn-icon-del" title="Odstrániť riadok"><i class="fas fa-trash-alt"></i></button>
             </td>
           `;
           
           tbody.appendChild(tr);
           
+          // Elementy v riadku
           const selCat = tr.querySelector('.rcp-cat-sel');
           const selName = tr.querySelector('.rcp-name-sel');
           const priceEl = tr.querySelector('.rcp-price');
           const qtyEl = tr.querySelector('.rcp-qty');
+          const subtotalEl = tr.querySelector('.rcp-subtotal');
           const btnDel = tr.querySelector('.btn-icon-del');
           
           // Logika riadku
-          // 1. Zmena kategórie načíta zoznam
+          // 1. Zmena kategórie načíta zoznam surovín
           selCat.addEventListener('change', () => {
-              buildNameOptions(selCat.value, selName, priceEl);
+              buildNameOptions(selCat.value, selName, priceEl, subtotalEl, qtyEl);
           });
 
           // 2. Prepočet ceny pri zmene množstva
-          qtyEl.addEventListener('input', recomputeCost);
+          qtyEl.addEventListener('input', () => {
+              updateSubtotal(qtyEl, priceEl, subtotalEl);
+              recomputeTotal();
+          });
 
           // 3. Zmazanie
           btnDel.addEventListener('click', () => { 
               tr.remove(); 
-              recomputeCost(); 
+              recomputeTotal(); 
           });
 
           // Inicializácia pri načítaní (ak upravujeme existujúci)
           if(prefill) {
               qtyEl.value = prefill.quantity;
-              // Ak nemáme kategóriu v dátach, skúsime ju odhadnúť alebo necháme default (prvý load)
-              // Tu voláme buildNameOptions s prefill.name, aby sa select nastavil
-              // Poznámka: `isCategoryMatch` je pomocná heuristika, ak API nevracia kategóriu priamo v ingredients
-              const estimatedCat = selCat.value || categories[0]; 
-              buildNameOptions(estimatedCat, selName, priceEl, prefill.name);
               
-              // Nastavenie ceny "na tvrdo" z histórie, ak je dostupná, kým sa nenačíta API
-              if(prefill.last_price) {
-                  priceEl.textContent = parseFloat(prefill.last_price).toFixed(2);
-                  priceEl.dataset.value = prefill.last_price;
-              }
+              // Tu musíme "uhádnuť" kategóriu, ak nie je v dátach. 
+              // Skúsime nájsť default alebo použijeme prvú.
+              // Vylepšenie: Ak vieme zistiť kategóriu podľa názvu, bolo by to super, ale zatiaľ:
+              let bestCat = categories[0];
+              
+              // Pokus o nastavenie selectu
+              selCat.value = bestCat; // Tu by bola ideálna logika na detekciu kategórie
+              
+              // Načítame suroviny a vyberieme tú správnu
+              buildNameOptions(bestCat, selName, priceEl, subtotalEl, qtyEl, prefill.name).then(() => {
+                  // Ak API nevrátilo cenu, ale my ju máme v histórii receptu, použijeme ju
+                  if(prefill.last_price && (!priceEl.dataset.value || priceEl.dataset.value == 0)) {
+                      priceEl.textContent = parseFloat(prefill.last_price).toFixed(3) + ' €';
+                      priceEl.dataset.value = prefill.last_price;
+                      updateSubtotal(qtyEl, priceEl, subtotalEl);
+                      recomputeTotal();
+                  }
+              });
+
           } else {
-              // Nový riadok - defaultne načítaj prvú kategóriu
-              selCat.value = categories[0];
-              buildNameOptions(categories[0], selName, priceEl);
+              // Nový prázdny riadok
+              selCat.value = categories[0]; // Default: Mäso
+              buildNameOptions(categories[0], selName, priceEl, subtotalEl, qtyEl);
           }
       }
 
-      // Pomocná funkcia na prepočet celkovej ceny
-      function recomputeCost() {
+      // Pomocná funkcia na prepočet celkovej ceny receptu
+      function recomputeTotal() {
         let total = 0;
         tbody.querySelectorAll('tr').forEach(tr => {
-            const qty = parseNum(tr.querySelector('.rcp-qty').value);
-            const price = parseNum(tr.querySelector('.rcp-price').dataset.value);
-            if(qty > 0 && price > 0) total += (qty * price);
+            const sub = parseNum(tr.querySelector('.rcp-subtotal').dataset.value);
+            total += sub;
         });
         totalCostEl.textContent = total.toFixed(2) + " €";
       }
 
-      // Pomocná heuristika pre kategóriu (voliteľné)
-      function isCategoryMatch(catName, itemName) {
-          // Tu by mohla byť logika, ak API nevracia kategóriu suroviny
-          return false; 
-      }
-
-      // 4. Naplnenie tabuľky
+      // 4. Naplnenie tabuľky existujúcimi dátami
       if (details && details.ingredients && details.ingredients.length){
         details.ingredients.forEach(ing => addRow(ing));
-        recomputeCost(); // Prepočítať po načítaní
       } else {
-        addRow(null);
+        addRow(null); // Prázdny riadok na začiatok
       }
 
       // 5. Event Listeners pre hlavné tlačidlá
@@ -1217,7 +1263,11 @@
                     newCategory: document.getElementById('rcp-newcat').value
                 }
             });
-            if(!resp.error) showStatus('Recept bol úspešne uložený.', false);
+            if(!resp.error) {
+                showStatus('Recept bol úspešne uložený.', false);
+                // Refresh okna pre istotu
+                renderRecipeEditorInline(productName);
+            }
             else showStatus('Chyba pri ukladaní: ' + resp.error, true);
         } catch(e) {
             showStatus('Chyba: ' + e.message, true);
@@ -1225,7 +1275,7 @@
       });
 
       onClick('#rcp-delete', async function(){
-        if(confirm(`Naozaj chcete vymazať recept pre "${productName}"?`)) {
+        if(confirm(`Naozaj chcete vymazať celý recept pre "${productName}"?`)) {
             await apiRequest('/api/kancelaria/deleteRecipe', { method:'POST', body:{ productName } });
             showStatus('Recept vymazaný.', false);
             window.erpMount(viewEditRecipeListInline); // Návrat na zoznam
@@ -1234,61 +1284,6 @@
     };
     return { html, onReady };
   }
-  // ===================== KRÁJANÉ PRODUKTY ==========================
-  async function viewSlicingManagement(){
-    const data = await apiRequest('/api/kancelaria/getSlicingManagementData');
-    const sourceOptions = (data?.sourceProducts||[]).map(p=>`<option value="${escapeHtml(p.ean)}">${escapeHtml(p.name)}</option>`).join('');
-    const rows = (data?.slicedProducts||[]).map(p=>{
-      const linked = !!(p.zdrojovy_ean && String(p.zdrojovy_ean).trim() !== '' && String(p.zdrojovy_ean).toLowerCase() !== 'nan');
-      const weightVal = (p.vaha_balenia_g!=null && p.vaha_balenia_g!=='') ? Number(p.vaha_balenia_g).toFixed(0) : '';
-      const status = linked ? `prepojené: <code>${escapeHtml(p.zdrojovy_ean)}</code>` : '<b>neprepojené</b>';
-      const btnLbl = linked ? 'Zmeniť zdroj' : 'Prepojiť';
-      return `<tr data-target-ean="${escapeHtml(p.ean)}">
-        <td>${escapeHtml(p.name)}</td>
-        <td>${escapeHtml(p.ean)}</td>
-        <td style="text-align:right">
-          <input class="slc-weight" type="number" min="1" step="1" placeholder="g" value="${weightVal}" style="width:100px;text-align:right;">
-        </td>
-        <td>${status}</td>
-        <td><button class="btn-primary link-sliced" style="margin:0;width:auto;">${btnLbl}</button></td>
-      </tr>`;
-    }).join('') || '<tr><td colspan="5">Žiadne krájané produkty.</td></tr>';
-
-    const html = `
-      <div class="stat-card">
-        <label for="slc-source"><b>1.</b> Vyberte zdrojový produkt (celok)</label>
-        <select id="slc-source"><option value="">-- Vyberte --</option>${sourceOptions}</select>
-      </div>
-      <div class="table-container" id="slc-target" style="margin-top:16px;">
-        <h4><b>2.</b> Priraďte krájaný produkt (balíček)</h4>
-        <table class="tbl">
-          <thead><tr><th>Názov</th><th>EAN</th><th style="text-align:right">Váha (g)</th><th>Stav</th><th>Akcia</th></tr></thead>
-          <tbody>${rows}</tbody>
-        </table>
-      </div>`;
-
-    const onReady = ()=>{
-      const srcSel = $('#slc-source');
-      $('#slc-target')?.addEventListener('click', async e=>{
-        const btn = e.target.closest?.('.link-sliced'); if (!btn) return;
-        const tr = btn.closest('tr');
-        const sourceEan = srcSel?.value||''; if (!sourceEan){ showStatus('Najprv vyberte zdrojový produkt (celok).', true); return; }
-        const targetEan = tr?.dataset?.targetEan; if (!targetEan) return;
-        const w = tr?.querySelector('.slc-weight')?.value;
-        const wNum = Number(w);
-        if (!w || isNaN(wNum) || wNum <= 0){ showStatus('Zadajte váhu balíčka v gramoch (> 0).', true); return; }
-        try{
-          const resp = await apiRequest('/api/kancelaria/linkSlicedProduct', { method:'POST', body:{ sourceEan, targetEan, weight: wNum } });
-          tr.querySelector('.slc-weight').value = String(resp?.savedWeight ?? wNum);
-          tr.children[3].innerHTML = `prepojené: <code>${escapeHtml(sourceEan)}</code>`;
-          showStatus('Prepojené.', false);
-          window.erpMount(viewSlicingManagement);
-        }catch(err){ showStatus('Prepojenie zlyhalo: ' + (err?.message || String(err)), true); }
-      });
-    };
-    return { html, onReady };
-  }
-
   // ===================== ZOZNAM RECEPTOV NA ÚPRAVU ==========================
   async function viewEditRecipeListInline(){
     const data = await apiRequest('/api/kancelaria/getAllRecipesForEditing');
