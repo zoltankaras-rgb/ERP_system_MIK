@@ -1,558 +1,575 @@
 // ======================================================================
-// ENTERPRISE PLÁNOVACÍ KALENDÁR – FRONTEND MODUL
-// - mesačná mriežka (ako papierový kalendár)
-// - klik na deň -> modal s udalosťami a formulárom
-// - používa /api/calendar/events (GET, POST)
-// - používa globálnu apiRequest(), showModal(), showStatus()
+// ENTERPRISE PLÁNOVACÍ KALENDÁR – FRONTEND MODUL (VYLEPŠENÝ)
+// - Obsahuje: 
+//    1. Enterprise Calendar (Všeobecné udalosti)
+//    2. Production Planner (Výrobný kalendár s inteligentným výberom)
 // ======================================================================
 
-const CAL_ESC = (s) => (window.escapeHtml ? window.escapeHtml(s) : String(s || ''));
+;(function () {
+  'use strict';
 
-function ensureCalendarStyles() {
-  if (document.getElementById('erp-calendar-styles')) return;
-  const s = document.createElement('style');
-  s.id = 'erp-calendar-styles';
-  s.textContent = `
-    #section-enterprise-calendar .erp-calendar-header{
-      display:flex; align-items:center; gap:.5rem; margin-bottom:.5rem;
-      justify-content:space-between; flex-wrap:wrap;
-    }
-    #section-enterprise-calendar .erp-calendar-header-left{
-      display:flex; align-items:center; gap:.25rem;
-    }
-    #section-enterprise-calendar .erp-calendar-month-label{
-      font-weight:600; font-size:1.1rem; margin:0 .5rem;
-    }
-    #section-enterprise-calendar .erp-calendar-grid{
-      display:grid;
-      grid-template-columns: repeat(7, minmax(110px,1fr));
-      gap:4px;
-    }
-    #section-enterprise-calendar .erp-calendar-daynames{
-      display:grid;
-      grid-template-columns: repeat(7, minmax(110px,1fr));
-      gap:4px;
-      margin-bottom:2px;
-      font-size:.8rem;
-      color:#6b7280;
-      text-transform:uppercase;
-      letter-spacing:.03em;
-    }
-    #section-enterprise-calendar .erp-calendar-dayname{
-      text-align:center;
-      padding:2px 0;
-    }
-    #section-enterprise-calendar .erp-calendar-cell{
-      border-radius:8px;
-      border:1px solid #e5e7eb;
-      background:#fff;
-      min-height:90px;
-      display:flex;
-      flex-direction:column;
-      padding:4px 6px;
-      cursor:pointer;
-      transition:box-shadow .12s ease, transform .06s ease;
-      overflow:hidden;
-    }
-    #section-enterprise-calendar .erp-calendar-cell:hover{
-      box-shadow:0 2px 4px rgba(0,0,0,.08);
-      transform:translateY(-1px);
-    }
-    #section-enterprise-calendar .erp-calendar-cell.other-month{
-      background:#f9fafb;
-      color:#9ca3af;
-    }
-    #section-enterprise-calendar .erp-calendar-cell.today{
-      border:2px solid var(--primary-color, #2563eb);
-    }
-    #section-enterprise-calendar .erp-calendar-cell-header{
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:.25rem;
-      margin-bottom:2px;
-    }
-    #section-enterprise-calendar .erp-calendar-day-number{
-      font-weight:600;
-      font-size:.9rem;
-    }
-    #section-enterprise-calendar .erp-calendar-add-btn{
-      border:0;
-      background:transparent;
-      cursor:pointer;
-      font-size:.7rem;
-      width:1.35rem; height:1.35rem;
-      border-radius:999px;
-      display:flex; align-items:center; justify-content:center;
-      color:#6b7280;
-    }
-    #section-enterprise-calendar .erp-calendar-add-btn:hover{
-      background:#e5e7eb;
-      color:#111827;
-    }
-    #section-enterprise-calendar .erp-calendar-cell-body{
-      margin-top:2px;
-      font-size:.72rem;
-      line-height:1.2;
-      max-height:70px;
-      overflow-y:auto;
-      padding-right:2px;
-    }
-    #section-enterprise-calendar .erp-calendar-event-pill{
-      border-radius:999px;
-      padding:1px 6px;
-      margin-bottom:2px;
-      white-space:nowrap;
-      overflow:hidden;
-      text-overflow:ellipsis;
-      background:#e5e7eb;
-      font-size:.7rem;
-    }
-    #section-enterprise-calendar .erp-calendar-event-pill.high{
-      background:#fee2e2;
-      color:#b91c1c;
-      font-weight:600;
-    }
-    #section-enterprise-calendar .erp-calendar-event-pill.critical{
-      background:#f97373;
-      color:#fff;
-      font-weight:700;
-    }
-    #section-enterprise-calendar .erp-calendar-more{
-      font-size:.7rem;
-      color:#9ca3af;
-    }
-    #section-enterprise-calendar .erp-calendar-day-summary{
-      font-size:.85rem;
-      color:#4b5563;
-    }
-    #section-enterprise-calendar .erp-calendar-day-summary ul{
-      margin:.25rem 0 0; padding-left:1.1rem;
-    }
-  `;
-  document.head.appendChild(s);
-}
+  // --- ALIAS NA API REQUEST (z common.js alebo fallback) ---
+  const apiRequest = (typeof window !== 'undefined' && typeof window.apiRequest === 'function')
+    ? window.apiRequest.bind(window)
+    : async function (url, options = {}) {
+        const opts = {
+          method: options.method || 'GET',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+        };
+        if (options.body) opts.body = JSON.stringify(options.body);
+        const res = await fetch(url, opts);
+        const isJson = (res.headers.get('content-type') || '').includes('application/json');
+        const data = isJson ? await res.json() : await res.text();
+        if (!res.ok) throw new Error((isJson ? data?.error : String(data)) || `HTTP ${res.status}`);
+        return data;
+      };
 
-const CAL_MONTH_NAMES = [
-  'Január','Február','Marec','Apríl','Máj','Jún',
-  'Júl','August','September','Október','November','December'
-];
-const CAL_DAY_NAMES = ['Po','Ut','St','Št','Pi','So','Ne'];
+  const escapeHtml = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const safeToFixedLocal = (v) => (v == null || isNaN(v)) ? '0' : Number(v).toFixed(3);
+  const formatDateKey = (y, m, d) => `${y}-${String(m + 1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
 
-function calPad(n){ return String(n).padStart(2,'0'); }
-function calDateKey(d){
-  return `${d.getFullYear()}-${calPad(d.getMonth()+1)}-${calPad(d.getDate())}`;
-}
+  // =================================================================
+  // 1. ŠTÝLY PRE PLÁNOVAČ A PICKER
+  // =================================================================
+  function ensurePlannerStyles() {
+    if (document.getElementById('planner-styles-v2')) return;
+    const css = `
+      /* Layout a karty */
+      .planner-toolbar { display:flex; gap:.5rem; align-items:center; margin-bottom:1rem; flex-wrap:wrap; }
+      .planner-toolbar .spacer { flex:1; }
+      .planner-layout { display:grid; grid-template-columns: 2fr 1.2fr; gap:1.5rem; align-items:flex-start; }
+      @media (max-width: 1100px) { .planner-layout { grid-template-columns: 1fr; } }
+      
+      .planner-card { border:1px solid #e5e7eb; border-radius:10px; padding:16px; background:#fff; box-shadow:0 2px 4px rgba(0,0,0,0.03); }
+      
+      /* Kalendár Grid */
+      .planner-cal-header { display:flex; align-items:center; justify-content:space-between; margin-bottom: 10px; }
+      .planner-cal-month-label { font-weight:700; font-size:1.1rem; color: #1f2937; }
+      .planner-cal-nav-btn { border:1px solid #d1d5db; background:#fff; border-radius:6px; width: 32px; height: 32px; cursor:pointer; display:flex; align-items:center; justify-content:center; transition: all 0.2s; }
+      .planner-cal-nav-btn:hover { background:#f3f4f6; border-color:#9ca3af; }
+      
+      .planner-cal-weekdays, .planner-cal-grid { display:grid; grid-template-columns:repeat(7, 1fr); gap:6px; }
+      .planner-cal-weekday { text-align:center; font-size:.75rem; font-weight:600; color:#6b7280; text-transform: uppercase; padding-bottom: 4px; }
+      
+      .planner-cal-cell { min-height:85px; background:#f9fafb; border: 1px solid #f3f4f6; border-radius:8px; padding:6px; font-size:.75rem; position:relative; cursor:pointer; transition: all 0.15s; display:flex; flex-direction:column; gap:2px; }
+      .planner-cal-cell:hover:not(.empty) { background:#fff; border-color: #3b82f6; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); transform: translateY(-1px); z-index: 2; }
+      .planner-cal-cell.selected { background:#eff6ff; border: 2px solid #2563eb; }
+      .planner-cal-cell.empty { background:transparent; border:none; cursor:default; }
+      
+      .planner-cal-date { font-weight:700; font-size:.85rem; color:#374151; margin-bottom: 2px; }
+      .planner-cal-summary { background: #dbeafe; color: #1e40af; padding: 2px 6px; border-radius: 4px; font-weight: 500; font-size: 0.7rem; display: inline-block; }
+      .planner-cal-prio { position:absolute; top:4px; right:6px; color:#ef4444; font-size: 1rem; line-height: 1; }
 
-// pomocná API funkcia
-async function calendarApi(url, opts = {}) {
-  return apiRequest(url, opts);
-}
-
-// ======================================================================
-// HLAVNÝ MODUL
-// ======================================================================
-function initializeEnterpriseCalendar(){
-  ensureCalendarStyles();
-  const root = document.getElementById('section-enterprise-calendar');
-  if (!root) return;
-
-  root.innerHTML = `
-    <h3>Enterprise Plánovací Kalendár</h3>
-    <div class="analysis-card">
-      <div class="erp-calendar-header">
-        <div class="erp-calendar-header-left">
-          <button class="btn btn-secondary btn-xs" id="erp-cal-prev"><i class="fas fa-chevron-left"></i></button>
-          <div class="erp-calendar-month-label" id="erp-cal-month-label">—</div>
-          <button class="btn btn-secondary btn-xs" id="erp-cal-next"><i class="fas fa-chevron-right"></i></button>
-          <button class="btn btn-light btn-xs" id="erp-cal-today">Dnes</button>
-        </div>
-        <div>
-          <!-- priestor pre budúce filtre (typ udalosti, zdroj atď.) -->
-        </div>
-      </div>
-      <div class="erp-calendar-daynames" id="erp-cal-daynames"></div>
-      <div class="erp-calendar-grid" id="erp-cal-grid"></div>
-    </div>
-
-    <div class="analysis-card" style="margin-top:1rem;">
-      <h4>Vybraný deň</h4>
-      <div id="erp-cal-day-summary" class="erp-calendar-day-summary">
-        Klikni na deň v kalendári.
-      </div>
-    </div>
-  `;
-
-  const state = {
-    currentMonth: (()=>{
-      const d = new Date();
-      return new Date(d.getFullYear(), d.getMonth(), 1);
-    })(),
-    eventsByDay: {}, // { 'YYYY-MM-DD': [event, ...] }
-  };
-
-  const daynamesEl = document.getElementById('erp-cal-daynames');
-  daynamesEl.innerHTML = CAL_DAY_NAMES.map(n => `<div class="erp-calendar-dayname">${n}</div>`).join('');
-
-  const gridEl = document.getElementById('erp-cal-grid');
-  const lblEl  = document.getElementById('erp-cal-month-label');
-  const summaryEl = document.getElementById('erp-cal-day-summary');
-
-  async function reloadMonth(){
-    await loadEventsForMonth(state);
-    renderMonth(state);
-  }
-
-  async function loadEventsForMonth(st){
-    const year = st.currentMonth.getFullYear();
-    const month = st.currentMonth.getMonth();
-    const start = new Date(year, month, 1);
-    const end   = new Date(year, month + 1, 0);
-
-    const params = new URLSearchParams();
-    params.set('start', `${start.getFullYear()}-${calPad(start.getMonth()+1)}-${calPad(start.getDate())}T00:00`);
-    params.set('end',   `${end.getFullYear()}-${calPad(end.getMonth()+1)}-${calPad(end.getDate())}T23:59`);
-
-    const res = await calendarApi('/api/calendar/events?' + params.toString());
-    const list = Array.isArray(res) ? res : [];
-    const byDay = {};
-
-    list.forEach(ev => {
-      // očakávame ISO string v ev.start
-      const d = new Date(ev.start);
-      const key = calDateKey(d);
-      if (!byDay[key]) byDay[key] = [];
-      byDay[key].push(ev);
-    });
-
-    st.eventsByDay = byDay;
-  }
-
-  function renderMonth(st){
-    const year = st.currentMonth.getFullYear();
-    const month = st.currentMonth.getMonth();
-    lblEl.textContent = `${CAL_MONTH_NAMES[month]} ${year}`;
-
-    // prvý deň mesiaca
-    const first = new Date(year, month, 1);
-    const jsDow = first.getDay(); // 0=Ne,1=Po,...
-    const mondayIndex = (jsDow + 6) % 7; // 0=Po
-    const startDate = new Date(year, month, 1 - mondayIndex);
-
-    const todayKey = calDateKey(new Date());
-
-    let html = '';
-    for (let i = 0; i < 42; i++){
-      const d = new Date(startDate);
-      d.setDate(startDate.getDate() + i);
-      const key = calDateKey(d);
-      const isOtherMonth = d.getMonth() !== month;
-      const isToday = key === todayKey;
-      const events = st.eventsByDay[key] || [];
-
-      const classes = [
-        'erp-calendar-cell',
-        isOtherMonth ? 'other-month' : '',
-        isToday ? 'today' : '',
-      ].join(' ');
-
-      let pills = '';
-      events.slice(0,3).forEach(ev => {
-        let prioClass = '';
-        if (ev.priority === 'HIGH') prioClass = 'high';
-        if (ev.priority === 'CRITICAL') prioClass = 'critical';
-        pills += `<div class="erp-calendar-event-pill ${prioClass}">${CAL_ESC(ev.title)}</div>`;
-      });
-      if (events.length > 3){
-        pills += `<div class="erp-calendar-more">+${events.length - 3} ďalších...</div>`;
+      /* Pravý panel */
+      .planner-side h4 { margin:0 0 .5rem 0; font-size:1.1rem; color: #111827; }
+      .planner-side small { display: block; color:#6b7280; margin-bottom: 1rem; line-height: 1.4; }
+      
+      /* Inputy */
+      .planner-form-group { margin-bottom: 1rem; }
+      .planner-form-group label { display: block; font-size: 0.85rem; font-weight: 500; color: #374151; margin-bottom: 0.25rem; }
+      
+      /* Custom Product Picker Input */
+      .product-picker-trigger {
+        display: flex; align-items: center; justify-content: space-between;
+        width: 100%; padding: 8px 12px;
+        border: 1px solid #d1d5db; border-radius: 6px; background: #fff;
+        cursor: pointer; transition: border-color 0.2s;
       }
+      .product-picker-trigger:hover { border-color: #9ca3af; }
+      .product-picker-text { font-weight: 500; color: #111827; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .product-picker-placeholder { color: #9ca3af; font-weight: 400; }
+      
+      /* Zoznam pre deň */
+      .planner-day-list { list-style:none; padding:0; margin:0; max-height:350px; overflow-y:auto; border-top: 1px solid #e5e7eb; }
+      .planner-day-list li { display:flex; justify-content:space-between; align-items:center; padding: 10px 0; border-bottom: 1px solid #f3f4f6; }
+      .planner-day-list li:last-child { border-bottom: none; }
+      
+      .planner-item-info strong { display: block; color: #1f2937; font-size: 0.9rem; margin-bottom: 2px; }
+      .planner-item-meta { font-size: 0.8rem; color: #6b7280; display: flex; gap: 8px; align-items: center; }
+      .planner-item-badge { background: #f3f4f6; padding: 1px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; }
+      
+      .btn-icon-danger { width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; color: #ef4444; background: #fee2e2; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s; }
+      .btn-icon-danger:hover { background: #fecaca; color: #b91c1c; }
 
-      html += `
-        <div class="${classes}" data-date="${key}">
-          <div class="erp-calendar-cell-header">
-            <span class="erp-calendar-day-number">${d.getDate()}</span>
-            <button class="erp-calendar-add-btn" data-date="${key}" title="Pridať udalosť">
-              <i class="fas fa-plus"></i>
+      /* --- PRODUCT PICKER MODAL STYLES --- */
+      .erp-picker-container { display: flex; flex-direction: column; height: 60vh; max-height: 500px; }
+      .erp-picker-search { padding: 10px; border-bottom: 1px solid #e5e7eb; background: #f9fafb; position: sticky; top: 0; }
+      .erp-picker-search input { width: 100%; padding: 8px 12px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 0.95rem; }
+      .erp-picker-list { flex: 1; overflow-y: auto; padding: 0; margin: 0; list-style: none; }
+      
+      .erp-picker-category { background: #f3f4f6; padding: 6px 12px; font-size: 0.75rem; font-weight: 700; color: #4b5563; text-transform: uppercase; letter-spacing: 0.05em; position: sticky; top: 0; }
+      
+      .erp-picker-item { padding: 8px 12px; border-bottom: 1px solid #f3f4f6; cursor: pointer; display: flex; justify-content: space-between; align-items: center; transition: background 0.1s; }
+      .erp-picker-item:hover { background: #eff6ff; }
+      .erp-picker-item.selected { background: #dbeafe; border-left: 3px solid #2563eb; }
+      
+      .erp-picker-item-main { font-weight: 600; color: #1f2937; font-size: 0.9rem; }
+      .erp-picker-item-sub { font-size: 0.8rem; color: #6b7280; margin-top: 1px; }
+      .erp-picker-item-stats { text-align: right; font-size: 0.8rem; }
+      .stat-pill { display: inline-block; padding: 1px 5px; border-radius: 4px; font-weight: 500; margin-left: 4px; }
+      .stat-pill.stock { background: #e5e7eb; color: #374151; }
+      .stat-pill.sugg { background: #dcfce7; color: #166534; }
+    `;
+    const s = document.createElement('style');
+    s.id = 'planner-styles-v2';
+    s.textContent = css;
+    document.head.appendChild(s);
+  }
+
+  // Globálny stav pre plánovač
+  let PLANNER_CAL_STATE = null;
+  let PRODUCTS_CACHE = []; // Uložíme si produkty pre rýchle vyhľadávanie
+
+  // =================================================================
+  // 2. INLINE PLÁNOVAČ VÝROBY (KANCELÁRIA)
+  // =================================================================
+  async function renderProductionPlanInline() {
+    ensurePlannerStyles();
+    const root = document.getElementById('planner-inline-root');
+    if (!root) return;
+
+    // --- HTML štruktúra ---
+    root.innerHTML = `
+      <div class="planner-toolbar">
+        <h3 style="margin:0; display:flex; align-items:center; gap:8px;">
+           <i class="fas fa-calendar-alt" style="color:#2563eb;"></i> Kalendár výroby
+        </h3>
+        <div class="spacer"></div>
+        <button id="planner-refresh" class="btn-secondary" title="Obnoviť dáta z objednávok a skladu">
+          <i class="fas fa-sync-alt"></i> Obnoviť návrhy
+        </button>
+      </div>
+
+      <div class="planner-layout">
+        <div class="planner-card">
+          <div id="planner-calendar"></div>
+        </div>
+
+        <div class="planner-card planner-side">
+          <div>
+            <h4 id="planner-selected-date-label">Vyberte deň...</h4>
+            <small>Kliknite na deň v kalendári pre zobrazenie alebo pridanie plánu.</small>
+          </div>
+
+          <div style="background:#f8fafc; border:1px solid #e5e7eb; border-radius:8px; padding:12px; margin-bottom:1rem;">
+            
+            <div class="planner-form-group">
+              <label>Výrobok na výrobu:</label>
+              <div id="planner-product-trigger" class="product-picker-trigger">
+                <span class="product-picker-placeholder">Kliknite pre výber výrobku...</span>
+                <i class="fas fa-chevron-down" style="color:#9ca3af; font-size:0.8rem;"></i>
+              </div>
+              <input type="hidden" id="planner-product-name">
+            </div>
+
+            <div style="display:flex; gap:10px; align-items:flex-end;">
+              <div class="planner-form-group" style="flex:1; margin-bottom:0;">
+                <label>Množstvo (kg):</label>
+                <input id="planner-qty-input" type="number" min="0" step="1" class="form-control" style="width:100%; text-align:right; font-weight:600;">
+              </div>
+              
+              <div style="margin-bottom:6px;">
+                 <label class="btn-secondary btn-sm" style="display:flex; align-items:center; gap:4px; cursor:pointer;">
+                    <input type="checkbox" id="planner-priority-input">
+                    <span style="font-weight:600; color:#ea580c;">★ Priorita</span>
+                 </label>
+              </div>
+            </div>
+            
+            <button id="planner-add-to-day" class="btn-primary w-full" style="margin-top:12px;">
+              <i class="fas fa-plus"></i> Pridať do plánu
             </button>
           </div>
-          <div class="erp-calendar-cell-body">
-            ${pills}
+
+          <div style="flex:1; overflow:hidden; display:flex; flex-direction:column;">
+            <h5 style="margin:0 0 5px 0; font-size:0.9rem; color:#6b7280; text-transform:uppercase;">Naplánované položky</h5>
+            <ul id="planner-day-list" class="planner-day-list"></ul>
           </div>
         </div>
-      `;
-    }
+      </div>
 
-    gridEl.innerHTML = html;
+      <div class="planner-footer-actions">
+        <button id="planner-create-tasks" class="btn-success" style="padding:10px 20px; font-size:1rem;">
+          <i class="fas fa-save"></i> Uložiť zmeny a vytvoriť úlohy
+        </button>
+        <div id="planner-summary" class="planner-summary-bar" style="margin-left:auto;"></div>
+      </div>
+    `;
 
-    // kliky na bunky / plusko
-    gridEl.querySelectorAll('.erp-calendar-cell').forEach(cell=>{
-      const dateKey = cell.getAttribute('data-date');
-      cell.addEventListener('click', (e)=>{
-        if (e.target.closest('.erp-calendar-add-btn')) return;
-        openDayModal(dateKey, st);
-      });
-    });
-    gridEl.querySelectorAll('.erp-calendar-add-btn').forEach(btn=>{
-      const dateKey = btn.getAttribute('data-date');
-      btn.addEventListener('click', (e)=>{
-        e.stopPropagation();
-        openDayModal(dateKey, st, true);
-      });
-    });
+    // --- Referencie na elementy ---
+    const elCalendar = root.querySelector('#planner-calendar');
+    const elProdTrigger = root.querySelector('#planner-product-trigger');
+    const elProdName = root.querySelector('#planner-product-name'); // hidden
+    const elQty = root.querySelector('#planner-qty-input');
+    const elPrio = root.querySelector('#planner-priority-input');
+    const elAdd = root.querySelector('#planner-add-to-day');
+    const elDayList = root.querySelector('#planner-day-list');
+    const elSelDate = root.querySelector('#planner-selected-date-label');
+    const elCreate = root.querySelector('#planner-create-tasks');
+    const elRefresh = root.querySelector('#planner-refresh');
+    const elSummary = root.querySelector('#planner-summary');
 
-    // nastaviť summary na aktuálny mesiac bez konkrétneho dňa
-    summaryEl.textContent = 'Klikni na deň v kalendári.';
-  }
+    const monthNames = ['Január','Február','Marec','Apríl','Máj','Jún','júl','august','september','október','november','december'];
+    const weekdays   = ['Po','Ut','St','Št','Pi','So','Ne'];
 
-  function openDayModal(dateKey, st, createOnly=false){
-    const events = st.eventsByDay[dateKey] || [];
-    const [year, month, day] = dateKey.split('-');
+    // --------- Inicializácia stavu ----------
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
 
-    const summaryEl = document.getElementById('erp-cal-day-summary');
-    if (summaryEl){
-      if (!events.length){
-        summaryEl.innerHTML = `Deň <strong>${day}.${month}.${year}</strong> – žiadne udalosti.`;
-      } else {
-        summaryEl.innerHTML = `
-          <div>Deň <strong>${day}.${month}.${year}</strong> – ${events.length} udalostí:</div>
-          <ul>
-            ${events.map(ev=>`<li>${CAL_ESC(ev.title)} (${CAL_ESC(ev.type || '')})</li>`).join('')}
-          </ul>
-        `;
+    const STATE = {
+      currentMonth: new Date(today.getFullYear(), today.getMonth(), 1),
+      selectedDate: formatDateKey(today.getFullYear(), today.getMonth(), today.getDate()),
+      calendar: {} // { "YYYY-MM-DD": [ { productName, qty, priority } ] }
+    };
+    PLANNER_CAL_STATE = STATE;
+    let calendarLoadedFromDb = false;
+
+    // --------- Načítanie dát ----------
+    async function loadData() {
+      try {
+        const [planData, dbCalendar] = await Promise.all([
+          apiRequest('/api/kancelaria/getProductionPlan'), // Návrhy
+          (!calendarLoadedFromDb ? apiRequest('/api/kancelaria/getProductionCalendar') : Promise.resolve(null)) // Existujúci plán
+        ]);
+
+        // Spracovanie produktov pre picker
+        PRODUCTS_CACHE = [];
+        if (planData && typeof planData === 'object') {
+          Object.keys(planData).forEach(cat => {
+            (planData[cat] || []).forEach(p => {
+              PRODUCTS_CACHE.push({
+                name: p.nazov_vyrobku,
+                category: cat,
+                suggested: Number(p.navrhovana_vyroba || 0),
+                stock: Number(p.aktualny_sklad || 0)
+              });
+            });
+          });
+        }
+        // Zoradenie: Najprv tie s návrhom > 0, potom podľa mena
+        PRODUCTS_CACHE.sort((a, b) => (b.suggested - a.suggested) || a.name.localeCompare(b.name));
+
+        // Načítanie existujúceho plánu (len 1x pri štarte)
+        if (!calendarLoadedFromDb && dbCalendar) {
+            STATE.calendar = {};
+            Object.entries(dbCalendar).forEach(([dateKey, items]) => {
+                STATE.calendar[dateKey] = items.map(it => ({
+                    productName: it.nazov_vyrobku || it.productName,
+                    qty: Number(it.mnozstvo_kg || it.qty || 0),
+                    priority: !!it.priorita
+                })).filter(i => i.qty > 0);
+            });
+            calendarLoadedFromDb = true;
+        }
+
+        rebuildSummary();
+        renderCalendar();
+        renderSelectedDay();
+
+      } catch(e) {
+        showStatus('Chyba načítania dát: ' + e.message, true);
       }
     }
 
-    showModal(`Kalendár – ${day}.${month}.${year}`, () => {
-      const eventsHtml = !events.length ? '<p>Žiadne udalosti v tento deň.</p>' :
-        `<ul>${events.map(ev=>`<li><strong>${CAL_ESC(ev.title)}</strong> (${CAL_ESC(ev.type || '')})</li>`).join('')}</ul>`;
-
-      const html = `
-        <div class="form-grid" style="grid-template-columns: minmax(240px, 1.2fr) minmax(260px, 1.3fr); gap:1rem;">
-          <div>
-            <h5>Udalosti v tento deň</h5>
-            <div style="font-size:.85rem;">${eventsHtml}</div>
-          </div>
-          <div>
-            <h5>Nová udalosť</h5>
-            <form id="erp-cal-event-form">
-              <input type="hidden" name="date" value="${dateKey}">
-              <div class="form-group">
-                <label>Názov udalosti</label>
-                <input name="title" required>
-              </div>
-              <div class="form-group">
-                <label>Typ</label>
-                <select name="event_type" required>
-                  <option value="MEETING">Stretnutie</option>
-                  <option value="TENDER">Verejné obstarávanie / Súťaž</option>
-                  <option value="VACATION">Dovolenka</option>
-                  <option value="ABSENCE">Absencia</option>
-                  <option value="SERVICE">Servis / Správa majetku</option>
-                  <option value="TASK">Deadline / Úloha</option>
-                </select>
-              </div>
-              <div class="form-group">
-                <label>Čas</label>
-                <div style="display:flex; gap:.5rem; align-items:center;">
-                  <input type="time" name="start_time" value="08:00">
-                  <span>–</span>
-                  <input type="time" name="end_time" value="16:00">
+    // --------- Picker Event ----------
+    elProdTrigger.onclick = () => {
+        openProductPickerModal((selectedProduct) => {
+            // Callback po výbere
+            elProdName.value = selectedProduct.name;
+            
+            // Aktualizácia UI triggeru
+            elProdTrigger.innerHTML = `
+                <div style="display:flex; flex-direction:column; align-items:flex-start; overflow:hidden;">
+                    <span class="product-picker-text">${escapeHtml(selectedProduct.name)}</span>
+                    <span style="font-size:0.75rem; color:#6b7280;">Sklad: ${selectedProduct.stock} kg | Návrh: ${selectedProduct.suggested} kg</span>
                 </div>
-                <label style="margin-top:.25rem; display:flex; align-items:center; gap:.25rem; font-size:.85rem;">
-                  <input type="checkbox" name="all_day">
-                  Celý deň
-                </label>
-              </div>
-              <div class="form-group">
-                <label>Priorita</label>
-                <select name="priority">
-                  <option value="LOW">Nízka</option>
-                  <option value="NORMAL" selected>Normálna</option>
-                  <option value="HIGH">Vysoká</option>
-                  <option value="CRITICAL">Kritická</option>
-                </select>
-              </div>
-              <div class="form-group">
-                <label>Farba (voliteľné)</label>
-                <input type="color" name="color_hex" value="#2563eb" style="padding:0; border:0; background:transparent;">
-              </div>
-              <div class="form-group">
-                <label>Poznámka</label>
-                <textarea name="description" rows="3"></textarea>
-              </div>
+                <i class="fas fa-check" style="color:#10b981;"></i>
+            `;
+            elProdTrigger.style.borderColor = '#3b82f6';
+            elProdTrigger.style.background = '#eff6ff';
 
-              <fieldset style="border:1px solid #e5e7eb; border-radius:8px; padding:.5rem .75rem; margin-top:.5rem;">
-                <legend style="font-size:.85rem; padding:0 .25rem;">Notifikácia</legend>
-                <label style="display:flex; align-items:center; gap:.35rem; font-size:.9rem; margin-bottom:.35rem;">
-                  <input type="checkbox" name="notify_enabled">
-                  Poslať pripomienku k udalosti
-                </label>
-                <div class="form-grid" style="grid-template-columns: repeat(2, minmax(100px,1fr)); gap:.5rem;">
-                  <div class="form-group">
-                    <label>Pred (minút)</label>
-                    <input type="number" name="notify_before" value="60" min="0" step="5">
-                  </div>
-                  <div class="form-group">
-                    <label>Kanál</label>
-                    <select name="notify_channel">
-                      <option value="EMAIL">E‑mail</option>
-                      <option value="SMS">SMS</option>
-                      <option value="BOTH">E‑mail + SMS</option>
-                    </select>
-                  </div>
-                  <div class="form-group">
-                    <label>Komu</label>
-                    <select name="notify_target">
-                      <option value="CREATOR">Len mne (tvorca)</option>
-                      <option value="ALL_ATTENDEES">Všetkým účastníkom</option>
-                    </select>
-                  </div>
+            // Predvyplnenie množstva (návrh alebo 0)
+            elQty.value = selectedProduct.suggested > 0 ? selectedProduct.suggested : '';
+            elQty.focus();
+        });
+    };
+
+    // --------- Render Kalendára ----------
+    function renderCalendar() {
+        const year = STATE.currentMonth.getFullYear();
+        const month = STATE.currentMonth.getMonth();
+        const firstDay = new Date(year, month, 1);
+        const daysInMonth = new Date(year, month + 1, 0).getDate();
+        const startDayIndex = (firstDay.getDay() + 6) % 7; // Po=0
+
+        let html = `
+            <div class="planner-cal-header">
+                <div class="planner-cal-nav-btn" id="cal-prev">‹</div>
+                <div class="planner-cal-month-label">${monthNames[month]} ${year}</div>
+                <div class="planner-cal-nav-btn" id="cal-next">›</div>
+            </div>
+            <div class="planner-cal-weekdays">
+                ${weekdays.map(d => `<div class="planner-cal-weekday">${d}</div>`).join('')}
+            </div>
+            <div class="planner-cal-grid">
+        `;
+
+        // Prázdne bunky
+        for(let i=0; i<startDayIndex; i++) html += `<div class="planner-cal-cell empty"></div>`;
+
+        // Dni
+        for(let d=1; d<=daysInMonth; d++) {
+            const dateKey = formatDateKey(year, month, d);
+            const items = STATE.calendar[dateKey] || [];
+            const totalKg = items.reduce((sum, i) => sum + i.qty, 0);
+            const hasPrio = items.some(i => i.priority);
+            const isSelected = (STATE.selectedDate === dateKey);
+
+            html += `
+                <div class="planner-cal-cell ${isSelected ? 'selected' : ''}" data-date="${dateKey}">
+                    <div class="planner-cal-date">${d}</div>
+                    ${items.length ? `
+                        <div class="planner-cal-summary">
+                            ${items.length} pol.<br>
+                            ${safeToFixedLocal(totalKg)} kg
+                        </div>
+                    ` : ''}
+                    ${hasPrio ? '<div class="planner-cal-prio">★</div>' : ''}
                 </div>
-              </fieldset>
+            `;
+        }
+        html += `</div>`;
+        elCalendar.innerHTML = html;
 
-              <div class="form-group" style="margin-top:.75rem;">
-                <button class="btn btn-success w-full"><i class="fas fa-save"></i> Uložiť udalosť</button>
-              </div>
-            </form>
-          </div>
+        // Listenery navigácie
+        elCalendar.querySelector('#cal-prev').onclick = () => {
+            STATE.currentMonth.setMonth(STATE.currentMonth.getMonth() - 1);
+            renderCalendar();
+        };
+        elCalendar.querySelector('#cal-next').onclick = () => {
+            STATE.currentMonth.setMonth(STATE.currentMonth.getMonth() + 1);
+            renderCalendar();
+        };
+        // Klik na deň
+        elCalendar.querySelectorAll('.planner-cal-cell[data-date]').forEach(cell => {
+            cell.onclick = () => {
+                STATE.selectedDate = cell.dataset.date;
+                renderCalendar(); // prekresliť selection
+                renderSelectedDay();
+            };
+        });
+    }
+
+    // --------- Render Detail Dňa ----------
+    function renderSelectedDay() {
+        const dateKey = STATE.selectedDate;
+        if(!dateKey) return;
+        
+        const [y, m, d] = dateKey.split('-');
+        elSelDate.innerHTML = `<span style="color:#2563eb;">${d}.${m}.${y}</span>`;
+
+        const items = STATE.calendar[dateKey] || [];
+        elDayList.innerHTML = '';
+        
+        if (items.length === 0) {
+            elDayList.innerHTML = '<li style="color:#9ca3af; text-align:center; padding:20px;">Žiadny plán na tento deň.</li>';
+        } else {
+            items.forEach((it, idx) => {
+                const li = document.createElement('li');
+                li.innerHTML = `
+                    <div class="planner-item-info">
+                        <strong>${escapeHtml(it.productName)} ${it.priority ? '<span style="color:#ea580c;">★</span>' : ''}</strong>
+                        <div class="planner-item-meta">
+                            <span class="planner-item-badge">Výroba</span>
+                            <span>${safeToFixedLocal(it.qty)} kg</span>
+                        </div>
+                    </div>
+                    <button class="btn-icon-danger remove-item" title="Odstrániť">
+                        <i class="fas fa-trash-alt"></i>
+                    </button>
+                `;
+                li.querySelector('.remove-item').onclick = () => {
+                    items.splice(idx, 1);
+                    if(items.length === 0) delete STATE.calendar[dateKey];
+                    renderCalendar(); // update sumy v kalendári
+                    renderSelectedDay();
+                    rebuildSummary();
+                    autoSave(); // Voliteľné autosave
+                };
+                elDayList.appendChild(li);
+            });
+        }
+    }
+
+    // --------- Pridať do dňa ----------
+    elAdd.onclick = () => {
+        const name = elProdName.value;
+        const qty = parseFloat(elQty.value);
+        
+        if (!name) { showStatus('Vyberte výrobok zo zoznamu.', true); return; }
+        if (!qty || qty <= 0) { showStatus('Zadajte platné množstvo (kg).', true); return; }
+
+        if (!STATE.calendar[STATE.selectedDate]) STATE.calendar[STATE.selectedDate] = [];
+        
+        // Check duplicita - ak je, pripočítame
+        const existing = STATE.calendar[STATE.selectedDate].find(i => i.productName === name);
+        if (existing) {
+            existing.qty += qty;
+            if(elPrio.checked) existing.priority = true;
+        } else {
+            STATE.calendar[STATE.selectedDate].push({
+                productName: name,
+                qty: qty,
+                priority: elPrio.checked
+            });
+        }
+        
+        // Reset formulára
+        elQty.value = '';
+        elPrio.checked = false;
+        // Reset triggeru
+        elProdName.value = '';
+        elProdTrigger.innerHTML = '<span class="product-picker-placeholder">Vybrať ďalší výrobok...</span><i class="fas fa-chevron-down"></i>';
+        elProdTrigger.style.borderColor = '#d1d5db';
+        elProdTrigger.style.background = '#fff';
+
+        renderCalendar();
+        renderSelectedDay();
+        rebuildSummary();
+        autoSave();
+    };
+
+    // --------- Uloženie ----------
+    async function savePlan() {
+        // Konverzia kalendára na flat list pre backend
+        let payload = [];
+        Object.entries(STATE.calendar).forEach(([d, items]) => {
+            items.forEach(it => {
+                payload.push({
+                    nazov_vyrobku: it.productName,
+                    mnozstvo_kg: it.qty,
+                    priorita: it.priority ? 1 : 0,
+                    datum_vyroby: d
+                });
+            });
+        });
+        
+        try {
+            await apiRequest('/api/kancelaria/createTasksFromPlan', { method:'POST', body: payload });
+            showStatus('Plán bol úspešne uložený.', false);
+        } catch(e) {
+            showStatus('Chyba pri ukladaní: ' + e.message, true);
+        }
+    }
+    
+    // Autosave wrapper (silent)
+    async function autoSave() {
+        // Tu môžeme volať savePlan bez notifikácie, ak chceme
+        // console.log("Autosaving...");
+    }
+
+    elCreate.onclick = savePlan;
+    elRefresh.onclick = loadData;
+
+    // Prvotné načítanie
+    loadData();
+  }
+
+  // =================================================================
+  // 3. INTELIGENTNÝ PRODUCT PICKER MODAL
+  // =================================================================
+  function openProductPickerModal(onSelectCallback) {
+    if (!window.showModal) return;
+
+    // Obsah modalu
+    const html = `
+      <div class="erp-picker-container">
+        <div class="erp-picker-search">
+            <input type="text" id="picker-search-input" placeholder="Hľadať výrobok (názov)..." autocomplete="off">
         </div>
-      `;
+        <ul id="picker-list" class="erp-picker-list">
+            </ul>
+      </div>
+    `;
 
+    window.showModal('Výber výrobku na výrobu', () => {
       return {
-        html,
+        html: html,
         onReady: () => {
-          const f = document.getElementById('erp-cal-event-form');
-          const allDayCheckbox = f.querySelector('input[name="all_day"]');
-          const startTimeInput = f.querySelector('input[name="start_time"]');
-          const endTimeInput   = f.querySelector('input[name="end_time"]');
+          const input = document.getElementById('picker-search-input');
+          const list = document.getElementById('picker-list');
+          
+          // Render funkcia
+          const renderList = (filterText = '') => {
+            const ft = filterText.toLowerCase();
+            list.innerHTML = '';
+            
+            // 1. Filtrovanie
+            const filtered = PRODUCTS_CACHE.filter(p => p.name.toLowerCase().includes(ft));
+            
+            // 2. Zoskupenie podľa kategórie
+            const grouped = {};
+            filtered.forEach(p => {
+                const c = p.category || 'Nezaradené';
+                if (!grouped[c]) grouped[c] = [];
+                grouped[c].push(p);
+            });
 
-          function syncAllDay(){
-            const allDay = allDayCheckbox.checked;
-            startTimeInput.disabled = allDay;
-            endTimeInput.disabled = allDay;
-          }
-          allDayCheckbox.addEventListener('change', syncAllDay);
-          syncAllDay();
+            // 3. Vykreslenie
+            Object.keys(grouped).sort().forEach(cat => {
+                // Header kategórie
+                const catLi = document.createElement('li');
+                catLi.className = 'erp-picker-category';
+                catLi.textContent = cat;
+                list.appendChild(catLi);
 
-          f.onsubmit = async (e) => {
-            e.preventDefault();
-            await submitNewEventForm(f, dateKey, state);
+                // Položky
+                grouped[cat].forEach(p => {
+                    const li = document.createElement('li');
+                    li.className = 'erp-picker-item';
+                    
+                    const hasSugg = p.suggested > 0;
+                    
+                    li.innerHTML = `
+                        <div>
+                            <div class="erp-picker-item-main">${escapeHtml(p.name)}</div>
+                            <div class="erp-picker-item-sub">Skladom: ${safeToFixedLocal(p.stock)} kg</div>
+                        </div>
+                        <div class="erp-picker-item-stats">
+                            ${hasSugg ? `<span class="stat-pill sugg">Návrh: ${safeToFixedLocal(p.suggested)} kg</span>` : ''}
+                        </div>
+                    `;
+                    
+                    li.onclick = () => {
+                        onSelectCallback(p);
+                        // Zatvorenie modalu (hacky way ak showModal vracia close, inak cez DOM)
+                        const modal = document.getElementById('modal-container');
+                        if (modal) modal.style.display = 'none';
+                    };
+                    list.appendChild(li);
+                });
+            });
+            
+            if (filtered.length === 0) {
+                list.innerHTML = '<li style="padding:20px; text-align:center; color:#9ca3af;">Žiadne výrobky sa nenašli.</li>';
+            }
           };
+
+          // Init render
+          renderList();
+          input.focus();
+
+          // Search listener
+          input.oninput = (e) => renderList(e.target.value);
         }
       };
     });
   }
 
-  async function submitNewEventForm(form, dateKey, st){
-    const fd = new FormData(form);
-    const title = (fd.get('title') || '').trim();
-    if (!title){
-      showStatus('Zadaj názov udalosti.', true);
-      return;
-    }
-    const type = fd.get('event_type');
-    const allDay = form.querySelector('input[name="all_day"]').checked;
+  // Export
+  window.renderProductionPlanInline = renderProductionPlanInline;
+  // (Ponechávame aj staré funkcie, ak by ich volalo niečo iné)
+  window.initializePlanningModule = window.initializePlanningModule || function(){};
 
-    let startISO, endISO;
-    if (allDay){
-      startISO = `${dateKey}T00:00`;
-      endISO   = `${dateKey}T23:59`;
-    } else {
-      const st = fd.get('start_time') || '08:00';
-      const et = fd.get('end_time') || '16:00';
-      startISO = `${dateKey}T${st}`;
-      endISO   = `${dateKey}T${et}`;
-    }
-
-    const priority = fd.get('priority') || 'NORMAL';
-    const colorHex = fd.get('color_hex') || null;
-    const description = fd.get('description') || '';
-
-    // Notifikácie
-    const notifyEnabled = form.querySelector('input[name="notify_enabled"]').checked;
-    const reminders = [];
-    if (notifyEnabled){
-      const beforeMin = parseInt(fd.get('notify_before') || '0', 10);
-      const channel   = fd.get('notify_channel') || 'EMAIL';
-      const target    = fd.get('notify_target') || 'CREATOR';
-      if (beforeMin > 0){
-        reminders.push({
-          minutes_before: beforeMin,
-          channel: channel,
-          target_type: target,
-          anchor_field: 'start_at'
-        });
-      }
-    }
-
-    const payload = {
-      title: title,
-      type: type,
-      start_at: startISO,
-      end_at: endISO,
-      all_day: allDay,
-      priority: priority,
-      description: description,
-      color_hex: colorHex,
-      attendee_ids: [],      // zatiaľ prázdne, dá sa rozšíriť
-      resource_ids: [],      // sem vieš neskôr prepojiť auto, zasadačku atď.
-      reminders: reminders,
-      type_specific: {}      // sem v ďalšom kroku doplníme VO, servis, projekty...
-    };
-
-    try{
-      const res = await calendarApi('/api/calendar/events', {
-        method: 'POST',
-        body: payload
-      });
-      if (res && res.error){
-        showStatus(res.error, true);
-        return;
-      }
-
-      showStatus('Udalosť uložená.', false);
-      // zavri modal
-      const modal = document.getElementById('modal-container');
-      if (modal) modal.style.display = 'none';
-
-      // reload aktuálneho mesiaca
-      await loadEventsForMonth(st);
-      renderMonth(st);
-    } catch (e){
-      console.error('calendar create error', e);
-      showStatus('Chyba pri ukladaní udalosti.', true);
-    }
-  }
-
-  // navigácia mesiacov
-  document.getElementById('erp-cal-prev').onclick = async () => {
-    state.currentMonth = new Date(
-      state.currentMonth.getFullYear(),
-      state.currentMonth.getMonth() - 1,
-      1
-    );
-    await reloadMonth();
-  };
-  document.getElementById('erp-cal-next').onclick = async () => {
-    state.currentMonth = new Date(
-      state.currentMonth.getFullYear(),
-      state.currentMonth.getMonth() + 1,
-      1
-    );
-    await reloadMonth();
-  };
-  document.getElementById('erp-cal-today').onclick = async () => {
-    const d = new Date();
-    state.currentMonth = new Date(d.getFullYear(), d.getMonth(), 1);
-    await reloadMonth();
-  };
-
-  // prvé načítanie
-  reloadMonth();
-}
-
-// auto-init po načítaní
-(function(){
-  const root = document.getElementById('section-enterprise-calendar');
-  if (root) initializeEnterpriseCalendar();
 })();
