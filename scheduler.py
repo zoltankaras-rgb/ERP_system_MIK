@@ -4,7 +4,7 @@
 #  - uloha_kontrola_skladu (denne o 14:00)       [ak je LOW_STOCK_EMAIL]
 #  - vykonaj_db_ulohu (automatizované SQL úlohy z DB)
 #  - check_calendar_notifications (Enterprise kalendár – pripomienky)
-#  - ERP export (VYROBKY.CSV) podľa nastavení v ERP (automatický export)
+#  -   - ERP export je ZAKÁZANÝ v scheduleri (VYROBKY.CSV vzniká iba po dennom príjme v Expedícii)
 #  - Hygiene autostart tick (každú minútu)
 #  - B2C birthday bonus (HTTP endpoint raz denne)
 # ===========================================
@@ -24,13 +24,14 @@ from apscheduler.triggers.cron import CronTrigger
 from pytz import timezone
 
 import db_connector
-import office_handler
+
 import hygiene_handler
 from tasks import (
     uloha_kontrola_skladu,
     vykonaj_db_ulohu,
     check_calendar_notifications,
 )
+
 
 # -------------------------------------------------
 # ENV / TZ
@@ -232,55 +233,14 @@ def _load_db_tasks(sched: BlockingScheduler) -> None:
 
 def _schedule_erp_export(sched: BlockingScheduler) -> None:
     """
-    Načíta nastavenia ERP exportu z DB (cez office_handler._get_erp_settings)
-    a naplánuje úlohu generate_erp_export_file na zadaný čas.
+    ZÁMERNE VYPNUTÉ.
+
+    Požiadavka: VYROBKY.CSV sa generuje výhradne po dennom príjme v EXPEDÍCII.
+    Scheduler NESMIE export generovať nikdy.
     """
     job_id = "erp_auto_export_job"
-
-    try:
-        settings = office_handler._get_erp_settings() or {}
-    except Exception:
-        log.exception("ERP Export: neviem načítať nastavenia.")
-        return
-
-    enabled = bool(settings.get("enabled"))
-    time_str = str(settings.get("time", "06:00"))
-
-    log.info("ERP Export settings: enabled=%s time=%s", enabled, time_str)
-
-    if not enabled:
-        _remove_job_if_exists(sched, job_id)
-        log.info("ERP Export je deaktivovaný (enabled=False).")
-        return
-
-    try:
-        hour_str, minute_str = time_str.split(":")
-        hour = int(hour_str)
-        minute = int(minute_str)
-    except Exception as e:
-        log.error("ERP Export: neplatný čas '%s' (%s) -> job ruším", time_str, e)
-        _remove_job_if_exists(sched, job_id)
-        return
-
-    def run_export():
-        try:
-            log.info("ERP Export: spúšťam generate_erp_export_file()")
-            path = office_handler.generate_erp_export_file()
-            log.info("ERP Export OK: %s", path)
-        except Exception:
-            log.exception("ERP Export ERROR")
-
-    sched.add_job(
-        run_export,
-        CronTrigger(hour=hour, minute=minute, timezone=TZ),
-        id=job_id,
-        replace_existing=True,
-        misfire_grace_time=3600,
-        max_instances=1,
-        coalesce=True,
-    )
-    log.info("ERP Export job naplánovaný denne na %02d:%02d", hour, minute)
-
+    _remove_job_if_exists(sched, job_id)
+    log.info("ERP auto export je odstránený. Job '%s' bol (ak existoval) zrušený.", job_id)
 
 def _schedule_hygiene_autostart(sched: BlockingScheduler) -> None:
     """
@@ -354,7 +314,6 @@ def _refresh_all(sched: BlockingScheduler) -> None:
     """
     Refresh definícií:
     - DB tasks
-    - ERP export
     - builtin joby (LOW_STOCK_EMAIL sa môže zmeniť)
     - B2C job (URL sa môže zmeniť)
     - hygiene job necháme aj tak cez replace_existing
@@ -362,7 +321,6 @@ def _refresh_all(sched: BlockingScheduler) -> None:
     log.info("Refresh: reloadujem plánovanie jobov...")
     _schedule_builtin_jobs(sched)
     _load_db_tasks(sched)
-    _schedule_erp_export(sched)
     _schedule_b2c_birthday_bonus(sched)
     _schedule_hygiene_autostart(sched)
     _dump_jobs(sched)
@@ -383,7 +341,6 @@ def build_scheduler() -> BlockingScheduler:
     # initial schedule
     _schedule_builtin_jobs(sched)
     _load_db_tasks(sched)
-    _schedule_erp_export(sched)
     _schedule_b2c_birthday_bonus(sched)
     _schedule_hygiene_autostart(sched)
 
@@ -414,18 +371,17 @@ def _diagnose() -> None:
         ) or []
         log.info("DB automatizovane_ulohy rows=%d", len(rows))
         for r in rows:
-            log.info(" - id=%s enabled=%s cron='%s'",
-                     r.get("id"),
-                     r.get("is_enabled"),
-                     (r.get("cron_retazec") or "").strip())
+            log.info(
+                " - id=%s enabled=%s cron='%s'",
+                r.get("id"),
+                r.get("is_enabled"),
+                (r.get("cron_retazec") or "").strip(),
+            )
     except Exception:
         log.exception("Diagnose: DB query failed")
 
-    try:
-        settings = office_handler._get_erp_settings() or {}
-        log.info("ERP settings: %s", settings)
-    except Exception:
-        log.exception("Diagnose: ERP settings read failed")
+    # ERP export nastavenia sa už nečítajú ani nediagnostikujú.
+    log.info("ERP export: DISABLED (VYROBKY.CSV sa generuje iba po dennom prijme v EXPEDÍCII).")
 
 
 def main(argv: Optional[List[str]] = None) -> int:

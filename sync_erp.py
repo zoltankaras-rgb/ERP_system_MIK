@@ -186,7 +186,9 @@ def run_export(cursor):
 
 def main():
     parser = argparse.ArgumentParser(description='Synchronizácia ERP.')
-    parser.add_argument('--mode', required=True, choices=['import', 'export'])
+    # POZOR: Export do VYROBKY.CSV je v projekte zakázaný.
+    # Export sa generuje výhradne pri uzavretí denného príjmu v EXPEDÍCII.
+    parser.add_argument('--mode', required=True, choices=['import'])
     args = parser.parse_args()
 
     conn = None

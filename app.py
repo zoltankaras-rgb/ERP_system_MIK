@@ -1470,21 +1470,37 @@ import json
 @app.route('/api/erp/settings', methods=['GET', 'POST'])
 @login_required(role=['kancelaria', 'admin'])
 def api_erp_settings():
+    """ZÁMERNE ZAKÁZANÉ.
+
+    Export VYROBKY.CSV sa generuje výhradne pri uzavretí denného príjmu v EXPEDÍCII (finishDailyReception).
+    Automatické plánovanie exportu bolo odstránené.
+
+    Endpoint ponechávame len kvôli spätnej kompatibilite (UI/caching),
+    ale vráti vždy vypnutý stav a POST odmietne.
+    """
     if request.method == 'GET':
-        return jsonify(office_handler._get_erp_settings())
-    else:
-        return jsonify(office_handler.save_erp_settings(request.json))
+        return jsonify({
+            "enabled": False,
+            "time": "06:00",
+            "locked": True,
+            "note": "Automatický export je odstránený. VYROBKY.CSV sa generuje iba po dennom príjme v EXPEDÍCII."
+        })
+    return jsonify({
+        "error": "Nastavenia automatického exportu sú odstránené. Export sa generuje iba po dennom príjme v EXPEDÍCII."
+    }), 403
+
 
 @app.route('/api/erp/manual-export')
 @login_required(role=['kancelaria', 'admin'])
 def api_erp_manual_export():
-    try:
-        path = office_handler.generate_erp_export_file()
-        d = os.path.dirname(path)
-        f = os.path.basename(path)
-        return send_from_directory(d, f, as_attachment=True)
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    """ZÁMERNE ZAKÁZANÉ.
+
+    Manuálny export VYROBKY.CSV z kancelárie bol odstránený.
+    Súbor sa generuje výhradne pri uzavretí denného príjmu v EXPEDÍCII.
+    """
+    return jsonify({
+        "error": "Manuálny export je odstránený. VYROBKY.CSV sa generuje iba po dennom príjme v EXPEDÍCII."
+    }), 410
 
 
 
