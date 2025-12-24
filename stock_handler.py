@@ -1309,7 +1309,7 @@ def get_comprehensive_stock_view():
             COALESCE(p.mj, 'kg') AS unit,
             COALESCE(p.nakupna_cena, 0) AS price
         FROM produkty p
-        WHERE p.typ_polozky IN ('VÝROBOK', 'TOVAR', 'PRODUKT') 
+        WHERE p.typ_polozky IN ('VÝROBOK', 'TOVAR', 'PRODUKT', 'VYROBOK_KUSOVY', 'VÝROBOK_KUSOVÝ')
            OR p.typ_polozky IS NULL
         ORDER BY category, name
     """
