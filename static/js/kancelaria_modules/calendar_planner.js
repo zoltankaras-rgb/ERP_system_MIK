@@ -210,7 +210,7 @@
     const elRefresh = root.querySelector('#planner-refresh');
     const elSummary = root.querySelector('#planner-summary');
 
-    const monthNames = ['Január','Február','Marec','Apríl','Máj','Jún','júl','august','september','október','november','december'];
+    const monthNames = ['Január','Február','Marec','Apríl','Máj','Jún','Júl','August','September','Október','November','December'];
     const weekdays   = ['Po','Ut','St','Št','Pi','So','Ne'];
 
     // --------- Inicializácia stavu ----------
