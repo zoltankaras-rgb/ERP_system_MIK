@@ -64,6 +64,86 @@ function _syncVehicleFromUI(){
   if (vSel && vSel.value) fleetState.selected_vehicle_id = vSel.value;
   return fleetState.selected_vehicle_id;
 }
+// --- UX: pri prepnutí auta/mesiaca vyčisti zobrazenie aby “nepreskakovali” dáta ---
+function _clearFleetViewsOnReload() {
+  try {
+    const log = document.getElementById('fleet-logbook-container');
+    if (log) log.innerHTML = '<p>Načítavam knihu jázd…</p>';
+
+    const ref = document.getElementById('fleet-refueling-container');
+    if (ref) ref.innerHTML = '<p>Načítavam tankovania…</p>';
+
+    const costs = document.getElementById('fleet-costs-container');
+    if (costs) costs.innerHTML = '<p>Načítavam náklady…</p>';
+
+    const ana = document.getElementById('fleet-analysis-container');
+    if (ana) ana.innerHTML = '<p>Načítavam analýzu…</p>';
+
+    const cmpCont = document.getElementById('fleet-compare-container');
+    if (cmpCont) cmpCont.innerHTML = '';
+
+    const cmpChart = document.getElementById('fleet-compare-chart');
+    if (cmpChart) cmpChart.innerHTML = '';
+  } catch (e) {
+    // ticho – je to len UX helper
+  }
+}
+
+// --- Porovnanie: spoľahlivo vráti zoznam vozidiel (fleetState -> DOM -> API) ---
+async function _getVehiclesList() {
+  try {
+    // 1) Najprv globálny stav
+    if (window.fleetState && Array.isArray(window.fleetState.vehicles) && window.fleetState.vehicles.length) {
+      return window.fleetState.vehicles;
+    }
+
+    // 2) Fallback: z DOM selectu (ak je naplnený)
+    const sel = document.getElementById('fleet-vehicle-select');
+    if (sel && sel.options && sel.options.length) {
+      const list = Array.from(sel.options)
+        .filter(o => o && o.value)
+        .map(o => {
+          const text = (o.textContent || '').trim();
+          let name = text, plate = '';
+          const m = text.match(/^(.*)\(([^)]+)\)\s*$/);
+          if (m) {
+            name = (m[1] || '').trim();
+            plate = (m[2] || '').trim();
+          }
+          return { id: o.value, name, license_plate: plate };
+        });
+
+      if (list.length) return list;
+    }
+
+    // 3) Fallback: dotiahni z API (SPRÁVNE cez GET)
+    const period = (typeof _syncPeriodFromUI === 'function')
+      ? _syncPeriodFromUI()
+      : { year: _todayY(), month: _todayM() };
+
+    const year = period.year || _todayY();
+    const month = period.month || _todayM();
+    const vehicleId = (window.fleetState && window.fleetState.selected_vehicle_id) || (sel && sel.value) || '';
+
+    const url =
+      '/api/kancelaria/fleet/getData'
+      + '?vehicle_id=' + encodeURIComponent(vehicleId || '')
+      + '&year=' + encodeURIComponent(year)
+      + '&month=' + encodeURIComponent(month);
+
+    const data = await apiRequest(url);
+
+    if (data && Array.isArray(data.vehicles)) {
+      window.fleetState = window.fleetState || {};
+      window.fleetState.vehicles = data.vehicles;
+      return data.vehicles;
+    }
+  } catch (e) {
+    console.error('[_getVehiclesList] Nepodarilo sa načítať vozidlá:', e);
+  }
+
+  return [];
+}
 
 // --- Stub: staré hromadné uloženie nahradil modalový editor dňa ---
 function handleSaveLogbook(e) {
@@ -201,9 +281,24 @@ function initializeFleetModule() {
   const loadData = function(){ _syncPeriodFromUI(); loadAndRenderFleetData(); };
 
   // Drž state v sync s UI
-  vehicleSelect.onchange = function(){ _syncVehicleFromUI(); loadData(); };
-  yearSelect.onchange    = function(){ _syncPeriodFromUI();  loadData(); };
-  monthSelect.onchange   = function(){ _syncPeriodFromUI();  loadData(); };
+ vehicleSelect.onchange = function(){
+  _syncVehicleFromUI();
+  _clearFleetViewsOnReload();
+  loadData();
+};
+
+yearSelect.onchange = function(){
+  _syncPeriodFromUI();
+  _clearFleetViewsOnReload();
+  loadData();
+};
+
+monthSelect.onchange = function(){
+  _syncPeriodFromUI();
+  _clearFleetViewsOnReload();
+  loadData();
+};
+
 
   document.getElementById('add-vehicle-btn').onclick     = function(){ openAddEditVehicleModal(); };
   document.getElementById('edit-vehicle-btn').onclick    = function(){
@@ -1116,6 +1211,62 @@ async function loadAndRenderFleetAnalysis() {
     container.innerHTML = '<p class="error">Chyba pri načítaní analýzy: ' + (e.message || '') + '</p>';
   }
 }
+
+// Spoľahlivo vráti zoznam vozidiel (fleetState -> DOM -> API)
+async function _getVehiclesList() {
+  try {
+    // 1) Najprv globálny stav
+    if (window.fleetState && Array.isArray(window.fleetState.vehicles) && window.fleetState.vehicles.length) {
+      return window.fleetState.vehicles;
+    }
+
+    // 2) Fallback: z DOM selectu (ak už je naplnený)
+    const sel = document.getElementById('fleet-vehicle-select');
+    if (sel && sel.options && sel.options.length) {
+      const list = Array.from(sel.options)
+        .filter(o => o && o.value)
+        .map(o => {
+          const text = (o.textContent || '').trim();
+          // text je typicky "Názov (ŠPZ)"
+          let name = text, plate = '';
+          const m = text.match(/^(.*)\(([^)]+)\)\s*$/);
+          if (m) {
+            name = (m[1] || '').trim();
+            plate = (m[2] || '').trim();
+          }
+          return { id: o.value, name, license_plate: plate };
+        });
+
+      if (list.length) return list;
+    }
+
+    // 3) Fallback: dotiahni z API (GET – toto je správny spôsob v tvojom module)
+    const period = (typeof _syncPeriodFromUI === 'function') ? _syncPeriodFromUI() : { year: _todayY(), month: _todayM() };
+    const year = period.year || _todayY();
+    const month = period.month || _todayM();
+
+    // vehicle_id môže byť prázdne – backend si zvolí default; cieľ je dostať vehicles[]
+    const vehicleId = (window.fleetState && window.fleetState.selected_vehicle_id) || (sel && sel.value) || '';
+
+    const url =
+      '/api/kancelaria/fleet/getData'
+      + '?vehicle_id=' + encodeURIComponent(vehicleId || '')
+      + '&year=' + encodeURIComponent(year)
+      + '&month=' + encodeURIComponent(month);
+
+    const data = await apiRequest(url);
+
+    if (data && Array.isArray(data.vehicles)) {
+      window.fleetState = window.fleetState || {};
+      window.fleetState.vehicles = data.vehicles;
+      return data.vehicles;
+    }
+  } catch (e) {
+    console.error('[_getVehiclesList] Nepodarilo sa načítať vozidlá:', e);
+  }
+  return [];
+}
+
 // =================== POROVNANIE (UI + dáta + graf) ===================
 async function setupFleetComparisonUI(){
   const filters = document.getElementById('fleet-compare-filters');
@@ -1533,199 +1684,4 @@ try{
 
   document.addEventListener('DOMContentLoaded', scanAndApply);
   setTimeout(scanAndApply, 0);
-})();
-/* =========================================================
-   FLEET FIX – prepínanie vozidiel bez prenášania údajov
-   Súbor: Projekt/static/js/kancelaria.js
-   Vložiť na KONIEC súboru
-========================================================= */
-(function () {
-  if (window.__fleet_switch_fix_inited) return;
-  window.__fleet_switch_fix_inited = true;
-
-  function getCookie(name) {
-    return document.cookie.split("; ").reduce((acc, part) => {
-      const i = part.indexOf("=");
-      const k = i >= 0 ? part.slice(0, i) : part;
-      const v = i >= 0 ? part.slice(i + 1) : "";
-      return k === name ? decodeURIComponent(v) : acc;
-    }, "");
-  }
-
-  // Backend CSRF kontroluje header X-CSRF-Token / X-CSRFToken atď.
-  // a app.py nastavuje cookies csrf_token aj XSRF-TOKEN. :contentReference[oaicite:4]{index=4}
-  function csrfToken() {
-    return getCookie("XSRF-TOKEN") || getCookie("csrf_token") || "";
-  }
-
-  async function postJson(url, payload) {
-    const res = await fetch(url, {
-      method: "POST",
-      credentials: "same-origin",
-      headers: {
-        "Content-Type": "application/json",
-        "X-CSRF-Token": csrfToken(),
-      },
-      body: JSON.stringify(payload || {}),
-    });
-
-    if (!res.ok) {
-      const txt = await res.text().catch(() => "");
-      throw new Error(`HTTP ${res.status} ${url} ${txt}`);
-    }
-    const ct = (res.headers.get("content-type") || "").toLowerCase();
-    if (ct.includes("application/json")) return await res.json();
-    const txt = await res.text().catch(() => "");
-    return txt ? JSON.parse(txt) : {};
-  }
-
-  // Skúsime pár bežných názvov endpointu – ponechaj prvý, ak vieš presný.
-  const GET_ENDPOINTS = [
-    "/api/kancelaria/fleet/getData",
-    "/api/kancelaria/fleet/getFleetData",
-    "/api/kancelaria/fleet/get_fleet_data",
-  ];
-
-  async function fetchFleetData(vehicleId, year, month) {
-    // KRITICKÉ: parameter sa musí volať presne vehicle_id (nie vehicleId)!
-    // Inak backend vyberie prvé vozidlo. :contentReference[oaicite:5]{index=5}
-    const payload = {
-      vehicle_id: Number(vehicleId || 0),
-      year: year ? Number(year) : undefined,
-      month: month ? Number(month) : undefined,
-    };
-
-    let lastErr = null;
-    for (const url of GET_ENDPOINTS) {
-      try {
-        const data = await postJson(url, payload);
-        if (data && !data.error && (Array.isArray(data.vehicles) || Array.isArray(data.logs))) {
-          return data;
-        }
-      } catch (e) {
-        lastErr = e;
-      }
-    }
-    throw lastErr || new Error("Fleet endpoint pre načítanie dát sa nenašiel.");
-  }
-
-  function fleetRoot() {
-    return document.getElementById("section-fleet");
-  }
-
-  function findVehicleSelect(root) {
-    if (!root) return null;
-    // Najprv skús “pravdepodobné” ID/name, potom fallback na prvý select v sekcii
-    return (
-      root.querySelector("#fleet-vehicle-select") ||
-      root.querySelector("#fleet_vehicle_select") ||
-      root.querySelector('select[name="vehicle_id"]') ||
-      root.querySelector('select[name="fleet_vehicle_id"]') ||
-      root.querySelector("select")
-    );
-  }
-
-  function findYear(root) {
-    if (!root) return null;
-    return (
-      root.querySelector("#fleet-year") ||
-      root.querySelector("#fleet_year") ||
-      root.querySelector('select[name="year"]') ||
-      root.querySelector('input[name="year"]')
-    );
-  }
-
-  function findMonth(root) {
-    if (!root) return null;
-    return (
-      root.querySelector("#fleet-month") ||
-      root.querySelector("#fleet_month") ||
-      root.querySelector('select[name="month"]') ||
-      root.querySelector('input[name="month"]')
-    );
-  }
-
-  function clearFleetInputs(root) {
-    if (!root) return;
-    const keep = new Set([findVehicleSelect(root), findYear(root), findMonth(root)].filter(Boolean));
-    root.querySelectorAll("input, select, textarea").forEach((el) => {
-      if (keep.has(el)) return;
-      const tag = el.tagName.toLowerCase();
-      const type = (el.getAttribute("type") || "").toLowerCase();
-
-      if (tag === "select") el.value = "";
-      else if (tag === "textarea") el.value = "";
-      else if (tag === "input") {
-        if (type === "checkbox" || type === "radio") el.checked = false;
-        else el.value = "";
-      }
-    });
-  }
-
-  function applyFleetState(data) {
-    // v tvojom projekte je bežné držať globálny state; prepíš ho po načítaní
-    window.fleetState = window.fleetState || {};
-    window.fleetState.vehicles = data.vehicles || [];
-    window.fleetState.selected_vehicle_id = data.selected_vehicle_id;
-    window.fleetState.selected_year = data.selected_year;
-    window.fleetState.selected_month = data.selected_month;
-    window.fleetState.logs = data.logs || [];
-    window.fleetState.refuelings = data.refuelings || [];
-    window.fleetState.last_odometer = data.last_odometer || 0;
-  }
-
-  async function reloadFleetForSelection() {
-    const root = fleetRoot();
-    if (!root) return;
-
-    const sel = findVehicleSelect(root);
-    if (!sel) return;
-
-    const vehicleId = Number(sel.value || 0);
-    if (!vehicleId) return;
-
-    const yEl = findYear(root);
-    const mEl = findMonth(root);
-
-    // Dôležité: vizuálne vyčisti sekciu, aby Auto1 “nepreskakovalo” do Auto2
-    clearFleetInputs(root);
-
-    const data = await fetchFleetData(
-      vehicleId,
-      yEl ? yEl.value : undefined,
-      mEl ? mEl.value : undefined
-    );
-
-    applyFleetState(data);
-
-    // Ak tvoj existujúci kód má renderer, zavolaj ho (názvy sú tu ako fallbacky).
-    if (typeof window.renderFleetTables === "function") window.renderFleetTables();
-    else if (typeof window.renderFleetModule === "function") window.renderFleetModule();
-    else if (typeof window.renderFleet === "function") window.renderFleet();
-  }
-
-  function bindFleetVehicleChange() {
-    const root = fleetRoot();
-    if (!root) return;
-
-    const sel = findVehicleSelect(root);
-    if (!sel) return;
-
-    if (sel.__fleetFixBound) return;
-    sel.__fleetFixBound = true;
-
-    sel.addEventListener("change", () => {
-      reloadFleetForSelection().catch(console.error);
-    });
-
-    // prvotné načítanie pri vstupe do sekcie
-    reloadFleetForSelection().catch(console.error);
-  }
-
-  // napoj sa na existujúcu inicializáciu flotily
-  const origInit = window.initializeFleetModule;
-  window.initializeFleetModule = function () {
-    if (typeof origInit === "function") origInit();
-    bindFleetVehicleChange();
-  };
 })();
