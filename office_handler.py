@@ -5929,57 +5929,90 @@ def get_rozrabka_import_status():
 
 def _parse_rozrabka_csv(file_path, import_id):
     """
-    Parsuje fixný formát z rozrábky a páruje EAN s tabuľkou 'sklad'.
+    Parsuje import z rozrábky. Podporuje:
+    1. Fixný formát oddelený medzerami (starý systém)
+    2. CSV formát oddelený bodkočiarkou (;)
     """
     items_to_import = []
     
     def _clean_float(s):
         if not s: return 0.0
-        try: return float(str(s).replace(',', '.').replace(' ', ''))
+        # Nahradí čiarku bodkou a odstráni medzery (napr. "1 200,50")
+        try: return float(str(s).replace(',', '.').replace(' ', '').replace('\xa0', ''))
         except: return 0.0
 
     try:
+        # Skúsime rôzne kódovania, lebo Excel často používa cp1250
         encoding = 'cp1250'
+        try:
+            with open(file_path, 'r', encoding=encoding) as f: f.read()
+        except:
+            encoding = 'utf-8'
+
         with open(file_path, 'r', encoding=encoding, errors='ignore') as f:
             for line in f:
                 line = line.rstrip('\r\n')
-                if len(line) < 15 or "REG_CIS" in line: continue
-                
-                parts = line.split()
-                if len(parts) < 3: continue
+                if not line or "REG_CIS" in line: continue # Preskočíme hlavičku
 
-                # Predpoklad formátu: EAN (prvé), Cena (predposledné), Množstvo (posledné)
+                parts = []
+                # Detekcia oddelovača (bodkočiarka vs medzera)
+                if ';' in line:
+                    parts = line.split(';')
+                else:
+                    parts = line.split()
+
+                if len(parts) < 2: continue
+
+                # LOGIKA PARSOVANIA
+                # 1. EAN je vždy prvý
                 ean_raw = parts[0].strip()
+                # Očistíme EAN od nečíselných znakov (keby tam boli úvodzovky a pod.)
+                ean_clean = "".join(filter(str.isdigit, ean_raw))
                 
-                if not ean_raw.isdigit(): 
+                if not ean_clean: 
                     continue
 
-                qty_raw = parts[-1]
-                price_raw = parts[-2]
+                # 2. Cena a Množstvo
+                # Predpokladáme: EAN ... ... Cena Množstvo (posledné dva stĺpce)
+                # Alebo pre CSV: EAN;NAZOV;...;CENA;MNOZSTVO
+                
+                try:
+                    qty_raw = parts[-1]
+                    price_raw = parts[-2]
+                    
+                    # Ak je len EAN a Množstvo (napr. inventúrny zoznam), cena môže chýbať
+                    if len(parts) == 2:
+                        price_raw = "0"
+                except:
+                    continue
                 
                 qty = _clean_float(qty_raw)
                 price = _clean_float(price_raw)
 
                 if qty <= 0: continue
 
-                # Nájdenie názvu v systéme podľa EAN
+                # 3. Nájdenie názvu v systéme podľa EAN (aby sme mali pekný názov v logu)
                 row = db_connector.execute_query(
                     "SELECT nazov FROM sklad WHERE ean = %s LIMIT 1", 
-                    (ean_raw,), fetch='one'
+                    (ean_clean,), fetch='one'
                 )
                 
                 if not row:
-                    # Skúsime LIKE pre nuly na začiatku
+                    # Skúsime LIKE pre nuly na začiatku (0000...)
                     row = db_connector.execute_query(
                         "SELECT nazov FROM sklad WHERE ean LIKE %s LIMIT 1", 
-                        (f"%{int(ean_raw)}%",), fetch='one'
+                        (f"%{int(ean_clean)}%",), fetch='one'
                     )
 
                 if row and row.get('nazov'):
                     system_name = row['nazov']
                 else:
-                    # Fallback: Názov z CSV
-                    system_name = " ".join(parts[1:-2])
+                    # Fallback: Ak nemáme názov v DB, skúsime ho zobrať zo súboru
+                    # Ak sú tam medzery, spojíme stredné časti. Ak bodkočiarky, vezmeme druhý stĺpec.
+                    if ';' in line and len(parts) > 1:
+                        system_name = parts[1].strip()
+                    else:
+                        system_name = " ".join(parts[1:-2]) if len(parts) > 3 else "Neznámy produkt"
 
                 items_to_import.append({
                     "category": "maso",
@@ -5987,7 +6020,7 @@ def _parse_rozrabka_csv(file_path, import_id):
                     "name": system_name,
                     "quantity": qty,
                     "price": price if price > 0 else None,
-                    "note": f"Import Rozrábka #{import_id} (EAN: {ean_raw})",
+                    "note": f"Import Rozrábka #{import_id} (EAN: {ean_clean})",
                     "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 })
 
@@ -5995,6 +6028,7 @@ def _parse_rozrabka_csv(file_path, import_id):
         return {"error": f"Chyba pri čítaní CSV: {str(e)}"}
 
     return {"items": items_to_import}
+
 def _execute_rozrabka_import(file_path, import_id):
     """
     Spoločný vykonávač pre import z rozrábky DO CENTRÁLNEHO SKLADU (`sklad`).
