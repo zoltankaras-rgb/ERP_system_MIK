@@ -241,7 +241,7 @@
   }
 
  // ------------- Suroviny (výrobný sklad) - S BALENÍM -------------
-  async function renderRaw(shell){
+async function renderRaw(shell){
     const body = qs("#stock-body", shell);
     body.innerHTML = ""; 
     body.appendChild(loading()); 
@@ -316,7 +316,8 @@
                     <th>Názov</th>
                     <th>Balenie</th> <th>Typ</th>
                     <th style="text-align:right">Cena (€)</th>
-                    <th style="text-align:right; background:#e0f2fe;">Centrál (${defaultUnit})</th> <th style="text-align:right">Výroba (${defaultUnit})</th>
+                    <th style="text-align:right; background:#e0f2fe;">Centrál (${defaultUnit})</th>
+                    <th style="text-align:right">Výroba (${defaultUnit})</th>
                     <th style="width:280px">Akcie</th>
                 </tr>
               </thead>
@@ -324,7 +325,8 @@
               <tfoot class="total-row" style="font-weight:bold; background:#f9f9f9;">
                 <tr>
                     <td colspan="5">Súčet kategórie</td>
-                    <td style="text-align:right" class="js-sum-central">0.00</td> <td style="text-align:right" class="js-sum">0.00</td>
+                    <td style="text-align:right" class="js-sum-central">0.00</td>
+                    <td style="text-align:right" class="js-sum">0.00</td>
                     <td></td>
                 </tr>
               </tfoot>
@@ -332,25 +334,30 @@
           `);
           const tb = qs("tbody", table);
           let sum = 0;
+          let sumCentral = 0;
 
           rows.forEach(r=>{
-            const qty = r.quantity != null ? Number(r.quantity) : 0;
-            const centralQty = r.central_quantity != null ? Number(r.central_quantity) : 0; // <--- Načítanie
+            const qty = r.quantity != null ? Number(r.quantity) : (r.mnozstvo != null ? Number(r.mnozstvo) : 0);
+            
+            // OPRAVA: Definícia premennej PRED jej použitím v HTML
+            const centralQty = r.central_quantity != null ? Number(r.central_quantity) : 0;
+            
             const price = r.price != null ? Number(r.price) : 0;
-          
+            const ean = r.ean || '';
             
             // Spracovanie balenia
             let packInfo = '';
             if (r.pack_qty) {
-                // Ak máme množstvo, zobrazíme napr. "0.500 kg"
                 packInfo = `<span class="badge" style="background:#e0f2fe; color:#0369a1;">${Number(r.pack_qty).toFixed(3)} ${r.pack_mj || ''}</span>`;
             }
 
             const tr = el(`
               <tr data-name="${txt(r.nazov)}" data-cat="${cat}">
-                <td style="font-family:monospace; color:#666;">${escapeHtml(r.ean||'')}</td>
+                <td style="font-family:monospace; color:#666;">${escapeHtml(ean)}</td>
                 <td class="c-name" style="font-weight:bold;">${txt(r.nazov)}</td>
+                
                 <td>${packInfo}</td>
+                
                 <td style="color:#666; font-size:0.9em">${label[cat].split(' – ')[0]}</td>
                 <td style="text-align:right;">${fmt(price)}</td>
                 
@@ -359,12 +366,17 @@
                 </td>
 
                 <td class="c-qty" style="text-align:right; font-weight:bold; font-size:1.1em; color:${qty < 0 ? 'red' : 'inherit'}">
-                    ${fmt(qty, 3)}
+                    ${fmt(qty, 3)} <small class="text-muted">${defaultUnit}</small>
                 </td>
                 
-                <td class="c-actions" ...>...</td>
+                <td class="c-actions" style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap; justify-content:flex-end;">
+                  <button class="btn-secondary btn-sm js-editqty" title="Upraviť množstvo"><i class="fa-solid fa-pencil"></i></button>
+                  <button class="btn-secondary btn-sm js-editcard" title="Upraviť kartu"><i class="fa-solid fa-id-card"></i></button>
+                  <button class="btn-danger btn-sm js-del" title="Zmazať"><i class="fa-solid fa-trash"></i></button>
+                </td>
               </tr>
             `);
+
             // Edit množstva
             qs(".js-editqty", tr).addEventListener("click", async ()=>{
               if (tr.classList.contains("editing-qty")) return;
@@ -428,10 +440,13 @@
 
             tb.appendChild(tr);
             sum += qty;
+            sumCentral += centralQty; // Pripočítanie do súčtu
           });
 
+          // Zobrazenie súčtov v pätičke
           qs(".js-sum", table).textContent = `${fmt(sum, 3)} ${defaultUnit}`;
-          qs(".js-sum-central", table).textContent = `${fmt(sumCentral, 3)} ${defaultUnit}`; // <--- Zápis
+          qs(".js-sum-central", table).textContent = `${fmt(sumCentral, 3)} ${defaultUnit}`;
+          
           wrap.appendChild(table);
           card.appendChild(wrap);
           container.appendChild(card);
