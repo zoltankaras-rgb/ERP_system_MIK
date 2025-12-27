@@ -51,6 +51,7 @@ from pricelist_handler import pricelist_bp # Import
 import temperature_handler
 import core_temp_handler
 from pdf_generator import create_pricelist_pdf
+import integration_handler
 # ===================== ENTERPRISE KALENDÁR – KONŠTANTY =========================
 
 EVENT_STATUS_OPEN = 'OPEN'
@@ -1077,24 +1078,38 @@ def kanc_get_exp_inv_detail():
 
 def _finish_daily_reception_and_export(date_str: str, worker_name: str):
     """
-    1) Uzavrie denný príjem v EXPEDÍCII (expedition_handler.finish_daily_reception)
-    2) Ak je všetko OK, vygeneruje VYROBKY.CSV z prijmov expedície za daný deň.
+    1) Uzavrie denný príjem v EXPEDÍCII (v databáze).
+    2) Vygeneruje exportný CSV súbor cez integration_handler.
     """
+    # 1. Uzavretie v DB (status sa zmení na 'Ukončené')
     res = expedition_handler.finish_daily_reception(date_str, worker_name)
-    # Ak handler vrátil dict s errorom, nerob export
+    
+    # Ak nastala chyba pri uzatváraní v DB, export nerobíme
     if isinstance(res, dict) and res.get("error"):
         return res
 
-    # Ak máme platný dátum, skús spraviť export
+    # 2. Generovanie CSV exportu (jediné povolené miesto)
     if date_str:
         try:
-            office_handler.generate_erp_export_file_for_acceptance_day(date_str)
+            print(f">>> Spúšťam export pre deň {date_str} cez integration_handler...")
+            
+            # Voláme priamo funkciu z integration_handler.py
+            export_res = integration_handler.generate_daily_receipt_export(date_str)
+            
+            if export_res.get("error"):
+                print(f"CHYBA pri exporte: {export_res['error']}")
+                # Pridáme varovanie do odpovede, ale proces nezastavíme (DB je už uzavretá)
+                if isinstance(res, dict):
+                    res["warning"] = f"Deň uzavretý, ale export zlyhal: {export_res['error']}"
+            else:
+                print(f">>> Export OK: {export_res.get('file_path')}")
+
         except Exception as e:
-            # neprerušuj kvôli tomu celý request, len pridaj varovanie
+            print(f"CRITICAL ERROR pri exporte: {e}")
             if isinstance(res, dict):
-                res.setdefault("warning", str(e))
+                res["warning"] = f"Export zlyhal na výnimku: {str(e)}"
+
     return res
-   
 
 @app.route('/api/expedicia/finishDailyReception', methods=['POST'])
 @login_required(role='expedicia')
