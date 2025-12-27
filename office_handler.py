@@ -6239,16 +6239,20 @@ def get_rozrabka_pdf_data(import_ref):
     }
     # Vložte/Nahraďte toto v súbore office_handler.py
 
+# office_handler.py
+
 def _get_production_overview():
     """
-    Načíta stav VÝROBNÉHO skladu (sklad_vyroba).
+    Načíta stav VÝROBNÉHO skladu (sklad_vyroba) a CENTRÁLNEHO skladu (sklad).
     Zobrazuje aj mínusové hodnoty.
     """
-    # Používame LEFT JOIN na sklad_vyroba, aby sme videli realitu vo výrobe
+    # Pridali sme stĺpec s.mnozstvo ako central_quantity
     sql = """
         SELECT
             s.nazov,
-            COALESCE(sv.mnozstvo, 0)      AS quantity,  -- Toto je množstvo vo výrobe
+            COALESCE(s.mnozstvo, 0)       AS central_quantity,  -- <--- TOTO SME PRIDALI
+            COALESCE(sv.mnozstvo, 0)      AS quantity,          -- Množstvo vo výrobe
+            s.ean,                                              -- EAN pre kontrolu
             LOWER(COALESCE(s.typ, ''))    AS typ,
             LOWER(COALESCE(s.podtyp, '')) AS podtyp
         FROM sklad s
@@ -6261,7 +6265,9 @@ def _get_production_overview():
         "items": [
             {
                 "nazov":    r["nazov"],
-                "quantity": float(r["quantity"] or 0.0), # Tu prejde aj záporné číslo
+                "ean":      r.get("ean", ""),
+                "quantity": float(r["quantity"] or 0.0),
+                "central_quantity": float(r["central_quantity"] or 0.0), # <--- Posielame na frontend
                 "typ":      r["typ"] or "",
                 "podtyp":   r["podtyp"] or "",
             }

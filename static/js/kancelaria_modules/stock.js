@@ -316,7 +316,7 @@
                     <th>Názov</th>
                     <th>Balenie</th> <th>Typ</th>
                     <th style="text-align:right">Cena (€)</th>
-                    <th style="text-align:right">Sklad (${defaultUnit})</th>
+                    <th style="text-align:right; background:#e0f2fe;">Centrál (${defaultUnit})</th> <th style="text-align:right">Výroba (${defaultUnit})</th>
                     <th style="width:280px">Akcie</th>
                 </tr>
               </thead>
@@ -324,7 +324,7 @@
               <tfoot class="total-row" style="font-weight:bold; background:#f9f9f9;">
                 <tr>
                     <td colspan="5">Súčet kategórie</td>
-                    <td style="text-align:right" class="js-sum">0.00</td>
+                    <td style="text-align:right" class="js-sum-central">0.00</td> <td style="text-align:right" class="js-sum">0.00</td>
                     <td></td>
                 </tr>
               </tfoot>
@@ -347,25 +347,23 @@
 
             const tr = el(`
               <tr data-name="${txt(r.nazov)}" data-cat="${cat}">
-                <td style="font-family:monospace; color:#666;">${escapeHtml(ean)}</td>
+                <td style="font-family:monospace; color:#666;">${escapeHtml(r.ean||'')}</td>
                 <td class="c-name" style="font-weight:bold;">${txt(r.nazov)}</td>
-                
                 <td>${packInfo}</td>
-                
                 <td style="color:#666; font-size:0.9em">${label[cat].split(' – ')[0]}</td>
                 <td style="text-align:right;">${fmt(price)}</td>
+                
+                <td style="text-align:right; background:#f0f9ff; font-weight:bold; color:#0369a1;">
+                    ${fmt(centralQty, 3)}
+                </td>
+
                 <td class="c-qty" style="text-align:right; font-weight:bold; font-size:1.1em; color:${qty < 0 ? 'red' : 'inherit'}">
-                    ${fmt(qty, 3)} <small class="text-muted">${defaultUnit}</small>
+                    ${fmt(qty, 3)}
                 </td>
                 
-                <td class="c-actions" style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap; justify-content:flex-end;">
-                  <button class="btn-secondary btn-sm js-editqty" title="Upraviť množstvo"><i class="fa-solid fa-pencil"></i></button>
-                  <button class="btn-secondary btn-sm js-editcard" title="Upraviť kartu"><i class="fa-solid fa-id-card"></i></button>
-                  <button class="btn-danger btn-sm js-del" title="Zmazať"><i class="fa-solid fa-trash"></i></button>
-                </td>
+                <td class="c-actions" ...>...</td>
               </tr>
             `);
-
             // Edit množstva
             qs(".js-editqty", tr).addEventListener("click", async ()=>{
               if (tr.classList.contains("editing-qty")) return;
@@ -432,6 +430,7 @@
           });
 
           qs(".js-sum", table).textContent = `${fmt(sum, 3)} ${defaultUnit}`;
+          qs(".js-sum-central", table).textContent = `${fmt(sumCentral, 3)} ${defaultUnit}`; // <--- Zápis
           wrap.appendChild(table);
           card.appendChild(wrap);
           container.appendChild(card);
