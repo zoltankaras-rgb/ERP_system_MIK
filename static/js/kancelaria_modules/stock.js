@@ -269,10 +269,10 @@ async function renderRaw(shell){
     };
 
     try{
+      // Použijeme pôvodný endpoint, ktorý vracia dáta pre výrobu
       const res = await apiRequest("/api/kancelaria/getRawMaterialStockOverview");
       const items = Array.isArray(res?.items) ? res.items : [];
 
-      // Datalist
       const dlHtml = items.map(r => `<option value="${r.nazov}"></option>`).join("");
       if (!qs("#rm-name-dl", shell)) shell.appendChild(el(`<datalist id="rm-name-dl">${dlHtml}</datalist>`));
       else qs("#rm-name-dl", shell).innerHTML = dlHtml;
@@ -316,8 +316,7 @@ async function renderRaw(shell){
                     <th>Názov</th>
                     <th>Balenie</th> <th>Typ</th>
                     <th style="text-align:right">Cena (€)</th>
-                    <th style="text-align:right; background:#e0f2fe;">Centrál (${defaultUnit})</th>
-                    <th style="text-align:right">Výroba (${defaultUnit})</th>
+                    <th style="text-align:right">Sklad (${defaultUnit})</th>
                     <th style="width:280px">Akcie</th>
                 </tr>
               </thead>
@@ -325,7 +324,6 @@ async function renderRaw(shell){
               <tfoot class="total-row" style="font-weight:bold; background:#f9f9f9;">
                 <tr>
                     <td colspan="5">Súčet kategórie</td>
-                    <td style="text-align:right" class="js-sum-central">0.00</td>
                     <td style="text-align:right" class="js-sum">0.00</td>
                     <td></td>
                 </tr>
@@ -334,18 +332,12 @@ async function renderRaw(shell){
           `);
           const tb = qs("tbody", table);
           let sum = 0;
-          let sumCentral = 0;
 
           rows.forEach(r=>{
             const qty = r.quantity != null ? Number(r.quantity) : (r.mnozstvo != null ? Number(r.mnozstvo) : 0);
-            
-            // OPRAVA: Definícia premennej PRED jej použitím v HTML
-            const centralQty = r.central_quantity != null ? Number(r.central_quantity) : 0;
-            
             const price = r.price != null ? Number(r.price) : 0;
             const ean = r.ean || '';
             
-            // Spracovanie balenia
             let packInfo = '';
             if (r.pack_qty) {
                 packInfo = `<span class="badge" style="background:#e0f2fe; color:#0369a1;">${Number(r.pack_qty).toFixed(3)} ${r.pack_mj || ''}</span>`;
@@ -355,20 +347,12 @@ async function renderRaw(shell){
               <tr data-name="${txt(r.nazov)}" data-cat="${cat}">
                 <td style="font-family:monospace; color:#666;">${escapeHtml(ean)}</td>
                 <td class="c-name" style="font-weight:bold;">${txt(r.nazov)}</td>
-                
                 <td>${packInfo}</td>
-                
                 <td style="color:#666; font-size:0.9em">${label[cat].split(' – ')[0]}</td>
                 <td style="text-align:right;">${fmt(price)}</td>
-                
-                <td style="text-align:right; background:#f0f9ff; font-weight:bold; color:#0369a1;">
-                    ${fmt(centralQty, 3)}
-                </td>
-
                 <td class="c-qty" style="text-align:right; font-weight:bold; font-size:1.1em; color:${qty < 0 ? 'red' : 'inherit'}">
                     ${fmt(qty, 3)} <small class="text-muted">${defaultUnit}</small>
                 </td>
-                
                 <td class="c-actions" style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap; justify-content:flex-end;">
                   <button class="btn-secondary btn-sm js-editqty" title="Upraviť množstvo"><i class="fa-solid fa-pencil"></i></button>
                   <button class="btn-secondary btn-sm js-editcard" title="Upraviť kartu"><i class="fa-solid fa-id-card"></i></button>
@@ -410,7 +394,6 @@ async function renderRaw(shell){
                 const newQty = parseAmount(qs(".js-newqty", tr).value, 3);
                 const name = tr.dataset.name;
                 if (newQty == null){ alert("Neplatné množstvo."); return; }
-                
                 if (!confirmTwice(`Upraviť množstvo položky „${name}“ na ${newQty.toFixed(3)} ${defaultUnit}?`,"Prosím potvrďte ešte raz úpravu množstva.")) return;
                 try{
                   await apiRequest("/api/kancelaria/stock/updateProductionItemQty", "POST", { name, quantity: newQty });
@@ -440,13 +423,9 @@ async function renderRaw(shell){
 
             tb.appendChild(tr);
             sum += qty;
-            sumCentral += centralQty; // Pripočítanie do súčtu
           });
 
-          // Zobrazenie súčtov v pätičke
           qs(".js-sum", table).textContent = `${fmt(sum, 3)} ${defaultUnit}`;
-          qs(".js-sum-central", table).textContent = `${fmt(sumCentral, 3)} ${defaultUnit}`;
-          
           wrap.appendChild(table);
           card.appendChild(wrap);
           container.appendChild(card);
@@ -466,7 +445,6 @@ async function renderRaw(shell){
         newSearch.addEventListener("input", (e) => {
           const q = (e.target.value || "").toLowerCase().trim();
           if (!q) { draw(allGroups); return; }
-          
           const filtered = items.filter(r => {
             const cat = catOf(r);
             const ean = String(r.ean || '').toLowerCase();

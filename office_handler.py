@@ -6031,141 +6031,132 @@ def _parse_rozrabka_csv(file_path, import_id):
 
 def _execute_rozrabka_import(file_path, import_id):
     """
-    Spoločný vykonávač pre import z rozrábky DO CENTRÁLNEHO SKLADU (`sklad`).
-    OPRAVA: Robustné párovanie EAN (13-miestny s nulami aj bez nich - rovnako ako expedícia).
-    Ak položka neexistuje, vytvorí ju.
+    Import z rozrábky:
+    1. Parsuje súbor (fixný formát alebo CSV s bodkočiarkou).
+    2. Aktualizuje/Vytvorí kartu v 'sklad' (Centrál) - kvôli cene.
+    3. PRIPÍŠE MNOŽSTVO DO 'sklad_vyroba' (Výrobný sklad).
     """
-    # 1. Parsovanie CSV
-    parsed = _parse_rozrabka_csv(file_path, import_id)
-    if "error" in parsed:
-        return parsed
-    
-    items = parsed["items"]
-    if not items:
-        return {"error": "Súbor neobsahuje žiadne platné položky (skontrolujte EAN kódy)."}
+    # --- 1. PARSOVANIE (Vylepšené) ---
+    items = []
+    try:
+        def _clean_float(s):
+            if not s: return 0.0
+            try: return float(str(s).replace(',', '.').replace(' ', '').replace('\xa0', ''))
+            except: return 0.0
 
+        encoding = 'cp1250'
+        try:
+            with open(file_path, 'r', encoding=encoding) as f: f.read()
+        except:
+            encoding = 'utf-8'
+
+        with open(file_path, 'r', encoding=encoding, errors='ignore') as f:
+            for line in f:
+                line = line.rstrip('\r\n')
+                if not line or "REG_CIS" in line: continue
+
+                parts = line.split(';') if ';' in line else line.split()
+                if len(parts) < 2: continue
+
+                ean_raw = "".join(filter(str.isdigit, parts[0].strip()))
+                if not ean_raw: continue
+
+                try:
+                    qty = _clean_float(parts[-1])
+                    # Ak je tam cena, je predposledná, inak 0
+                    price = _clean_float(parts[-2]) if len(parts) > 2 else 0.0
+                except: continue
+
+                if qty <= 0: continue
+
+                # Nájdenie názvu v systéme
+                row = db_connector.execute_query(
+                    "SELECT nazov FROM sklad WHERE ean = %s OR ean LIKE %s LIMIT 1", 
+                    (ean_raw, f"%{int(ean_raw)}%"), fetch='one'
+                )
+                
+                # Fallback názov zo súboru
+                if row and row.get('nazov'):
+                    system_name = row['nazov']
+                else:
+                    if ';' in line and len(parts) > 1:
+                        system_name = parts[1].strip()
+                    else:
+                        system_name = " ".join(parts[1:-2]) if len(parts) > 3 else f"Produkt {ean_raw}"
+
+                items.append({
+                    "name": system_name,
+                    "ean": ean_raw,
+                    "qty": qty,
+                    "price": price,
+                    "note": f"Import Rozrábka #{import_id} (EAN: {ean_raw})"
+                })
+
+    except Exception as e:
+        return {"error": f"Chyba pri čítaní súboru: {str(e)}"}
+
+    if not items:
+        return {"error": "Súbor neobsahuje žiadne platné položky."}
+
+    # --- 2. ZÁPIS DO DATABÁZY ---
     conn = db_connector.get_connection()
     try:
         cur = conn.cursor()
-        updated_count = 0
-        inserted_count = 0
+        count = 0
         
         for it in items:
-            # Extrakcia EAN z poznámky (formát v items je: "Import Rozrábka #ID (EAN: 12345)")
-            ean_csv = ""
-            if "EAN:" in it.get('note', ''):
-                try: 
-                    # Zoberie všetko po 'EAN: ' a odstráni prípadnú zatvorku na konci a iné znaky
-                    ean_raw_str = it['note'].split('EAN: ')[1].split(')')[0].strip()
-                    ean_csv = "".join(filter(str.isdigit, ean_raw_str)) # Len číslice
-                except: 
-                    pass
-            
-            try:
-                qty_new = float(it['quantity'])
-                price_new = float(it['price']) if it['price'] is not None else 0.0
-            except: continue
+            name = it['name']
+            qty = it['qty']
+            price = it['price']
+            ean = it['ean']
 
-            # --- KROK A: Nájdi položku v CENTRÁLNOM SKLADE ---
-            row = None
-            ean_full = None
-            ean_short = None
+            # A) Aktualizácia 'sklad' (Centrál) - nutné pre existenciu karty a cenu
+            # Zistíme, či existuje
+            cur.execute("SELECT nazov, mnozstvo, nakupna_cena FROM sklad WHERE nazov=%s", (name,))
+            row = cur.fetchone()
 
-            if ean_csv:
-                # Logika párovania "ako expedícia":
-                # 1. ean_full = 13 znakov, doplnené nuly zľava (napr. 0000000023112)
-                # 2. ean_short = bez úvodných núl (napr. 23112)
-                ean_full = ean_csv.rjust(13, '0')[-13:]
-                ean_short = ean_csv.lstrip('0') or ean_full
-
-                # Hľadáme zhodu v DB (či už je uložený s nulami alebo bez)
-                cur.execute("""
-                    SELECT nazov, mnozstvo, nakupna_cena 
-                    FROM sklad 
-                    WHERE ean = %s OR ean = %s 
-                    LIMIT 1
-                """, (ean_full, ean_short))
-                row = cur.fetchone()
-
-            # Fallback: Hľadanie podľa názvu, ak EAN nenašiel nič
-            if not row:
-                cur.execute("SELECT nazov, mnozstvo, nakupna_cena FROM sklad WHERE nazov = %s LIMIT 1", (it['name'],))
-                row = cur.fetchone()
-
-            # --- KROK B: ROZHODOVANIE (UPDATE alebo INSERT) ---
             if row:
-                # --- UPDATE EXISTUJÚCEJ POLOŽKY ---
-                db_nazov = row[0]
-                try:
-                    old_qty = float(row[1] or 0.0)
-                    old_price = float(row[2] or 0.0)
-                except:
-                    old_qty = 0.0; old_price = 0.0
-
-                # Vážený priemer ceny
-                total_qty = old_qty + qty_new
-                new_avg_price = old_price
+                # Update ceny (vážený priemer)
+                old_qty = float(row[1] or 0)
+                old_price = float(row[2] or 0)
+                new_price = old_price
+                if (old_qty + qty) > 0 and price > 0:
+                    new_price = ((old_qty * old_price) + (qty * price)) / (old_qty + qty)
                 
-                if total_qty > 0 and price_new > 0:
-                    old_val = old_qty * old_price
-                    new_val = qty_new * price_new
-                    new_avg_price = (old_val + new_val) / total_qty
-                elif price_new > 0:
-                    new_avg_price = price_new
-
-                cur.execute("""
-                    UPDATE sklad 
-                    SET mnozstvo = mnozstvo + %s, 
-                        nakupna_cena = %s 
-                    WHERE nazov = %s
-                """, (qty_new, new_avg_price, db_nazov))
-                updated_count += 1
-                
-                final_name_for_log = db_nazov
-
+                # Tu len aktualizujeme cenu, MNOŽSTVO v centrálnom sklade nevyšujeme,
+                # pretože tovar ide fyzicky do výroby (podľa vašej požiadavky).
+                # Ak chcete, aby sa to zjavilo aj na centrále ako evidencia, odkomentujte "+ %s"
+                cur.execute("UPDATE sklad SET nakupna_cena=%s WHERE nazov=%s", (new_price, name))
             else:
-                # --- INSERT NOVEJ POLOŽKY (ak neexistuje) ---
-                # Vytvoríme novú kartu v sklade
-                # Použijeme ean_full (s nulami) pre štandardizáciu, ak bol EAN dostupný
-                final_ean = ean_full if ean_full else ean_csv
-                final_name_for_log = it['name']
-                
+                # Insert novej karty
                 cur.execute("""
-                    INSERT INTO sklad 
-                    (nazov, ean, mnozstvo, nakupna_cena, typ, podtyp, kategoria, balenie_mj)
-                    VALUES (%s, %s, %s, %s, 'Mäso', 'maso', 'maso', 'kg')
-                """, (
-                    final_name_for_log, 
-                    final_ean, 
-                    qty_new, 
-                    price_new,
-                ))
-                inserted_count += 1
+                    INSERT INTO sklad (nazov, ean, mnozstvo, nakupna_cena, typ, kategoria)
+                    VALUES (%s, %s, 0, %s, 'Mäso', 'maso')
+                """, (name, ean, price))
 
-            # --- KROK C: ZÁZNAM DO HISTÓRIE (zaznamy_prijem) ---
+            # B) PRIPÍSANIE DO VÝROBY ('sklad_vyroba') - TOTO JE KĽÚČOVÉ
+            cur.execute("""
+                INSERT INTO sklad_vyroba (nazov, mnozstvo) 
+                VALUES (%s, %s)
+                ON DUPLICATE KEY UPDATE mnozstvo = mnozstvo + %s
+            """, (name, qty, qty))
+
+            # C) Log do histórie
             cur.execute("""
                 INSERT INTO zaznamy_prijem 
                 (datum, nazov_suroviny, mnozstvo_kg, nakupna_cena_eur_kg, typ, poznamka_dodavatel)
-                VALUES (%s, %s, %s, %s, %s, %s)
-            """, (
-                it['date'], 
-                final_name_for_log, 
-                qty_new, 
-                price_new if price_new > 0 else None, 
-                'rozrabka', 
-                it['note']
-            ))
+                VALUES (NOW(), %s, %s, %s, 'rozrabka', %s)
+            """, (name, qty, price, it['note']))
+            
+            count += 1
 
         conn.commit()
-        return {
-            "message": f"Import OK. Aktualizovaných: {updated_count}, Nových: {inserted_count}.", 
-            "import_id": import_id
-        }
+        return {"message": f"Import OK. Do výroby pripísaných {count} položiek.", "import_id": import_id}
 
     except Exception as e:
         if conn: conn.rollback()
-        print(f"DB Error v Rozrábke: {e}")
-        return {"error": f"Chyba pri zápise do DB: {str(e)}"}
+        print(f"DB Error: {e}")
+        return {"error": f"Chyba DB: {str(e)}"}
     finally:
         if conn and conn.is_connected(): conn.close()
         
