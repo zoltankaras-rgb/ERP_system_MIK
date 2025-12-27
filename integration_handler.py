@@ -10,23 +10,27 @@ from pathlib import Path
 # =================================================================
 
 # --- KONFIGURÁCIA ---
-# Odporúčanie: Tieto cesty je ideálne presunúť do .env súboru, aby sa dali ľahko meniť.
-# Používame Path pre lepšiu prácu s cestami v rôznych operačných systémoch.
-BASE_PATH = Path("C:/vymena_dat")
-EXPORT_FOLDER = BASE_PATH / "export_z_vyroby"
-IMPORT_FOLDER = BASE_PATH / "import_do_vyroby"
+# Načítame cestu z .env premennej ERP_EXCHANGE_DIR (nastavené na serveri)
+# Ak by náhodou nebola nastavená, použije sa default /var/app/data/erp_exchange
+env_path = os.getenv("ERP_EXCHANGE_DIR", "/var/app/data/erp_exchange")
+BASE_PATH = Path(env_path)
+
+# Exportujeme a importujeme priamo v hlavnej zložke (kde vidíte aj ostatné CSV)
+EXPORT_FOLDER = BASE_PATH
+IMPORT_FOLDER = BASE_PATH
 
 
 def generate_daily_receipt_export(export_date_str=None):
     """
-    Vygeneruje CSV súbor s denným príjmom finálnych produktov na sklad.
+    Vygeneruje CSV súbor (VYROBKY.CSV) s denným príjmom finálnych produktov.
     Súbor obsahuje EAN a celkové prijaté množstvo za deň.
-    Túto funkciu volá automatická úloha (run_scheduled_tasks.py).
+    Túto funkciu volá app.py pri ukončení dňa v expedícii.
     """
     try:
         export_date = export_date_str or datetime.now().strftime('%Y-%m-%d')
 
         # Získa dáta z databázy pre daný deň
+        # Hľadáme iba položky, ktoré boli práve prepnuté do stavu 'Ukončené' v daný deň
         query = """
             SELECT p.ean, zv.realne_mnozstvo_kg, zv.realne_mnozstvo_ks, p.mj as unit 
             FROM zaznamy_vyroba zv
@@ -53,15 +57,16 @@ def generate_daily_receipt_export(export_date_str=None):
         # Vytvorí priečinok, ak neexistuje
         os.makedirs(EXPORT_FOLDER, exist_ok=True)
         
-        file_name = f"prijem_{export_date.replace('-', '')}.csv"
+        # Názov súboru presne podľa požiadavky
+        file_name = "VYROBKY.CSV"
         file_path = EXPORT_FOLDER / file_name
 
-        # Zapíše dáta do CSV súboru s kódovaním vhodným pre Slovensko
+        # Zapíše dáta do CSV súboru s kódovaním vhodným pre Slovensko (cp1250)
         with open(file_path, 'w', newline='', encoding='cp1250') as csvfile:
             writer = csv.writer(csvfile, delimiter=';')
             writer.writerow(['EAN', 'Mnozstvo'])  # Hlavička súboru
             for ean, quantity in consolidated.items():
-                # Formátujeme číslo s desatinnou čiarkou
+                # Formátujeme číslo s desatinnou čiarkou (slovenský formát)
                 writer.writerow([ean, f"{quantity:.2f}".replace('.', ',')])
         
         return {"message": f"Exportný súbor bol úspešne vygenerovaný: {file_path}", "file_path": str(file_path)}
@@ -72,8 +77,9 @@ def generate_daily_receipt_export(export_date_str=None):
 
 def process_stock_update_import():
     """
-    Spracuje importný CSV súbor so stavom skladu finálnych produktov z externého systému.
+    Spracuje importný CSV súbor so stavom skladu finálnych produktov.
     Očakáva súbor `sklad.csv` v importnom priečinku.
+    (Poznámka: Ak používate ZASOBA.CSV cez iný skript, táto funkcia sa možno nepoužíva, ale je opravená pre istotu)
     """
     try:
         file_path = IMPORT_FOLDER / 'sklad.csv'
