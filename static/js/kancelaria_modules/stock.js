@@ -334,9 +334,10 @@
           let sum = 0;
 
           rows.forEach(r=>{
-            const qty = r.quantity != null ? Number(r.quantity) : (r.mnozstvo != null ? Number(r.mnozstvo) : 0);
+            const qty = r.quantity != null ? Number(r.quantity) : 0;
+            const centralQty = r.central_quantity != null ? Number(r.central_quantity) : 0; // <--- Načítanie
             const price = r.price != null ? Number(r.price) : 0;
-            const ean = r.ean || '';
+          
             
             // Spracovanie balenia
             let packInfo = '';
