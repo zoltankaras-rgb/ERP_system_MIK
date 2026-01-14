@@ -642,46 +642,106 @@ def receive_order(oid):
 
     conn = get_connection()
     try:
+        # Dôležité: držíme transakciu otvorenú, aby FOR UPDATE locky platili až do commit/rollback
+        try:
+            conn.start_transaction()
+        except Exception:
+            pass
+
         cur = conn.cursor(dictionary=True)
+
+        # 1) Zamkneme objednávku, aby sa nemohla súčasne mazať / prijímať
+        cur.execute("SELECT id, stav FROM vyrobne_objednavky WHERE id=%s FOR UPDATE", (oid,))
+        o = cur.fetchone()
+        if not o:
+            conn.rollback()
+            return jsonify({"error": "Objednávka nenájdená."}), 404
+
+        stav = (o.get("stav") or "").strip().lower()
+
+        # Povoliť príjem len keď je objednávka v stave "objednane"
+        if stav == "prijate":
+            conn.rollback()
+            return jsonify({"error": "Objednávka už je prijatá."}), 409
+        if stav != "objednane":
+            conn.rollback()
+            return jsonify({"error": f"Objednávku nie je možné prijať v stave: {stav}"}), 409
+
+        # 2) Zamkneme aj položky objednávky (FOR UPDATE), aby sa nedali meniť/mazať súčasne
+        cur.execute("""
+            SELECT id, sklad_id, nazov_suroviny
+              FROM vyrobne_objednavky_polozky
+             WHERE objednavka_id=%s
+             FOR UPDATE
+        """, (oid,))
+        polozky_meta = cur.fetchall() or []
+        meta_by_id = {int(r["id"]): r for r in polozky_meta}
 
         qty_col = pick_first_existing("sklad", ["mnozstvo","stav_kg","mnozstvo_kg","qty","stav_skladu"])
         id_col  = pick_first_existing("sklad", ["id","sklad_id","produkt_id","product_id","id_skladu"])
 
+        # 3) Spracovanie položiek príjmu
         for it in items:
-            pid  = int(it.get("polozka_id"))
+            if it is None:
+                continue
+
+            try:
+                pid = int(it.get("polozka_id"))
+            except Exception:
+                conn.rollback()
+                return jsonify({"error": "Chýba alebo je neplatné 'polozka_id' v položke príjmu."}), 400
+
             try:
                 mnoz = float(it.get("mnozstvo_dodane") or 0)
             except Exception:
                 mnoz = 0.0
-            cena = it.get("cena_skutocna")
-            cena = float(cena) if (cena not in (None,"")) else None
 
+            cena = it.get("cena_skutocna")
+            cena = float(cena) if (cena not in (None, "")) else None
+
+            # Overenie, že položka patrí do objednávky
+            meta = meta_by_id.get(pid)
+            if not meta:
+                conn.rollback()
+                return jsonify({"error": f"Položka {pid} nepatrí do objednávky {oid} (alebo neexistuje)."}), 400
+
+            # Uložíme dodané množstvo + skutočnú cenu
             cur.execute("""
                 UPDATE vyrobne_objednavky_polozky
                    SET mnozstvo_dodane=%s, cena_skutocna=%s
                  WHERE id=%s AND objednavka_id=%s
             """, (mnoz, cena, pid, oid))
 
+            # Naskladnenie len ak je dodané množstvo > 0
             if mnoz > 0:
-                cur.execute("""
-                    SELECT sklad_id, nazov_suroviny
-                      FROM vyrobne_objednavky_polozky
-                     WHERE id=%s AND objednavka_id=%s
-                """, (pid, oid))
-                r = cur.fetchone() or {}
-                name = r.get("nazov_suroviny")
-                sid  = r.get("sklad_id")
+                name = meta.get("nazov_suroviny")
+                sid  = meta.get("sklad_id")
 
-                cur.execute("UPDATE sklad_vyroba SET mnozstvo = COALESCE(mnozstvo,0) + %s WHERE nazov=%s", (mnoz, name))
+                # Výrobný sklad
+                cur.execute(
+                    "UPDATE sklad_vyroba SET mnozstvo = COALESCE(mnozstvo,0) + %s WHERE nazov=%s",
+                    (mnoz, name)
+                )
                 if cur.rowcount == 0:
-                    cur.execute("INSERT INTO sklad_vyroba (nazov, mnozstvo) VALUES (%s, %s)", (name, mnoz))
+                    cur.execute(
+                        "INSERT INTO sklad_vyroba (nazov, mnozstvo) VALUES (%s, %s)",
+                        (name, mnoz)
+                    )
 
+                # Hlavný sklad (tabuľka sklad) – len ak vieme stĺpec na množstvo
                 if qty_col:
                     if sid and id_col:
-                        cur.execute(f"UPDATE sklad SET {qty_col} = COALESCE({qty_col},0) + %s WHERE {id_col}=%s", (mnoz, sid))
+                        cur.execute(
+                            f"UPDATE sklad SET {qty_col} = COALESCE({qty_col},0) + %s WHERE {id_col}=%s",
+                            (mnoz, sid)
+                        )
                     else:
-                        cur.execute(f"UPDATE sklad SET {qty_col} = COALESCE({qty_col},0) + %s WHERE nazov=%s", (mnoz, name))
+                        cur.execute(
+                            f"UPDATE sklad SET {qty_col} = COALESCE({qty_col},0) + %s WHERE nazov=%s",
+                            (mnoz, name)
+                        )
 
+        # 4) Nastavíme stav objednávky na prijaté
         cur.execute("""
             UPDATE vyrobne_objednavky
                SET stav='prijate', datum_dodania=%s, poznamka=COALESCE(%s, poznamka)
@@ -690,8 +750,10 @@ def receive_order(oid):
 
         conn.commit()
         return jsonify({"ok": True})
+
     except Exception as e:
-        if conn: conn.rollback()
+        if conn:
+            conn.rollback()
         raise e
     finally:
         try:
@@ -744,12 +806,107 @@ tfoot td{{font-weight:bold}}
 def delete_order(oid):
     conn = get_connection()
     try:
-        cur = conn.cursor()
+        cur = conn.cursor(dictionary=True)
+
+        # Najprv zistíme stav objednávky a zamkneme ju, aby nedošlo ku kolíziám.
+        cur.execute("SELECT id, stav FROM vyrobne_objednavky WHERE id=%s FOR UPDATE", (oid,))
+        order = cur.fetchone()
+        if not order:
+            return jsonify({"error": "Objednávka nenájdená."}), 404
+
+        stav = (order.get("stav") or "").strip().lower()
+
+        reverted = False
+        reverted_items = 0
+        reverted_qty_total = 0.0
+
+        # Ak bola objednávka prijatá, pri mazaní musíme "stornovať" naskladnenie
+        # (odpočítať množstvá, ktoré sa pri príjme pripočítali).
+        if stav == "prijate":
+            qty_col = pick_first_existing("sklad", ["mnozstvo", "stav_kg", "mnozstvo_kg", "qty", "stav_skladu"])
+            id_col = pick_first_existing("sklad", ["id", "sklad_id", "produkt_id", "product_id", "id_skladu"])
+
+            has_sklad_vyroba = (
+                has_table("sklad_vyroba")
+                and has_col("sklad_vyroba", "nazov")
+                and has_col("sklad_vyroba", "mnozstvo")
+            )
+
+            # Zamkneme položky, aby sa v rovnakom čase nedal spraviť príjem/úprava.
+            cur.execute(
+                """
+                SELECT sklad_id,
+                       nazov_suroviny,
+                       COALESCE(mnozstvo_dodane, 0) AS mnozstvo_dodane
+                  FROM vyrobne_objednavky_polozky
+                 WHERE objednavka_id=%s
+                 FOR UPDATE
+                """,
+                (oid,),
+            )
+            polozky = cur.fetchall() or []
+
+            for p in polozky:
+                name = p.get("nazov_suroviny")
+                sid = p.get("sklad_id")
+                try:
+                    mnoz = float(p.get("mnozstvo_dodane") or 0)
+                except Exception:
+                    mnoz = 0.0
+
+                if mnoz <= 0:
+                    continue
+
+                # 1) Výrobný sklad (sklad_vyroba)
+                if has_sklad_vyroba and name:
+                    cur.execute(
+                        "UPDATE sklad_vyroba SET mnozstvo = COALESCE(mnozstvo,0) - %s WHERE nazov=%s",
+                        (mnoz, name),
+                    )
+                    if cur.rowcount == 0:
+                        # fallback: ak záznam neexistuje, založíme ho (negatívny stav = korekcia)
+                        cur.execute(
+                            "INSERT INTO sklad_vyroba (nazov, mnozstvo) VALUES (%s, %s)",
+                            (name, -mnoz),
+                        )
+
+                # 2) Hlavný sklad (tabuľka sklad) – len ak vieme stĺpec na množstvo
+                if qty_col:
+                    if sid and id_col:
+                        cur.execute(
+                            f"UPDATE sklad SET {qty_col} = COALESCE({qty_col},0) - %s WHERE {id_col}=%s",
+                            (mnoz, sid),
+                        )
+                    elif name:
+                        cur.execute(
+                            f"UPDATE sklad SET {qty_col} = COALESCE({qty_col},0) - %s WHERE nazov=%s",
+                            (mnoz, name),
+                        )
+
+                reverted = True
+                reverted_items += 1
+                reverted_qty_total += float(mnoz)
+
+        # Zmazanie objednávky – ON DELETE CASCADE zmaže aj položky
         cur.execute("DELETE FROM vyrobne_objednavky WHERE id=%s", (oid,))
+
         conn.commit()
-        return jsonify({"message": "Objednávka zmazaná."})
+        return jsonify(
+            {
+                "message": (
+                    "Objednávka zmazaná."
+                    if not reverted
+                    else "Objednávka zmazaná a príjem bol stornovaný (množstvá odpočítané zo skladu)."
+                ),
+                "reverted": reverted,
+                "reverted_items": reverted_items,
+                "reverted_qty_total": round(reverted_qty_total, 6),
+            }
+        )
     except Exception as e:
-        if conn: conn.rollback()
+        if conn:
+            conn.rollback()
         return jsonify({"error": str(e)}), 500
     finally:
-        if conn: conn.close()
+        if conn:
+            conn.close()
