@@ -716,7 +716,7 @@ function openEditLogModal(dateISO, existing) {
   }
   var driverValue = (existing.driver && existing.driver.trim() !== '') ? existing.driver : defaultDriver;
 
-  // --- DEFAULTNÉ HODNOTY PRE MIK ---
+  // Defaultné hodnoty pre MIK
   var defaultStartLoc = "MIK, s.r.o , Šaľa, 92705, ul. Hollého 1999/13";
   var defaultPurpose = "Rozvoz tovaru po zákazníkoch";
 
@@ -732,11 +732,11 @@ function openEditLogModal(dateISO, existing) {
       +     '<div class="form-group"><label>Čas od</label><input type="time" name="time_start" value="'+(existing.time_start||'')+'"/></div>'
       +     '<div class="form-group"><label>Čas do</label><input type="time" name="time_end" value="'+(existing.time_end||'')+'"/></div>'
       
-            // MIESTA (S DEFAULT HODNOTAMI)
+            // MIESTA
       +     '<div class="form-group"><label>Odkiaľ (Miesto)</label><input type="text" name="location_start" value="'+(existing.location_start || defaultStartLoc)+'" placeholder="Napr. Sídlo firmy"/></div>'
       +     '<div class="form-group"><label>Kam / Smer</label><input type="text" name="location_end" value="'+(existing.location_end||'')+'" placeholder="Napr. Okruh Bratislava"/></div>'
       
-            // ÚČEL (S DEFAULT HODNOTOU)
+            // ÚČEL
       +     '<div class="form-group" style="grid-column:1/-1"><label>Účel jazdy</label><input type="text" name="purpose" value="'+(existing.purpose || defaultPurpose)+'" placeholder="Napr. Rozvoz tovaru"/></div>'
 
             // TACHOMETER
@@ -745,8 +745,11 @@ function openEditLogModal(dateISO, existing) {
       
       +     '<div class="form-group"><label>Šofér</label><input type="text" name="driver" value="'+escapeHtml(driverValue)+'"/></div>'
       
-            // TOVAR
+            // TOVAR - TOTO SME UPRAVILI
       +     '<div class="form-group"><label>Vývoz (kg)</label><input type="number" name="goods_out_kg" step="0.1" value="'+(existing.goods_out_kg||'')+'"/></div>'
+            // !!! NOVÉ POLÍČKO PRE DOVOZ !!!
+      +     '<div class="form-group"><label>Dovoz (kg)</label><input type="number" name="goods_in_kg" step="0.1" value="'+(existing.goods_in_kg||'')+'"/></div>'
+      
       +     '<div class="form-group"><label>DL (ks)</label><input type="number" name="delivery_notes_count" step="1" value="'+(existing.delivery_notes_count||'')+'"/></div>'
       +   '</div>'
 
@@ -761,7 +764,7 @@ function openEditLogModal(dateISO, existing) {
         var form = document.getElementById('log-modal-form');
         var startInput = document.getElementById('start-odo');
 
-        // Auto-fetch posledného stavu tachometra
+        // Auto-fetch tachometra
         if (!isEdit && (!startInput.value || startInput.value == 0)) {
             apiRequest('/api/kancelaria/fleet/getPrevOdo', {
                 method: 'POST', body: { vehicle_id: currentVehicleId, date: dateISO }
@@ -795,7 +798,6 @@ function openEditLogModal(dateISO, existing) {
     };
   });
 }
-
   
 // =================== TANKOVANIE ===================
 function renderRefuelingTable(refuelings) {
