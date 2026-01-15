@@ -533,63 +533,71 @@ def save_fleet_cost(data):
     """
     Uloží (insert/update) náklad.
     Podporuje:
-      - cost_mode: 'monthly' (mesačná suma) alebo 'amortized' (rozrátať)
-      - total_amount: celková suma na rozrátanie (pri 'amortized'), resp. mesačná suma pri 'monthly'
-      - amortize_use_period: '1'/'true' → počet mesiacov sa vezme z valid_from..valid_to (vrátane)
-      - amortize_months: ak nechceš podľa obdobia, zadaj priamo počet mesiacov
-    Do DB sa ukladá iba prepočítaná 'monthly_cost'; meta sa drží v _fleet_costs_meta.json
+      - 'monthly': Mesačná opakovaná suma (paušál).
+      - 'amortized': Celková suma rozrátaná na X mesiacov.
+      - 'onetime': Jednorazový náklad (napr. servis) - platí len v daný mesiac.
     """
     cost_id = _to_int(data.get('id'))
     required = ['cost_name','cost_type','valid_from']
     if not all(k in data for k in required):
         return {"error":"Chýbajú povinné polia (názov, typ, platné od)."}
 
-    # UI flag – viazané na vozidlo
-    vehicle_id_to_save = data.get('is_vehicle_specific') and data.get('vehicle_id') or None
+    vehicle_id_to_save = _to_int(data.get('vehicle_id')) if data.get('is_vehicle_specific') else None
 
     # režim
-    cost_mode = (data.get("cost_mode") or "monthly").strip().lower()  # 'monthly' | 'amortized'
+    cost_mode = (data.get("cost_mode") or "monthly").strip().lower()
     total_amount = _to_float(data.get("total_amount"), None)
     monthly_cost_in = _to_float(data.get("monthly_cost"), None)
 
     valid_from = data.get('valid_from')
     valid_to   = data.get('valid_to') or None
 
-    # rozhodnutie o mesačnej sume
-    monthly_cost_out = None
+    monthly_cost_out = 0.0
+    amortize_months = None
 
-    if cost_mode == "amortized":
-        # spočítať počet mesiacov
+    # --- LOGIKA PRE RÔZNE REŽIMY ---
+    
+    if cost_mode == "onetime":
+        # Jednorazový náklad: Mesačná suma = Celková suma.
+        # Platnosť nastavíme tak, aby končila v ten istý deň (alebo sa do DB uloží valid_to = valid_from)
+        # Tým pádom pri filtrovaní reportu spadne len do jedného mesiaca.
+        if total_amount is None:
+             return {"error":"Pre jednorazový náklad zadajte sumu."}
+        
+        monthly_cost_out = float(total_amount)
+        valid_to = valid_from # Platí len v ten deň/mesiac
+        
+    elif cost_mode == "amortized":
         use_period = str(data.get("amortize_use_period") or "").lower() in ("1","true","yes","y","on")
-        months = None
         if use_period and valid_to:
             try:
                 y1,m1 = int(valid_from[:4]), int(valid_from[5:7])
                 y2,m2 = int(valid_to[:4]),   int(valid_to[5:7])
-                months = _months_inclusive(y1,m1,y2,m2)
+                amortize_months = _months_inclusive(y1,m1,y2,m2)
             except Exception:
-                months = None
-        if not months:
-            months = _to_int(data.get("amortize_months"), None)
-        if not months or months <= 0:
-            months = 12  # rozumný default
+                amortize_months = None
+        
+        if not amortize_months:
+            amortize_months = _to_int(data.get("amortize_months"), None)
+        if not amortize_months or amortize_months <= 0:
+            amortize_months = 12  # default
 
         if total_amount is None:
-            # ak náhodou neprišla total_amount, skús vziať monthly_cost_in * months
             if monthly_cost_in is not None:
-                total_amount = float(monthly_cost_in) * months
+                total_amount = float(monthly_cost_in) * amortize_months
             else:
                 return {"error":"Pri rozrátaní je potrebná celková suma alebo mesačná suma."}
-        monthly_cost_out = round(float(total_amount) / float(months), 2)
+        
+        monthly_cost_out = round(float(total_amount) / float(amortize_months), 2)
 
     else:
-        # monthly režim – mesačne priamo z monthly_cost_in, alebo ak poslal total_amount, tak = total_amount
+        # monthly (paušál)
         if monthly_cost_in is not None:
             monthly_cost_out = float(monthly_cost_in)
         elif total_amount is not None:
             monthly_cost_out = float(total_amount)
         else:
-            return {"error":"Zadajte mesačnú sumu alebo celkovú sumu."}
+            return {"error":"Zadajte mesačnú sumu."}
 
     params = (
         data['cost_name'],
@@ -614,33 +622,17 @@ def save_fleet_cost(data):
         r = db_connector.execute_query("SELECT LAST_INSERT_ID() AS id", fetch="one")
         rid = (r or {}).get("id")
 
-    # zapíš meta (mode/total_amount/mes.)
+    # Uloženie meta dát (aby sme vedeli v UI zobraziť pôvodný režim)
     if rid:
         meta = _cost_meta_load()
         meta[str(rid)] = {
             "mode": cost_mode,
             "total_amount": total_amount if total_amount is not None else None,
-            "months": None
+            "months": int(amortize_months) if amortize_months else None
         }
-        if cost_mode == "amortized":
-            # uložiť, koľko mesiacov reálne používame
-            mths = None
-            if valid_to:
-                try:
-                    y1,m1 = int(valid_from[:4]), int(valid_from[5:7])
-                    y2,m2 = int(valid_to[:4]),   int(valid_to[5:7])
-                    mths = _months_inclusive(y1,m1,y2,m2)
-                except Exception:
-                    pass
-            if not mths:
-                mths = _to_int(data.get("amortize_months"), None)
-            if not mths:
-                mths = 12
-            meta[str(rid)]["months"] = int(mths)
         _cost_meta_save(meta)
 
     return {"message": ("Náklad upravený." if cost_id else "Náklad pridaný."), "monthly_cost": monthly_cost_out}
-
 def delete_fleet_cost(data):
     cid = _to_int(data.get('id'))
     if not cid:

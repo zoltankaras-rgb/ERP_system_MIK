@@ -918,8 +918,7 @@ function openAddEditCostModal(cost) {
   }
 
   showModal(cost ? 'Upraviť náklad' : 'Pridať nový náklad', function () {
-    // meta z backendu: cost_mode ('monthly'|'amortized'), total_amount, amortize_months
-    var mode = (cost && cost.cost_mode) || 'monthly';
+    var mode = (cost && cost.cost_mode) || 'onetime'; // Defaultne jednorazový (častejší)
     var totalAmt = (cost && cost.total_amount) != null ? Number(cost.total_amount) : '';
     var monthsMeta = (cost && cost.amortize_months) != null ? Number(cost.amortize_months) : '';
 
@@ -928,47 +927,52 @@ function openAddEditCostModal(cost) {
       + '<input type="hidden" name="id" value="'+(cost && cost.id || '')+'">'
       + '<input type="hidden" name="vehicle_id" value="'+(cost && cost.vehicle_id || selected_vehicle_id)+'">'
 
-      + '<div class="form-group"><label>Názov nákladu (napr. PZP Allianz)</label>'
+      + '<div class="form-group"><label>Názov nákladu (napr. Servis bŕzd, PZP)</label>'
       +   '<input type="text" name="cost_name" value="'+(cost && (cost.cost_name || '') || '')+'" required></div>'
 
       + '<div class="form-group"><label>Typ nákladu</label><select name="cost_type" required>'
-      +   '<option value="MZDA"'+(cost && cost.cost_type==='MZDA'?' selected':'')+'>MZDA</option>'
-      +   '<option value="POISTENIE"'+(cost && cost.cost_type==='POISTENIE'?' selected':'')+'>POISTENIE</option>'
-      +   '<option value="SERVIS"'+(cost && cost.cost_type==='SERVIS'?' selected':'')+'>SERVIS</option>'
+      +   '<option value="SERVIS"'+(cost && cost.cost_type==='SERVIS'?' selected':'')+'>SERVIS / OPRAVY</option>'
       +   '<option value="PNEUMATIKY"'+(cost && cost.cost_type==='PNEUMATIKY'?' selected':'')+'>PNEUMATIKY</option>'
-      +   '<option value="DIALNICNA"'+(cost && cost.cost_type==='DIALNICNA'?' selected':'')+'>DIALNICNA</option>'
-      +   '<option value="SKODA"'+(cost && cost.cost_type==='SKODA'?' selected':'')+'>SKODA</option>'
-      +   '<option value="INE"'+(cost && cost.cost_type==='INE'?' selected':'')+'>INE</option>'
+      +   '<option value="SKODA"'+(cost && cost.cost_type==='SKODA'?' selected':'')+'>ŠKODOVÁ UDALOSŤ</option>'
+      +   '<option value="POISTENIE"'+(cost && cost.cost_type==='POISTENIE'?' selected':'')+'>POISTENIE</option>'
+      +   '<option value="DIALNICNA"'+(cost && cost.cost_type==='DIALNICNA'?' selected':'')+'>DIAĽNIČNÁ ZNÁMKA / DAŇ</option>'
+      +   '<option value="MZDA"'+(cost && cost.cost_type==='MZDA'?' selected':'')+'>MZDA VODIČA</option>'
+      +   '<option value="INE"'+(cost && cost.cost_type==='INE'?' selected':'')+'>INÉ</option>'
       + '</select></div>'
 
-      // spôsob účtovania
+      // VÝBER REŽIMU
       + '<div class="form-group"><label>Spôsob účtovania</label>'
-      +   '<select name="cost_mode" id="cost-mode">'
-      +     '<option value="monthly" '+(mode==='monthly'?'selected':'')+'>Mesačne – opakovaná suma</option>'
-      +     '<option value="amortized" '+(mode==='amortized'?'selected':'')+'>Rozrátať (amortizovať)</option>'
+      +   '<select name="cost_mode" id="cost-mode" style="font-weight:bold;">'
+      +     '<option value="onetime" '+(mode==='onetime'?'selected':'')+'>🔴 Jednorazový (napr. Servis, Umyvárka)</option>'
+      +     '<option value="amortized" '+(mode==='amortized'?'selected':'')+'>🔵 Rozrátať (napr. Poistka, Diaľničná)</option>'
+      +     '<option value="monthly" '+(mode==='monthly'?'selected':'')+'>🔄 Mesačný paušál (napr. Leasing)</option>'
       +   '</select>'
       + '</div>'
 
-      // mesačne
-      + '<div class="form-group" id="monthly-cost-row"><label>Mesačná suma (€)</label>'
+      // 1. JEDNORAZOVÝ & AMORTIZOVANÝ (Zdieľajú input pre celkovú sumu)
+      + '<div id="total-amount-box">'
+      +   '<div class="form-group"><label id="total-amount-label">Suma (€)</label>'
+      +     '<input type="number" step="0.01" name="total_amount" id="total-amount-input" value="'+(totalAmt!==''?totalAmt:'')+'"></div>'
+      + '</div>'
+
+      // 2. MESAČNÝ PAUŠÁL
+      + '<div class="form-group" id="monthly-cost-row" style="display:none;"><label>Mesačná suma (€)</label>'
       +   '<input type="number" step="0.01" name="monthly_cost" value="'+(cost && cost.monthly_cost || '')+'"></div>'
 
-      // amortizácia
-      + '<div id="amortized-box" style="display:'+(mode==='amortized'?'block':'none')+'">'
-      +   '<div class="form-group"><label>Celková suma (€) – rozrátať</label>'
-      +     '<input type="number" step="0.01" name="total_amount" id="total-amount-input" value="'+(totalAmt!==''?totalAmt:'')+'" placeholder="napr. 90.00"></div>'
+      // AMORTIZÁCIA - NASTAVENIA
+      + '<div id="amortized-box" style="display:none; background:#f8f9fa; padding:10px; border-radius:5px; margin-bottom:15px;">'
       +   '<div class="form-group" style="display:flex; gap:.75rem; align-items:center;">'
-      +     '<label style="margin:0;"><input type="checkbox" id="amortize-use-period"> Rozrátať podľa obdobia (Platné od → Platné do)</label>'
+      +     '<label style="margin:0;"><input type="checkbox" id="amortize-use-period" checked> Rozrátať podľa dátumov (Od - Do)</label>'
       +   '</div>'
-      +   '<div class="form-group"><label>Počet mesiacov (ak nechceš podľa obdobia)</label>'
+      +   '<div class="form-group" id="manual-months-box" style="display:none;"><label>Alebo zadaj počet mesiacov</label>'
       +     '<input type="number" step="1" min="1" name="amortize_months" id="amortize-months-input" value="'+(monthsMeta!==''?monthsMeta:'')+'" placeholder="napr. 12"></div>'
-      +   '<div class="form-group muted" id="amortized-preview" style="font-size:.95rem;"></div>'
+      +   '<div class="form-group muted" id="amortized-preview" style="font-size:.9rem; color:#0d6efd;"></div>'
       + '</div>'
 
       + '<div class="form-grid">'
-      +   '<div class="form-group"><label>Platné od</label>'
+      +   '<div class="form-group"><label id="valid-from-label">Dátum (Kedy vznikol)</label>'
       +     '<input type="date" name="valid_from" id="valid-from" value="'+(cost ? new Date(cost.valid_from).toISOString().split('T')[0] : '')+'" required></div>'
-      +   '<div class="form-group"><label>Platné do (prázdne = stále)</label>'
+      +   '<div class="form-group" id="valid-to-box"><label>Platné do</label>'
       +     '<input type="date" name="valid_to" id="valid-to" value="'+(cost && cost.valid_to ? new Date(cost.valid_to).toISOString().split('T')[0] : '')+'"></div>'
       + '</div>'
 
@@ -989,65 +993,99 @@ function openAddEditCostModal(cost) {
           form.elements.vehicle_id.value = e.target.checked ? selected_vehicle_id : '';
         };
 
-        // prepnúť viditeľnosť amortizačného boxu / mesačnej sumy
+        // Elementy
         var modeSel   = form.querySelector('#cost-mode');
-        var monthlyEl = form.querySelector('#monthly-cost-row');
+        var totalBox  = form.querySelector('#total-amount-box');
+        var monthlyBox= form.querySelector('#monthly-cost-row');
         var amortBox  = form.querySelector('#amortized-box');
+        var validToBox= form.querySelector('#valid-to-box');
+        var lblAmount = form.querySelector('#total-amount-label');
+        var lblDate   = form.querySelector('#valid-from-label');
+        
         var totalIn   = form.querySelector('#total-amount-input');
         var monthsIn  = form.querySelector('#amortize-months-input');
         var usePeriod = form.querySelector('#amortize-use-period');
+        var manualMths= form.querySelector('#manual-months-box');
         var vf        = form.querySelector('#valid-from');
         var vt        = form.querySelector('#valid-to');
         var prevEl    = form.querySelector('#amortized-preview');
 
-        function monthsInclusive(y1,m1,y2,m2){
-          try{ return (y2 - y1) * 12 + (m2 - m1) + 1; }catch(_){ return null; }
+        function updateUI() {
+            var m = modeSel.value;
+            
+            if (m === 'onetime') {
+                totalBox.style.display = 'block';
+                monthlyBox.style.display = 'none';
+                amortBox.style.display = 'none';
+                validToBox.style.display = 'none'; // Pri jednorazovom nepotrebujeme "do"
+                lblAmount.textContent = 'Celková suma (€)';
+                lblDate.textContent = 'Dátum nákladu';
+            } else if (m === 'amortized') {
+                totalBox.style.display = 'block';
+                monthlyBox.style.display = 'none';
+                amortBox.style.display = 'block';
+                validToBox.style.display = 'block';
+                lblAmount.textContent = 'Celková suma na rozrátanie (€)';
+                lblDate.textContent = 'Platné od';
+            } else { // monthly
+                totalBox.style.display = 'none';
+                monthlyBox.style.display = 'block';
+                amortBox.style.display = 'none';
+                validToBox.style.display = 'block';
+                lblDate.textContent = 'Platné od';
+            }
+            recomputePreview();
         }
-        function parseYMD(x){ if(!x) return null; var a=x.split('-'); return {y:+a[0],m:+a[1],d:+a[2]}; }
 
         function recomputePreview(){
           if (modeSel.value !== 'amortized'){ prevEl.textContent=''; return; }
+          
+          // Show/Hide manual months input
+          if (usePeriod.checked) { manualMths.style.display = 'none'; vt.required = true; }
+          else { manualMths.style.display = 'block'; vt.required = false; }
+
           var total = parseFloat(totalIn.value||'0');
-          if (!isFinite(total) || total<=0){ prevEl.textContent='Zadaj celkovú sumu.'; return; }
+          if (!isFinite(total) || total<=0){ prevEl.textContent='Zadaj sumu.'; return; }
+          
           var mths = null;
-          if (usePeriod.checked && vt.value){
-            var a = parseYMD(vf.value), b=parseYMD(vt.value);
-            if (a && b){
-              mths = monthsInclusive(a.y,a.m,b.y,b.m);
-            }
+          if (usePeriod.checked && vf.value && vt.value){
+             // Vypočítame rozdiel mesiacov
+             var d1 = new Date(vf.value);
+             var d2 = new Date(vt.value);
+             mths = (d2.getFullYear() - d1.getFullYear()) * 12 + (d2.getMonth() - d1.getMonth()) + 1;
+          } else if (!usePeriod.checked) {
+             mths = parseInt(monthsIn.value);
           }
-          if (!mths){
-            var mm = parseInt(monthsIn.value,10);
-            if (isFinite(mm) && mm>0) mths = mm;
+
+          if (mths && mths > 0) {
+              var per = total / mths;
+              prevEl.innerHTML = `Rozráta sa na <b>${mths}</b> mesiacov.<br>Mesačný náklad: <b>${per.toFixed(2)} €</b>`;
+          } else {
+              prevEl.textContent = 'Vyberte dátumy alebo zadajte počet mesiacov.';
           }
-          if (!mths){ prevEl.textContent='Zadaj počet mesiacov alebo nastav "platné do".'; return; }
-          var per = total / mths;
-          prevEl.innerHTML = 'Mesačne sa zaúčtuje: <strong>' + per.toFixed(2) + ' € / mes ('+mths+' m.)</strong>';
         }
 
-        modeSel.onchange = function(){
-          if (modeSel.value === 'amortized'){ amortBox.style.display='block'; monthlyEl.style.display='none'; }
-          else { amortBox.style.display='none'; monthlyEl.style.display='block'; }
-          recomputePreview();
-        };
-        [totalIn, monthsIn, usePeriod, vf, vt].forEach(function(el){
-          if (!el) return; el.addEventListener('input', recomputePreview);
-          if (el.tagName==='INPUT' && (el.type==='date' || el.type==='checkbox')) el.addEventListener('change', recomputePreview);
-        });
-        if (modeSel.value==='amortized') recomputePreview();
+        modeSel.addEventListener('change', updateUI);
+        usePeriod.addEventListener('change', updateUI); // prekreslí inputs
+        [totalIn, monthsIn, vf, vt].forEach(el => el.addEventListener('input', recomputePreview));
+        
+        // Init state
+        updateUI();
 
         form.onsubmit = async function (e) {
           e.preventDefault();
           const fd = new FormData(form);
           var data = Object.fromEntries(fd.entries());
           data.is_vehicle_specific = document.getElementById('is-vehicle-specific-checkbox').checked;
+          // Checkbox fix
+          data.amortize_use_period = usePeriod.checked ? '1' : '0';
 
           try {
             await apiRequest('/api/kancelaria/fleet/saveCost', { method: 'POST', body: data });
             document.getElementById('modal-container').style.display = 'none';
             loadAndRenderFleetCosts();
-            loadAndRenderFleetAnalysis();
-          } catch (err) {}
+            loadAndRenderFleetAnalysis(); // Prepočítať aj analýzu
+          } catch (err) { alert(err.message); }
         };
       }
     };
