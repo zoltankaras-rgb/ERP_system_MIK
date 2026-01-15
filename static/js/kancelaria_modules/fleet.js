@@ -697,7 +697,7 @@ function renderLogbookTable(logs, year, month, lastOdometer) {
 function openEditLogModal(dateISO, existing) {
   existing = existing || {};
   var currentVehicleId = fleetState.selected_vehicle_id;
-  var isEdit = !!existing.id; // Editujeme konkrétnu jazdu?
+  var isEdit = !!existing.id; 
   
   // Default šofér
   var defaultDriver = '';
@@ -732,7 +732,7 @@ function openEditLogModal(dateISO, existing) {
       
       +     '<div class="form-group"><label>Šofér</label><input type="text" name="driver" value="'+escapeHtml(driverValue)+'"/></div>'
       
-            // TOVAR (voliteľné)
+            // TOVAR
       +     '<div class="form-group"><label>Vývoz (kg)</label><input type="number" name="goods_out_kg" step="0.1" value="'+(existing.goods_out_kg||'')+'"/></div>'
       +     '<div class="form-group"><label>DL (ks)</label><input type="number" name="delivery_notes_count" step="1" value="'+(existing.delivery_notes_count||'')+'"/></div>'
       +   '</div>'
@@ -744,22 +744,23 @@ function openEditLogModal(dateISO, existing) {
     
     return {
       html: html,
-      // !!! OPRAVENÉ: Pridané kľúčové slovo 'async' !!!
-      onReady: async function () {
+      // !!! ZMENA: Odstránené 'async' a 'await', použité .then() !!!
+      onReady: function () { 
         var form = document.getElementById('log-modal-form');
         var startInput = document.getElementById('start-odo');
 
         // Auto-fetch: Ak je to NOVÁ jazda, skús zistiť stav tachometra
         if (!isEdit && (!startInput.value || startInput.value == 0)) {
-            try {
-                var res = await apiRequest('/api/kancelaria/fleet/getPrevOdo', {
-                    method: 'POST', body: { vehicle_id: currentVehicleId, date: dateISO }
-                });
+            apiRequest('/api/kancelaria/fleet/getPrevOdo', {
+                method: 'POST', body: { vehicle_id: currentVehicleId, date: dateISO }
+            }).then(function(res) {
                 if (res && res.value) startInput.value = res.value;
-            } catch (e) {}
+            }).catch(function(e) {
+                console.error(e);
+            });
         }
 
-        form.onsubmit = async function(e){
+        form.onsubmit = function(e){
           e.preventDefault();
           const fd = new FormData(form);
           const data = Object.fromEntries(fd.entries());
@@ -769,11 +770,14 @@ function openEditLogModal(dateISO, existing) {
           if (s!=null && e_odo!=null && e_odo < s) { alert('Konečný stav tachometra je menší ako začiatočný!'); return; }
           data.km_driven = (s!=null && e_odo!=null) ? (e_odo - s) : 0;
 
-          try {
-            await apiRequest('/api/kancelaria/fleet/saveLog', { method: 'POST', body: { logs: [data] } });
-            document.getElementById('modal-container').style.display = 'none';
-            loadAndRenderFleetData(); 
-          } catch (err) { alert(err.message); }
+          apiRequest('/api/kancelaria/fleet/saveLog', { method: 'POST', body: { logs: [data] } })
+            .then(function() {
+                document.getElementById('modal-container').style.display = 'none';
+                loadAndRenderFleetData(); 
+            })
+            .catch(function(err) {
+                alert(err.message);
+            });
         }
       }
     };
