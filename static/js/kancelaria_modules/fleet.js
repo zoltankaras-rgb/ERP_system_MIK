@@ -786,31 +786,6 @@ function openEditLogModal(dateISO, existing) {
     };
   });
 }
-        
-        document.getElementById('delete-day').onclick = function(){ handleDeleteDayLogs(dateISO); };
-        // !!! BOD 3: ak nemám šoféra v existujúcom zázname, doplň posledného šoféra pre toto auto
-if (form.elements.driver && !String(form.elements.driver.value || '').trim()) {
-  const fallback = (existing && existing.driver) ? existing.driver : (fleetState.last_driver || '');
-  form.elements.driver.value = fallback;
-}
-
-        // === TOTO JE TÁ OPRAVA ===
-        // Ak nemáme hodnotu, opýtame sa servera na presný stav z DB
-        if (!startInput.value || startInput.value == 0) {
-            try {
-                // Zavoláme API endpoint, ktorý pozrie do DB
-                var res = await apiRequest('/api/kancelaria/fleet/getPrevOdo', {
-                    method: 'POST',
-                    body: { vehicle_id: currentVehicleId, date: dateISO }
-                });
-                if (res && res.value) {
-                    startInput.value = res.value;
-                }
-            } catch (e) {
-                console.error("Nepodarilo sa načítať km zo servera", e);
-            }
-        }
-        // =========================
 
         async function submitCore(goNext){
           const fd = new FormData(form);
