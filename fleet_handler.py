@@ -429,10 +429,15 @@ def get_fleet_analysis(vehicle_id, year, month):
     year = _to_int(year); month = _to_int(month)
     if not all([vehicle_id, year, month]): return {"error": "Chýbajú parametre."}
 
-    # 1. KM a Tovar (filter chýb > 2000 km)
+    # 1. KM a Tovar (filter chýb > 2000 km ostal zachovaný)
+    # ZMENA: Pridané SUM pre goods_in_kg a delivery_notes_count
     log_sum = db_connector.execute_query(
         """
-        SELECT SUM(km_driven) total_km, SUM(goods_out_kg) total_goods_out 
+        SELECT 
+            SUM(km_driven) as total_km, 
+            SUM(goods_out_kg) as total_goods_out,
+            SUM(goods_in_kg) as total_goods_in,
+            SUM(delivery_notes_count) as total_dl
         FROM fleet_logs 
         WHERE vehicle_id=%s AND YEAR(log_date)=%s AND MONTH(log_date)=%s AND km_driven < 2000
         """,
@@ -441,8 +446,10 @@ def get_fleet_analysis(vehicle_id, year, month):
     
     total_km = float(log_sum.get("total_km") or 0.0)
     goods_out = float(log_sum.get("total_goods_out") or 0.0)
+    goods_in = float(log_sum.get("total_goods_in") or 0.0)    # NOVÉ
+    total_dl = int(log_sum.get("total_dl") or 0)              # NOVÉ
 
-    # 2. Palivo - čítame priamo fuel_type z DB
+    # 2. Palivo - čítame priamo fuel_type z DB (logika zachovaná)
     ref = db_connector.execute_query(
         "SELECT liters, total_price, fuel_type FROM fleet_refueling WHERE vehicle_id=%s AND YEAR(refueling_date)=%s AND MONTH(refueling_date)=%s",
         (vehicle_id, year, month)
@@ -463,7 +470,7 @@ def get_fleet_analysis(vehicle_id, year, month):
             diesel_l += l
             diesel_c += c
 
-    # 3. Náklady
+    # 3. Náklady (logika zachovaná)
     start = datetime(year, month, 1)
     end = start.replace(day=monthrange(year, month)[1])
     other = db_connector.execute_query(
@@ -476,11 +483,7 @@ def get_fleet_analysis(vehicle_id, year, month):
     # --- VÝPOČTY ---
     cost_per_km = (total_costs / total_km) if total_km > 0 else 0.0
     
-    # Výpočet ceny za kg tovaru (to, čo chýbalo)
-    # Pridávame napr. 10% amortizáciu k cene, ako naznačuje šablóna (+10% amort.)
-    # Alebo len čistý podiel. Podľa šablóny to vyzerá, že sa očakáva len hodnota.
-    # Ak chcete presne to isté čo v šablóne "+10% amort", treba to zohľadniť tu alebo v šablóne.
-    # Tu dávam čistý výpočet cena/kg. Ak šablóna robí iné, upravte vzorec.
+    # Cena za kg (počítaná z vývozu, ako bolo pôvodne)
     cost_per_kg = (total_costs / goods_out) if goods_out > 0 else 0.0
 
     return {
@@ -488,11 +491,13 @@ def get_fleet_analysis(vehicle_id, year, month):
         "total_costs": total_costs,
         "cost_per_km": cost_per_km,
         "total_goods_out_kg": goods_out,
+        "total_goods_in_kg": goods_in,      # NOVÉ - vrátime na frontend
+        "total_dl_count": total_dl,         # NOVÉ - vrátime na frontend
         "avg_consumption": (diesel_l / total_km * 100.0) if total_km > 0 else 0.0,
         "total_adblue_liters": adblue_l,
         "total_adblue_cost": adblue_c,
         "adblue_per_100km": (adblue_l / total_km * 100.0) if total_km > 0 else 0.0,
-        "cost_per_kg_goods": cost_per_kg  # <--- TOTO BOL CHÝBAJÚCI KĽÚČ
+        "cost_per_kg_goods": cost_per_kg 
     }
 def get_analysis(vehicle_id, year, month):
     return get_fleet_analysis(vehicle_id, year, month)
