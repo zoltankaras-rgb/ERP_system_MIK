@@ -744,12 +744,12 @@ function openEditLogModal(dateISO, existing) {
     
     return {
       html: html,
-      // !!! ZMENA: Odstránené 'async' a 'await', použité .then() !!!
+      // ZMENA: Odstránené 'async', použité len klasické funkcie
       onReady: function () { 
         var form = document.getElementById('log-modal-form');
         var startInput = document.getElementById('start-odo');
 
-        // Auto-fetch: Ak je to NOVÁ jazda, skús zistiť stav tachometra
+        // Auto-fetch: Ak je to NOVÁ jazda, skús zistiť stav tachometra (použité .then)
         if (!isEdit && (!startInput.value || startInput.value == 0)) {
             apiRequest('/api/kancelaria/fleet/getPrevOdo', {
                 method: 'POST', body: { vehicle_id: currentVehicleId, date: dateISO }
@@ -760,6 +760,7 @@ function openEditLogModal(dateISO, existing) {
             });
         }
 
+        // ZMENA: Odstránené 'async' aj tu
         form.onsubmit = function(e){
           e.preventDefault();
           const fd = new FormData(form);
@@ -770,6 +771,7 @@ function openEditLogModal(dateISO, existing) {
           if (s!=null && e_odo!=null && e_odo < s) { alert('Konečný stav tachometra je menší ako začiatočný!'); return; }
           data.km_driven = (s!=null && e_odo!=null) ? (e_odo - s) : 0;
 
+          // Odoslanie (použité .then namiesto await)
           apiRequest('/api/kancelaria/fleet/saveLog', { method: 'POST', body: { logs: [data] } })
             .then(function() {
                 document.getElementById('modal-container').style.display = 'none';
