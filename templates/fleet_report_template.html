@@ -6,162 +6,206 @@
     {% set report_type = report_type or 'all' %}
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap');
-        /* Základné štýly pre zobrazenie na obrazovke */
-        body { font-family: 'Roboto', Arial, sans-serif; font-size: 10pt; color: #333; margin: 0; padding: 10mm; background-color: #f3f4f6; }
-        .report-container { width: 100%; max-width: 900px; margin: 0 auto; background-color: #fff; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); }
-        .report-header { text-align: center; margin-bottom: 25px; border-bottom: 2px solid #eee; padding-bottom: 15px; }
-        .report-header h1 { font-size: 18pt; color: #111; margin: 0; }
-        .report-header p { font-size: 11pt; color: #666; margin: 5px 0 0 0; }
-        h2 { font-size: 14pt; color: #333; margin-top: 30px; margin-bottom: 10px; border-bottom: 1px solid #ccc; padding-bottom: 5px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 9pt; }
-        th, td { border: 1px solid #ddd; padding: 6px 8px; text-align: left; vertical-align: top; }
-        th { background-color: #f7f7f7; font-weight: 700; color: #444; }
-        .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 20px; margin-top: 15px; }
-        .info-grid p { margin: 4px 0; font-size: 11pt; }
-        .summary-table td:first-child { font-weight: bold; width: 60%; }
-        .total-row td { font-weight: bold; background-color: #f0f0f0; }
-        .no-print { position: fixed; top: 15px; right: 15px; padding: 10px 15px; background-color: #3b82f6; color: white; border: none; border-radius: 5px; cursor: pointer; }
         
-        /* === ŠTÝLY PRE TLAČ (Optimalizácia na A4) === */
+        /* Základné štýly */
+        body { 
+            font-family: 'Roboto', Arial, sans-serif; 
+            font-size: 9pt; 
+            color: #333; 
+            margin: 0; 
+            padding: 10mm; 
+            background-color: #f3f4f6; 
+        }
+        .report-container { 
+            width: 100%; 
+            max-width: 900px; 
+            margin: 0 auto; 
+            background-color: #fff; 
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); 
+            padding: 20px;
+        }
+        .report-header { 
+            text-align: center; 
+            margin-bottom: 20px; 
+            border-bottom: 2px solid #eee; 
+            padding-bottom: 10px; 
+        }
+        .report-header h1 { font-size: 16pt; margin: 0; }
+        .report-header p { font-size: 10pt; color: #666; margin: 5px 0 0 0; }
+        
+        h2 { 
+            font-size: 12pt; 
+            color: #333; 
+            margin-top: 20px; 
+            margin-bottom: 8px; 
+            border-bottom: 1px solid #ccc; 
+            padding-bottom: 4px; 
+        }
+        
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 8pt; }
+        th, td { border: 1px solid #ddd; padding: 4px 6px; text-align: left; vertical-align: middle; }
+        th { background-color: #f7f7f7; font-weight: 700; color: #444; text-align: center; }
+        
+        /* Špecifické šírky stĺpcov pre knihu jázd */
+        .col-date { width: 60px; }
+        .col-time { width: 70px; }
+        .col-route { width: 25%; }
+        .col-purpose { width: 20%; }
+        .col-driver { width: 100px; }
+        .col-odo { width: 90px; text-align: right; }
+        .col-km { width: 50px; text-align: right; font-weight: bold; }
+
+        .info-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 15px; font-size: 9pt; }
+        .info-grid p { margin: 2px 0; }
+        
+        .summary-table td:first-child { font-weight: bold; width: 60%; }
+        .total-row td { font-weight: bold; background-color: #f0f0f0; text-align: right; }
+        
+        .no-print { 
+            position: fixed; top: 15px; right: 15px; 
+            padding: 8px 12px; background-color: #3b82f6; 
+            color: white; border: none; border-radius: 4px; cursor: pointer; 
+        }
+
+        /* === TLAČ === */
         @media print {
             body { 
-                padding: 5mm; 
-                font-size: 9pt; /* Zmenšenie základného písma */
-                -webkit-print-color-adjust: exact; 
-                print-color-adjust: exact; 
-                background-color: #fff;
+                background-color: #fff; padding: 0; margin: 5mm; 
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
             }
-            .report-container { box-shadow: none; }
+            .report-container { box-shadow: none; max-width: 100%; padding: 0; }
             .no-print { display: none; }
-            .report-header { margin-bottom: 15px; padding-bottom: 10px; }
-            .report-header h1 { font-size: 16pt; } /* Zmenšenie hlavného nadpisu */
-            .report-header p { font-size: 10pt; }
-            h2 { font-size: 12pt; margin-top: 15px; } /* Zmenšenie nadpisov sekcií */
-            table { margin-top: 10px; }
-            th, td { padding: 4px 6px; } /* Menšie odsadenie v tabuľkách */
-            .info-grid p { font-size: 10pt; }
+            h2 { margin-top: 15px; }
+            table { font-size: 7pt; } /* Menšie písmo pre tlač, aby sa zmestilo */
+            th, td { padding: 3px 4px; }
         }
     </style>
 </head>
 <body>
     <div class="report-container">
         <button class="no-print" onclick="window.print()">Tlačiť</button>
+        
         <div class="report-header">
             <h1>Mesačný Report Vozidla</h1>
             <p>Obdobie: {{ period }}</p>
         </div>
 
-        <h2>Informácie o vozidle</h2>
         <div class="info-grid">
-            <p><strong>Vozidlo:</strong> {{ vehicle.name }}</p>
-            <p><strong>ŠPZ:</strong> {{ vehicle.license_plate }}</p>
-            <p><strong>Typ:</strong> {{ vehicle.type or 'N/A' }}</p>
-            <p><strong>Šofér:</strong> {{ vehicle.default_driver or 'N/A' }}</p>
+            <div><p><strong>Vozidlo:</strong> {{ vehicle.name }}</p></div>
+            <div><p><strong>ŠPZ:</strong> {{ vehicle.license_plate }}</p></div>
+            <div><p><strong>VIN:</strong> {{ vehicle.vin or 'Nezadané' }}</p></div>
+            <div><p><strong>Typ:</strong> {{ vehicle.type or 'N/A' }}</p></div>
+            <div><p><strong>Šofér:</strong> {{ vehicle.default_driver or 'N/A' }}</p></div>
         </div>
-{% if report_type in ['all','logs'] %}
 
-
-        <h2>Kniha jázd</h2>
+        {% if report_type in ['all','logs'] %}
+        <h2>Kniha jázd (Podrobná evidencia podľa Zákona o DPH)</h2>
         <table>
             <thead>
                 <tr>
-                    <th>Dátum</th><th>Šofér</th><th>Zač. km</th><th>Kon. km</th><th>Najazdené</th><th>Vývoz (kg)</th><th>Dod. listy</th>
+                    <th class="col-date">Dátum</th>
+                    <th class="col-time">Čas</th>
+                    <th class="col-route">Trasa (Odkiaľ &rarr; Kam)</th>
+                    <th class="col-purpose">Účel jazdy</th>
+                    <th class="col-driver">Vodič</th>
+                    <th class="col-odo">Stav tach. (Zač/Kon)</th>
+                    <th class="col-km">KM</th>
                 </tr>
             </thead>
             <tbody>
-                {% for log in logs if (log.goods_out_kg and (log.goods_out_kg|float) > 0) and (log.delivery_notes_count and (log.delivery_notes_count|int) > 0) %}
+                {% for log in logs %}
                 <tr>
-                    <td>{{ log.log_date.strftime('%d.%m.%Y') }}</td>
+                    <td style="text-align: center;">{{ log.log_date.strftime('%d.%m.%Y') }}</td>
+                    <td style="text-align: center;">
+                        {{ (log.time_start or '')[:5] }} - {{ (log.time_end or '')[:5] }}
+                    </td>
+                    <td>
+                        {{ log.location_start or '' }} &rarr; {{ log.location_end or '' }}
+                    </td>
+                    <td>{{ log.purpose or '' }}</td>
                     <td>{{ log.driver or '' }}</td>
-                    <td>{{ log.start_odometer or '' }}</td>
-                    <td>{{ log.end_odometer or '' }}</td>
-                    <td><strong>{{ log.km_driven or '' }}</strong></td>
-                    <td>{{ log.goods_out_kg or '' }}</td>
-                    <td>{{ log.delivery_notes_count or '' }}</td>
+                    <td style="text-align: right;">
+                        {{ log.start_odometer }} - {{ log.end_odometer }}
+                    </td>
+                    <td class="col-km">{{ log.km_driven }}</td>
                 </tr>
                 {% else %}
                 <tr>
-                    <td colspan="7" style="text-align: center; font-style: italic;">V tomto mesiaci neboli zaznamenané žiadne jazdy.</td>
+                    <td colspan="7" style="text-align: center; font-style: italic; padding: 10px;">
+                        V tomto mesiaci neboli zaznamenané žiadne jazdy.
+                    </td>
                 </tr>
                 {% endfor %}
+                
                 <tr class="total-row">
-                    <td colspan="4">Celkovo najazdené:</td>
-                    <td><strong>{{ analysis.total_km }} km</strong></td>
-                    <td><strong>{{ "%.2f"|format(analysis.total_goods_out_kg) }} kg</strong></td>
-                    <td></td>
+                    <td colspan="6">Celkovo najazdené:</td>
+                    <td>{{ analysis.total_km }} km</td>
                 </tr>
             </tbody>
         </table>
-{% endif %}
-{% if report_type in ['all','consumption'] %}
+        {% endif %}
 
-
-
+        {% if report_type in ['all','consumption'] %}
         <h2>Tankovanie</h2>
         <table>
             <thead>
                 <tr>
-                    <th>Dátum</th>
+                    <th style="width: 80px;">Dátum</th>
                     <th>Šofér</th>
-                    <th>Litre</th>
-                    <th>Cena (€)</th>
+                    <th style="width: 80px;">Litre</th>
+                    <th style="width: 80px;">Cena (€)</th>
+                    <th>Typ paliva</th>
                 </tr>
             </thead>
             <tbody>
-                {% for tankovanie in refuelings %}
+                {% for t v refuelings %}
                 <tr>
-                    <td>{{ tankovanie.refueling_date.strftime('%d.%m.%Y') }}</td>
-                    <td>{{ tankovanie.driver or '' }}</td>
-                    <td>{{ "%.2f"|format(tankovanie.liters) }} L</td>
-                    <td>{{ "%.2f"|format(tankovanie.total_price) }} €</td>
+                    <td style="text-align: center;">{{ t.refueling_date.strftime('%d.%m.%Y') }}</td>
+                    <td>{{ t.driver or '' }}</td>
+                    <td style="text-align: right;">{{ "%.2f"|format(t.liters) }} L</td>
+                    <td style="text-align: right;">{{ "%.2f"|format(t.total_price) }} €</td>
+                    <td style="text-align: center;">{{ t.fuel_type or 'Diesel' }}</td>
                 </tr>
                 {% else %}
                 <tr>
-                    <td colspan="4" style="text-align: center; font-style: italic;">V tomto mesiaci neboli zaznamenané žiadne tankovania.</td>
+                    <td colspan="5" style="text-align: center; font-style: italic;">
+                        V tomto mesiaci neboli zaznamenané žiadne tankovania.
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
-{% endif %}
-{% if report_type in ['all','costs'] %}
+        {% endif %}
 
-
-
+        {% if report_type in ['all','costs'] %}
         <h2>Súhrn a Prehľad Nákladov</h2>
-        <div class="info-grid">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
             <div>
-{% endif %}\n{% if report_type in ['all','costs'] %}\n
-
-                <h2>Prehľad</h2>
+                <h3>Ekonomika prevádzky</h3>
                 <table class="summary-table">
-                    <tr><td>Celkové náklady za mesiac:</td><td>{{ "%.2f"|format(analysis.total_costs) }} €</td></tr>
+                    <tr><td>Celkové náklady:</td><td>{{ "%.2f"|format(analysis.total_costs) }} €</td></tr>
                     <tr><td>Náklady na 1 km:</td><td>{{ "%.2f"|format(analysis.cost_per_km) }} €</td></tr>
                     <tr><td>Priemerná spotreba:</td><td>{{ "%.2f"|format(analysis.avg_consumption) }} L/100km</td></tr>
-                    <tr><td>Náklady na 1 kg tovaru (+10% amort.):</td><td>{{ "%.2f"|format(analysis.cost_per_kg_goods) }} €</td></tr>
+                    <tr><td>Náklady na 1 kg tovaru:</td><td>{{ "%.2f"|format(analysis.cost_per_kg_goods) }} €</td></tr>
                 </table>
             </div>
-            <div>\n{% endif %}\n\n{% if report_type in ['all','costs'] %}\n
-                <h2>Fixné náklady</h2>
+            <div>
+                <h3>Rozpis nákladov</h3>
                 <table class="summary-table">
                     {% for cost in fixed_costs %}
                     <tr><td>{{ cost.cost_name }}:</td><td>{{ "%.2f"|format(cost.monthly_cost) }} €</td></tr>
-                    {% else %}
-                    <tr><td colspan="2">Žiadne fixné náklady.</td></tr>
                     {% endfor %}
-                </table>
-
-                <h2 style="margin-top: 15px;">Variabilné a jednorazové náklady</h2>
-                <table class="summary-table">
-                     {% for cost in variable_costs %}
+                    {% for cost in variable_costs %}
                     <tr><td>{{ cost.cost_name }}:</td><td>{{ "%.2f"|format(cost.monthly_cost) }} €</td></tr>
-                    {% else %}
-                    <tr><td colspan="2">Žiadne variabilné náklady.</td></tr>
                     {% endfor %}
+                    {% if not fixed_costs and not variable_costs %}
+                    <tr><td colspan="2">Žiadne iné náklady.</td></tr>
+                    {% endif %}
                 </table>
             </div>
         </div>
+        {% endif %}
     </div>
 </body>
 </html>
-
-\n{% endif %}\n

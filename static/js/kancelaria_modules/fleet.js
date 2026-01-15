@@ -707,6 +707,10 @@ function openEditLogModal(dateISO, existing) {
   }
   var driverValue = (existing.driver && existing.driver.trim() !== '') ? existing.driver : defaultDriver;
 
+  // --- DEFAULTNÉ HODNOTY PRE MIK ---
+  var defaultStartLoc = "MIK, s.r.o , Šaľa, 92705, ul. Hollého 1999/13";
+  var defaultPurpose = "Rozvoz tovaru po zákazníkoch";
+
   showModal((isEdit ? 'Upraviť' : 'Nová') + ' jazda – ' + dateISO.split('-').reverse().join('.'), function () {
     var html = ''
       + '<form id="log-modal-form">'
@@ -719,12 +723,12 @@ function openEditLogModal(dateISO, existing) {
       +     '<div class="form-group"><label>Čas od</label><input type="time" name="time_start" value="'+(existing.time_start||'')+'"/></div>'
       +     '<div class="form-group"><label>Čas do</label><input type="time" name="time_end" value="'+(existing.time_end||'')+'"/></div>'
       
-            // MIESTA
-      +     '<div class="form-group"><label>Odkiaľ (Miesto)</label><input type="text" name="location_start" value="'+(existing.location_start||'')+'" placeholder="Napr. Sídlo firmy"/></div>'
-      +     '<div class="form-group"><label>Kam (Miesto)</label><input type="text" name="location_end" value="'+(existing.location_end||'')+'" placeholder="Napr. Zákazník XY"/></div>'
+            // MIESTA (S DEFAULT HODNOTAMI)
+      +     '<div class="form-group"><label>Odkiaľ (Miesto)</label><input type="text" name="location_start" value="'+(existing.location_start || defaultStartLoc)+'" placeholder="Napr. Sídlo firmy"/></div>'
+      +     '<div class="form-group"><label>Kam / Smer</label><input type="text" name="location_end" value="'+(existing.location_end||'')+'" placeholder="Napr. Okruh Bratislava"/></div>'
       
-            // ÚČEL
-      +     '<div class="form-group" style="grid-column:1/-1"><label>Účel jazdy (Zákon 2026)</label><input type="text" name="purpose" value="'+(existing.purpose||'')+'" placeholder="Napr. Rozvoz tovaru, Servis"/></div>'
+            // ÚČEL (S DEFAULT HODNOTOU)
+      +     '<div class="form-group" style="grid-column:1/-1"><label>Účel jazdy</label><input type="text" name="purpose" value="'+(existing.purpose || defaultPurpose)+'" placeholder="Napr. Rozvoz tovaru"/></div>'
 
             // TACHOMETER
       +     '<div class="form-group"><label>Stav tach. (zač.)</label><input id="start-odo" type="number" name="start_odometer" step="1" value="'+(existing.start_odometer||'')+'"/></div>'
@@ -745,11 +749,10 @@ function openEditLogModal(dateISO, existing) {
     return {
       html: html,
       onReady: function () { 
-        // 1. Získame referenciu na formulár HNEĎ na začiatku
         var form = document.getElementById('log-modal-form');
         var startInput = document.getElementById('start-odo');
 
-        // Auto-fetch (cez .then)
+        // Auto-fetch posledného stavu tachometra
         if (!isEdit && (!startInput.value || startInput.value == 0)) {
             apiRequest('/api/kancelaria/fleet/getPrevOdo', {
                 method: 'POST', body: { vehicle_id: currentVehicleId, date: dateISO }
@@ -760,22 +763,16 @@ function openEditLogModal(dateISO, existing) {
             });
         }
 
-        // 2. Obsluha odoslania (bez submitCore, priamo tu)
         form.onsubmit = function(e){
           e.preventDefault();
-          var fd = new FormData(form);
-          var data = Object.fromEntries(fd.entries());
+          const fd = new FormData(form);
+          const data = Object.fromEntries(fd.entries());
           
-          var s = data.start_odometer ? Number(data.start_odometer) : null;
-          var e_odo = data.end_odometer ? Number(data.end_odometer) : null;
-          
-          if (s!=null && e_odo!=null && e_odo < s) { 
-              alert('Konečný stav tachometra je menší ako začiatočný!'); 
-              return; 
-          }
+          let s = data.start_odometer ? Number(data.start_odometer) : null;
+          let e_odo = data.end_odometer ? Number(data.end_odometer) : null;
+          if (s!=null && e_odo!=null && e_odo < s) { alert('Konečný stav tachometra je menší ako začiatočný!'); return; }
           data.km_driven = (s!=null && e_odo!=null) ? (e_odo - s) : 0;
 
-          // Odoslanie
           apiRequest('/api/kancelaria/fleet/saveLog', { method: 'POST', body: { logs: [data] } })
             .then(function() {
                 document.getElementById('modal-container').style.display = 'none';
@@ -784,7 +781,7 @@ function openEditLogModal(dateISO, existing) {
             .catch(function(err) {
                 alert(err.message);
             });
-        };
+        }
       }
     };
   });
