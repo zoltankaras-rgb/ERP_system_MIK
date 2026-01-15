@@ -744,8 +744,7 @@ function openEditLogModal(dateISO, existing) {
     
     return {
       html: html,
-      // ZMENA: Odstránené 'async', použité len klasické funkcie.
-      // Tým pádom chyba 'await only valid in async' nemôže nastať.
+      // OPRAVA: Používame čistú funkciu bez async/await
       onReady: function () { 
         var form = document.getElementById('log-modal-form');
         var startInput = document.getElementById('start-odo');
@@ -754,9 +753,11 @@ function openEditLogModal(dateISO, existing) {
         if (!isEdit && (!startInput.value || startInput.value == 0)) {
             apiRequest('/api/kancelaria/fleet/getPrevOdo', {
                 method: 'POST', body: { vehicle_id: currentVehicleId, date: dateISO }
-            }).then(function(res) {
+            })
+            .then(function(res) {
                 if (res && res.value) startInput.value = res.value;
-            }).catch(function(e) {
+            })
+            .catch(function(e) {
                 console.error(e);
             });
         }
@@ -780,7 +781,7 @@ function openEditLogModal(dateISO, existing) {
             .catch(function(err) {
                 alert(err.message);
             });
-        }
+        };
       }
     };
   });
