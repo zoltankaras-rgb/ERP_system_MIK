@@ -744,29 +744,24 @@ function openEditLogModal(dateISO, existing) {
     
     return {
       html: html,
-      // ZMENA: Odstránené 'async' (už ho nepotrebujeme)
+      // ZMENA: Odstránené 'async', použité len klasické funkcie.
+      // Tým pádom chyba 'await only valid in async' nemôže nastať.
       onReady: function () { 
         var form = document.getElementById('log-modal-form');
         var startInput = document.getElementById('start-odo');
 
-        // ZMENA: Namiesto 'await' používame '.then()' -> Toto opraví SyntaxError
+        // Auto-fetch: Použité .then() namiesto await
         if (!isEdit && (!startInput.value || startInput.value == 0)) {
             apiRequest('/api/kancelaria/fleet/getPrevOdo', {
-                method: 'POST', 
-                body: { vehicle_id: currentVehicleId, date: dateISO }
-            })
-            .then(function(res) {
-                if (res && res.value) {
-                    startInput.value = res.value;
-                }
-            })
-            .catch(function(e) {
-                console.error("Nepodarilo sa načítať km zo servera", e);
+                method: 'POST', body: { vehicle_id: currentVehicleId, date: dateISO }
+            }).then(function(res) {
+                if (res && res.value) startInput.value = res.value;
+            }).catch(function(e) {
+                console.error(e);
             });
         }
 
-        // Tu 'async' môže ostať, lebo je to event handler
-        form.onsubmit = async function(e){
+        form.onsubmit = function(e){
           e.preventDefault();
           const fd = new FormData(form);
           const data = Object.fromEntries(fd.entries());
@@ -776,11 +771,15 @@ function openEditLogModal(dateISO, existing) {
           if (s!=null && e_odo!=null && e_odo < s) { alert('Konečný stav tachometra je menší ako začiatočný!'); return; }
           data.km_driven = (s!=null && e_odo!=null) ? (e_odo - s) : 0;
 
-          try {
-            await apiRequest('/api/kancelaria/fleet/saveLog', { method: 'POST', body: { logs: [data] } });
-            document.getElementById('modal-container').style.display = 'none';
-            loadAndRenderFleetData(); 
-          } catch (err) { alert(err.message); }
+          // Odoslanie: Použité .then() namiesto await
+          apiRequest('/api/kancelaria/fleet/saveLog', { method: 'POST', body: { logs: [data] } })
+            .then(function() {
+                document.getElementById('modal-container').style.display = 'none';
+                loadAndRenderFleetData(); 
+            })
+            .catch(function(err) {
+                alert(err.message);
+            });
         }
       }
     };
