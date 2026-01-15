@@ -598,44 +598,75 @@ function renderLogbookTable(logs, year, month, lastOdometer) {
   const container = document.getElementById('fleet-logbook-container');
   const daysInMonth = new Date(year, month, 0).getDate();
 
-  const logsMap = new Map((logs || []).map(log => [new Date(log.log_date).getDate(), log]));
-  let prevEnd = Number(lastOdometer || fleetState.last_odometer || 0) || 0;
+  // Zoskupíme logy podľa dňa v mesiaci
+  const logsByDay = {};
+  (logs || []).forEach(l => {
+    const d = new Date(l.log_date).getDate();
+    if (!logsByDay[d]) logsByDay[d] = [];
+    logsByDay[d].push(l);
+  });
 
-  let html = '<table><thead><tr>'
-    + '<th>Dátum</th><th>Šofér</th><th>Zač. km</th><th>Kon. km</th><th>Najazdené</th>'
-    + '<th>Vývoz kg</th><th>Dovoz kg</th><th>Dod. listy</th><th>Akcia</th>'
+  let html = '<div class="table-container"><table><thead><tr>'
+    + '<th style="width:90px">Dátum</th>'
+    + '<th>Čas</th>'
+    + '<th>Trasa (Odkiaľ &rarr; Kam)</th>'
+    + '<th>Účel jazdy</th>'
+    + '<th>Šofér</th>'
+    + '<th>Tachometer</th>'
+    + '<th>KM</th>'
+    + '<th style="width:90px">Akcia</th>'
     + '</tr></thead><tbody>';
 
   for (let day = 1; day <= daysInMonth; day++) {
-    const log = logsMap.get(day) || {};
-    const dateISO = `${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
     const dateSK  = `${String(day).padStart(2,'0')}.${String(month).padStart(2,'0')}.${year}`;
+    const dateISO = `${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+    const dayLogs = logsByDay[day] || [];
 
-    const startChain = prevEnd;
-    const endVal = (log.end_odometer !== null && log.end_odometer !== undefined && log.end_odometer !== '')
-      ? Number(log.end_odometer) : '';
-    const kmVal = (endVal !== '' && endVal >= startChain) ? (endVal - startChain) : (log.km_driven ?? '');
+    if (dayLogs.length === 0) {
+        // Prázdny deň - riadok na pridanie prvej jazdy
+        html += `<tr style="background:#fafafa; color:#999; font-size:0.9em;">
+            <td>${dateSK}</td>
+            <td colspan="6" style="text-align:center;"><i>Žiadna jazda</i></td>
+            <td><button class="btn btn-success btn-xs" onclick="openEditLogModal('${dateISO}', null)">+ Jazda</button></td>
+        </tr>`;
+    } else {
+        // Existujúce jazdy
+        dayLogs.forEach((log, index) => {
+            const timeStr = (log.time_start ? log.time_start.substr(0,5) : '') + ' - ' + (log.time_end ? log.time_end.substr(0,5) : '');
+            const routeStr = (log.location_start || '') + ' &rarr; ' + (log.location_end || '');
+            const odoStr = (log.start_odometer || '?') + ' - ' + (log.end_odometer || '?');
+            
+            // Dátum a tlačidlo "+" zobrazíme len v prvom riadku dňa
+            let dateCell = '';
+            if (index === 0) {
+                dateCell = `<td rowspan="${dayLogs.length}" style="vertical-align:top; background:#fff; border-right:1px solid #eee;">
+                    <strong>${dateSK}</strong><br>
+                    <button class="btn btn-success btn-xs" style="margin-top:5px" title="Pridať ďalšiu jazdu" onclick="openEditLogModal('${dateISO}', null)">+</button>
+                </td>`;
+            }
 
-    html += `<tr data-day="${day}">
-      <td>${dateSK}</td>
-      <td>${escapeHtml(log.driver || '')}</td>
-      <td>${startChain}</td>
-      <td>${(endVal !== '' ? endVal : '')}</td>
-      <td>${(kmVal !== '' ? kmVal : '')}</td>
-      <td>${log.goods_out_kg ?? ''}</td>
-      <td>${log.goods_in_kg ?? ''}</td>
-      <td>${log.delivery_notes_count ?? ''}</td>
-      <td>
-        <button class="btn btn-secondary btn-xs" data-edit-day="${day}" data-date="${dateISO}"><i class="fas fa-edit"></i> Upraviť</button>
-        <button class="btn btn-danger btn-xs" data-del-day="${day}" data-date="${dateISO}"><i class="fas fa-trash"></i> Zmazať deň</button>
-      </td>
-    </tr>`;
-
-    if (endVal !== '' && !isNaN(endVal)) prevEnd = endVal;
+            html += `<tr>`;
+            if (index === 0) html += dateCell;
+            
+            html += `
+              <td>${timeStr}</td>
+              <td>${routeStr}</td>
+              <td>${escapeHtml(log.purpose || '')}</td>
+              <td>${escapeHtml(log.driver || '')}</td>
+              <td>${odoStr}</td>
+              <td><strong>${log.km_driven}</strong></td>
+              <td>
+                <button class="btn btn-secondary btn-xs" onclick='openEditLogModal("${dateISO}", ${JSON.stringify(log)})'><i class="fas fa-edit"></i></button>
+                <button class="btn btn-danger btn-xs" onclick="handleDeleteTripLog(${log.id})"><i class="fas fa-trash"></i></button>
+              </td>
+            </tr>`;
+        });
+    }
   }
 
-  html += '</tbody></table>';
+  html += '</tbody></table></div>';
   container.innerHTML = html;
+
 
   const oldSave = document.getElementById('save-logbook-changes-btn');
   if (oldSave) oldSave.style.display = 'none';
@@ -666,8 +697,9 @@ function renderLogbookTable(logs, year, month, lastOdometer) {
 function openEditLogModal(dateISO, existing) {
   existing = existing || {};
   var currentVehicleId = fleetState.selected_vehicle_id;
+  var isEdit = !!existing.id; // Editujeme konkrétnu jazdu?
   
-  // 1. Default šofér
+  // Default šofér
   var defaultDriver = '';
   if (fleetState.vehicles && currentVehicleId) {
       var v = fleetState.vehicles.find(function(x) { return String(x.id) === String(currentVehicleId); });
@@ -675,27 +707,38 @@ function openEditLogModal(dateISO, existing) {
   }
   var driverValue = (existing.driver && existing.driver.trim() !== '') ? existing.driver : defaultDriver;
 
-  // 2. HTML Modálu (Input pre Start km necháme zatiaľ prázdny alebo s existujúcou hodnotou)
-  var startVal = existing.start_odometer || '';
-
-  showModal('Úprava jazdy – ' + dateISO.split('-').reverse().join('.'), function () {
+  showModal((isEdit ? 'Upraviť' : 'Nová') + ' jazda – ' + dateISO.split('-').reverse().join('.'), function () {
     var html = ''
       + '<form id="log-modal-form">'
       +   '<input type="hidden" name="vehicle_id" value="'+(currentVehicleId||'')+'"/>'
       +   '<input type="hidden" name="log_date" value="'+dateISO+'"/>'
+      +   '<input type="hidden" name="id" value="'+(existing.id || '')+'"/>'
+      
       +   '<div class="form-grid">'
-      +     '<div class="form-group"><label>Šofér</label><input type="text" name="driver" value="'+escapeHtml(driverValue)+'"/></div>'
-      +     '<div class="form-group"><label>Stav tach. (zač.)</label><input id="start-odo" type="number" name="start_odometer" step="1" value="'+startVal+'" placeholder="Načítavam..."/></div>'
+            // ČASY
+      +     '<div class="form-group"><label>Čas od</label><input type="time" name="time_start" value="'+(existing.time_start||'')+'"/></div>'
+      +     '<div class="form-group"><label>Čas do</label><input type="time" name="time_end" value="'+(existing.time_end||'')+'"/></div>'
+      
+            // MIESTA
+      +     '<div class="form-group"><label>Odkiaľ (Miesto)</label><input type="text" name="location_start" value="'+(existing.location_start||'')+'" placeholder="Napr. Sídlo firmy"/></div>'
+      +     '<div class="form-group"><label>Kam (Miesto)</label><input type="text" name="location_end" value="'+(existing.location_end||'')+'" placeholder="Napr. Zákazník XY"/></div>'
+      
+            // ÚČEL
+      +     '<div class="form-group" style="grid-column:1/-1"><label>Účel jazdy (Zákon 2026)</label><input type="text" name="purpose" value="'+(existing.purpose||'')+'" placeholder="Napr. Rozvoz tovaru, Servis"/></div>'
+
+            // TACHOMETER
+      +     '<div class="form-group"><label>Stav tach. (zač.)</label><input id="start-odo" type="number" name="start_odometer" step="1" value="'+(existing.start_odometer||'')+'"/></div>'
       +     '<div class="form-group"><label>Stav tach. (kon.)</label><input id="end-odo" type="number" name="end_odometer" step="1" value="'+(existing.end_odometer||'')+'"/></div>'
+      
+      +     '<div class="form-group"><label>Šofér</label><input type="text" name="driver" value="'+escapeHtml(driverValue)+'"/></div>'
+      
+            // TOVAR (voliteľné)
       +     '<div class="form-group"><label>Vývoz (kg)</label><input type="number" name="goods_out_kg" step="0.1" value="'+(existing.goods_out_kg||'')+'"/></div>'
-      +     '<div class="form-group"><label>Dovoz (kg)</label><input type="number" name="goods_in_kg" step="0.1" value="'+(existing.goods_in_kg||'')+'"/></div>'
-      +     '<div class="form-group"><label>Dodacie listy</label><input type="number" name="delivery_notes_count" step="1" value="'+(existing.delivery_notes_count||'')+'"/></div>'
-      +     '<div class="form-group" style="grid-column:1/-1;"><label>Cieľ</label><input type="text" name="destination" value="'+(existing.destination||'')+'"/></div>'
+      +     '<div class="form-group"><label>DL (ks)</label><input type="number" name="delivery_notes_count" step="1" value="'+(existing.delivery_notes_count||'')+'"/></div>'
       +   '</div>'
+
       +   '<div style="display:flex; gap:.5rem; margin-top:1rem;">'
-      +     '<button type="submit" class="btn btn-success">Uložiť</button>'
-      +     '<button type="button" id="save-and-next" class="btn btn-secondary">Uložiť a ďalej</button>'
-      +     '<button type="button" id="delete-day" class="btn btn-danger" style="margin-left:auto">Zmazať deň</button>'
+      +     '<button type="submit" class="btn btn-success">Uložiť jazdu</button>'
       +   '</div>'
       + '</form>';
     
@@ -704,6 +747,37 @@ function openEditLogModal(dateISO, existing) {
       onReady: async function () {
         var form = document.getElementById('log-modal-form');
         var startInput = document.getElementById('start-odo');
+
+        // Auto-fetch: Ak je to NOVÁ jazda, skús zistiť stav tachometra
+        if (!isEdit && (!startInput.value || startInput.value == 0)) {
+            try {
+                var res = await apiRequest('/api/kancelaria/fleet/getPrevOdo', {
+                    method: 'POST', body: { vehicle_id: currentVehicleId, date: dateISO }
+                });
+                if (res && res.value) startInput.value = res.value;
+            } catch (e) {}
+        }
+
+        form.onsubmit = async function(e){
+          e.preventDefault();
+          const fd = new FormData(form);
+          const data = Object.fromEntries(fd.entries());
+          
+          let s = data.start_odometer ? Number(data.start_odometer) : null;
+          let e_odo = data.end_odometer ? Number(data.end_odometer) : null;
+          if (s!=null && e_odo!=null && e_odo < s) { alert('Konečný stav tachometra je menší ako začiatočný!'); return; }
+          data.km_driven = (s!=null && e_odo!=null) ? (e_odo - s) : 0;
+
+          try {
+            await apiRequest('/api/kancelaria/fleet/saveLog', { method: 'POST', body: { logs: [data] } });
+            document.getElementById('modal-container').style.display = 'none';
+            loadAndRenderFleetData(); 
+          } catch (err) { alert(err.message); }
+        }
+      }
+    };
+  });
+}
         
         document.getElementById('delete-day').onclick = function(){ handleDeleteDayLogs(dateISO); };
         // !!! BOD 3: ak nemám šoféra v existujúcom zázname, doplň posledného šoféra pre toto auto
@@ -765,10 +839,7 @@ if (form.elements.driver && !String(form.elements.driver.value || '').trim()) {
         
         form.onsubmit = function(e){ e.preventDefault(); submitCore(false); };
         document.getElementById('save-and-next').onclick = function(){ submitCore(true); };
-      }
-    };
-  });
-}
+
 // =================== TANKOVANIE ===================
 function renderRefuelingTable(refuelings) {
   const container = document.getElementById('fleet-refueling-container');
@@ -1067,39 +1138,76 @@ function handleDeleteCost(costId) {
 // =================== VOZIDLÁ: Nové / Upraviť ===================
 function openAddEditVehicleModal(vehicleId) {
   showModal(vehicleId ? 'Upraviť vozidlo' : 'Pridať nové vozidlo', function () {
+    // Načítame HTML z templatu (ktorý už musí obsahovať input pre VIN)
     var html = document.getElementById('vehicle-modal-template').innerHTML;
+    
     return {
       html: html,
       onReady: function () {
         var form = document.getElementById('vehicle-form');
 
+        // Ak editujeme existujúce vozidlo, naplníme formulár
         if (vehicleId) {
-          var v = (fleetState.vehicles || []).find(function(x){ return String(x.id) === String(vehicleId); });
+          var v = (fleetState.vehicles || []).find(function(x) { 
+            return String(x.id) === String(vehicleId); 
+          });
+
           if (v) {
             form.elements.id.value = v.id;
-            form.elements.name.value = v.name || '';
             form.elements.license_plate.value = v.license_plate || '';
+            
+            // --- NOVÉ PRE ZÁKON 2026: Naplnenie VIN ---
+            if (form.elements.vin) {
+                form.elements.vin.value = v.vin || ''; 
+            }
+            // ------------------------------------------
+
+            form.elements.name.value = v.name || '';
             form.elements.type.value = v.type || '';
             form.elements.default_driver.value = v.default_driver || '';
             form.elements.initial_odometer.value = v.initial_odometer || '';
           }
         }
 
+        // Odoslanie formulára
         form.onsubmit = async function (e) {
           e.preventDefault();
+          
+          // Získanie dát z formulára
           const fd = new FormData(form);
           const data = Object.fromEntries(fd.entries());
+
           try {
+            // Vizuálna odozva - disable tlačidla
+            const btn = form.querySelector('button[type="submit"]');
+            if(btn) {
+                btn.disabled = true;
+                btn.textContent = 'Ukladám...';
+            }
+
+            // Odoslanie na server
             await apiRequest('/api/kancelaria/fleet/saveVehicle', { method: 'POST', body: data });
+            
+            // Zatvorenie modálu a reload dát
             document.getElementById('modal-container').style.display = 'none';
             loadAndRenderFleetData(true);
-          } catch (err) { }
+            
+          } catch (err) { 
+            console.error(err);
+            alert('Chyba pri ukladaní vozidla: ' + (err.message || 'Neznáma chyba'));
+            
+            // Vrátenie tlačidla do pôvodného stavu
+            const btn = form.querySelector('button[type="submit"]');
+            if(btn) {
+                btn.disabled = false;
+                btn.textContent = 'Uložiť vozidlo';
+            }
+          }
         };
       }
     };
   });
 }
-
 // =================== REPORT: tlač ===================
 function handlePrintFleetReport() {
   var vSel = document.getElementById('fleet-vehicle-select');
@@ -1556,9 +1664,15 @@ async function runVehicleTimelineComparison(){
       t1.innerHTML = `
         <form id="vehicle-form">
           <input type="hidden" name="id">
-          <div class="form-group">
-            <label>ŠPZ</label>
-            <input type="text" name="license_plate" required>
+          <div class="form-grid">
+            <div class="form-group">
+              <label>ŠPZ *</label>
+              <input type="text" name="license_plate" required>
+            </div>
+            <div class="form-group">
+              <label>VIN (Povinné od 2026)</label>
+              <input type="text" name="vin" placeholder="XXXXXXXXXXXXXXXXX">
+            </div>
           </div>
           <div class="form-group">
             <label>Názov vozidla</label>
@@ -1685,3 +1799,12 @@ try{
   document.addEventListener('DOMContentLoaded', scanAndApply);
   setTimeout(scanAndApply, 0);
 })();
+async function handleDeleteTripLog(id) {
+    if (!confirm("Naozaj vymazať túto jazdu?")) return;
+    try {
+        await apiRequest('/api/kancelaria/fleet/deleteTripLog', { method: 'POST', body: { id: id } });
+        loadAndRenderFleetData();
+    } catch (e) {
+        alert("Chyba: " + e.message);
+    }
+}

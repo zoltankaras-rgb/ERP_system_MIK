@@ -77,12 +77,13 @@ def _col_exists(table: str, col: str) -> bool:
 # ---------------------------- vehicles -----------------------------
 
 def save_vehicle(data: dict):
-    """Insert/Update do fleet_vehicles. Unikátna ŠPZ, povinný initial_odometer."""
+    """Insert/Update do fleet_vehicles. Unikátna ŠPZ, povinný initial_odometer + VIN (Legislatíva 2026)."""
     if not isinstance(data, dict):
         return {"error": "Neplatná požiadavka."}
 
     vid            = _to_int(data.get("id"))
     license_plate  = (data.get("license_plate") or "").strip().upper()
+    vin            = (data.get("vin") or "").strip().upper() # NOVÉ: VIN
     name           = (data.get("name") or "").strip()
     vtype          = (data.get("type") or "").strip() or None
     default_driver = (data.get("default_driver") or "").strip() or None
@@ -101,8 +102,8 @@ def save_vehicle(data: dict):
         if dup:
             return {"error":"Vozidlo s touto ŠPZ už existuje."}
         db_connector.execute_query(
-            "UPDATE fleet_vehicles SET license_plate=%s, name=%s, type=%s, default_driver=%s, initial_odometer=%s WHERE id=%s",
-            (license_plate, name, vtype, default_driver, initial_odo, vid), fetch="none"
+            "UPDATE fleet_vehicles SET license_plate=%s, vin=%s, name=%s, type=%s, default_driver=%s, initial_odometer=%s WHERE id=%s",
+            (license_plate, vin, name, vtype, default_driver, initial_odo, vid), fetch="none"
         )
         return {"message":"Vozidlo upravené.", "id": vid}
     else:
@@ -113,8 +114,8 @@ def save_vehicle(data: dict):
         if dup:
             return {"error":"Vozidlo s touto ŠPZ už existuje."}
         db_connector.execute_query(
-            "INSERT INTO fleet_vehicles (license_plate, name, type, default_driver, initial_odometer, is_active) VALUES (%s,%s,%s,%s,%s, TRUE)",
-            (license_plate, name, vtype, default_driver, initial_odo), fetch="none"
+            "INSERT INTO fleet_vehicles (license_plate, vin, name, type, default_driver, initial_odometer, is_active) VALUES (%s,%s,%s,%s,%s,%s, TRUE)",
+            (license_plate, vin, name, vtype, default_driver, initial_odo), fetch="none"
         )
         rid = db_connector.execute_query("SELECT LAST_INSERT_ID() AS id", fetch="one")
         return {"message":"Vozidlo pridané.", "id": (rid or {}).get("id")}
@@ -259,9 +260,9 @@ def get_data(vehicle_id=None, year=None, month=None):
 
 def save_daily_log(data):
     """
-    Uloží/aktualizuje dávku denných záznamov.
-    - doplní tachometre (start/end/km)
-    - keď driver chýba, doplní default_driver z fleet_vehicles
+    Uloží/aktualizuje jazdy.
+    Podporuje detailnú evidenciu (čas, miesto, účel) pre zákon 2026.
+    Identifikácia záznamu pre UPDATE je cez unikátne 'id' jazdy.
     """
     logs = data.get('logs')
     if not logs:
@@ -274,87 +275,88 @@ def save_daily_log(data):
         try: return float(v) if v not in (None,"") else None
         except: return None
 
-    # zoskupiť podľa vozidla
-    by_vehicle = {}
-    for r in logs:
-        vid = to_i(r.get('vehicle_id')); d=(r.get('log_date') or '')[:10]
-        if not vid or not d: continue
-        by_vehicle.setdefault(vid, []).append(r)
-    for vid in by_vehicle:
-        by_vehicle[vid].sort(key=lambda x: (x.get('log_date') or '')[:10])
-
-    # načítaj default_driver pre všetky použité vozidlá
+    # Načítanie default šoférov pre vozidlá v requeste (optimalizácia)
+    vehicle_ids = set(to_i(r.get('vehicle_id')) for r in logs if to_i(r.get('vehicle_id')))
     defaults_map = {}
-    for vid in by_vehicle.keys():
-        row = db_connector.execute_query("SELECT default_driver FROM fleet_vehicles WHERE id=%s",(vid,),fetch="one")
-        defaults_map[vid] = (row or {}).get("default_driver")
+    if vehicle_ids:
+        placeholders = ",".join(["%s"] * len(vehicle_ids))
+        rows = db_connector.execute_query(
+            f"SELECT id, default_driver FROM fleet_vehicles WHERE id IN ({placeholders})",
+            tuple(vehicle_ids), fetch="all"
+        ) or []
+        for r in rows:
+            defaults_map[r['id']] = r.get('default_driver')
 
     conn = db_connector.get_connection()
     try:
         cur = conn.cursor()
-        for vid, rows in by_vehicle.items():
-            first_date = (rows[0].get('log_date') or '')[:10]
-            last = db_connector.execute_query(
-                "SELECT end_odometer FROM fleet_logs WHERE vehicle_id=%s AND log_date<%s AND end_odometer IS NOT NULL ORDER BY log_date DESC LIMIT 1",
-                (vid, first_date), fetch="one"
-            )
-            if last and last.get('end_odometer') is not None:
-                seed = int(last['end_odometer'])
+        for row in logs:
+            trip_id = to_i(row.get('id')) # ID konkrétnej jazdy (ak existuje)
+            vid = to_i(row.get('vehicle_id'))
+            log_date = (row.get('log_date') or '')[:10]
+            
+            if not vid or not log_date: continue
+
+            # Hodnoty
+            start_o = to_i(row.get('start_odometer'))
+            end_o   = to_i(row.get('end_odometer'))
+            km      = to_i(row.get('km_driven'))
+
+            # Auto-výpočet KM ak chýba
+            if km is None and start_o is not None and end_o is not None:
+                km = max(0, end_o - start_o)
+            
+            # NOVÉ polia pre zákon 2026
+            time_start = row.get('time_start') or None # format "HH:MM"
+            time_end   = row.get('time_end') or None
+            loc_start  = (row.get('location_start') or "").strip() or None
+            loc_end    = (row.get('location_end') or "").strip() or None
+            purpose    = (row.get('purpose') or "").strip() or None
+            
+            driver = (row.get('driver') or '').strip() or defaults_map.get(vid)
+
+            # Ostatné (tovar)
+            goods_out = to_f(row.get('goods_out_kg'))
+            goods_in  = to_f(row.get('goods_in_kg'))
+            dl_count  = to_i(row.get('delivery_notes_count')) or 0
+
+            if trip_id:
+                # UPDATE existujúcej jazdy podľa ID
+                cur.execute("""
+                    UPDATE fleet_logs SET
+                        driver=%s, time_start=%s, time_end=%s,
+                        location_start=%s, location_end=%s, purpose=%s,
+                        start_odometer=%s, end_odometer=%s, km_driven=%s,
+                        goods_out_kg=%s, goods_in_kg=%s, delivery_notes_count=%s,
+                        log_date=%s
+                    WHERE id=%s
+                """, (driver, time_start, time_end, loc_start, loc_end, purpose,
+                      start_o, end_o, km, goods_out, goods_in, dl_count, log_date, trip_id))
             else:
-                init = db_connector.execute_query("SELECT initial_odometer FROM fleet_vehicles WHERE id=%s",(vid,),fetch="one")
-                seed = int((init or {}).get('initial_odometer') or 0)
-
-            prev_end = seed
-            for row in rows:
-                d = (row.get('log_date') or '')[:10]
-                start_o  = to_i(row.get('start_odometer')) or prev_end
-                end_o    = to_i(row.get('end_odometer'))
-                km       = to_i(row.get('km_driven'))
-
-                if km is None and end_o is not None:
-                    km = max(0, end_o - start_o)
-                if end_o is None and km is not None:
-                    end_o = start_o + max(0, km)
-                if end_o is None:
-                    end_o = start_o
-                if end_o < start_o:
-                    end_o = start_o
-                if km is None:
-                    km = max(0, end_o - start_o)
-
-                driver = (row.get('driver') or '').strip() or defaults_map.get(vid)
-
-                params = {
-                    "vehicle_id": vid, "log_date": d, "driver": driver,
-                    "start_odometer": int(start_o), "end_odometer": int(end_o), "km_driven": int(km),
-                    "goods_out_kg": to_f(row.get('goods_out_kg')), "goods_in_kg": to_f(row.get('goods_in_kg')),
-                    "delivery_notes_count": to_i(row.get('delivery_notes_count')) or 0,
-                }
-                # MySQL: ON DUPLICATE KEY UPDATE s aliasom new (drží kompatibilitu)
-                cur.execute(
-                    """
+                # INSERT novej jazdy
+                cur.execute("""
                     INSERT INTO fleet_logs (
-                        vehicle_id, log_date, driver, start_odometer, end_odometer, km_driven, goods_out_kg, goods_in_kg, delivery_notes_count
-                    ) VALUES (
-                        %(vehicle_id)s, %(log_date)s, %(driver)s, %(start_odometer)s, %(end_odometer)s, %(km_driven)s, %(goods_out_kg)s, %(goods_in_kg)s, %(delivery_notes_count)s
-                    ) AS new
-                    ON DUPLICATE KEY UPDATE
-                        driver=new.driver, start_odometer=new.start_odometer, end_odometer=new.end_odometer,
-                        km_driven=new.km_driven, goods_out_kg=new.goods_out_kg, goods_in_kg=new.goods_in_kg, delivery_notes_count=new.delivery_notes_count
-                    """,
-                    params
-                )
-                prev_end = end_o
+                        vehicle_id, log_date, driver, time_start, time_end,
+                        location_start, location_end, purpose,
+                        start_odometer, end_odometer, km_driven,
+                        goods_out_kg, goods_in_kg, delivery_notes_count
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """, (vid, log_date, driver, time_start, time_end,
+                      loc_start, loc_end, purpose,
+                      start_o, end_o, km, goods_out, goods_in, dl_count))
 
         conn.commit()
-        return {"message":"Zmeny v knihe jázd boli uložené."}
+        return {"message":"Jazdy boli uložené."}
+    except Exception as e:
+        if conn: conn.rollback()
+        print(f"Error saving log: {e}")
+        return {"error": f"Chyba pri ukladaní: {str(e)}"}
     finally:
         if conn and conn.is_connected():
             conn.close()
 
 def save_log(data):
     return save_daily_log(data)
-
 # -------------------------- refuelings ----------------------------
 def save_refueling(data):
     """Priamy zápis do DB, keďže tabuľka má stĺpec fuel_type."""
@@ -690,3 +692,12 @@ def get_previous_odometer_value(vehicle_id, date_str):
     veh = db_connector.execute_query(sql_veh, (vehicle_id,), fetch="one")
     
     return int((veh or {}).get('initial_odometer') or 0)
+
+def delete_trip_log(data: dict):
+    """Vymaže konkrétnu jazdu podľa ID."""
+    trip_id = _to_int(data.get("id"))
+    if not trip_id:
+        return {"error": "Chýba ID jazdy."}
+    
+    db_connector.execute_query("DELETE FROM fleet_logs WHERE id=%s", (trip_id,), fetch="none")
+    return {"message": "Záznam o jazde vymazaný."}

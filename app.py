@@ -3902,6 +3902,13 @@ def api_fleet_save_cost():
 def api_fleet_delete_cost():
     return handle_request(fleet_handler.delete_fleet_cost, request.json)
 
+# --- VLOŽIŤ DO app.py ---
+
+@app.route('/api/kancelaria/fleet/deleteTripLog', methods=['POST'])
+@login_required(role='kancelaria')
+def api_fleet_delete_trip_log():
+    return handle_request(fleet_handler.delete_trip_log, request.json)
+
 @app.route('/api/kancelaria/fleet/getAnalysis')
 @login_required(role='kancelaria')
 def api_fleet_get_analysis():
