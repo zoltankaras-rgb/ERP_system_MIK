@@ -744,23 +744,28 @@ function openEditLogModal(dateISO, existing) {
     
     return {
       html: html,
-      // !!! 1. PRVÉ 'async' MUSÍ BYŤ TU (lebo vnútri je await getPrevOdo) !!!
-      onReady: async function () { 
+      // ZMENA: Odstránené 'async' (už ho nepotrebujeme)
+      onReady: function () { 
         var form = document.getElementById('log-modal-form');
         var startInput = document.getElementById('start-odo');
 
-        // Auto-fetch: Ak je to NOVÁ jazda, skús zistiť stav tachometra
+        // ZMENA: Namiesto 'await' používame '.then()' -> Toto opraví SyntaxError
         if (!isEdit && (!startInput.value || startInput.value == 0)) {
-            try {
-                // TU je prvý await -> preto onReady musí byť async
-                var res = await apiRequest('/api/kancelaria/fleet/getPrevOdo', {
-                    method: 'POST', body: { vehicle_id: currentVehicleId, date: dateISO }
-                });
-                if (res && res.value) startInput.value = res.value;
-            } catch (e) {}
+            apiRequest('/api/kancelaria/fleet/getPrevOdo', {
+                method: 'POST', 
+                body: { vehicle_id: currentVehicleId, date: dateISO }
+            })
+            .then(function(res) {
+                if (res && res.value) {
+                    startInput.value = res.value;
+                }
+            })
+            .catch(function(e) {
+                console.error("Nepodarilo sa načítať km zo servera", e);
+            });
         }
 
-        // !!! 2. DRUHÉ 'async' MUSÍ BYŤ TU (lebo vnútri je await saveLog) !!!
+        // Tu 'async' môže ostať, lebo je to event handler
         form.onsubmit = async function(e){
           e.preventDefault();
           const fd = new FormData(form);
@@ -772,7 +777,6 @@ function openEditLogModal(dateISO, existing) {
           data.km_driven = (s!=null && e_odo!=null) ? (e_odo - s) : 0;
 
           try {
-            // TU je druhý await -> preto form.onsubmit musí byť async
             await apiRequest('/api/kancelaria/fleet/saveLog', { method: 'POST', body: { logs: [data] } });
             document.getElementById('modal-container').style.display = 'none';
             loadAndRenderFleetData(); 
