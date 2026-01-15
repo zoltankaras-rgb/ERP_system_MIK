@@ -73,7 +73,24 @@ def _col_exists(table: str, col: str) -> bool:
         (table, col), fetch="one"
     )
     return bool(r)
-
+def _format_time_cols(logs):
+    """Prevedie timedelta/time objekty v logoch na string 'HH:MM' pre JSON."""
+    if not logs:
+        return []
+    for log in logs:
+        for col in ['time_start', 'time_end']:
+            val = log.get(col)
+            if val is not None and not isinstance(val, str):
+                # Ak je to timedelta (bežné pre MySQL connector)
+                if hasattr(val, 'total_seconds'):
+                    seconds = int(val.total_seconds())
+                    h = seconds // 3600
+                    m = (seconds % 3600) // 60
+                    log[col] = f"{h:02d}:{m:02d}"
+                # Ak je to datetime.time
+                else:
+                    log[col] = str(val)[:5] # Orezat sekundy ak tam su
+    return logs
 # ---------------------------- vehicles -----------------------------
 
 def save_vehicle(data: dict):
@@ -197,6 +214,9 @@ def get_fleet_data(vehicle_id=None, year=None, month=None):
             "SELECT * FROM fleet_logs WHERE vehicle_id=%s AND YEAR(log_date)=%s AND MONTH(log_date)=%s ORDER BY log_date ASC",
             (vehicle_id, year, month)
         ) or []
+        
+        # !!! TOTO JE TÁ OPRAVA: Prevedieme časy na stringy !!!
+        logs = _format_time_cols(logs)
 
         # 2. Tankovanie pre aktuálny mesiac
         refuelings = db_connector.execute_query(
@@ -205,7 +225,6 @@ def get_fleet_data(vehicle_id=None, year=None, month=None):
         ) or []
 
         # 3. KĽÚČOVÉ: Zistenie počiatočného stavu pre tento mesiac
-        # Hľadáme posledný záznam PRED týmto mesiacom
         first_day_of_month = f"{year:04d}-{month:02d}-01"
         
         prev_log = db_connector.execute_query(
@@ -220,6 +239,7 @@ def get_fleet_data(vehicle_id=None, year=None, month=None):
             # Ak neexistuje žiadny záznam v minulosti, vezmi initial_odometer z auta
             veh = db_connector.execute_query("SELECT initial_odometer FROM fleet_vehicles WHERE id=%s", (vehicle_id,), fetch="one")
             last_odo = int((veh or {}).get('initial_odometer') or 0)
+            
     last_driver = None
     if vehicle_id:
         ld = db_connector.execute_query(
@@ -232,7 +252,7 @@ def get_fleet_data(vehicle_id=None, year=None, month=None):
         if ld:
             last_driver = (ld.get("driver") or "").strip() or None
 
-    # fallback na default_driver z vozidla, ak v logoch nič nie je
+    # fallback na default_driver z vozidla
     if not last_driver:
         v = db_connector.execute_query(
             "SELECT default_driver FROM fleet_vehicles WHERE id=%s",
@@ -242,16 +262,15 @@ def get_fleet_data(vehicle_id=None, year=None, month=None):
         last_driver = ((v or {}).get("default_driver") or "").strip() or None
 
     return {
-  "vehicles": vehicles,
-  "selected_vehicle_id": _to_int(vehicle_id) if vehicle_id else None,
-  "selected_year": year,
-  "selected_month": month,
-  "logs": logs,
-  "refuelings": refuelings,
-  "last_odometer": last_odo,
-  "last_driver": last_driver
-}
-
+      "vehicles": vehicles,
+      "selected_vehicle_id": _to_int(vehicle_id) if vehicle_id else None,
+      "selected_year": year,
+      "selected_month": month,
+      "logs": logs,
+      "refuelings": refuelings,
+      "last_odometer": last_odo,
+      "last_driver": last_driver
+    }
 
 def get_data(vehicle_id=None, year=None, month=None):
     return get_fleet_data(vehicle_id, year, month)
