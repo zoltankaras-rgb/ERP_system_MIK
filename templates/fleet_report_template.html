@@ -71,7 +71,8 @@
         @media print {
             body { 
                 background-color: #fff; padding: 0; margin: 5mm; 
-                -webkit-print-color-adjust: exact;
+                /* Oprava warningu: pridana standardna vlastnost */
+                -webkit-print-color-adjust: exact; 
                 print-color-adjust: exact;
             }
             .report-container { box-shadow: none; max-width: 100%; padding: 0; }
@@ -159,7 +160,7 @@
                 </tr>
             </thead>
             <tbody>
-                {% for t v refuelings %}
+                {% for t in refuelings %}
                 <tr>
                     <td style="text-align: center;">{{ t.refueling_date.strftime('%d.%m.%Y') }}</td>
                     <td>{{ t.driver or '' }}</td>
