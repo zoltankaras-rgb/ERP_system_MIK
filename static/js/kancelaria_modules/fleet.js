@@ -744,35 +744,38 @@ function openEditLogModal(dateISO, existing) {
     
     return {
       html: html,
-      // OPRAVA: Používame čistú funkciu bez async/await
       onReady: function () { 
+        // 1. Získame referenciu na formulár HNEĎ na začiatku
         var form = document.getElementById('log-modal-form');
         var startInput = document.getElementById('start-odo');
 
-        // Auto-fetch: Použité .then() namiesto await
+        // Auto-fetch (cez .then)
         if (!isEdit && (!startInput.value || startInput.value == 0)) {
             apiRequest('/api/kancelaria/fleet/getPrevOdo', {
                 method: 'POST', body: { vehicle_id: currentVehicleId, date: dateISO }
-            })
-            .then(function(res) {
+            }).then(function(res) {
                 if (res && res.value) startInput.value = res.value;
-            })
-            .catch(function(e) {
+            }).catch(function(e) {
                 console.error(e);
             });
         }
 
+        // 2. Obsluha odoslania (bez submitCore, priamo tu)
         form.onsubmit = function(e){
           e.preventDefault();
-          const fd = new FormData(form);
-          const data = Object.fromEntries(fd.entries());
+          var fd = new FormData(form);
+          var data = Object.fromEntries(fd.entries());
           
-          let s = data.start_odometer ? Number(data.start_odometer) : null;
-          let e_odo = data.end_odometer ? Number(data.end_odometer) : null;
-          if (s!=null && e_odo!=null && e_odo < s) { alert('Konečný stav tachometra je menší ako začiatočný!'); return; }
+          var s = data.start_odometer ? Number(data.start_odometer) : null;
+          var e_odo = data.end_odometer ? Number(data.end_odometer) : null;
+          
+          if (s!=null && e_odo!=null && e_odo < s) { 
+              alert('Konečný stav tachometra je menší ako začiatočný!'); 
+              return; 
+          }
           data.km_driven = (s!=null && e_odo!=null) ? (e_odo - s) : 0;
 
-          // Odoslanie: Použité .then() namiesto await
+          // Odoslanie
           apiRequest('/api/kancelaria/fleet/saveLog', { method: 'POST', body: { logs: [data] } })
             .then(function() {
                 document.getElementById('modal-container').style.display = 'none';
@@ -787,42 +790,7 @@ function openEditLogModal(dateISO, existing) {
   });
 }
 
-        async function submitCore(goNext){
-          const fd = new FormData(form);
-          const data = Object.fromEntries(fd.entries());
-          data.vehicle_id = String(fleetState.selected_vehicle_id || document.getElementById('fleet-vehicle-select')?.value || '');
-          data.log_date = (data.log_date || dateISO);
-          let s = data.start_odometer ? Number(data.start_odometer) : null;
-          let e = data.end_odometer ? Number(data.end_odometer) : null;
-          
-          if (s!=null && e!=null && e < s) { e = s; data.end_odometer = String(s); }
-          
-          try {
-            await apiRequest('/api/kancelaria/fleet/saveLog', { method: 'POST', body: { logs: [data] } });
-            
-            // Update lokálne
-            _upsertLogByDate(data.log_date, { ...data, start_odometer: s, end_odometer: e, km_driven: (s!=null&&e!=null)?(e-s):null });
-            
-            renderLogbookTable(fleetState.logs, fleetState.selected_year, fleetState.selected_month, fleetState.last_odometer);
-            document.getElementById('modal-container').style.display = 'none';
-            
-            if (goNext) {
-               const d = new Date(data.log_date);
-               const next = new Date(d.getFullYear(), d.getMonth(), d.getDate()+1);
-               if (next.getMonth() === d.getMonth()){
-                 const nextISO = `${next.getFullYear()}-${String(next.getMonth()+1).padStart(2,'0')}-${String(next.getDate()).padStart(2,'0')}`;
-                 const nextExisting = (fleetState.logs || []).find(l => (l.log_date||'').startsWith(nextISO)) || {};
-                 // Otvoríme ďalší deň (a ten si znova zavolá server pre km)
-                 setTimeout(function() { openEditLogModal(nextISO, nextExisting); }, 50);
-               }
-            }
-            loadAndRenderFleetData(); 
-          } catch (err) { console.error(err); }
-        }
-        
-        form.onsubmit = function(e){ e.preventDefault(); submitCore(false); };
-        document.getElementById('save-and-next').onclick = function(){ submitCore(true); };
-
+  
 // =================== TANKOVANIE ===================
 function renderRefuelingTable(refuelings) {
   const container = document.getElementById('fleet-refueling-container');
