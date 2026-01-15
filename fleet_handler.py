@@ -429,8 +429,7 @@ def get_fleet_analysis(vehicle_id, year, month):
     year = _to_int(year); month = _to_int(month)
     if not all([vehicle_id, year, month]): return {"error": "Chýbajú parametre."}
 
-    # 1. KM a Tovar (filter chýb > 2000 km ostal zachovaný)
-    # ZMENA: Pridané SUM pre goods_in_kg a delivery_notes_count
+    # 1. KM a Tovar
     log_sum = db_connector.execute_query(
         """
         SELECT 
@@ -446,10 +445,10 @@ def get_fleet_analysis(vehicle_id, year, month):
     
     total_km = float(log_sum.get("total_km") or 0.0)
     goods_out = float(log_sum.get("total_goods_out") or 0.0)
-    goods_in = float(log_sum.get("total_goods_in") or 0.0)    # NOVÉ
-    total_dl = int(log_sum.get("total_dl") or 0)              # NOVÉ
+    goods_in = float(log_sum.get("total_goods_in") or 0.0)
+    total_dl = int(log_sum.get("total_dl") or 0)
 
-    # 2. Palivo - čítame priamo fuel_type z DB (logika zachovaná)
+    # 2. Palivo - Rozdelenie DIESEL vs ADBLUE
     ref = db_connector.execute_query(
         "SELECT liters, total_price, fuel_type FROM fleet_refueling WHERE vehicle_id=%s AND YEAR(refueling_date)=%s AND MONTH(refueling_date)=%s",
         (vehicle_id, year, month)
@@ -463,6 +462,7 @@ def get_fleet_analysis(vehicle_id, year, month):
         l = float(r.get('liters') or 0)
         c = float(r.get('total_price') or 0)
         
+        # Jednoduchá detekcia AdBlue v názve
         if 'ADBLUE' in ft:
             adblue_l += l
             adblue_c += c
@@ -470,7 +470,7 @@ def get_fleet_analysis(vehicle_id, year, month):
             diesel_l += l
             diesel_c += c
 
-    # 3. Náklady (logika zachovaná)
+    # 3. Ostatné náklady
     start = datetime(year, month, 1)
     end = start.replace(day=monthrange(year, month)[1])
     other = db_connector.execute_query(
@@ -482,22 +482,30 @@ def get_fleet_analysis(vehicle_id, year, month):
 
     # --- VÝPOČTY ---
     cost_per_km = (total_costs / total_km) if total_km > 0 else 0.0
-    
-    # Cena za kg (počítaná z vývozu, ako bolo pôvodne)
     cost_per_kg = (total_costs / goods_out) if goods_out > 0 else 0.0
 
     return {
         "total_km": total_km,
         "total_costs": total_costs,
         "cost_per_km": cost_per_km,
+        
+        # Tovar
         "total_goods_out_kg": goods_out,
-        "total_goods_in_kg": goods_in,      # NOVÉ - vrátime na frontend
-        "total_dl_count": total_dl,         # NOVÉ - vrátime na frontend
+        "total_goods_in_kg": goods_in,
+        "total_dl_count": total_dl,
+        
+        # Diesel (NOVÉ KĽÚČE PRE REPORT)
+        "total_diesel_liters": diesel_l,
+        "total_diesel_cost": diesel_c,
         "avg_consumption": (diesel_l / total_km * 100.0) if total_km > 0 else 0.0,
+        
+        # AdBlue
         "total_adblue_liters": adblue_l,
         "total_adblue_cost": adblue_c,
         "adblue_per_100km": (adblue_l / total_km * 100.0) if total_km > 0 else 0.0,
-        "cost_per_kg_goods": cost_per_kg 
+        
+        # Ekonomika
+        "cost_per_kg_goods": cost_per_kg
     }
 def get_analysis(vehicle_id, year, month):
     return get_fleet_analysis(vehicle_id, year, month)

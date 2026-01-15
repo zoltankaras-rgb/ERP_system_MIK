@@ -14,7 +14,7 @@
         .report-header p { font-size: 10pt; color: #666; margin: 5px 0 0 0; }
         h2 { font-size: 12pt; color: #333; margin-top: 20px; margin-bottom: 8px; border-bottom: 1px solid #ccc; padding-bottom: 4px; }
         
-        table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 7.5pt; } /* Menšie písmo pre tabuľku */
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 7.5pt; }
         th, td { border: 1px solid #ddd; padding: 3px 4px; text-align: left; vertical-align: middle; }
         th { background-color: #f7f7f7; font-weight: 700; color: #444; text-align: center; }
         
@@ -33,6 +33,7 @@
         
         .summary-table td:first-child { font-weight: bold; width: 60%; }
         .total-row td { font-weight: bold; background-color: #e6e6e6; text-align: right; font-size: 8pt; }
+        .subtotal-row td { font-weight: bold; background-color: #f9f9f9; text-align: right; font-size: 8pt; color: #444; }
         
         .no-print { position: fixed; top: 15px; right: 15px; padding: 8px 12px; background-color: #3b82f6; color: white; border: none; border-radius: 4px; cursor: pointer; }
 
@@ -108,7 +109,7 @@
         {% endif %}
 
         {% if report_type in ['all','consumption'] %}
-        <h2>Tankovanie</h2>
+        <h2>Tankovanie a Spotreba</h2>
         <table>
             <thead>
                 <tr>
@@ -116,7 +117,7 @@
                     <th>Šofér</th>
                     <th style="text-align: right;">Litre</th>
                     <th style="text-align: right;">Cena (€)</th>
-                    <th>Typ paliva</th>
+                    <th style="text-align: center;">Typ paliva</th>
                 </tr>
             </thead>
             <tbody>
@@ -131,6 +132,25 @@
                 {% else %}
                 <tr><td colspan="5" style="text-align: center;">V tomto mesiaci neboli zaznamenané žiadne tankovania.</td></tr>
                 {% endfor %}
+                
+                <tr class="subtotal-row" style="border-top: 2px solid #ccc;">
+                    <td colspan="2">SÚČET DIESEL:</td>
+                    <td>{{ "%.2f"|format(analysis.total_diesel_liters) }} L</td>
+                    <td>{{ "%.2f"|format(analysis.total_diesel_cost) }} €</td>
+                    <td></td>
+                </tr>
+                <tr class="subtotal-row">
+                    <td colspan="2">SÚČET ADBLUE:</td>
+                    <td>{{ "%.2f"|format(analysis.total_adblue_liters) }} L</td>
+                    <td>{{ "%.2f"|format(analysis.total_adblue_cost) }} €</td>
+                    <td></td>
+                </tr>
+                <tr class="total-row">
+                    <td colspan="2">SPOLU PALIVO:</td>
+                    <td>-</td>
+                    <td>{{ "%.2f"|format(analysis.total_diesel_cost + analysis.total_adblue_cost) }} €</td>
+                    <td></td>
+                </tr>
             </tbody>
         </table>
         {% endif %}
@@ -141,15 +161,18 @@
             <div>
                 <h3>Ekonomika</h3>
                 <table class="summary-table">
-                    <tr><td>Celkové náklady:</td><td>{{ "%.2f"|format(analysis.total_costs) }} €</td></tr>
+                    <tr><td>Celkové náklady (všetko):</td><td>{{ "%.2f"|format(analysis.total_costs) }} €</td></tr>
                     <tr><td>Náklady na 1 km:</td><td>{{ "%.2f"|format(analysis.cost_per_km) }} €</td></tr>
-                    <tr><td>Spotreba nafta:</td><td>{{ "%.2f"|format(analysis.avg_consumption) }} L/100km</td></tr>
-                    <tr><td>Náklady na 1 kg tovaru (Vývoz):</td><td>{{ "%.2f"|format(analysis.cost_per_kg_goods) }} €</td></tr>
+                    <tr><td>Spotreba Diesel:</td><td>{{ "%.2f"|format(analysis.avg_consumption) }} L/100km</td></tr>
+                    <tr><td>Spotreba AdBlue:</td><td>{{ "%.2f"|format(analysis.adblue_per_100km) }} L/100km</td></tr>
+                    <tr><td>Náklady na 1 kg (Vývoz):</td><td>{{ "%.2f"|format(analysis.cost_per_kg_goods) }} €</td></tr>
                 </table>
             </div>
             <div>
-                <h3>Rozpis</h3>
+                <h3>Rozpis nákladov</h3>
                 <table class="summary-table">
+                    <tr><td>Diesel (PHM):</td><td>{{ "%.2f"|format(analysis.total_diesel_cost) }} €</td></tr>
+                    <tr><td>AdBlue:</td><td>{{ "%.2f"|format(analysis.total_adblue_cost) }} €</td></tr>
                     {% for cost in fixed_costs %}
                     <tr><td>{{ cost.cost_name }}:</td><td>{{ "%.2f"|format(cost.monthly_cost) }} €</td></tr>
                     {% endfor %}
