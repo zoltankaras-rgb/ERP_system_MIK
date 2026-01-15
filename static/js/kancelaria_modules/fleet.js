@@ -697,7 +697,7 @@ function renderLogbookTable(logs, year, month, lastOdometer) {
 function openEditLogModal(dateISO, existing) {
   existing = existing || {};
   var currentVehicleId = fleetState.selected_vehicle_id;
-  var isEdit = !!existing.id; // Editujeme konkrétnu jazdu?
+  var isEdit = !!existing.id; 
   
   // Default šofér
   var defaultDriver = '';
@@ -732,7 +732,7 @@ function openEditLogModal(dateISO, existing) {
       
       +     '<div class="form-group"><label>Šofér</label><input type="text" name="driver" value="'+escapeHtml(driverValue)+'"/></div>'
       
-            // TOVAR (voliteľné)
+            // TOVAR
       +     '<div class="form-group"><label>Vývoz (kg)</label><input type="number" name="goods_out_kg" step="0.1" value="'+(existing.goods_out_kg||'')+'"/></div>'
       +     '<div class="form-group"><label>DL (ks)</label><input type="number" name="delivery_notes_count" step="1" value="'+(existing.delivery_notes_count||'')+'"/></div>'
       +   '</div>'
@@ -744,7 +744,8 @@ function openEditLogModal(dateISO, existing) {
     
     return {
       html: html,
-      onReady: async function () {
+      // !!! TU BOLA CHYBA: onReady MUSÍ byť 'async', lebo vo vnútri používame 'await'
+      onReady: async function () { 
         var form = document.getElementById('log-modal-form');
         var startInput = document.getElementById('start-odo');
 
