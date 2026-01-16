@@ -58,6 +58,7 @@ def generate_pricelist_html(items, customer_name, valid_from):
     if logo_src:
         logo_html = f'<div style="text-align:center; margin-bottom:10px;"><img src="{logo_src}" style="max-height:80px; width:auto;"></div>'
 
+    # Začiatok HTML
     html_content = f"""
     <!DOCTYPE html>
     <html>
@@ -117,24 +118,32 @@ def generate_pricelist_html(items, customer_name, valid_from):
     """
 
     for item in items:
-        is_action = item.get('is_action')
+        # Bezpečné načítanie hodnôt s ošetrením chýb
+        is_action = item.get('is_action', False)
         row_class = "action-row" if is_action else ""
         
-        old = float(item.get('old_price', 0) or 0)
-        new = float(item.get('price', 0) or 0)
-        dph = float(item.get('dph', 20))
+        try:
+            old = float(item.get('old_price') or 0)
+            new = float(item.get('price') or 0)
+            dph = float(item.get('dph') or 20)
+        except (ValueError, TypeError):
+            # Ak sú dáta poškodené, nastavíme nuly aby to nepadlo
+            old, new, dph = 0, 0, 20
 
         diff_text = "-"
         price_class = ""
+        
+        # Logika pre šípky a farby
         if old > 0:
             if new > old:
                 price_class = "price-up"
-                diff_text = "⬆"
+                diff_text = "&#11014;" # Šípka hore
             elif new < old:
                 price_class = "price-down"
-                diff_text = "⬇"
+                diff_text = "&#11015;" # Šípka dole
 
         product_name = item.get('name', 'Produkt')
+        
         badge = ""
         if is_action:
             badge = '<span class="action-badge">AKCIA</span>'
@@ -196,6 +205,7 @@ def send_custom_pricelist():
                 errors.append(f"Zákazník {cust.get('name')} nemá platný email.")
                 continue
 
+            # Tu sa volá nová funkcia
             html = generate_pricelist_html(items, cust.get('name', 'Zákazník'), valid_from)
             
             try:

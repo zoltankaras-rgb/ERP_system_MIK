@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+    <meta charset="UTF-8">
+    <title>Užívateľská príručka - Fleet 2026</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap');
+
+        body {
+            font-family: 'Roboto', Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 210mm; /* A4 šírka */
+            margin: 0 auto;
+            padding: 20mm;
+            background-color: white;
+        }
+
+        h1 {
+            color: #2c3e50;
+            border-bottom: 3px solid #3b82f6;
+            padding-bottom: 10px;
+            margin-bottom: 30px;
+            font-size: 24pt;
+        }
+
+        h2 {
+            color: #2c3e50;
+            margin-top: 30px;
+            border-bottom: 1px solid #ccc;
+            padding-bottom: 5px;
+            font-size: 16pt;
+        }
+
+        h3 {
+            color: #444;
+            margin-top: 20px;
+            font-size: 12pt;
+            font-weight: bold;
+        }
+
+        p { margin-bottom: 10px; text-align: justify; }
+        
+        ul, ol { margin-bottom: 15px; }
+        li { margin-bottom: 5px; }
+
+        .highlight {
+            background-color: #f8f9fa;
+            border-left: 5px solid #3b82f6;
+            padding: 10px 15px;
+            margin: 15px 0;
+            font-style: italic;
+        }
+
+        .warning {
+            background-color: #fff3cd;
+            border-left: 5px solid #ffc107;
+            padding: 10px 15px;
+            margin: 15px 0;
+        }
+
+        /* Vizuálne prvky tlačidiel ako v aplikácii */
+        .btn {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 4px;
+            color: white;
+            font-weight: bold;
+            font-size: 0.9em;
+            font-family: monospace;
+        }
+        .btn-green { background-color: #198754; }
+        .btn-blue { background-color: #0d6efd; }
+        .btn-print { background-color: #6c757d; }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        th { background-color: #f2f2f2; }
+
+        @media print {
+            body { padding: 0; margin: 15mm; }
+            .no-print { display: none; }
+            a { text-decoration: none; color: #333; }
+        }
+    </style>
+</head>
+<body>
+
+    <div style="text-align: right; font-size: 0.8em; color: #888; margin-bottom: 20px;">
+        Verzia systému: 2.0 (Legislatíva 2026)
+    </div>
+
+    <h1>UŽÍVATEĽSKÁ PRÍRUČKA: Správa vozového parku</h1>
+
+    <div class="highlight">
+        <strong>Dôležité:</strong> Tento systém je nastavený tak, aby spĺňal podmienky pre 100% odpočet DPH platné od roku 2026. Presnosť zadávania údajov je kľúčová pre účtovníctvo a daňové kontroly.
+    </div>
+
+    <h2>1. Zlaté pravidlá obsluhy</h2>
+    <ol>
+        <li><strong>Jeden deň ≠ Jeden riadok:</strong> Každá jazda sa eviduje osobitne. Ak ide auto ráno k zákazníkovi a poobede späť, sú to <strong>dva samostatné záznamy</strong>.</li>
+        <li><strong>Ceny bez DPH:</strong> Všetky náklady a servisy (okrem tankovania) zadávame v sume <strong>Základ dane</strong> (bez DPH).</li>
+        <li><strong>Nadväznosť:</strong> Stav tachometra na konci prvej jazdy musí sedieť so začiatkom druhej jazdy.</li>
+    </ol>
+
+    <h2>2. Kniha jázd (Evidencia pohybu)</h2>
+    <p>Tu sa nahráva každá jedna jazda vozidla.</p>
+
+    <h3>Postup pridania novej jazdy:</h3>
+    <ol>
+        <li>Vyberte <strong>Vozidlo</strong> (hore v lište) a <strong>Mesiac/Rok</strong>.</li>
+        <li>V tabuľke nájdite príslušný <strong>Dátum</strong>.</li>
+        <li>Kliknite na zelené tlačidlo <span class="btn btn-green">+ Jazda</span> (alebo malé <strong>+</strong> pri dátume).</li>
+    </ol>
+
+    <h3>Vysvetlenie polí vo formulári:</h3>
+    <ul>
+        <li><strong>Čas od / Čas do:</strong> (Povinné) Zadajte reálny čas odchodu a príchodu (napr. 08:00 – 10:30).</li>
+        <li><strong>Odkiaľ:</strong> Väčšinou "MIK, s.r.o..." (predvyplnené).</li>
+        <li><strong>Kam / Smer:</strong> Napíšte cieľové mesto. Ak ide o rozvoz, napíšte napr. <em>"Okruh Bratislava"</em> alebo <em>"Zákazník Nitra"</em>.</li>
+        <li><strong>Účel jazdy:</strong> (Povinné) Musí súvisieť s podnikaním. Napr. <em>"Rozvoz tovaru"</em> alebo <em>"Servis vozidla"</em>.</li>
+        <li><strong>Stav tachometra:</strong>
+            <ul>
+                <li><em>Začiatok:</em> Systém doplní automaticky. Skontrolujte to!</li>
+                <li><em>Koniec:</em> Opíšte stav po zaparkovaní.</li>
+            </ul>
+        </li>
+    </ul>
+
+    <div class="highlight">
+        <strong>📦 Sekcia TOVAR (Dôležité pre kontrolu):</strong><br>
+        Aby sme dokázali, že jazda bola pracovná, musíme evidovať prepravu:<br>
+        <ul>
+            <li><strong>Vývoz (kg):</strong> Tovar vezený zo skladu k zákazníkom.</li>
+            <li><strong>Dovoz (kg):</strong> Tovar privezený späť (vratky, nákup).</li>
+            <li><strong>DL (ks):</strong> Počet dodacích listov / faktúr k danej jazde.</li>
+        </ul>
+    </div>
+
+    <h2>3. Tankovanie (PHM a AdBlue)</h2>
+    <p>Tu nahrávame bločky z čerpacích staníc.</p>
+    <ol>
+        <li>Kliknite na tlačidlo <span class="btn btn-blue">+ Tankovanie</span>.</li>
+        <li>Zadajte <strong>Dátum</strong>, <strong>Litre</strong> a <strong>Cenu (€)</strong> z bločku.</li>
+        <li><strong>Typ paliva (Kriticky dôležité):</strong>
+            <ul>
+                <li>Vyberte <strong>DIESEL</strong> pre naftu.</li>
+                <li>Vyberte <strong>ADBLUE</strong> pre močovinu.</li>
+            </ul>
+        </li>
+    </ol>
+    <p class="warning"><strong>Pozor:</strong> Nikdy nemiešajte Diesel a AdBlue do jedného záznamu. Ak sú na jednom bločku, nahrajte ich ako dva samostatné záznamy!</p>
+
+    <h2>4. Náklady (Servis, Poistenie)</h2>
+    <p>Tu evidujeme všetko, čo stálo peniaze okrem paliva.</p>
+    <ol>
+        <li>Kliknite na tlačidlo <span class="btn btn-blue">+ Náklad</span>.</li>
+        <li>Vyberte <strong>Názov</strong> (napr. "Výmena oleja") a <strong>Typ</strong> (Servis, Pneu...).</li>
+        <li><strong>Spôsob účtovania:</strong>
+            <ul>
+                <li>🔴 <strong>Jednorazový:</strong> Bežné výdavky v danom mesiaci (Servis, STK, Umývanie).</li>
+                <li>🔵 <strong>Rozrátať (Amortizácia):</strong> Ročné poplatky (PZP, Havarijná, Diaľničná). Systém ich rozdelí na 12 mesiacov.</li>
+            </ul>
+        </li>
+        <li><strong>Suma (€):</strong> Zadávajte sumu <strong>BEZ DPH</strong> (Základ dane).</li>
+    </ol>
+
+    <h2>5. Tlač mesačného reportu</h2>
+    <p>Na konci mesiaca je potrebné vytlačiť podklad pre účtovníctvo.</p>
+    <ol>
+        <li>Skontrolujte, či máte vybrané správne Vozidlo a Mesiac.</li>
+        <li>Skontrolujte "Súhrn nákladov" na spodku stránky.</li>
+        <li>Kliknite na tlačidlo <span class="btn btn-print">🖨️ Tlačiť Report</span> (vpravo hore).</li>
+        <li>Vytlačte vygenerované PDF, podpíšte a založte.</li>
+    </ol>
+
+    <h2>Časté chyby - Na čo si dať pozor ⚠️</h2>
+    <table>
+        <tr>
+            <th>Chyba</th>
+            <th>Riešenie</th>
+        </tr>
+        <tr>
+            <td>Chýbajúce VIN číslo</td>
+            <td>Doplňte ho cez tlačidlo "Upraviť vozidlo". Bez VIN je report neplatný.</td>
+        </tr>
+        <tr>
+            <td>Skoky v kilometroch</td>
+            <td>Ak jazda končí na 150 000 km, ďalšia musí začínať na 150 000 km.</td>
+        </tr>
+        <tr>
+            <td>Všeobecné frázy</td>
+            <td>Nepíšte len "Cesta". Píšte "Rozvoz tovaru", "Nákup materiálu".</td>
+        </tr>
+        <tr>
+            <td>Ceny s DPH</td>
+            <td>Náklady (servis, diely) píšeme vždy <strong>bez DPH</strong>. Tankovanie píšeme celé.</td>
+        </tr>
+    </table>
+
+</body>
+</html>

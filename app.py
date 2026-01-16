@@ -621,6 +621,8 @@ def api_manual_writeoff():
     return handle_request(vyroba.manual_warehouse_write_off, body)
 
 # ---- Cenník --------------------------------------------
+
+
 @app.route('/api/save_pricelist', methods=['POST'])
 def save_pricelist():
     data = request.json
@@ -666,7 +668,19 @@ def get_pricelists():
 @app.route('/api/cenniky/save', methods=['POST'])
 def save_cennik_api():
     data = request.json
-    c = Cennik(nazov=data.get('nazov'), email=data.get('email'))
+    
+    # Konverzia dátumu
+    platnost = None
+    if data.get('platnost_od'):
+        try:
+            platnost = datetime.strptime(data.get('platnost_od'), '%Y-%m-%d').date()
+        except: pass
+
+    c = Cennik(
+        nazov=data.get('nazov'), 
+        email=data.get('email'),
+        platnost_od=platnost # <--- Uložíme dátum
+    )
     db.session.add(c)
     db.session.commit()
     
@@ -674,26 +688,27 @@ def save_cennik_api():
         p = PolozkaCennika(
             cennik_id=c.id,
             nazov_produktu=item['name'],
-            mj=item.get('mj', 'kg'),      # Default kg
+            mj=item.get('mj', 'kg'),
             cena=float(item['price'] or 0),
             povodna_cena=float(item['old_price'] or 0),
-            dph=float(item.get('dph', 20)), # Uložíme DPH
+            dph=float(item.get('dph', 20)),
             is_action=item.get('is_action', False)
         )
         db.session.add(p)
     db.session.commit()
     return jsonify({"success": True})
-
 # 2. API: Zoznam všetkých cenníkov (LIST)
 @app.route('/api/cenniky/list', methods=['GET'])
 def list_cenniky():
     vsetky = Cennik.query.order_by(Cennik.created_at.desc()).all()
     out = []
     for c in vsetky:
+        platnost = c.platnost_od.strftime("%d.%m.%Y") if c.platnost_od else ""
         out.append({
             "id": c.id,
             "nazov": c.nazov,
             "datum": c.created_at.strftime("%d.%m.%Y %H:%M"),
+            "platnost_od": platnost, # <--- Posielame na frontend
             "pocet_poloziek": len(c.polozky)
         })
     return jsonify(out)
@@ -743,19 +758,16 @@ def send_stored_pricelist(cennik_id):
 @app.route('/api/cenniky/<int:id>', methods=['GET'])
 def get_cennik_detail(id):
     try:
-        # Nájdenie cenníka podľa ID
         cennik = Cennik.query.get(id)
-        
         if not cennik:
             return jsonify({"error": "Cenník s týmto ID neexistuje."}), 404
 
-        # Spracovanie položiek cenníka
         items = []
         for p in cennik.polozky:
             items.append({
                 "id": p.id,
+                "ean": getattr(p, 'ean', ''), # Ak mate v DB stlpec ean, inak ''
                 "name": p.nazov_produktu,
-                # Použijeme bezpečné hodnoty, ak by boli v DB náhodou NULL
                 "mj": p.mj if hasattr(p, 'mj') and p.mj else 'kg',
                 "price": float(p.cena or 0),
                 "old_price": float(p.povodna_cena or 0),
@@ -763,17 +775,16 @@ def get_cennik_detail(id):
                 "is_action": bool(p.is_action) if hasattr(p, 'is_action') else False
             })
 
-        # Odpoveď pre frontend
         return jsonify({
             "id": cennik.id,
             "nazov": cennik.nazov,
             "email": cennik.email,
+            "platnost_od": cennik.platnost_od.strftime("%Y-%m-%d") if cennik.platnost_od else None, # <---
             "datum": cennik.created_at.strftime("%Y-%m-%d %H:%M"),
             "polozky": items
         })
 
     except Exception as e:
-        print(f"CHYBA pri načítaní cenníka {id}: {e}")
         return jsonify({"error": str(e)}), 500
         # --- MAZANIE CENNÍKA ---
 @app.route('/api/cenniky/<int:id>/delete', methods=['DELETE'])
@@ -799,14 +810,16 @@ def update_cennik(id):
     try:
         data = request.json
         cennik = Cennik.query.get(id)
-        if not cennik:
-            return jsonify({"error": "Cenník neexistuje"}), 404
+        if not cennik: return jsonify({"error": "Cenník neexistuje"}), 404
 
-        # 1. Aktualizácia hlavičky
         cennik.nazov = data.get('nazov', cennik.nazov)
         cennik.email = data.get('email', cennik.email)
         
-        # 2. Zmazanie starých položiek a vloženie nových
+        if data.get('platnost_od'):
+             try:
+                cennik.platnost_od = datetime.strptime(data.get('platnost_od'), '%Y-%m-%d').date()
+             except: pass
+        
         PolozkaCennika.query.filter_by(cennik_id=id).delete()
         
         for item in data.get('polozky', []):
@@ -826,7 +839,6 @@ def update_cennik(id):
 
     except Exception as e:
         db.session.rollback()
-        print(f"CHYBA UPDATE: {e}")
         return jsonify({"error": str(e)}), 500
 # --- ADRESÁR KONTAKTOV (Cenníky) ---
 
