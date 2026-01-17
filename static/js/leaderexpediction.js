@@ -730,6 +730,564 @@
         };
     });
   }
+// ======================= ŠTÍTKY PÔVODU MÄSA (TLAČ) =======================
+var __mol_inited = false;
+const MOL_HISTORY_KEY = 'mol_history_v1';
+
+function mol_titleForType(type){
+  const t = String(type||'').toLowerCase();
+  if (t === 'poultry') return 'Informácie o pôvode mäsa hydinové';
+  if (t === 'pork')    return 'Informácie o pôvode mäsa ošípaných';
+  return 'Informácie o pôvode mäsa hovädzie';
+}
+
+function mol_defaultDateLabel(type){
+  const t = String(type||'').toLowerCase();
+  return (t === 'poultry') ? 'Dátum :' : 'Dátum spot:';
+}
+
+function mol_isBeef(type){
+  return String(type||'').toLowerCase() === 'beef';
+}
+
+function mol_defaultCutText(){
+  // Požiadavka: defaultne doplniť "Delené: v Slovenskej republike SK 4053 ES"
+  // Na štítku sa tlačí ako: "Delené:" + hodnota
+  return 'v Slovenskej republike SK 4053 ES';
+}
+
+function mol_applyBeefVisibility(type){
+  const t = String(type || $('#mol-type')?.value || 'beef').toLowerCase();
+  const isBeef = (t === 'beef');
+
+  // Prepni viditeľnosť všetkých prvkov označených ako beef-only
+  const scope = $('#leader-meat-origin-labels') || doc;
+  scope.querySelectorAll('.mol-beef-only').forEach(el => {
+    el.style.display = isBeef ? '' : 'none';
+  });
+
+  // Default pre "Delené" – doplniť pri hovädzom, ak je prázdne
+  if (isBeef){
+    const cut = $('#mol-cuttext');
+    if (cut && !safeStr(cut.value)) cut.value = mol_defaultCutText();
+  }
+}
+
+function mol_fmtDate(iso, mode){
+  const s = safeStr(iso);
+  if (!s) return '';
+  if (String(mode||'').toLowerCase() === 'iso') return s;
+  // SK: dd.mm.yyyy
+  try{
+    const d = new Date(s + 'T00:00:00');
+    if (!Number.isFinite(d.getTime())) return s;
+    const dd = String(d.getDate()).padStart(2,'0');
+    const mm = String(d.getMonth()+1).padStart(2,'0');
+    const yy = String(d.getFullYear());
+    return `${dd}.${mm}.${yy}`;
+  }catch(_){ return s; }
+}
+
+function mol_addRow(tb, preset){
+  if (!tb) return;
+  const tr = doc.createElement('tr');
+  const p = preset || {};
+  tr.innerHTML = `
+    <td><input class="mol-date" type="date" value="${escapeHtml(p.date || '')}" style="min-width:140px"></td>
+    <td><input class="mol-batch" placeholder="napr. 05 01" value="${escapeHtml(p.batch || '')}"></td>
+    <td class="mol-beef-only"><input class="mol-ref" placeholder="ak prázdne, použije sa kód dávky" value="${escapeHtml(p.ref || '')}"></td>
+    <td><input class="mol-origin" placeholder="napr. EU – SK" value="${escapeHtml(p.origin || '')}"></td>
+    <td><button class="btn btn-sm" data-mol-del>×</button></td>
+  `;
+  tb.appendChild(tr);
+  tr.querySelector('[data-mol-del]').onclick = ()=> tr.remove();
+
+  // aby sa nový riadok hneď správne skryl/zobrazil podľa typu
+  mol_applyBeefVisibility();
+}
+
+function mol_collect(){
+  const type = safeStr($('#mol-type')?.value || 'beef');
+  const company = safeStr($('#mol-company')?.value || '');
+  const approval = safeStr($('#mol-approval')?.value || '');
+  const dateLabel = safeStr($('#mol-date-label')?.value || mol_defaultDateLabel(type));
+  const rowsPerPage = Math.max(1, Math.min(12, Math.floor(toNum($('#mol-rows-per-page')?.value, 6)) || 6));
+  const dateFormat = safeStr($('#mol-date-format')?.value || 'sk');
+  const fontSize = Math.max(8, Math.min(16, Math.floor(toNum($('#mol-font-size')?.value, 11)) || 11));
+
+  // Beef-only konfigurácia
+  const cutText = safeStr($('#mol-cuttext')?.value || '');
+
+  const tb = $('#mol-items tbody');
+  const entries = [];
+  if (tb){
+    const trs = Array.from(tb.querySelectorAll('tr'));
+    trs.forEach(tr=>{
+      const date = safeStr(tr.querySelector('.mol-date')?.value || '');
+      const batch = safeStr(tr.querySelector('.mol-batch')?.value || '');
+      const origin = safeStr(tr.querySelector('.mol-origin')?.value || '');
+      const ref = safeStr(tr.querySelector('.mol-ref')?.value || '');
+      if (date || batch || origin || ref){
+        entries.push({ date, batch, origin, ref, _tr: tr });
+      }
+    });
+  }
+
+  const cfg = { type, company, approval, dateLabel, rowsPerPage, dateFormat, fontSize, cutText };
+  return { cfg, entries };
+}
+
+function mol_validate(entries){
+  let ok = true;
+  (entries||[]).forEach(it=>{
+    const tr = it._tr;
+    const bad = !(safeStr(it.date) && safeStr(it.batch) && safeStr(it.origin));
+    if (tr){
+      tr.style.background = bad ? '#fff7ed' : '';
+    }
+    if (bad) ok = false;
+  });
+  return ok;
+}
+
+function mol_labelHtml(data, cfg){
+  const company = escapeHtml(cfg.company || '');
+  const approval = escapeHtml(cfg.approval || '');
+  const title = escapeHtml(mol_titleForType(cfg.type));
+  const origin = escapeHtml(data.origin || '');
+  const batch  = escapeHtml(data.batch || '');
+  const dlabel = escapeHtml(cfg.dateLabel || 'Dátum:');
+  const date   = escapeHtml(mol_fmtDate(data.date, cfg.dateFormat));
+
+  const isBeef = mol_isBeef(cfg.type);
+  const refVal = escapeHtml(safeStr(data.ref) || safeStr(data.batch) || '');
+  const cutVal = escapeHtml(cfg.cutText || '');
+
+  return `
+    <table class="mol-label" cellspacing="0" cellpadding="0">
+      <tr><td colspan="4" class="mol-company">${company}</td></tr>
+      <tr><td colspan="4" class="mol-approval">${approval}</td></tr>
+      <tr><td colspan="4" class="mol-title">${title}</td></tr>
+      ${isBeef ? `<tr><td class="mol-lbl">Referenčné číslo:</td><td colspan="3" class="mol-val">${refVal}</td></tr>` : ''}
+      ${isBeef ? `<tr><td class="mol-lbl">Delené:</td><td colspan="3" class="mol-val">${cutVal}</td></tr>` : ''}
+      <tr><td class="mol-lbl">CHOVANÉ v:</td><td colspan="3" class="mol-val">${origin}</td></tr>
+      <tr><td class="mol-lbl">ZABITÉ v:</td><td colspan="3" class="mol-val">${origin}</td></tr>
+      <tr><td class="mol-lbl">POVOD:</td><td colspan="3" class="mol-val">${origin}</td></tr>
+      <tr>
+        <td class="mol-lbl">Kód dávky:</td><td class="mol-val">${batch}</td>
+        <td class="mol-lbl">${dlabel}</td><td class="mol-val">${date}</td>
+      </tr>
+    </table>
+  `;
+}
+
+function mol_buildMarkup(cfg, entries){
+  const perPage = cfg.rowsPerPage || 6;
+  const pages = [];
+  for (let i=0; i<entries.length; i+=perPage){
+    pages.push(entries.slice(i, i+perPage));
+  }
+
+  const body = pages.map((pageEntries, pIdx)=>{
+    const rows = pageEntries.map(it=>{
+      const label = mol_labelHtml(it, cfg);
+      return `<div class="mol-entry">${label}${label}</div>`;
+    }).join('');
+    return `<div class="mol-page" data-page="${pIdx+1}">${rows}</div>`;
+  }).join('');
+
+  return `<div class="mol-root" style="--mol-font:${cfg.fontSize || 11}px">${body}</div>`;
+}
+
+function mol_preview(){
+  const { cfg, entries } = mol_collect();
+  const wrap = $('#mol-preview-wrap');
+  if (!wrap) return;
+  if (!entries.length){
+    wrap.innerHTML = '<div class="muted" style="margin-top:6px">Zatiaľ nie sú zadané žiadne riadky.</div>';
+    return;
+  }
+  mol_validate(entries);
+  const html = mol_buildMarkup(cfg, entries);
+  wrap.innerHTML = `
+    <div class="card" style="margin-top:12px;">
+      <div class="card-header"><strong>Náhľad</strong> <span class="muted">(${entries.length} riadkov)</span></div>
+      <div class="card-body" style="overflow:auto;">
+        <div class="mol-preview">${html}</div>
+      </div>
+    </div>
+  `;
+}
+
+function mol_openPrintWindow(markup){
+  const css = `
+    @page { size: A4; margin: 10mm; }
+    html, body { height: 100%; }
+    body { margin: 0; font-family: Arial, Helvetica, sans-serif; }
+    .mol-root { font-size: var(--mol-font, 11px); }
+    .mol-page { page-break-after: always; }
+    .mol-page:last-child { page-break-after: auto; }
+    .mol-entry { display: grid; grid-template-columns: 1fr 1fr; gap: 6mm; margin-bottom: 6mm; }
+    .mol-label { width: 100%; border-collapse: collapse; table-layout: fixed; border: 1px solid #000; min-height: 44mm; }
+    .mol-label td { border: 1px solid #000; padding: 2mm 2.2mm; vertical-align: middle; }
+    .mol-company, .mol-approval, .mol-title { text-align: center; font-weight: 700; }
+    .mol-company { font-size: 1.05em; }
+    .mol-title { font-size: 1.05em; }
+    .mol-lbl { font-weight: 700; white-space: nowrap; }
+    .mol-val { overflow: hidden; text-overflow: ellipsis; }
+  `;
+
+  const w = window.open('', '_blank');
+  if (!w){
+    showStatus('Prehliadač zablokoval tlačové okno (pop-up). Povoľte pop-up pre túto stránku.', true);
+    return null;
+  }
+  w.document.open();
+  w.document.write(`<!doctype html><html lang="sk"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Štítky pôvodu mäsa</title><style>${css}</style></head><body>${markup}</body></html>`);
+  w.document.close();
+  w.focus();
+  return w;
+}
+
+function mol_printCore(cfg, entries, opts){
+  const options = opts || {};
+  if (!entries.length){
+    showStatus('Zadajte aspoň 1 riadok (dátum, kód dávky, pôvod).', true);
+    return;
+  }
+
+  // Pri print-e bez UI (história) nemáme _tr, takže validujeme jednoducho
+  const allOk = entries.every(it => safeStr(it.date) && safeStr(it.batch) && safeStr(it.origin));
+  if (!allOk){
+    showStatus('Niektoré riadky sú neúplné (dátum/kód dávky/pôvod). Doplňte ich pred tlačou.', true);
+    return;
+  }
+
+  const markup = mol_buildMarkup(cfg, entries);
+  const w = mol_openPrintWindow(markup);
+  if (!w) return;
+
+  // krátky delay pomôže, aby sa stihli aplikovať štýly pred otvorením print dialógu
+  setTimeout(()=>{ try{ w.print(); }catch(_){} }, 250);
+
+  if (options.afterPrint) {
+    try{ options.afterPrint(); }catch(_){ }
+  }
+}
+
+// ------------------ HISTÓRIA (localStorage) ------------------
+function mol_hist_load(){
+  try{
+    const raw = localStorage.getItem(MOL_HISTORY_KEY);
+    const data = raw ? JSON.parse(raw) : [];
+    return Array.isArray(data) ? data : [];
+  }catch(_){ return []; }
+}
+
+function mol_hist_store(list){
+  try{ localStorage.setItem(MOL_HISTORY_KEY, JSON.stringify(Array.isArray(list) ? list : [])); }catch(_){ }
+}
+
+function mol_hist_makeId(){
+  return 'mol_' + Date.now() + '_' + Math.random().toString(16).slice(2);
+}
+
+function mol_hist_keyOf(item){
+  const cfg = item.cfg || {};
+  const row = item.row || {};
+  return [cfg.type, row.date, row.batch, row.origin, row.ref, cfg.cutText].map(x=> safeStr(x)).join('|');
+}
+
+function mol_hist_upsert(cfg, entries){
+  const nowIso = new Date().toISOString();
+  const cur = mol_hist_load();
+
+  // map existujúcich položiek podľa kľúča
+  const idxByKey = new Map();
+  cur.forEach((it, i)=>{ idxByKey.set(mol_hist_keyOf(it), i); });
+
+  (entries||[]).forEach(e=>{
+    const row = { date: safeStr(e.date), batch: safeStr(e.batch), origin: safeStr(e.origin), ref: safeStr(e.ref) };
+    const item = {
+      id: mol_hist_makeId(),
+      ts: nowIso,
+      cfg: {
+        type: safeStr(cfg.type),
+        company: safeStr(cfg.company),
+        approval: safeStr(cfg.approval),
+        dateLabel: safeStr(cfg.dateLabel),
+        rowsPerPage: Math.max(1, Math.min(12, Math.floor(toNum(cfg.rowsPerPage, 6)) || 6)),
+        dateFormat: safeStr(cfg.dateFormat),
+        fontSize: Math.max(8, Math.min(16, Math.floor(toNum(cfg.fontSize, 11)) || 11)),
+        cutText: safeStr(cfg.cutText)
+      },
+      row
+    };
+
+    const key = mol_hist_keyOf(item);
+    if (idxByKey.has(key)){
+      const i = idxByKey.get(key);
+      cur[i].ts = nowIso;
+      cur[i].cfg = item.cfg;
+      cur[i].row = item.row;
+    } else {
+      cur.unshift(item);
+      // posuň indexy v mape (jednoduché riešenie: mapu už ďalej nepoužijeme)
+    }
+  });
+
+  // limit histórie
+  const limited = cur.slice(0, 200);
+  mol_hist_store(limited);
+}
+
+function mol_hist_delete(id){
+  const cur = mol_hist_load();
+  const next = cur.filter(it => String(it.id) !== String(id));
+  mol_hist_store(next);
+}
+
+function mol_hist_clear(){
+  mol_hist_store([]);
+}
+
+function mol_hist_typeLabel(type){
+  const t = String(type||'').toLowerCase();
+  if (t === 'poultry') return 'Hydina';
+  if (t === 'pork') return 'Ošípané';
+  return 'Hovädzie';
+}
+
+function mol_hist_fmtTs(iso){
+  const s = safeStr(iso);
+  if (!s) return '';
+  try{ return new Date(s).toLocaleString('sk-SK'); }catch(_){ return s; }
+}
+
+function mol_hist_render(){
+  const host = $('#mol-history-list');
+  if (!host) return;
+
+  const filter = safeStr($('#mol-history-filter')?.value || '').toLowerCase();
+  let items = mol_hist_load();
+  items.sort((a,b)=> String(b.ts||'').localeCompare(String(a.ts||'')));
+
+  if (filter){
+    items = items.filter(it=>{
+      const r = it.row || {};
+      const c = it.cfg || {};
+      const hay = [r.date, r.batch, r.origin, r.ref, c.type, c.cutText].map(x=> String(x||'').toLowerCase()).join(' | ');
+      return hay.includes(filter);
+    });
+  }
+
+  if (!items.length){
+    host.innerHTML = '<div class="muted" style="padding:8px 0">História je prázdna.</div>';
+    return;
+  }
+
+  host.innerHTML = `
+    <div class="table-container">
+      <table class="tbl" id="mol-history-table">
+        <thead>
+          <tr>
+            <th style="width:120px">Dátum</th>
+            <th style="width:140px">Kód dávky</th>
+            <th style="width:180px" class="mol-beef-only">Referenčné</th>
+            <th>Pôvod</th>
+            <th style="width:110px">Typ</th>
+            <th style="width:170px">Uložené</th>
+            <th style="width:220px"></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${items.map(it=>{
+            const r = it.row || {};
+            const c = it.cfg || {};
+            return `
+              <tr>
+                <td>${escapeHtml(r.date || '')}</td>
+                <td><span style="font-family:monospace">${escapeHtml(r.batch || '')}</span></td>
+                <td class="mol-beef-only"><span style="font-family:monospace">${escapeHtml(r.ref || r.batch || '')}</span></td>
+                <td>${escapeHtml(r.origin || '')}</td>
+                <td>${escapeHtml(mol_hist_typeLabel(c.type))}</td>
+                <td>${escapeHtml(mol_hist_fmtTs(it.ts))}</td>
+                <td style="text-align:right; white-space:nowrap;">
+                  <button class="btn btn-sm btn-secondary" data-mol-hload="${escapeHtml(it.id)}">Vložiť</button>
+                  <button class="btn btn-sm btn-secondary" data-mol-hprint="${escapeHtml(it.id)}">Tlačiť</button>
+                  <button class="btn btn-sm" data-mol-hdel="${escapeHtml(it.id)}">×</button>
+                </td>
+              </tr>
+            `;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+    <div class="muted" style="margin-top:6px">Poznámka: História je uložená v tomto prehliadači (localStorage). Pri vymazaní dát prehliadača sa vymaže.</div>
+  `;
+
+  // Handlery
+  host.querySelectorAll('[data-mol-hdel]').forEach(btn=>{
+    btn.onclick = ()=>{
+      const id = btn.getAttribute('data-mol-hdel');
+      mol_hist_delete(id);
+      mol_hist_render();
+    };
+  });
+
+  host.querySelectorAll('[data-mol-hprint]').forEach(btn=>{
+    btn.onclick = ()=>{
+      const id = btn.getAttribute('data-mol-hprint');
+      const it = mol_hist_load().find(x=> String(x.id) === String(id));
+      if (!it) return;
+      const cfg = Object.assign({}, it.cfg || {});
+      cfg.rowsPerPage = 1; // pri opakovanej tlači jednej dávky je to praktickejšie
+      const entries = [Object.assign({}, it.row || {})];
+      mol_applyBeefVisibility(cfg.type);
+      mol_printCore(cfg, entries, { afterPrint: null });
+    };
+  });
+
+  host.querySelectorAll('[data-mol-hload]').forEach(btn=>{
+    btn.onclick = ()=>{
+      const id = btn.getAttribute('data-mol-hload');
+      const it = mol_hist_load().find(x=> String(x.id) === String(id));
+      if (!it) return;
+
+      // Nastav konfiguráciu podľa histórie
+      const cfg = it.cfg || {};
+      const row = it.row || {};
+
+      const typeSel = $('#mol-type');
+      if (typeSel && cfg.type){
+        typeSel.value = cfg.type;
+      }
+      mol_applyBeefVisibility(cfg.type);
+
+      const companyEl = $('#mol-company');
+      if (companyEl) companyEl.value = cfg.company || companyEl.value;
+
+      const approvalEl = $('#mol-approval');
+      if (approvalEl) approvalEl.value = cfg.approval || approvalEl.value;
+
+      const dateLblSel = $('#mol-date-label');
+      if (dateLblSel && cfg.dateLabel){
+        if (Array.from(dateLblSel.options||[]).some(o=> String(o.value) === String(cfg.dateLabel))){
+          dateLblSel.value = cfg.dateLabel;
+        }
+      }
+
+      const rppEl = $('#mol-rows-per-page');
+      if (rppEl && cfg.rowsPerPage) rppEl.value = String(cfg.rowsPerPage);
+
+      const dfEl = $('#mol-date-format');
+      if (dfEl && cfg.dateFormat){
+        if (Array.from(dfEl.options||[]).some(o=> String(o.value) === String(cfg.dateFormat))){
+          dfEl.value = cfg.dateFormat;
+        }
+      }
+
+      const fsEl = $('#mol-font-size');
+      if (fsEl && cfg.fontSize) fsEl.value = String(cfg.fontSize);
+
+      const cutEl = $('#mol-cuttext');
+      if (cutEl && mol_isBeef(cfg.type)) cutEl.value = cfg.cutText || mol_defaultCutText();
+
+      // Pridaj riadok
+      const tb = $('#mol-items tbody');
+      mol_addRow(tb, { date: row.date, batch: row.batch, origin: row.origin, ref: row.ref });
+
+      mol_preview();
+    };
+  });
+
+  // Uprav viditeľnosť beef-only stĺpcov aj po re-rendere histórie
+  mol_applyBeefVisibility();
+}
+
+function mol_saveHistory(){
+  const { cfg, entries } = mol_collect();
+  if (!entries.length){
+    showStatus('Zadajte aspoň 1 riadok (dátum, kód dávky, pôvod).', true);
+    return;
+  }
+  const ok = mol_validate(entries);
+  if (!ok){
+    showStatus('Niektoré riadky sú neúplné (dátum/kód dávky/pôvod). Doplňte ich pred uložením.', true);
+    return;
+  }
+  mol_hist_upsert(cfg, entries);
+  mol_hist_render();
+  showStatus('Uložené do histórie dávok.', false);
+}
+
+function mol_print(){
+  const { cfg, entries } = mol_collect();
+  if (!entries.length){
+    showStatus('Zadajte aspoň 1 riadok (dátum, kód dávky, pôvod).', true);
+    return;
+  }
+  const ok = mol_validate(entries);
+  if (!ok){
+    showStatus('Niektoré riadky sú neúplné (dátum/kód dávky/pôvod). Doplňte ich pred tlačou.', true);
+    return;
+  }
+
+  // Uloženie do histórie (pre opakovanú tlač)
+  mol_hist_upsert(cfg, entries);
+  mol_hist_render();
+
+  mol_printCore(cfg, entries, {});
+}
+
+function initMeatOriginLabels(){
+  if (__mol_inited) return;
+  const tb = $('#mol-items tbody');
+  if (!tb) return; // stránka nemá túto sekciu
+  __mol_inited = true;
+
+  // Defaultne 6 riadkov (ako v pôvodných šablónach)
+  for (let i=0; i<6; i++) mol_addRow(tb);
+
+  const typeSel = $('#mol-type');
+  const dateLblSel = $('#mol-date-label');
+
+  function applyTypeDefaults(){
+    const t = safeStr(typeSel?.value || 'beef');
+    const desired = mol_defaultDateLabel(t);
+    if (dateLblSel && Array.from(dateLblSel.options||[]).some(o=> String(o.value) === desired)) {
+      dateLblSel.value = desired;
+    }
+    mol_applyBeefVisibility(t);
+  }
+
+  applyTypeDefaults();
+
+  // Handlery
+  $('#mol-add') && ($('#mol-add').onclick = ()=> mol_addRow(tb));
+  $('#mol-preview') && ($('#mol-preview').onclick = mol_preview);
+  $('#mol-print') && ($('#mol-print').onclick = mol_print);
+  $('#mol-save-history') && ($('#mol-save-history').onclick = mol_saveHistory);
+
+  typeSel && typeSel.addEventListener('change', ()=>{ applyTypeDefaults(); });
+
+  // História
+  const hFilter = $('#mol-history-filter');
+  hFilter && hFilter.addEventListener('input', ()=> mol_hist_render());
+  $('#mol-history-clear') && ($('#mol-history-clear').onclick = ()=>{ if (confirm('Naozaj chcete vyčistiť celú históriu dávok?')){ mol_hist_clear(); mol_hist_render(); } });
+
+  // Priebežný náhľad pri úprave (debounce)
+  let t = null;
+  const schedulePreview = ()=>{ clearTimeout(t); t = setTimeout(()=> mol_preview(), 250); };
+  ['mol-type','mol-company','mol-approval','mol-cuttext','mol-date-label','mol-rows-per-page','mol-date-format','mol-font-size'].forEach(id=>{
+    const el = $('#'+id);
+    el && el.addEventListener('change', schedulePreview);
+  });
+  tb.addEventListener('input', schedulePreview);
+
+  // Prvý render histórie
+  mol_hist_render();
+}
 
   // ============================== BOOT =====================================
   function attachSupplierAutocomplete(){
@@ -765,48 +1323,49 @@
   }
 
   function boot(){
-    $$('.sidebar-link').forEach(a=>{
-      a.onclick = ()=>{
-        $$('.sidebar-link').forEach(x=> x.classList.remove('active')); a.classList.add('active');
-        const secId = a.getAttribute('data-section'); $$('.content-section').forEach(s=> s.classList.remove('active'));
-        const target = secId ? $('#'+secId) : null; if (target) target.classList.add('active');
-        
-        if (secId === 'leader-dashboard')  loadDashboard();
-        if (secId === 'leader-b2c')        loadB2C();
-        if (secId === 'leader-b2b')        loadB2B();
-        if (secId === 'leader-cut')        loadCutJobs();
-        if (secId === 'leader-lowstock')   loadLeaderLowStockDetail();
-        if (secId === 'leader-plan')       loadLeaderProductionCalendar();
-      };
-    });
+  $$('.sidebar-link').forEach(a=>{
+    a.onclick = ()=>{
+      $$('.sidebar-link').forEach(x=> x.classList.remove('active')); a.classList.add('active');
+      const secId = a.getAttribute('data-section'); $$('.content-section').forEach(s=> s.classList.remove('active'));
+      const target = secId ? $('#'+secId) : null; if (target) target.classList.add('active');
+      
+      if (secId === 'leader-dashboard')  loadDashboard();
+      if (secId === 'leader-b2c')        loadB2C();
+      if (secId === 'leader-b2b')        loadB2B();
+      if (secId === 'leader-meat-origin-labels') { initMeatOriginLabels(); mol_preview(); }
+      if (secId === 'leader-cut')        loadCutJobs();
+      if (secId === 'leader-lowstock')   loadLeaderLowStockDetail();
+      if (secId === 'leader-plan')       loadLeaderProductionCalendar();
+    };
+  });
 
-    // Init dates
-    $('#ldr-date') && ($('#ldr-date').value = todayISO());
-    $('#b2c-date') && ($('#b2c-date').value = todayISO());
-    $('#b2b-date') && ($('#b2b-date').value = todayISO());
-    $('#cut-date') && ($('#cut-date').value = todayISO());
-    $('#nb2b-date') && ($('#nb2b-date').value = todayISO());
+  // Init dates
+  $('#ldr-date') && ($('#ldr-date').value = todayISO());
+  $('#b2c-date') && ($('#b2c-date').value = todayISO());
+  $('#b2b-date') && ($('#b2b-date').value = todayISO());
+  $('#cut-date') && ($('#cut-date').value = todayISO());
+  $('#nb2b-date') && ($('#nb2b-date').value = todayISO());
 
-    // Handlers
-    $('#ldr-refresh') && ($('#ldr-refresh').onclick = loadDashboard);
-    $('#plan-commit') && ($('#plan-commit').onclick = commitPlan);
-    $('#b2c-refresh') && ($('#b2c-refresh').onclick = loadB2C);
-    $('#b2b-refresh') && ($('#b2b-refresh').onclick = loadB2B);
-    $('#leader-lowstock-refresh') && ($('#leader-lowstock-refresh').onclick = loadLeaderLowStockDetail);
-    
-    // --- NOVÉ FUNKCIE ---
-    attachProductSearch();
-
-    attachSupplierAutocomplete();
-    $('#nb2b-add')  && ($('#nb2b-add').onclick  = ()=> addManualRow($('#nb2b-items tbody')));
-    $('#nb2b-save') && ($('#nb2b-save').onclick = saveManualB2B);
-    
-    // CUT JOBS LISTENERS
-    $('#cut-refresh') && ($('#cut-refresh').onclick = loadCutJobs);
-    $('#cut-new')     && ($('#cut-new').onclick     = openNewCutModal);
-
-    loadDashboard();
-  }
+  // Handlers
+  $('#ldr-refresh') && ($('#ldr-refresh').onclick = loadDashboard);
+  $('#plan-commit') && ($('#plan-commit').onclick = commitPlan);
+  $('#b2c-refresh') && ($('#b2c-refresh').onclick = loadB2C);
+  $('#b2b-refresh') && ($('#b2b-refresh').onclick = loadB2B);
+  $('#leader-lowstock-refresh') && ($('#leader-lowstock-refresh').onclick = loadLeaderLowStockDetail);
   
-  if (doc.readyState === 'loading') doc.addEventListener('DOMContentLoaded', boot); else boot();
-})(window, document); 
+  // --- NOVÉ FUNKCIE ---
+  attachProductSearch();
+
+  attachSupplierAutocomplete();
+  $('#nb2b-add')  && ($('#nb2b-add').onclick  = ()=> addManualRow($('#nb2b-items tbody')));
+  $('#nb2b-save') && ($('#nb2b-save').onclick = saveManualB2B);
+  
+  // CUT JOBS LISTENERS
+  $('#cut-refresh') && ($('#cut-refresh').onclick = loadCutJobs);
+  $('#cut-new')     && ($('#cut-new').onclick     = openNewCutModal);
+
+  loadDashboard();
+}
+
+boot();
+})(window, document);

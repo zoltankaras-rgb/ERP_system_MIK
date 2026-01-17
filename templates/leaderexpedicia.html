@@ -22,6 +22,17 @@
       }
       .product-search-item:hover { background-color: #f3f4f6; }
       .product-search-item .meta { font-size: 0.85em; color: #6b7280; }
+
+      /* Náhľad štítkov pôvodu mäsa (sekcia "Štítky pôvodu mäsa") */
+      .mol-preview { background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 10px; padding: 12px; }
+      .mol-preview .mol-root { font-size: var(--mol-font, 11px); }
+      .mol-preview .mol-entry { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+      .mol-preview .mol-page { padding: 8px; border: 1px dashed #d1d5db; border-radius: 10px; margin-bottom: 16px; background: #fff; }
+      .mol-preview .mol-page:last-child { margin-bottom: 0; }
+      .mol-preview .mol-label { width: 100%; border-collapse: collapse; table-layout: fixed; border: 1px solid #111; }
+      .mol-preview .mol-label td { border: 1px solid #111; padding: 6px 7px; vertical-align: middle; }
+      .mol-preview .mol-company, .mol-preview .mol-approval, .mol-preview .mol-title { text-align: center; font-weight: 700; }
+      .mol-preview .mol-lbl { font-weight: 700; white-space: nowrap; }
   </style>
 </head>
 <body>
@@ -41,6 +52,10 @@
           <li><a class="sidebar-link" data-section="leader-b2c"><i class="fas fa-basket-shopping"></i> B2C Objednávky</a></li>
           <li><a class="sidebar-link" data-section="leader-b2b"><i class="fas fa-building"></i> B2B Objednávky</a></li>
           <li><a class="sidebar-link" data-section="leader-manual-b2b"><i class="fas fa-plus-square"></i> Manuálna B2B objednávka</a></li>
+
+          <!-- NOVÉ: štítky pôvodu mäsa -->
+          <li><a class="sidebar-link" data-section="leader-meat-origin-labels"><i class="fas fa-tags"></i> Štítky pôvodu mäsa</a></li>
+
           <li><a class="sidebar-link" data-section="leader-plan"><i class="fas fa-calendar-alt"></i> Kalendár výroby</a></li>
           <li><a class="sidebar-link" data-section="leader-lowstock"><i class="fas fa-exclamation-triangle"></i> Sklad pod minimom</a></li>
           <li><a class="sidebar-link" data-section="leader-cut"><i class="fas fa-cut"></i> Krájačky/Výroba</a></li>
@@ -168,6 +183,118 @@
           </div>
         </div>
 
+        <!-- =================== NOVÉ: ŠTÍTKY PÔVODU MÄSA =================== -->
+        <div id="leader-meat-origin-labels" class="content-section">
+          <h3>Štítky pôvodu mäsa (tlač)</h3>
+          <div class="card">
+            <div class="card-body">
+
+              <p class="muted" style="margin-top:0">
+                Vyplňte riadky (dátum, kód dávky, pôvod) a vytvorte štítky v rovnakej štruktúre ako v tlačených šablónach.
+                Každý riadok sa vytlačí <strong>2× vedľa seba</strong> (ľavý + pravý štítok).
+              </p>
+
+              <div class="form-grid" style="grid-template-columns:repeat(4,minmax(220px,1fr));">
+                <div class="form-group">
+                  <label>Typ mäsa</label>
+                  <select id="mol-type">
+                    <option value="beef">Hovädzie</option>
+                    <option value="pork">Ošípané</option>
+                    <option value="poultry">Hydinové</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>Schvaľovacie číslo (ES)</label>
+                  <input id="mol-approval" value="SK 4053 ES">
+                </div>
+                <div class="form-group" style="grid-column: span 2;">
+                  <label>Hlavička firmy</label>
+                  <input id="mol-company" value="MIK,s.r.o.,Hollého 1999/13,927 05 Šaľa">
+                </div>
+
+                <!-- len pre hovädzie -->
+                <div class="form-group mol-beef-only" style="grid-column: span 4;">
+                  <label>Delené (hovädzie)</label>
+                  <!-- na štítku sa tlačí ako "Delené: " + hodnota -->
+                  <input id="mol-cuttext" value="v Slovenskej republike SK 4053 ES">
+                </div>
+
+                <div class="form-group">
+                  <label>Text dátumu na štítku</label>
+                  <select id="mol-date-label">
+                    <option value="Dátum spot:">Dátum spot:</option>
+                    <option value="Dátum:">Dátum:</option>
+                    <option value="Dátum :">Dátum :</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>Riadkov na 1 stranu</label>
+                  <input id="mol-rows-per-page" type="number" min="1" max="12" step="1" value="6">
+                </div>
+                <div class="form-group">
+                  <label>Formát dátumu</label>
+                  <select id="mol-date-format">
+                    <option value="sk">dd.mm.rrrr</option>
+                    <option value="iso">rrrr-mm-dd</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>Veľkosť písma</label>
+                  <select id="mol-font-size">
+                    <option value="11">11 px</option>
+                    <option value="10">10 px</option>
+                    <option value="12">12 px</option>
+                  </select>
+                </div>
+              </div>
+
+              <hr style="margin:16px 0;border-top:1px solid #eee;">
+
+              <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+                <h4 style="margin:0">Zoznam štítkov</h4>
+                <span class="muted">(Dátum, kód dávky, pôvod)</span>
+                <span style="flex:1"></span>
+                <button id="mol-add" class="btn btn-secondary">+ pridať riadok</button>
+                <button id="mol-preview" class="btn btn-secondary">Náhľad</button>
+                <button id="mol-save-history" class="btn btn-secondary"><i class="fas fa-save"></i> Uložiť do histórie</button>
+                <button id="mol-print" class="btn btn-primary"><i class="fas fa-print"></i> Tlačiť</button>
+              </div>
+
+              <div class="table-container" style="margin-top:10px;">
+                <table id="mol-items" class="tbl">
+                  <thead>
+                    <tr>
+                      <th style="width:160px">Dátum</th>
+                      <th style="width:160px">Kód dávky</th>
+                      <!-- len pre hovädzie -->
+                      <th class="mol-beef-only" style="width:220px">Referenčné číslo</th>
+                      <th>Pôvod (doplní sa do CHOVANÉ/ZABITÉ/POVOD)</th>
+                      <th style="width:80px"></th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+
+              <div id="mol-preview-wrap" style="margin-top:16px;"></div>
+
+              <hr style="margin:16px 0;border-top:1px solid #eee;">
+
+              <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+                <h4 style="margin:0">História dávok</h4>
+                <span class="muted">(uložené v tomto prehliadači – pre opakovanú tlač)</span>
+                <span style="flex:1"></span>
+                <input id="mol-history-filter" placeholder="Hľadať (kód dávky / pôvod)…" style="padding:8px 10px;border:1px solid #ddd;border-radius:6px;min-width:260px">
+                <button id="mol-history-clear" class="btn btn-secondary">Vyčistiť históriu</button>
+              </div>
+
+              <div id="mol-history-list" style="margin-top:10px;"></div>
+
+            </div>
+          </div>
+        </div>
+        <!-- =================== /NOVÉ: ŠTÍTKY PÔVODU MÄSA =================== -->
+
         <div id="leader-lowstock" class="content-section">
           <h3>Sklad pod minimom</h3>
           <div class="card">
@@ -225,7 +352,9 @@
   </div>
 
   <script src="{{ url_for('static', filename='js/kancelaria_modules/planning.js') }}"></script>
-  <script src="{{ url_for('static', filename='js/leaderexpediction.js') }}?v=13"></script>
+
+  <!-- POZN.: zvýšené v=..., aby sa načítal nový JS s modulom pre štítky + históriu -->
+  <script src="{{ url_for('static', filename='js/leaderexpediction.js') }}?v=15"></script>
 
 </body>
 </html>
