@@ -347,10 +347,16 @@ async function loadPublicPricelist() {
     }
 
     // --- Ostatné kategórie ---
+    // ... (začiatok funkcie loadPublicPricelist ostáva rovnaký) ...
+
+    // --- Ostatné kategórie ---
     otherCategories.forEach(category => {
+      // VYTVORENIE ID PRE SCROLLOVANIE (nahradí medzery pomlčkami)
+      const catId = `cat-${category.replace(/\s+/g, '-')}`;
+      
       html += `
         <div class="category-header-wrapper" style="margin-bottom:15px; border-bottom:2px solid #e2e8f0; padding-bottom:5px;">
-            <h3 id="cat-${category.replace(/\s+/g, '-')}" style="color:#334155; scroll-margin-top: 140px;">${escapeHtml(category)}</h3>
+            <h3 id="${catId}" style="color:#334155; scroll-margin-top: 140px;">${escapeHtml(category)}</h3>
         </div>
         <div class="product-grid">`;
 
@@ -362,7 +368,10 @@ async function loadPublicPricelist() {
     });
 
     container.innerHTML = html;
-renderCategoryChips(otherCategories);
+
+    // NOVÉ: Zavolanie funkcie na vytvorenie navigačných tlačidiel (chipsov)
+    renderCategoryChips(otherCategories);
+
   } catch (error) {
     container.innerHTML =
       `<h2>Naša ponuka</h2><p class="error">Nepodarilo sa načítať produkty: ${escapeHtml(error.message)}</p>`;
@@ -411,9 +420,11 @@ async function loadOrderForm() {
 
     // --- Ostatné kategórie ---
     otherCategories.forEach(category => {
+      const catId = `cat-${category.replace(/\s+/g, '-')}`;
+
       html += `
         <div class="category-header-wrapper" style="margin-bottom:15px; border-bottom:2px solid #e2e8f0; padding-bottom:5px;">
-            <h3 style="color:#334155;">${escapeHtml(category)}</h3>
+            <h3 id="${catId}" style="color:#334155; scroll-margin-top: 140px;">${escapeHtml(category)}</h3>
         </div>
         <div class="product-grid">`;
 
@@ -430,7 +441,9 @@ async function loadOrderForm() {
     container.querySelectorAll('.quantity-input').forEach(input => {
       input.addEventListener('input', updateOrderTotal);
     });
-    
+    // NOVÉ: Zavolanie funkcie na vytvorenie navigačných tlačidiel
+    renderCategoryChips(otherCategories);
+    ensureOrderExtras();
     // Nastavenie dátumu (zajtra ako min)
     const deliveryDateInput = document.getElementById('deliveryDate');
     if (deliveryDateInput) {
