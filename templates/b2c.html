@@ -7,7 +7,7 @@
     <link rel="icon" href="data:;base64,iVBORw0KGgo=">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/b2c_style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/b2c_style.css', v=2) }}">
 </head>
 <body>
 
@@ -410,6 +410,6 @@
         </button>
     </div>
 
-    <script src="{{ url_for('static', filename='js/b2c.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/b2c.js', v=2) }}"></script>
 </body>
 </html>
