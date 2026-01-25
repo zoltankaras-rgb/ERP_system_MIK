@@ -129,6 +129,7 @@ function updateUI(sessionData) {
   const authLinksContainer = document.getElementById('header-auth-links');
 
   if (sessionData.loggedIn && sessionData.user?.typ === 'B2C') {
+    // === POUŽÍVATEĽ JE PRIHLÁSENÝ ===
     loggedOutView?.classList.add('hidden');
     loggedInView?.classList.remove('hidden');
     const name = sessionData.user.name || '';
@@ -150,9 +151,20 @@ function updateUI(sessionData) {
 
     loadCustomerView();
   } else {
+    // === POUŽÍVATEĽ JE ODHLÁSENÝ (Pridávame Scroll tlačidlo) ===
     loggedOutView?.classList.remove('hidden');
     loggedInView?.classList.add('hidden');
-    if (authLinksContainer) authLinksContainer.innerHTML = '';
+    
+    // TU JE ZMENA: Namiesto vyčistenia pridáme navigačné tlačidlo
+    if (authLinksContainer) {
+        authLinksContainer.innerHTML = `
+            <button class="button" style="width: auto; margin: 0; padding: 8px 20px; background-color: #334155;" 
+                onclick="document.getElementById('auth-section').scrollIntoView({behavior: 'smooth'})">
+                <i class="fas fa-sign-in-alt"></i> Prejsť na prihlásenie
+            </button>
+        `;
+    }
+    
     loadPublicPricelist();
   }
 }

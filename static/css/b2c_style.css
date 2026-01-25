@@ -532,3 +532,77 @@ h3 {
   h2, h3 { font-size: 1.05rem; }
   .logo { max-width: 160px; }
 }
+/* Pridá 20px medzeru nad formulárom po scrollovaní */
+#auth-section {
+    scroll-margin-top: 20px;
+}
+/* =========================
+   COOKIE LIŠTA
+   ========================= */
+.cookie-banner {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    background-color: #fff;
+    border-top: 1px solid #e2e8f0;
+    box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.1);
+    padding: 20px;
+    z-index: 9999;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+}
+
+.cookie-banner.hidden {
+    display: none !important;
+}
+
+.cookie-content {
+    flex: 1;
+    max-width: 800px;
+}
+
+.cookie-content h3 {
+    margin: 0 0 8px 0;
+    font-size: 1.1rem;
+    border: none; /* zrušíme čiaru z globálneho štýlu h3 */
+    padding: 0;
+}
+
+.cookie-content p {
+    margin: 0;
+    font-size: 0.9rem;
+    color: #475569;
+    line-height: 1.5;
+}
+
+.cookie-actions {
+    display: flex;
+    gap: 10px;
+}
+
+.cookie-actions .button {
+    margin: 0;
+    white-space: nowrap;
+    padding: 10px 20px;
+}
+
+/* Mobilné zobrazenie */
+@media (max-width: 768px) {
+    .cookie-banner {
+        flex-direction: column;
+        text-align: center;
+    }
+    
+    .cookie-actions {
+        width: 100%;
+        flex-direction: column;
+    }
+    
+    .cookie-actions .button {
+        width: 100%;
+    }
+}

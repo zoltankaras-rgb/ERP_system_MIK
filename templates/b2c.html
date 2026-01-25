@@ -548,5 +548,19 @@
     </div>
 
     <script src="{{ url_for('static', filename='js/b2c.js') }}"></script>
+    <div id="cookie-banner" class="cookie-banner hidden">
+    <div class="cookie-content">
+        <h3>Súkromie a cookies</h3>
+        <p>
+            Tento web používa súbory cookies. Nevyhnutné cookies sú potrebné pre fungovanie stránky (košík, prihlásenie). 
+            Analytické a marketingové cookies nám pomáhajú vylepšovať web, ale potrebujeme na ne váš súhlas.
+            <a href="#" onclick="openModal('privacy-modal'); return false;">Viac informácií</a>.
+        </p>
+    </div>
+    <div class="cookie-actions">
+        <button id="cookie-reject" class="button" style="background-color: #64748b;">Len nevyhnutné</button>
+        <button id="cookie-accept" class="button">Súhlasím so všetkým</button>
+    </div>
+</div>
 </body>
 </html>
