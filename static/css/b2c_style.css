@@ -683,88 +683,107 @@ h3 {
     .mobile-sticky-cart {
         display: none;
     }
-}/* =========================================
-   FIX PRE MOBILY NA VÝŠKU (Portrait)
-   ========================================= */
+}/* =========================================================
+   HARDCORE FIX PRE MOBILY (Vložiť na koniec CSS súboru)
+   ========================================================= */
 
-@media (max-width: 480px) {
-    /* 1. Oprava hlavičky - zmenšenie loga a tlačidla */
+@media screen and (max-width: 768px) {
+    
+    /* 1. Oprava hlavičky - aby sa prvky netlačili */
     header {
-        flex-direction: row; /* Logo a tlačidlo vedľa seba */
-        align-items: center;
-        justify-content: space-between;
-        gap: 10px;
-        padding-bottom: 10px;
-        margin-bottom: 15px;
+        flex-direction: column !important;
+        align-items: center !important;
+        text-align: center !important;
+        gap: 15px !important;
+        padding: 15px !important;
     }
 
     .logo {
-        max-width: 140px; /* Menšie logo */
+        max-width: 180px !important;
+        margin: 0 auto !important;
     }
 
-    .header-auth-links .button {
-        padding: 6px 12px;
-        font-size: 0.8rem;
-    }
-
-    /* 2. Oprava Navigácie (Chips) - v jednom riadku s rolovaním */
-    #category-nav {
+    .header-auth-links {
+        width: 100% !important;
+        text-align: center !important;
         display: flex;
-        flex-wrap: nowrap !important; /* Zakáže zalamovanie */
-        overflow-x: auto;
-        -webkit-overflow-scrolling: touch; /* Plynulé rolovanie na iPhone */
-        gap: 8px;
-        padding-bottom: 5px;
-        scrollbar-width: none; /* Skryje posuvník (Firefox) */
-    }
-    
-    #category-nav::-webkit-scrollbar {
-        display: none; /* Skryje posuvník (Chrome/Safari) */
+        flex-direction: column;
+        gap: 10px;
     }
 
+    /* 2. Oprava Sticky Lišty (Hľadanie a Kategórie) */
+    .sticky-tools {
+        position: sticky !important;
+        top: 0 !important;
+        z-index: 9999 !important; /* Najvyššia priorita */
+        background: #fff !important;
+        padding: 10px 0 !important;
+        width: 100% !important;
+        box-sizing: border-box !important;
+    }
+
+    /* Kontajner vnútri sticky lišty */
+    .sticky-tools > div {
+        padding: 0 10px !important;
+        width: 100% !important;
+    }
+
+    /* 3. Oprava rolovacích tlačidiel (Chips) - KRITICKÉ */
+    #category-nav {
+        display: flex !important;
+        flex-direction: row !important;
+        flex-wrap: nowrap !important; /* ZAKÁŽE zalamovanie */
+        overflow-x: auto !important; /* POVOLÍ rolovanie do strán */
+        white-space: nowrap !important;
+        gap: 10px !important;
+        padding: 5px 0 10px 0 !important;
+        width: 100% !important;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none; /* Skryje posuvník */
+    }
+
+    /* Aby sa tlačidlá nezmenšovali */
     .nav-chip {
-        flex: 0 0 auto; /* Tlačidlo sa nezmenší */
-        white-space: nowrap; /* Text v tlačidle sa nezalomí */
-        font-size: 0.8rem;
-        padding: 6px 12px;
+        flex: 0 0 auto !important; 
+        display: inline-flex !important;
+        align-items: center;
+        justify-content: center;
+        height: 36px;
+        padding: 0 15px !important;
     }
 
-    /* 3. Oprava Karty produktu - aby sa inputy netlačili */
+    /* 4. Oprava kariet produktov - 1 stĺpec na celú šírku */
     .product-grid {
-        grid-template-columns: 1fr; /* Jeden stĺpec na celú šírku */
-        gap: 15px;
-        padding: 10px 5px; /* Menšie odsadenie od krajov */
+        display: grid !important;
+        grid-template-columns: 1fr !important; /* Vždy len jeden stĺpec */
+        gap: 20px !important;
+        padding: 15px !important;
+        width: 100% !important;
+        box-sizing: border-box !important;
     }
 
     .product-card {
-        padding: 12px;
+        width: 100% !important;
+        margin: 0 !important;
     }
 
+    /* Obrázok v karte */
+    .product-card .img-wrapper {
+        height: 200px !important; /* Fixná výška obrázka */
+    }
+
+    /* Ovládanie ceny a množstva na mobile */
     .card-controls > div {
-        /* Cena a input - ak je málo miesta, dajte ich pod seba */
-        flex-wrap: wrap; 
-    }
-    
-    .card-controls .quantity-input {
-        width: 60px !important; /* Trochu užší input */
-        padding: 4px !important;
+        display: flex !important;
+        flex-direction: row !important;
+        justify-content: space-between !important;
+        align-items: center !important;
+        width: 100% !important;
     }
 
-    /* 4. Zmenšenie nadpisov */
-    h2, h3 {
-        font-size: 1.1rem;
-        margin-top: 1rem;
-        margin-bottom: 0.5rem;
-    }
-    
-    /* 5. Sticky lišta (Search) - fix pozície */
-    .sticky-tools {
-        top: -1px; /* Drobné prekrytie okraja */
-        padding: 8px 0;
-    }
-    
-    #productSearch {
-        padding: 8px 10px 8px 35px;
-        font-size: 0.9rem;
+    .quantity-input {
+        width: 80px !important;
+        height: 40px !important; /* Väčšie pre prsty */
+        font-size: 16px !important; /* Aby iPhone nepribližoval */
     }
 }
