@@ -683,4 +683,88 @@ h3 {
     .mobile-sticky-cart {
         display: none;
     }
+}/* =========================================
+   FIX PRE MOBILY NA VÝŠKU (Portrait)
+   ========================================= */
+
+@media (max-width: 480px) {
+    /* 1. Oprava hlavičky - zmenšenie loga a tlačidla */
+    header {
+        flex-direction: row; /* Logo a tlačidlo vedľa seba */
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding-bottom: 10px;
+        margin-bottom: 15px;
+    }
+
+    .logo {
+        max-width: 140px; /* Menšie logo */
+    }
+
+    .header-auth-links .button {
+        padding: 6px 12px;
+        font-size: 0.8rem;
+    }
+
+    /* 2. Oprava Navigácie (Chips) - v jednom riadku s rolovaním */
+    #category-nav {
+        display: flex;
+        flex-wrap: nowrap !important; /* Zakáže zalamovanie */
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch; /* Plynulé rolovanie na iPhone */
+        gap: 8px;
+        padding-bottom: 5px;
+        scrollbar-width: none; /* Skryje posuvník (Firefox) */
+    }
+    
+    #category-nav::-webkit-scrollbar {
+        display: none; /* Skryje posuvník (Chrome/Safari) */
+    }
+
+    .nav-chip {
+        flex: 0 0 auto; /* Tlačidlo sa nezmenší */
+        white-space: nowrap; /* Text v tlačidle sa nezalomí */
+        font-size: 0.8rem;
+        padding: 6px 12px;
+    }
+
+    /* 3. Oprava Karty produktu - aby sa inputy netlačili */
+    .product-grid {
+        grid-template-columns: 1fr; /* Jeden stĺpec na celú šírku */
+        gap: 15px;
+        padding: 10px 5px; /* Menšie odsadenie od krajov */
+    }
+
+    .product-card {
+        padding: 12px;
+    }
+
+    .card-controls > div {
+        /* Cena a input - ak je málo miesta, dajte ich pod seba */
+        flex-wrap: wrap; 
+    }
+    
+    .card-controls .quantity-input {
+        width: 60px !important; /* Trochu užší input */
+        padding: 4px !important;
+    }
+
+    /* 4. Zmenšenie nadpisov */
+    h2, h3 {
+        font-size: 1.1rem;
+        margin-top: 1rem;
+        margin-bottom: 0.5rem;
+    }
+    
+    /* 5. Sticky lišta (Search) - fix pozície */
+    .sticky-tools {
+        top: -1px; /* Drobné prekrytie okraja */
+        padding: 8px 0;
+    }
+    
+    #productSearch {
+        padding: 8px 10px 8px 35px;
+        font-size: 0.9rem;
+    }
 }
