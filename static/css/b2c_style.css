@@ -606,3 +606,81 @@ h3 {
         width: 100%;
     }
 }
+/* =========================
+   STICKY CART BAR (MOBILE)
+   ========================= */
+.mobile-sticky-cart {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    background: #ffffff;
+    border-top: 1px solid #cbd5e1;
+    padding: 10px 20px;
+    box-shadow: 0 -4px 10px rgba(0,0,0,0.05);
+    z-index: 800; /* Pod cookie lištou (tá má zvyčajne viac) */
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    transition: transform 0.3s ease;
+}
+
+.mobile-sticky-cart.hidden {
+    transform: translateY(100%);
+}
+
+.msc-info {
+    display: flex;
+    flex-direction: column;
+}
+
+.msc-label {
+    font-size: 0.75rem;
+    color: #64748b;
+}
+
+.msc-price {
+    font-size: 1.1rem;
+    font-weight: 800;
+    color: #1e293b;
+}
+
+.msc-btn {
+    width: auto !important;
+    margin: 0 !important;
+    padding: 8px 16px !important;
+    font-size: 0.9rem !important;
+    border-radius: 20px !important;
+}
+
+/* Navigačné čipy (Kategórie) */
+.nav-chip {
+    white-space: nowrap;
+    background: #f1f5f9;
+    border: 1px solid #cbd5e1;
+    border-radius: 20px;
+    padding: 6px 14px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #475569;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.nav-chip:hover {
+    background: #e2e8f0;
+    color: #1e293b;
+}
+
+.nav-chip.akcia {
+    background: #fef2f2;
+    color: #b91c1c;
+    border-color: #fecaca;
+}
+
+/* Na desktope spodnú lištu skryjeme, ak chcete */
+@media (min-width: 769px) {
+    .mobile-sticky-cart {
+        display: none;
+    }
+}

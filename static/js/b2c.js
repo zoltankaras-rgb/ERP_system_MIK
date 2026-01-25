@@ -350,7 +350,7 @@ async function loadPublicPricelist() {
     otherCategories.forEach(category => {
       html += `
         <div class="category-header-wrapper" style="margin-bottom:15px; border-bottom:2px solid #e2e8f0; padding-bottom:5px;">
-            <h3 style="color:#334155;">${escapeHtml(category)}</h3>
+            <h3 id="cat-${category.replace(/\s+/g, '-')}" style="color:#334155; scroll-margin-top: 140px;">${escapeHtml(category)}</h3>
         </div>
         <div class="product-grid">`;
 
@@ -362,7 +362,7 @@ async function loadPublicPricelist() {
     });
 
     container.innerHTML = html;
-
+renderCategoryChips(otherCategories);
   } catch (error) {
     container.innerHTML =
       `<h2>Naša ponuka</h2><p class="error">Nepodarilo sa načítať produkty: ${escapeHtml(error.message)}</p>`;
@@ -449,7 +449,7 @@ async function loadOrderForm() {
 
     enforceManualSubmit();
     updateOrderTotal();
-
+renderCategoryChips(otherCategories);
   } catch (error) {
     container.innerHTML =
       `<h2>Vytvoriť objednávku</h2><p class="error">Nepodarilo sa načítať produkty: ${escapeHtml(error.message)}</p>`;
@@ -643,6 +643,23 @@ function updateOrderTotal() {
     summarySection.classList.remove('hidden');
   }
 }
+// === UPDATE STICKY BAR (MOBILE) ===
+  const stickyBar = document.getElementById('mobile-sticky-cart');
+  const stickyTotal = document.getElementById('msc-total');
+  
+  if (stickyBar && stickyTotal) {
+      stickyTotal.textContent = total_s_dph.toFixed(2) + ' €';
+      
+      // Zobrazíme lištu len ak je v košíku niečo (> 0) a nie sme na desktope (voliteľné)
+      if (total_s_dph > 0) {
+          stickyBar.classList.remove('hidden');
+          // Posunieme body padding, aby lišta neprekrývala obsah na spodku
+          document.body.style.paddingBottom = '70px';
+      } else {
+          stickyBar.classList.add('hidden');
+          document.body.style.paddingBottom = '0';
+      }
+  }
 async function handleOrderSubmit(event) {
   event.preventDefault();
 
@@ -1187,4 +1204,22 @@ function filterProducts() {
             card.style.display = "none";
         }
     });
+}// === GENERÁTOR NAVIGAČNÝCH TLAČIDIEL ===
+function renderCategoryChips(categories) {
+    const nav = document.getElementById('category-nav');
+    if (!nav) return;
+
+    let html = '';
+    // Prvé tlačidlo pre AKCIU
+    if (document.querySelector('.akcia-tyzdna-box') || document.querySelector('.fa-fire')) {
+        html += `<button type="button" class="nav-chip akcia" onclick="window.scrollTo({top:0, behavior:'smooth'})"><i class="fas fa-fire"></i> AKCIA</button>`;
+    }
+
+    // Tlačidlá pre ostatné kategórie
+    categories.forEach(cat => {
+        const id = `cat-${cat.replace(/\s+/g, '-')}`;
+        html += `<button type="button" class="nav-chip" onclick="document.getElementById('${id}')?.scrollIntoView({behavior: 'smooth'})">${escapeHtml(cat)}</button>`;
+    });
+
+    nav.innerHTML = html;
 }

@@ -576,5 +576,14 @@
         <button id="cookie-accept" class="button">Súhlasím so všetkým</button>
     </div>
 </div>
+<div id="mobile-sticky-cart" class="mobile-sticky-cart hidden">
+    <div class="msc-info">
+        <span class="msc-label">Spolu s DPH:</span>
+        <span id="msc-total" class="msc-price">0,00 €</span>
+    </div>
+    <button class="button msc-btn" onclick="document.getElementById('order-summary-section').scrollIntoView({behavior: 'smooth'})">
+        Dokončiť <i class="fas fa-chevron-down"></i>
+    </button>
+</div>
 </body>
 </html>
