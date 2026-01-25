@@ -1235,4 +1235,34 @@ function renderCategoryChips(categories) {
     });
 
     nav.innerHTML = html;
+}// ==========================================
+// === GENERÁTOR NAVIGAČNÝCH TLAČIDIEL ===
+// ==========================================
+function renderCategoryChips(categories) {
+    const nav = document.getElementById('category-nav');
+    if (!nav) return;
+
+    let html = '';
+    
+    // 1. Tlačidlo pre AKCIU (ak existuje)
+    if (document.querySelector('.akcia-tyzdna-box') || document.querySelector('.fa-fire')) {
+        html += `
+        <button type="button" class="nav-chip akcia" onclick="window.scrollTo({top:0, behavior:'smooth'})" 
+                style="white-space:nowrap; background:#fef2f2; color:#b91c1c; border:1px solid #fecaca; border-radius:20px; padding:6px 14px; font-size:0.85rem; font-weight:700; cursor:pointer; margin-right:8px;">
+            <i class="fas fa-fire"></i> AKCIA
+        </button>`;
+    }
+
+    // 2. Tlačidlá pre ostatné kategórie (Tovar, Výrobky, Mäso...)
+    categories.forEach(cat => {
+        const id = `cat-${cat.replace(/\s+/g, '-')}`;
+        html += `
+        <button type="button" class="nav-chip" 
+                onclick="document.getElementById('${id}')?.scrollIntoView({behavior: 'smooth'})"
+                style="white-space:nowrap; background:#f1f5f9; border:1px solid #cbd5e1; border-radius:20px; padding:6px 14px; font-size:0.85rem; font-weight:600; color:#475569; cursor:pointer; margin-right:8px;">
+            ${escapeHtml(cat)}
+        </button>`;
+    });
+
+    nav.innerHTML = html;
 }
