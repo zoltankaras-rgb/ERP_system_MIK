@@ -734,6 +734,11 @@
 var __mol_inited = false;
 const MOL_HISTORY_KEY = 'mol_history_v1';
 
+// Layout pre A4 (tlač): 2 stĺpce x N riadkov na stranu
+const MOL_ROW_GAP = '5mm';    // medzera medzi riadkami (na strihanie)
+const MOL_COL_GAP = '6mm';    // medzera medzi ľavým/pravým štítkom
+const MOL_SAFE_PAGE_H = '275mm'; // približná využiteľná výška po okrajoch (nech máme rezervu proti orezaniu)
+
 function mol_titleForType(type){
   const t = String(type||'').toLowerCase();
   if (t === 'poultry') return 'Informácie o pôvode mäsa hydinové';
@@ -751,8 +756,8 @@ function mol_isBeef(type){
 }
 
 function mol_defaultCutText(){
-  // Požiadavka: defaultne doplniť "Delené: v Slovenskej republike SK 4053 ES"
-  // Na štítku sa tlačí ako: "Delené:" + hodnota
+  // Default: aby na štítku bolo "Delené: v Slovenskej republike SK 4053 ES"
+  // Na štítku sa tlačí ako "Delené:" + hodnota
   return 'v Slovenskej republike SK 4053 ES';
 }
 
@@ -760,13 +765,11 @@ function mol_applyBeefVisibility(type){
   const t = String(type || $('#mol-type')?.value || 'beef').toLowerCase();
   const isBeef = (t === 'beef');
 
-  // Prepni viditeľnosť všetkých prvkov označených ako beef-only
   const scope = $('#leader-meat-origin-labels') || doc;
   scope.querySelectorAll('.mol-beef-only').forEach(el => {
     el.style.display = isBeef ? '' : 'none';
   });
 
-  // Default pre "Delené" – doplniť pri hovädzom, ak je prázdne
   if (isBeef){
     const cut = $('#mol-cuttext');
     if (cut && !safeStr(cut.value)) cut.value = mol_defaultCutText();
@@ -775,9 +778,8 @@ function mol_applyBeefVisibility(type){
 
 function mol_fmtDate(iso, mode){
   const s = safeStr(iso);
-  if (!s) return '';
+  if (!s) return ''; // DÁTUM JE VOLITEĽNÝ
   if (String(mode||'').toLowerCase() === 'iso') return s;
-  // SK: dd.mm.yyyy
   try{
     const d = new Date(s + 'T00:00:00');
     if (!Number.isFinite(d.getTime())) return s;
@@ -802,7 +804,6 @@ function mol_addRow(tb, preset){
   tb.appendChild(tr);
   tr.querySelector('[data-mol-del]').onclick = ()=> tr.remove();
 
-  // aby sa nový riadok hneď správne skryl/zobrazil podľa typu
   mol_applyBeefVisibility();
 }
 
@@ -815,7 +816,6 @@ function mol_collect(){
   const dateFormat = safeStr($('#mol-date-format')?.value || 'sk');
   const fontSize = Math.max(8, Math.min(16, Math.floor(toNum($('#mol-font-size')?.value, 11)) || 11));
 
-  // Beef-only konfigurácia
   const cutText = safeStr($('#mol-cuttext')?.value || '');
 
   const tb = $('#mol-items tbody');
@@ -827,6 +827,8 @@ function mol_collect(){
       const batch = safeStr(tr.querySelector('.mol-batch')?.value || '');
       const origin = safeStr(tr.querySelector('.mol-origin')?.value || '');
       const ref = safeStr(tr.querySelector('.mol-ref')?.value || '');
+
+      // berieme riadok len ak je niečo vyplnené (aby prázdne riadky neblokovali tlač)
       if (date || batch || origin || ref){
         entries.push({ date, batch, origin, ref, _tr: tr });
       }
@@ -837,11 +839,16 @@ function mol_collect(){
   return { cfg, entries };
 }
 
+/**
+ * Validácia:
+ * - POVINNÉ: kód dávky + pôvod
+ * - VOLITEĽNÉ: dátum
+ */
 function mol_validate(entries){
   let ok = true;
   (entries||[]).forEach(it=>{
     const tr = it._tr;
-    const bad = !(safeStr(it.date) && safeStr(it.batch) && safeStr(it.origin));
+    const bad = !(safeStr(it.batch) && safeStr(it.origin)); // dátum NEvyžadujeme
     if (tr){
       tr.style.background = bad ? '#fff7ed' : '';
     }
@@ -881,37 +888,54 @@ function mol_labelHtml(data, cfg){
   `;
 }
 
+/**
+ * NOVÉ správanie:
+ * - Každý zadaný riadok (dávka+pôvod+...) = 1 A4 strana
+ * - Na stranu sa automaticky namnoží toľko štítkov, aby sa vyplnil A4 formát (2 stĺpce x rowsPerPage riadkov)
+ */
 function mol_buildMarkup(cfg, entries){
-  const perPage = cfg.rowsPerPage || 6;
-  const pages = [];
-  for (let i=0; i<entries.length; i+=perPage){
-    pages.push(entries.slice(i, i+perPage));
-  }
+  const rowsPerPage = cfg.rowsPerPage || 6;
 
-  const body = pages.map((pageEntries, pIdx)=>{
-    const rows = pageEntries.map(it=>{
-      const label = mol_labelHtml(it, cfg);
-      return `<div class="mol-entry">${label}${label}</div>`;
-    }).join('');
-    return `<div class="mol-page" data-page="${pIdx+1}">${rows}</div>`;
+  const pagesHtml = (entries || []).map((it, idx)=>{
+    const label = mol_labelHtml(it, cfg);
+    let rows = '';
+    for (let r=0; r<rowsPerPage; r++){
+      rows += `<div class="mol-entry">${label}${label}</div>`;
+    }
+    return `<div class="mol-page" data-page="${idx+1}">${rows}</div>`;
   }).join('');
 
-  return `<div class="mol-root" style="--mol-font:${cfg.fontSize || 11}px">${body}</div>`;
+  return `<div class="mol-root" style="
+      --mol-font:${cfg.fontSize || 11}px;
+      --mol-rows:${rowsPerPage};
+      --mol-row-gap:${MOL_ROW_GAP};
+      --mol-col-gap:${MOL_COL_GAP};
+      --mol-page-h:${MOL_SAFE_PAGE_H};
+    ">${pagesHtml}</div>`;
 }
 
 function mol_preview(){
   const { cfg, entries } = mol_collect();
   const wrap = $('#mol-preview-wrap');
   if (!wrap) return;
+
   if (!entries.length){
     wrap.innerHTML = '<div class="muted" style="margin-top:6px">Zatiaľ nie sú zadané žiadne riadky.</div>';
     return;
   }
+
   mol_validate(entries);
+
   const html = mol_buildMarkup(cfg, entries);
+  const perPageLabels = (cfg.rowsPerPage || 6) * 2;
+
   wrap.innerHTML = `
     <div class="card" style="margin-top:12px;">
-      <div class="card-header"><strong>Náhľad</strong> <span class="muted">(${entries.length} riadkov)</span></div>
+      <div class="card-header">
+        <strong>Náhľad</strong>
+        <span class="muted">(${entries.length} strán / ${perPageLabels} štítkov na stranu)</span>
+        <span class="muted" style="margin-left:10px;">Dátum je voliteľný.</span>
+      </div>
       <div class="card-body" style="overflow:auto;">
         <div class="mol-preview">${html}</div>
       </div>
@@ -924,12 +948,37 @@ function mol_openPrintWindow(markup){
     @page { size: A4; margin: 10mm; }
     html, body { height: 100%; }
     body { margin: 0; font-family: Arial, Helvetica, sans-serif; }
+
     .mol-root { font-size: var(--mol-font, 11px); }
+
     .mol-page { page-break-after: always; }
     .mol-page:last-child { page-break-after: auto; }
-    .mol-entry { display: grid; grid-template-columns: 1fr 1fr; gap: 6mm; margin-bottom: 6mm; }
-    .mol-label { width: 100%; border-collapse: collapse; table-layout: fixed; border: 1px solid #000; min-height: 44mm; }
-    .mol-label td { border: 1px solid #000; padding: 2mm 2.2mm; vertical-align: middle; }
+
+    /* rovnomerné rozloženie na A4 + medzery na strihanie */
+    .mol-entry {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      column-gap: var(--mol-col-gap, 6mm);
+      margin-bottom: var(--mol-row-gap, 5mm);
+
+      /* výška jedného "riadku štítkov" aby sa pekne vyplnila strana */
+      height: calc((var(--mol-page-h, 275mm) - (var(--mol-rows, 6) - 1) * var(--mol-row-gap, 5mm)) / var(--mol-rows, 6));
+    }
+    .mol-page .mol-entry:last-child { margin-bottom: 0; }
+
+    .mol-label {
+      width: 100%;
+      height: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      border: 1px solid #000;
+    }
+    .mol-label td {
+      border: 1px solid #000;
+      padding: 2mm 2.2mm;
+      vertical-align: middle;
+    }
+
     .mol-company, .mol-approval, .mol-title { text-align: center; font-weight: 700; }
     .mol-company { font-size: 1.05em; }
     .mol-title { font-size: 1.05em; }
@@ -952,14 +1001,14 @@ function mol_openPrintWindow(markup){
 function mol_printCore(cfg, entries, opts){
   const options = opts || {};
   if (!entries.length){
-    showStatus('Zadajte aspoň 1 riadok (dátum, kód dávky, pôvod).', true);
+    showStatus('Zadajte aspoň 1 riadok (kód dávky, pôvod). Dátum je voliteľný.', true);
     return;
   }
 
-  // Pri print-e bez UI (história) nemáme _tr, takže validujeme jednoducho
-  const allOk = entries.every(it => safeStr(it.date) && safeStr(it.batch) && safeStr(it.origin));
+  // validácia pre tlač bez UI (história): vyžadujeme len batch + origin
+  const allOk = entries.every(it => safeStr(it.batch) && safeStr(it.origin));
   if (!allOk){
-    showStatus('Niektoré riadky sú neúplné (dátum/kód dávky/pôvod). Doplňte ich pred tlačou.', true);
+    showStatus('Niektoré riadky sú neúplné (chýba kód dávky alebo pôvod). Dátum môže byť prázdny.', true);
     return;
   }
 
@@ -967,7 +1016,6 @@ function mol_printCore(cfg, entries, opts){
   const w = mol_openPrintWindow(markup);
   if (!w) return;
 
-  // krátky delay pomôže, aby sa stihli aplikovať štýly pred otvorením print dialógu
   setTimeout(()=>{ try{ w.print(); }catch(_){} }, 250);
 
   if (options.afterPrint) {
@@ -983,26 +1031,21 @@ function mol_hist_load(){
     return Array.isArray(data) ? data : [];
   }catch(_){ return []; }
 }
-
 function mol_hist_store(list){
   try{ localStorage.setItem(MOL_HISTORY_KEY, JSON.stringify(Array.isArray(list) ? list : [])); }catch(_){ }
 }
-
 function mol_hist_makeId(){
   return 'mol_' + Date.now() + '_' + Math.random().toString(16).slice(2);
 }
-
 function mol_hist_keyOf(item){
   const cfg = item.cfg || {};
   const row = item.row || {};
   return [cfg.type, row.date, row.batch, row.origin, row.ref, cfg.cutText].map(x=> safeStr(x)).join('|');
 }
-
 function mol_hist_upsert(cfg, entries){
   const nowIso = new Date().toISOString();
   const cur = mol_hist_load();
 
-  // map existujúcich položiek podľa kľúča
   const idxByKey = new Map();
   cur.forEach((it, i)=>{ idxByKey.set(mol_hist_keyOf(it), i); });
 
@@ -1032,24 +1075,16 @@ function mol_hist_upsert(cfg, entries){
       cur[i].row = item.row;
     } else {
       cur.unshift(item);
-      // posuň indexy v mape (jednoduché riešenie: mapu už ďalej nepoužijeme)
     }
   });
 
-  // limit histórie
-  const limited = cur.slice(0, 200);
-  mol_hist_store(limited);
+  mol_hist_store(cur.slice(0, 200));
 }
-
 function mol_hist_delete(id){
   const cur = mol_hist_load();
-  const next = cur.filter(it => String(it.id) !== String(id));
-  mol_hist_store(next);
+  mol_hist_store(cur.filter(it => String(it.id) !== String(id)));
 }
-
-function mol_hist_clear(){
-  mol_hist_store([]);
-}
+function mol_hist_clear(){ mol_hist_store([]); }
 
 function mol_hist_typeLabel(type){
   const t = String(type||'').toLowerCase();
@@ -1057,7 +1092,6 @@ function mol_hist_typeLabel(type){
   if (t === 'pork') return 'Ošípané';
   return 'Hovädzie';
 }
-
 function mol_hist_fmtTs(iso){
   const s = safeStr(iso);
   if (!s) return '';
@@ -1114,7 +1148,7 @@ function mol_hist_render(){
                 <td>${escapeHtml(mol_hist_fmtTs(it.ts))}</td>
                 <td style="text-align:right; white-space:nowrap;">
                   <button class="btn btn-sm btn-secondary" data-mol-hload="${escapeHtml(it.id)}">Vložiť</button>
-                  <button class="btn btn-sm btn-secondary" data-mol-hprint="${escapeHtml(it.id)}">Tlačiť</button>
+                  <button class="btn btn-sm btn-secondary" data-mol-hprint="${escapeHtml(it.id)}">Tlačiť (A4)</button>
                   <button class="btn btn-sm" data-mol-hdel="${escapeHtml(it.id)}">×</button>
                 </td>
               </tr>
@@ -1123,10 +1157,11 @@ function mol_hist_render(){
         </tbody>
       </table>
     </div>
-    <div class="muted" style="margin-top:6px">Poznámka: História je uložená v tomto prehliadači (localStorage). Pri vymazaní dát prehliadača sa vymaže.</div>
+    <div class="muted" style="margin-top:6px">
+      Poznámka: História je uložená v tomto prehliadači (localStorage). Dátum je voliteľný.
+    </div>
   `;
 
-  // Handlery
   host.querySelectorAll('[data-mol-hdel]').forEach(btn=>{
     btn.onclick = ()=>{
       const id = btn.getAttribute('data-mol-hdel');
@@ -1135,13 +1170,16 @@ function mol_hist_render(){
     };
   });
 
+  // NOVÉ: "Tlačiť (A4)" vždy vytlačí plnú A4 stranu (namnožené)
   host.querySelectorAll('[data-mol-hprint]').forEach(btn=>{
     btn.onclick = ()=>{
       const id = btn.getAttribute('data-mol-hprint');
       const it = mol_hist_load().find(x=> String(x.id) === String(id));
       if (!it) return;
+
       const cfg = Object.assign({}, it.cfg || {});
-      cfg.rowsPerPage = 1; // pri opakovanej tlači jednej dávky je to praktickejšie
+      cfg.rowsPerPage = Math.max(1, Math.min(12, Math.floor(toNum(cfg.rowsPerPage, 6)) || 6));
+
       const entries = [Object.assign({}, it.row || {})];
       mol_applyBeefVisibility(cfg.type);
       mol_printCore(cfg, entries, { afterPrint: null });
@@ -1154,14 +1192,11 @@ function mol_hist_render(){
       const it = mol_hist_load().find(x=> String(x.id) === String(id));
       if (!it) return;
 
-      // Nastav konfiguráciu podľa histórie
       const cfg = it.cfg || {};
       const row = it.row || {};
 
       const typeSel = $('#mol-type');
-      if (typeSel && cfg.type){
-        typeSel.value = cfg.type;
-      }
+      if (typeSel && cfg.type){ typeSel.value = cfg.type; }
       mol_applyBeefVisibility(cfg.type);
 
       const companyEl = $('#mol-company');
@@ -1193,7 +1228,6 @@ function mol_hist_render(){
       const cutEl = $('#mol-cuttext');
       if (cutEl && mol_isBeef(cfg.type)) cutEl.value = cfg.cutText || mol_defaultCutText();
 
-      // Pridaj riadok
       const tb = $('#mol-items tbody');
       mol_addRow(tb, { date: row.date, batch: row.batch, origin: row.origin, ref: row.ref });
 
@@ -1201,19 +1235,18 @@ function mol_hist_render(){
     };
   });
 
-  // Uprav viditeľnosť beef-only stĺpcov aj po re-rendere histórie
   mol_applyBeefVisibility();
 }
 
 function mol_saveHistory(){
   const { cfg, entries } = mol_collect();
   if (!entries.length){
-    showStatus('Zadajte aspoň 1 riadok (dátum, kód dávky, pôvod).', true);
+    showStatus('Zadajte aspoň 1 riadok (kód dávky, pôvod). Dátum je voliteľný.', true);
     return;
   }
   const ok = mol_validate(entries);
   if (!ok){
-    showStatus('Niektoré riadky sú neúplné (dátum/kód dávky/pôvod). Doplňte ich pred uložením.', true);
+    showStatus('Niektoré riadky sú neúplné (chýba kód dávky alebo pôvod). Dátum môže byť prázdny.', true);
     return;
   }
   mol_hist_upsert(cfg, entries);
@@ -1224,29 +1257,30 @@ function mol_saveHistory(){
 function mol_print(){
   const { cfg, entries } = mol_collect();
   if (!entries.length){
-    showStatus('Zadajte aspoň 1 riadok (dátum, kód dávky, pôvod).', true);
+    showStatus('Zadajte aspoň 1 riadok (kód dávky, pôvod). Dátum je voliteľný.', true);
     return;
   }
   const ok = mol_validate(entries);
   if (!ok){
-    showStatus('Niektoré riadky sú neúplné (dátum/kód dávky/pôvod). Doplňte ich pred tlačou.', true);
+    showStatus('Niektoré riadky sú neúplné (chýba kód dávky alebo pôvod). Dátum môže byť prázdny.', true);
     return;
   }
 
-  // Uloženie do histórie (pre opakovanú tlač)
+  // uložiť do histórie
   mol_hist_upsert(cfg, entries);
   mol_hist_render();
 
+  // Tlač: každá dávka = 1 strana (A4 vyplnená namnoženými štítkami)
   mol_printCore(cfg, entries, {});
 }
 
 function initMeatOriginLabels(){
   if (__mol_inited) return;
   const tb = $('#mol-items tbody');
-  if (!tb) return; // stránka nemá túto sekciu
+  if (!tb) return;
   __mol_inited = true;
 
-  // Defaultne 6 riadkov (ako v pôvodných šablónach)
+  // necháme 6 prázdnych riadkov – používateľ vyplní len potrebné (ostatné sa ignorujú)
   for (let i=0; i<6; i++) mol_addRow(tb);
 
   const typeSel = $('#mol-type');
@@ -1260,10 +1294,8 @@ function initMeatOriginLabels(){
     }
     mol_applyBeefVisibility(t);
   }
-
   applyTypeDefaults();
 
-  // Handlery
   $('#mol-add') && ($('#mol-add').onclick = ()=> mol_addRow(tb));
   $('#mol-preview') && ($('#mol-preview').onclick = mol_preview);
   $('#mol-print') && ($('#mol-print').onclick = mol_print);
@@ -1271,12 +1303,11 @@ function initMeatOriginLabels(){
 
   typeSel && typeSel.addEventListener('change', ()=>{ applyTypeDefaults(); });
 
-  // História
   const hFilter = $('#mol-history-filter');
   hFilter && hFilter.addEventListener('input', ()=> mol_hist_render());
   $('#mol-history-clear') && ($('#mol-history-clear').onclick = ()=>{ if (confirm('Naozaj chcete vyčistiť celú históriu dávok?')){ mol_hist_clear(); mol_hist_render(); } });
 
-  // Priebežný náhľad pri úprave (debounce)
+  // auto preview debounce
   let t = null;
   const schedulePreview = ()=>{ clearTimeout(t); t = setTimeout(()=> mol_preview(), 250); };
   ['mol-type','mol-company','mol-approval','mol-cuttext','mol-date-label','mol-rows-per-page','mol-date-format','mol-font-size'].forEach(id=>{
@@ -1285,7 +1316,6 @@ function initMeatOriginLabels(){
   });
   tb.addEventListener('input', schedulePreview);
 
-  // Prvý render histórie
   mol_hist_render();
 }
 

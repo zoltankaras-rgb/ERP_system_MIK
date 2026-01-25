@@ -4,10 +4,11 @@
 
 const B2C_STATE = {
   minOrderValue: 20.00
-  
 };
+
 // token na obnovu hesla z URL (?reset_token=...)
 let PASSWORD_RESET_TOKEN = '';
+
 // Inicializácia po načítaní DOM
 document.addEventListener('DOMContentLoaded', () => {
   checkSession();
@@ -49,19 +50,18 @@ function refreshCaptcha() {
 // Všeobecné helpers
 // -----------------------------------------------------------------
 
-// Pôvodná funkcia apiRequest spôsobovala cacheovanie. Toto je oprava:
 async function apiRequest(endpoint, options = {}) {
   try {
     const method = (options.method || 'GET').toUpperCase();
     
-    // 1. Anti-cache trik: Pridáme k URL časovú značku, aby si prehliadač myslel, že je to nová adresa
+    // 1. Anti-cache trik
     let url = endpoint;
     if (method === 'GET') {
       const separator = url.includes('?') ? '&' : '?';
       url = `${url}${separator}_t=${Date.now()}`;
     }
 
-    // 2. Nastavíme hlavičky na zákaz cacheovania
+    // 2. Hlavičky
     const headers = { 
       'Content-Type': 'application/json',
       'Cache-Control': 'no-cache, no-store, must-revalidate',
@@ -73,7 +73,6 @@ async function apiRequest(endpoint, options = {}) {
     const response = await fetch(url, {
       method: method,
       headers: headers,
-      // 3. Explicitne povieme fetch API, aby neukladal cache
       cache: 'no-store', 
       body: options.body ? JSON.stringify(options.body) : null
     });
@@ -165,17 +164,14 @@ async function handleLogout(event) {
 }
 
 function initializeEventListeners() {
-  // Auth formuláre
   document.getElementById('registerForm')?.addEventListener('submit', handleRegistration);
   document.getElementById('loginForm')?.addEventListener('submit', handleLogin);
 
-  // Prepínač doručovacej adresy
   document.getElementById('same-address-checkbox')?.addEventListener('change', (e) => {
     document.getElementById('delivery-address-group')?.classList
       .toggle('hidden', e.target.checked);
   });
 
-  // Tab v auth sekcii (login/registrácia)
   const authSection = document.getElementById('auth-section');
   if (authSection) {
     authSection.querySelectorAll('.tab-button').forEach(button => {
@@ -216,7 +212,6 @@ function loadCustomerView() {
     customerTabs.dataset.listenerAttached = 'true';
   }
 
-  // default – otvor „Nová objednávka“
   const defaultTabBtn = document.querySelector('#customer-main-tabs .tab-button[data-tab="order-content"]');
   if (defaultTabBtn && !defaultTabBtn.classList.contains('active')) {
     defaultTabBtn.click();
@@ -232,13 +227,11 @@ async function handleRegistration(event) {
   event.preventDefault();
   const form = event.target;
 
-  // Bezpečné nájdenie prvkov
   const termsEl   = form.querySelector('input[name="gdpr_terms"]');
   const privacyEl = form.querySelector('input[name="gdpr_privacy"]');
   const sameEl    = document.getElementById('same-address-checkbox');
   const tsEl      = form.querySelector('input[name="form_ts"]');
 
-  // Over GDPR (2 povinné checkboxy)
   const termsOk   = !!(termsEl && termsEl.checked);
   const privacyOk = !!(privacyEl && privacyEl.checked);
   if (!termsOk || !privacyOk) {
@@ -246,32 +239,23 @@ async function handleRegistration(event) {
     return;
   }
 
-  // Doplň timestamp, ak chýba
   if (tsEl && !tsEl.value) tsEl.value = String(Date.now());
 
-  // Zober dáta z formulára
   const fd = new FormData(form);
-
-  // Ak je "rovnaká adresa" zaškrtnuté, doplň delivery_address
   if (sameEl && sameEl.checked) {
     fd.set('delivery_address', fd.get('address') || '');
   }
-
-  // Kompatibilita – backend môže očakávať aj binárny flag "gdpr"
   fd.set('gdpr', '1');
 
-  // Prevod na obyč. objekt
   const data = Object.fromEntries(fd.entries());
 
   try {
     const result = await apiRequest('/api/b2c/register', { method: 'POST', body: data });
     alert(result.message || 'OK');
 
-    // Po úspechu reset + prepnúť na login + obnoviť captcha a timestamp
     if ((result.message || '').toLowerCase().includes('úspešne')) {
       form.reset();
       document.querySelector('.tab-button[data-tab="login"]')?.click();
-
       try {
         const d = await fetch('/api/b2c/captcha/new').then(r => r.json());
         const q = document.getElementById('captcha-question');
@@ -280,7 +264,6 @@ async function handleRegistration(event) {
       } catch (_) {}
     }
   } catch (_) {
-    // apiRequest už zobrazil chybu; skúsme len obnoviť captcha/timestamp
     try {
       const d = await fetch('/api/b2c/captcha/new').then(r => r.json());
       const q = document.getElementById('captcha-question');
@@ -300,13 +283,13 @@ async function handleLogin(event) {
 }
 
 // -----------------------------------------------------------------
-// Verejný cenník (pred loginom) – s AKCIOU a Info pri názve
+// Verejný cenník (pred loginom) – NOVÝ KARTOVÝ DIZAJN (GRID)
 // -----------------------------------------------------------------
 async function loadPublicPricelist() {
   const container = document.getElementById('public-pricelist-container');
   if (!container) return;
   
-  container.innerHTML = '<h2>Naša ponuka</h2><p>Načítavam produkty...</p>';
+  container.innerHTML = '<p style="text-align:center; padding:20px;">Načítavam aktuálnu ponuku...</p>';
   
   try {
     const data = await apiRequest('/api/b2c/get-pricelist');
@@ -323,91 +306,35 @@ async function loadPublicPricelist() {
       .filter(c => c !== 'AKCIA TÝŽĎA')
       .sort((a, b) => a.localeCompare(b));
 
-    let html = '<h2>Naša ponuka</h2>';
+    let html = '';
 
-    // --- AKCIA TÝŽĎA – špeciálny červený box ---
+    // --- AKCIA TÝŽĎA (Špeciálna sekcia) ---
     if (akciaItems.length) {
       html += `
-        <section class="akcia-tyzdna-box"
-          style="border:2px solid #dc2626;border-radius:10px;padding:15px;margin-bottom:24px;background:#fef2f2;">
-          <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
-            <span style="background:#dc2626;color:#fff;font-weight:700;padding:4px 12px;border-radius:999px;font-size:0.85rem;letter-spacing:0.08em;">
-              AKCIA!
-            </span>
-            <h3 style="margin:0;font-size:1.1rem;color:#b91c1c;">Akcia týždňa</h3>
-          </div>`;
+        <div class="category-header-wrapper" style="margin-bottom:15px; margin-top:10px;">
+            <h2 style="color:#b91c1c; display:flex; align-items:center; gap:10px;">
+                <i class="fas fa-fire"></i> Akcia týždňa
+            </h2>
+        </div>
+        <div class="product-grid" style="margin-bottom:40px;">`;
 
       akciaItems.forEach(p => {
-        const title = escapeHtml(p.nazov_vyrobku);
-        const price = `${Number(p.cena_s_dph).toFixed(2)} €`;
-        const unit  = p.mj;
-        const desc  = p.popis ? escapeHtml(p.popis) : '';
-        const imgUrl = p.obrazok_url || '';
-
-        html += `
-          <div class="product-item akcia-item" style="padding:10px 0;border-top:1px dashed #fecaca;">
-            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;">
-              <div style="flex:1;">
-                <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
-                  <div style="font-weight:700;font-size:1.05rem;color:#b91c1c;">${title}</div>
-                  <button type="button" class="info-btn" onclick="handleInfoClick(this)"
-                    data-title="${title}"
-                    data-description="${desc}"
-                    data-price="${price}"
-                    data-unit="${unit}"
-                    data-image="${escapeHtml(imgUrl)}"
-                    style="border:1px solid #fca5a5;background:#fee2e2;color:#b91c1c;border-radius:999px;padding:2px 10px;font-size:0.8rem;cursor:pointer;display:flex;align-items:center;gap:6px;">
-                    <i class="fas fa-info-circle"></i> Info
-                  </button>
-                </div>
-                ${desc ? `<div style="font-size:0.9rem;color:#7f1d1d;white-space:pre-wrap;line-height:1.4;">${desc}</div>` : ''}
-              </div>
-              <div style="text-align:right;min-width:110px;">
-                <div style="font-weight:800;color:#b91c1c;font-size:1.15rem;">${price}</div>
-                <div style="font-size:0.8rem;color:#991b1b;">za ${escapeHtml(unit)}</div>
-              </div>
-            </div>
-          </div>`;
+        html += generateProductCardHTML(p, false); // false = not logged in (no inputs)
       });
 
-      html += `</section>`;
+      html += `</div>`;
     }
 
-    // --- Ostatné kategórie (bez akcie) ---
+    // --- Ostatné kategórie ---
     otherCategories.forEach(category => {
-      html += `<div class="product-category"><h3>${escapeHtml(category)}</h3>`;
+      html += `
+        <div class="category-header-wrapper" style="margin-bottom:15px; border-bottom:2px solid #e2e8f0; padding-bottom:5px;">
+            <h3 style="color:#334155;">${escapeHtml(category)}</h3>
+        </div>
+        <div class="product-grid">`;
 
       (productsByCat[category] || []).forEach(p => {
-        const title = escapeHtml(p.nazov_vyrobku);
-        const price = `${Number(p.cena_s_dph).toFixed(2)} €`;
-        const unit  = p.mj;
-        const desc  = p.popis ? escapeHtml(p.popis) : '';
-        const imgUrl = p.obrazok_url || '';
-
-        html += `
-          <div class="product-item" style="padding:12px 0;border-bottom:1px solid #eee;">
-            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;">
-              <div style="flex:1;">
-                <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
-                  <div style="font-weight:600;font-size:1.05rem;color:#333;">${title}</div>
-                  <button type="button" class="info-btn" onclick="handleInfoClick(this)"
-                    data-title="${title}"
-                    data-description="${desc}"
-                    data-price="${price}"
-                    data-unit="${unit}"
-                    data-image="${escapeHtml(imgUrl)}"
-                    style="background:#f1f5f9;border:1px solid #e2e8f0;border-radius:999px;padding:2px 10px;font-size:0.8rem;cursor:pointer;color:#475569;display:flex;align-items:center;gap:6px;">
-                    <i class="fas fa-info-circle"></i> Info
-                  </button>
-                </div>
-                ${desc ? `<div style="font-size:0.9rem;color:#555;white-space:pre-wrap;line-height:1.4;">${desc}</div>` : ''}
-              </div>
-              <div style="text-align:right;min-width:110px;">
-                <div style="font-weight:700;color:#16a34a;font-size:1.1rem;">${price}</div>
-                <div style="font-size:0.8rem;color:#888;">za ${escapeHtml(unit)}</div>
-              </div>
-            </div>
-          </div>`;
+        html += generateProductCardHTML(p, false);
       });
 
       html += `</div>`;
@@ -422,12 +349,12 @@ async function loadPublicPricelist() {
 }
 
 // -----------------------------------------------------------------
-// Objednávka – tvorba & odoslanie (s AKCIOU a kusovým tovarom pekne pod sebou)
+// Objednávka (po logine) – NOVÝ KARTOVÝ DIZAJN (GRID)
 // -----------------------------------------------------------------
 async function loadOrderForm() {
   const container = document.getElementById('order-pricelist-container');
   if (!container) return;
-  container.innerHTML = '<p>Načítavam ponuku...</p>';
+  container.innerHTML = '<p style="text-align:center; padding:20px;">Pripravujem objednávkový formulár...</p>';
 
   try {
     const data = await apiRequest('/api/b2c/get-pricelist');
@@ -442,156 +369,35 @@ async function loadOrderForm() {
       .filter(c => c !== 'AKCIA TÝŽĎA')
       .sort((a, b) => a.localeCompare(b));
 
-    let html = '<h2>Vytvoriť objednávku</h2>';
+    let html = '';
 
-    // --- AKCIA TÝŽĎA blok (oddelený, zvýraznený) ---
+    // --- AKCIA TÝŽĎA ---
     if (akciaItems.length) {
       html += `
-        <section class="akcia-tyzdna-box"
-          style="border:2px solid #dc2626;border-radius:10px;padding:15px;margin-bottom:24px;background:#fef2f2;">
-          <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
-            <span style="background:#dc2626;color:#fff;font-weight:700;padding:4px 12px;border-radius:999px;font-size:0.85rem;letter-spacing:0.08em;">
-              AKCIA!
-            </span>
-            <h3 style="margin:0;font-size:1.1rem;color:#b91c1c;">Akcia týždňa – špeciálne ceny</h3>
-          </div>`;
+        <div class="category-header-wrapper" style="margin-bottom:15px; margin-top:10px;">
+            <h2 style="color:#b91c1c; display:flex; align-items:center; gap:10px;">
+                <i class="fas fa-fire"></i> Akcia týždňa
+            </h2>
+        </div>
+        <div class="product-grid" style="margin-bottom:40px;">`;
 
       akciaItems.forEach(p => {
-        const title = escapeHtml(p.nazov_vyrobku);
-        const price = `${Number(p.cena_s_dph).toFixed(2)} €`;
-        const unit  = p.mj;
-        const desc  = p.popis ? escapeHtml(p.popis) : '';
-        const imgUrl = p.obrazok_url || '';
-        const itemStyle = 'border:1px solid #fecaca;background:#fff7ed;border-radius:8px;';
-
-        const byPieceHtml = p.mj === 'kg'
-          ? `<div class="by-piece-wrap" style="font-size:0.85rem;color:#444;display:flex;align-items:center;gap:6px;">
-               <label style="font-weight:normal;cursor:pointer;">
-                 <input type="checkbox" class="by-piece-checkbox" onchange="toggleItemNote(this, '${p.ean}')">
-                 ks (objednávka na kusy)
-               </label>
-               <button type="button" class="by-piece-button hidden"
-                       onclick="openItemNoteModal('${p.ean}')"
-                       style="padding:2px 6px;font-size:0.8rem;">
-                 <i class="fas fa-pen"></i> Poznámka
-               </button>
-             </div>`
-          : '';
-
-        html += `
-          <div class="product-item akcia-item" data-ean="${p.ean}"
-               style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;padding:12px;margin-bottom:8px;${itemStyle}">
-            <div style="flex:1;">
-              <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
-                <span style="background:#dc2626;color:#fff;font-weight:700;padding:2px 8px;border-radius:999px;font-size:0.75rem;letter-spacing:0.08em;">
-                  AKCIA!
-                </span>
-                <div class="pi-title" style="font-weight:600;font-size:1.05rem;color:#111827;">
-                  <strong>${title}</strong>
-                </div>
-                <button type="button" class="info-btn" onclick="handleInfoClick(this)"
-                  data-title="${title}"
-                  data-description="${desc}"
-                  data-price="${price}"
-                  data-unit="${unit}"
-                  data-image="${escapeHtml(imgUrl)}"
-                  style="border:1px solid #fca5a5;background:#fee2e2;color:#b91c1c;border-radius:999px;padding:2px 10px;font-size:0.8rem;cursor:pointer;display:flex;align-items:center;gap:6px;">
-                  <i class="fas fa-info-circle"></i> Info
-                </button>
-              </div>
-              ${desc ? `<div style="font-size:0.85rem;color:#7f1d1d;margin-bottom:4px;white-space:pre-wrap;">${desc}</div>` : ''}
-              <div class="pi-price" style="font-size:0.9rem;color:#b91c1c;font-weight:700;">
-                ${price} / ${unit}
-              </div>
-            </div>
-
-            <div class="pi-qty"
-                 style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;min-width:210px;">
-              <div style="display:flex;align-items:center;gap:8px;">
-                <label for="qty-${p.ean}" style="white-space:nowrap;">Množstvo:</label>
-                <input id="qty-${p.ean}" type="number" class="quantity-input"
-                       min="0" step="${p.mj === 'ks' ? '1' : '0.1'}"
-                       style="width:70px;text-align:center;font-weight:bold;border:1px solid #cbd5e1;border-radius:4px;padding:4px;"
-                       data-ean="${p.ean}"
-                       data-name="${title}"
-                       data-price-s-dph="${p.cena_s_dph}"
-                       data-price-bez-dph="${p.cena_bez_dph}"
-                       data-unit="${p.mj}">
-                <span style="font-size:0.85rem;color:#555;">${p.mj}</span>
-              </div>
-              ${byPieceHtml}
-            </div>
-          </div>`;
+        html += generateProductCardHTML(p, true); // true = logged in (with inputs)
       });
 
-      html += `</section>`;
+      html += `</div>`;
     }
 
-    // --- Ostatné kategórie (bez akcie) ---
+    // --- Ostatné kategórie ---
     otherCategories.forEach(category => {
-      html += `<div class="product-category"><h3>${escapeHtml(category)}</h3>`;
+      html += `
+        <div class="category-header-wrapper" style="margin-bottom:15px; border-bottom:2px solid #e2e8f0; padding-bottom:5px;">
+            <h3 style="color:#334155;">${escapeHtml(category)}</h3>
+        </div>
+        <div class="product-grid">`;
 
       (productsByCat[category] || []).forEach(p => {
-        const title = escapeHtml(p.nazov_vyrobku);
-        const price = `${Number(p.cena_s_dph).toFixed(2)} €`;
-        const unit  = p.mj;
-        const desc  = p.popis ? escapeHtml(p.popis) : '';
-        const imgUrl = p.obrazok_url || '';
-        const byPieceHtml = p.mj === 'kg'
-          ? `<div class="by-piece-wrap" style="font-size:0.85rem;color:#444;display:flex;align-items:center;gap:6px;">
-               <label style="font-weight:normal;cursor:pointer;">
-                 <input type="checkbox" class="by-piece-checkbox" onchange="toggleItemNote(this, '${p.ean}')">
-                 ks (objednávka na kusy)
-               </label>
-               <button type="button" class="by-piece-button hidden"
-                       onclick="openItemNoteModal('${p.ean}')"
-                       style="padding:2px 6px;font-size:0.8rem;">
-                 <i class="fas fa-pen"></i> Poznámka
-               </button>
-             </div>`
-          : '';
-
-        html += `
-          <div class="product-item" data-ean="${p.ean}"
-               style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;padding:12px;border-bottom:1px solid #eee;">
-            <div style="flex:1;">
-              <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
-                <div class="pi-title" style="font-weight:600;font-size:1.05rem;color:#333;">
-                  <strong>${title}</strong>
-                </div>
-                <button type="button" class="info-btn" onclick="handleInfoClick(this)"
-                  data-title="${title}"
-                  data-description="${desc}"
-                  data-price="${price}"
-                  data-unit="${unit}"
-                  data-image="${escapeHtml(imgUrl)}"
-                  style="background:#f1f5f9;border:1px solid #e2e8f0;border-radius:999px;padding:2px 10px;font-size:0.8rem;cursor:pointer;color:#475569;display:flex;align-items:center;gap:6px;">
-                  <i class="fas fa-info-circle"></i> Info
-                </button>
-              </div>
-              ${desc ? `<div style="font-size:0.85rem;color:#666;margin-bottom:4px;white-space:pre-wrap;">${desc}</div>` : ''}
-              <div class="pi-price" style="font-size:0.9rem;color:#16a34a;font-weight:600;">
-                ${price} / ${unit}
-              </div>
-            </div>
-
-            <div class="pi-qty"
-                 style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;min-width:210px;">
-              <div style="display:flex;align-items:center;gap:8px;">
-                <label for="qty-${p.ean}" style="white-space:nowrap;">Množstvo:</label>
-                <input id="qty-${p.ean}" type="number" class="quantity-input"
-                       min="0" step="${p.mj === 'ks' ? '1' : '0.1'}"
-                       style="width:70px;text-align:center;font-weight:bold;border:1px solid #cbd5e1;border-radius:4px;padding:4px;"
-                       data-ean="${p.ean}"
-                       data-name="${title}"
-                       data-price-s-dph="${p.cena_s_dph}"
-                       data-price-bez-dph="${p.cena_bez_dph}"
-                       data-unit="${p.mj}">
-                <span style="font-size:0.85rem;color:#555;">${p.mj}</span>
-              </div>
-              ${byPieceHtml}
-            </div>
-          </div>`;
+        html += generateProductCardHTML(p, true);
       });
 
       html += `</div>`;
@@ -599,160 +405,21 @@ async function loadOrderForm() {
 
     container.innerHTML = html;
 
-    // Eventy
+    // Eventy pre inputy
     container.querySelectorAll('.quantity-input').forEach(input => {
       input.addEventListener('input', updateOrderTotal);
     });
     
+    // Nastavenie dátumu (zajtra ako min)
     const deliveryDateInput = document.getElementById('deliveryDate');
     if (deliveryDateInput) {
       const tomorrow = new Date();
       tomorrow.setDate(tomorrow.getDate() + 1);
       deliveryDateInput.min = tomorrow.toISOString().split('T')[0];
-      deliveryDateInput.value = deliveryDateInput.min;
+      if(!deliveryDateInput.value) deliveryDateInput.value = deliveryDateInput.min;
     }
-// -----------------------------------------------------------------
-// Obnova hesla – požiadavka na e‑mail s odkazom
-// -----------------------------------------------------------------
-async function submitPasswordResetRequest() {
-  const input = document.getElementById('password-reset-email');
-  const msgEl = document.getElementById('password-reset-message');
-
-  if (!input) return;
-
-  const email = (input.value || '').trim();
-  if (!email) {
-    if (msgEl) {
-      msgEl.style.color = '#b91c1c';
-      msgEl.textContent = 'Prosím, zadajte e‑mail.';
-    }
-    return;
-  }
-
-  if (msgEl) {
-    msgEl.style.color = '#334155';
-    msgEl.textContent = 'Odosielam požiadavku...';
-  }
-
-  try {
-    // Endpoint si môžeš pomenovať podľa seba, len ho zjednoť so serverom
-    const data = await apiRequest('/api/b2c/request_password_reset', {
-      method: 'POST',
-      body: { email }
-    });
-
-    if (msgEl) {
-      msgEl.style.color = '#15803d';
-      msgEl.textContent =
-        data.message ||
-        'Ak u nás existuje účet s týmto e‑mailom, poslali sme vám odkaz na obnovu hesla.';
-    }
-  } catch (err) {
-    if (msgEl) {
-      msgEl.style.color = '#b91c1c';
-      msgEl.textContent =
-        err.message || 'Nepodarilo sa odoslať požiadavku. Skúste to neskôr.';
-    }
-  }
-}
-// -----------------------------------------------------------------
-// Po kliknutí na link v e‑maile (?reset_token=...) otvor modal
-// -----------------------------------------------------------------
-function maybeOpenPasswordChangeModalFromUrl() {
-  try {
-    const params = new URLSearchParams(window.location.search);
-    const token = params.get('reset_token');
-    if (!token) return;
-
-    PASSWORD_RESET_TOKEN = token;
-
-    const msgEl = document.getElementById('password-change-message');
-    if (msgEl) {
-      msgEl.style.color = '#334155';
-      msgEl.textContent = 'Prosím, zvoľte si nové heslo a potvrďte ho.';
-    }
-
-    // použije tvoju existujúcu openModal(modalId)
-    openModal('password-change-modal');
-  } catch (_) {
-    // nič, len ticho skončí
-  }
-}
-// -----------------------------------------------------------------
-// Uloženie nového hesla z modalu "Nastavenie nového hesla"
-// -----------------------------------------------------------------
-async function submitNewPassword() {
-  const pwd1 = document.getElementById('new-password');
-  const pwd2 = document.getElementById('new-password2');
-  const msgEl = document.getElementById('password-change-message');
-
-  if (!pwd1 || !pwd2) return;
-
-  const p1 = (pwd1.value || '').trim();
-  const p2 = (pwd2.value || '').trim();
-
-  if (!p1 || !p2) {
-    if (msgEl) {
-      msgEl.style.color = '#b91c1c';
-      msgEl.textContent = 'Prosím, vyplňte obe polia s heslom.';
-    }
-    return;
-  }
-
-  if (p1.length < 6) {
-    if (msgEl) {
-      msgEl.style.color = '#b91c1c';
-      msgEl.textContent = 'Heslo musí mať aspoň 6 znakov.';
-    }
-    return;
-  }
-
-  if (p1 !== p2) {
-    if (msgEl) {
-      msgEl.style.color = '#b91c1c';
-      msgEl.textContent = 'Heslá sa nezhodujú.';
-    }
-    return;
-  }
-
-  if (!PASSWORD_RESET_TOKEN) {
-    if (msgEl) {
-      msgEl.style.color = '#b91c1c';
-      msgEl.textContent = 'Chýba token na obnovu hesla (link môže byť neplatný).';
-    }
-    return;
-  }
-
-  if (msgEl) {
-    msgEl.style.color = '#334155';
-    msgEl.textContent = 'Ukladám nové heslo...';
-  }
-
-  try {
-    const data = await apiRequest('/api/b2c/reset_password', {
-      method: 'POST',
-      body: {
-        token: PASSWORD_RESET_TOKEN,
-        password: p1
-      }
-    });
-
-    if (msgEl) {
-      msgEl.style.color = '#15803d';
-      msgEl.textContent =
-        data.message || 'Heslo bolo úspešne zmenené. Môžete sa prihlásiť novým heslom.';
-    }
-  } catch (err) {
-    if (msgEl) {
-      msgEl.style.color = '#b91c1c';
-      msgEl.textContent =
-        err.message || 'Nepodarilo sa zmeniť heslo. Odkaz môže byť neplatný alebo expirovaný.';
-    }
-  }
-}
 
     ensureOrderExtras();
-
     const form = document.getElementById('orderForm');
     if (form && !form.dataset.submitHandlerBound) {
       form.addEventListener('submit', handleOrderSubmit);
@@ -768,16 +435,99 @@ async function submitNewPassword() {
   }
 }
 
+// -----------------------------------------------------------------
+//  GENEROVANIE KARTY PRODUKTU (HTML)
+// -----------------------------------------------------------------
+function generateProductCardHTML(p, isLoggedIn) {
+    const title = escapeHtml(p.nazov_vyrobku);
+    const composition = p.popis ? escapeHtml(p.popis) : 'Zloženie a pôvod sú k dispozícii na vyžiadanie.';
+    const priceFormatted = `${Number(p.cena_s_dph).toFixed(2)} €`;
+    const imgUrl = p.obrazok_url || 'https://www.miksro.sk/wp-content/uploads/2025/09/Dizajn-bez-nazvu-1.png';
+    const unit = escapeHtml(p.mj);
+
+    // Sekcia pre inputy (len ak je prihlásený)
+    let controlsHtml = '';
+    if (isLoggedIn) {
+        const byPieceHtml = (p.mj === 'kg') 
+          ? `<div class="piece-checkbox-wrapper" style="margin-top:8px; font-size:0.8rem; display:flex; align-items:center; gap:5px;">
+               <input type="checkbox" class="by-piece-checkbox" id="chk-${p.ean}" onchange="toggleItemNote(this, '${p.ean}')">
+               <label for="chk-${p.ean}" style="cursor:pointer; color:#64748b;">Objednať na kusy</label>
+               <button type="button" class="by-piece-button hidden" onclick="openItemNoteModal('${p.ean}')" 
+                       style="background:none; border:none; color:#16a34a; cursor:pointer;">
+                   <i class="fas fa-pen"></i>
+               </button>
+             </div>`
+          : '';
+
+        controlsHtml = `
+            <div class="card-controls" style="margin-top: auto; padding-top: 15px; border-top: 1px solid #f1f5f9;">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <div style="font-weight:bold; font-size:1.2rem; color:#16a34a;">${priceFormatted} <small style="font-size:0.7rem; color:#64748b;">/ ${unit}</small></div>
+                    <div style="display:flex; align-items:center; gap:5px;">
+                        <input type="number" class="quantity-input" 
+                               min="0" step="${p.mj === 'ks' ? '1' : '0.1'}" 
+                               placeholder="0"
+                               style="width:70px; padding:8px; text-align:center; border:1px solid #cbd5e1; border-radius:6px; font-weight:bold;"
+                               data-ean="${p.ean}"
+                               data-name="${title}"
+                               data-price-s-dph="${p.cena_s_dph}"
+                               data-price-bez-dph="${p.cena_bez_dph}"
+                               data-unit="${p.mj}">
+                        <span style="font-size:0.8rem; color:#64748b;">${unit}</span>
+                    </div>
+                </div>
+                ${byPieceHtml}
+            </div>
+        `;
+    } else {
+        // Ak nie je prihlásený, zobraz len cenu
+        controlsHtml = `
+            <div class="card-controls" style="margin-top: auto; padding-top: 15px; border-top: 1px solid #f1f5f9; display:flex; justify-content:space-between; align-items:center;">
+                 <div style="font-weight:bold; font-size:1.2rem; color:#16a34a;">${priceFormatted}</div>
+                 <div style="font-size:0.85rem; color:#64748b;">za ${unit}</div>
+            </div>
+        `;
+    }
+
+    // Akciový odznak
+    const badgeHtml = p.je_v_akcii 
+        ? `<div style="position:absolute; top:10px; left:10px; background:#dc2626; color:white; font-weight:bold; font-size:0.75rem; padding:4px 10px; border-radius:20px; box-shadow:0 2px 4px rgba(0,0,0,0.2); z-index:2;">AKCIA</div>`
+        : '';
+
+    return `
+      <div class="product-card" data-ean="${p.ean}" style="position:relative; background:white; border:1px solid #e2e8f0; border-radius:12px; padding:15px; display:flex; flex-direction:column; transition:transform 0.2s; box-shadow:0 2px 5px rgba(0,0,0,0.05);">
+        ${badgeHtml}
+        
+        <div class="img-wrapper" style="width:100%; height:180px; overflow:hidden; border-radius:8px; margin-bottom:12px; background:#f8fafc; display:flex; align-items:center; justify-content:center;">
+            <img src="${imgUrl}" alt="${title}" loading="lazy" style="width:100%; height:100%; object-fit:cover;">
+        </div>
+
+        <h3 style="margin:0 0 8px 0; font-size:1.1rem; color:#1e293b; line-height:1.3; min-height:2.6em;">${title}</h3>
+        
+        <div class="product-meta" style="font-size:0.8rem; color:#64748b; line-height:1.4; margin-bottom:10px; flex-grow:1;">
+            ${composition.substring(0, 120)}${composition.length > 120 ? '...' : ''}
+            ${composition.length > 120 ? `<a href="#" onclick="openProductInfo('${title}', '${imgUrl}', '${escapeHtml(p.popis)}'); return false;" style="color:#16a34a; text-decoration:none; font-weight:600;"> Viac</a>` : ''}
+            <div style="margin-top:6px; font-size:0.75rem; color:#94a3b8;">
+                <i class="fas fa-temperature-low"></i> Skladujte pri 0°C až +4°C
+            </div>
+        </div>
+
+        ${controlsHtml}
+      </div>
+    `;
+}
+
+// -----------------------------------------------------------------
+// Výpočet sumy
+// -----------------------------------------------------------------
 function updateOrderTotal() {
   let total_s_dph   = 0;
   let total_bez_dph = 0;
 
-  // pre istotu – ak ešte neexistuje formulár, nerob nič
   const formEl = document.getElementById('orderForm');
   if (!formEl) return;
 
   formEl.querySelectorAll('.quantity-input').forEach(input => {
-    // podporíme aj zápis s čiarkou (1,5 kg)
     const rawQty = String(input.value || '').replace(',', '.');
     const quantity      = parseFloat(rawQty) || 0;
     const price_s_dph   = parseFloat(input.dataset.priceSDph)   || 0;
@@ -798,24 +548,30 @@ function updateOrderTotal() {
       <div style="font-size:.9em; text-align:right; line-height:1.5;">
         Celkom bez DPH: ${total_bez_dph.toFixed(2).replace('.', ',')} €<br>
         DPH: ${total_dph.toFixed(2).replace('.', ',')} €<br>
-        <strong style="font-size:1.2em;">Celkom s DPH (predbežne): ${total_s_dph.toFixed(2).replace('.', ',')} €</strong>
+        <strong style="font-size:1.3em; color:#1e293b;">Suma k úhrade: ${total_s_dph.toFixed(2).replace('.', ',')} €</strong>
+        <div style="font-size:0.75rem; color:#64748b; margin-top:5px; font-style:italic;">
+           Poznámka: Pri váženom tovare je cena orientačná. Presná suma bude určená po prevážení pri expedícii.
+        </div>
       </div>`;
   }
 
   if (minOrderWarningEl && submitBtn) {
+    // Upravené tlačidlo podľa zákona
+    submitBtn.textContent = 'Objednať s povinnosťou platby';
+    
     if (total_s_dph > 0 && total_s_dph < B2C_STATE.minOrderValue) {
-      // je objednané, ale pod limitom
       minOrderWarningEl.classList.remove('hidden');
       submitBtn.disabled = true;
       submitBtn.style.backgroundColor = '#ccc';
+      submitBtn.style.cursor = 'not-allowed';
     } else {
       minOrderWarningEl.classList.add('hidden');
-      submitBtn.disabled = (total_s_dph <= 0); // nič neobjednané = nepustiť
+      submitBtn.disabled = (total_s_dph <= 0); 
       submitBtn.style.backgroundColor = '';
+      submitBtn.style.cursor = 'pointer';
     }
   }
 
-  // 🔴 DÔLEŽITÉ: súhrn zobraz stále – žiadne schovávanie
   const summarySection = document.getElementById('order-summary-section');
   if (summarySection) {
     summarySection.classList.remove('hidden');
@@ -828,7 +584,7 @@ async function handleOrderSubmit(event) {
   const items = Array.from(document.querySelectorAll('#orderForm .quantity-input')).map(input => {
     const quantity = parseFloat(input.value);
     if (quantity > 0) {
-      const byPieceCheckbox = input.closest('.product-item')?.querySelector('.by-piece-checkbox');
+      const byPieceCheckbox = input.closest('.product-card')?.querySelector('.by-piece-checkbox');
       return {
         ean: input.dataset.ean,
         name: input.dataset.name,
@@ -845,7 +601,6 @@ async function handleOrderSubmit(event) {
     return;
   }
 
-  // min. hodnota
   const totalValue = items.reduce((sum, item) => {
     const input = document.querySelector(`.quantity-input[data-ean="${item.ean}"]`);
     return sum + (item.quantity * (parseFloat(input.dataset.priceSDph) || 0));
@@ -860,7 +615,6 @@ async function handleOrderSubmit(event) {
     items: items,
     deliveryDate: document.getElementById('deliveryDate')?.value,
     note: document.getElementById('orderNote')?.value,
-    // DOPLNENÉ: dodacie okno + kód odmeny (hmotný darček)
     delivery_window: document.getElementById('deliveryWindow')?.value || '',
     reward_code: document.getElementById('rewardCode')?.value?.trim() || ''
   };
@@ -872,14 +626,14 @@ async function handleOrderSubmit(event) {
     if ((result.message || '').includes("úspešne")) {
       document.getElementById('orderForm')?.reset();
       updateOrderTotal();
-      checkSession(); // obnov body a stav
+      checkSession(); 
       document.querySelector('.tab-button[data-tab="history-content"]')?.click();
     }
   } catch (_) {}
 }
 
 // -----------------------------------------------------------------
-// História objednávok – robustné zobrazenie položiek
+// História objednávok
 // -----------------------------------------------------------------
 async function loadOrderHistory() {
   const container = document.getElementById('history-container');
@@ -893,7 +647,6 @@ async function loadOrderHistory() {
         const orderDate    = order.datum_objednavky ? new Date(order.datum_objednavky).toLocaleDateString('sk-SK') : '';
         const deliveryDate = order.pozadovany_datum_dodania ? new Date(order.pozadovany_datum_dodania).toLocaleDateString('sk-SK') : '';
 
-        // preferuj už parsované 'items', inak parsuj 'polozky'
         let items = Array.isArray(order.items) ? order.items : [];
         if (!items.length && typeof order.polozky === 'string') {
           try { items = JSON.parse(order.polozky || '[]'); } catch { items = []; }
@@ -990,11 +743,11 @@ async function claimReward(rewardId, pointsNeeded) {
 // Poznámky k položkám „na kusy“
 // -----------------------------------------------------------------
 function toggleItemNote(checkbox, ean) {
-  const itemDiv = checkbox.closest('.product-item');
-  if (!itemDiv) return;
+  const itemCard = checkbox.closest('.product-card');
+  if (!itemCard) return;
 
-  const noteButton = itemDiv.querySelector('.by-piece-button');
-  const quantityInput = itemDiv.querySelector('.quantity-input');
+  const noteButton = itemCard.querySelector('.by-piece-button');
+  const quantityInput = itemCard.querySelector('.quantity-input');
 
   if (noteButton) noteButton.classList.toggle('hidden', !checkbox.checked);
   if (quantityInput) {
@@ -1034,128 +787,8 @@ function openItemNoteModal(ean) {
 }
 
 // -----------------------------------------------------------------
-// Plávajúci náhľad obrázka pre .product-title[data-img]
+// Detailný Info modal (pre tlačidlo "Viac" v karte)
 // -----------------------------------------------------------------
-function attachImageHoverPreviews(root = document) {
-  let preview = document.getElementById('b2c-img-preview');
-  if (!preview) {
-    preview = document.createElement('div');
-    preview.id = 'b2c-img-preview';
-    preview.style.position = 'fixed';
-    preview.style.display = 'none';
-    preview.style.zIndex = '10000';
-    preview.style.background = '#fff';
-    preview.style.border = '1px solid #e5e7eb';
-    preview.style.padding = '4px';
-    preview.style.boxShadow = '0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)';
-    preview.innerHTML = '<img alt="náhľad" style="max-width:320px;max-height:240px;display:block;">';
-    document.body.appendChild(preview);
-  }
-  const imgEl = preview.querySelector('img');
-
-  root.querySelectorAll('.product-title[data-img]').forEach(el => {
-    const url = el.getAttribute('data-img');
-    if (!url) return;
-
-    const show = (e) => {
-      imgEl.src = url;
-      position(e);
-      preview.style.display = 'block';
-    };
-    const hide = () => { preview.style.display = 'none'; };
-
-    const position = (e) => {
-      const offset = 16;
-      let x = (e.clientX || 0) + offset;
-      let y = (e.clientY || 0) + offset;
-      const vw = window.innerWidth, vh = window.innerHeight;
-      const rect = preview.getBoundingClientRect();
-      if (x + rect.width > vw)  x = vw - rect.width - offset;
-      if (y + rect.height > vh) y = vh - rect.height - offset;
-      preview.style.left = x + 'px';
-      preview.style.top  = y + 'px';
-    };
-
-    el.addEventListener('mouseenter', show);
-    el.addEventListener('mousemove', (e) => {
-      if (preview.style.display === 'block') position(e);
-    });
-    el.addEventListener('mouseleave', hide);
-    el.addEventListener('click', show); // klik tiež zobrazí
-  });
-}
-
-// === DOPLNOK: starší Info modal (ak by bol niekde použitý) ===
-function ensureProductInfoModal(){
-  if (document.getElementById('product-info-modal')) return;
-  const wrap = document.createElement('div');
-  wrap.id = 'product-info-modal';
-  wrap.className = 'modal-overlay';
-  wrap.innerHTML = `
-    <div class="modal-content">
-      <div class="modal-header">
-        <h4 id="pi-title"></h4>
-        <button class="modal-close" onclick="closeModal('product-info-modal')">&times;</button>
-      </div>
-      <div id="pi-body"></div>
-    </div>`;
-  document.body.appendChild(wrap);
-}
-
-function openProductInfo(name, img, desc){
-  ensureProductInfoModal();
-  const m = document.getElementById('product-info-modal');
-  const titleEl = m.querySelector('#pi-title');
-  const bodyEl  = m.querySelector('#pi-body');
-
-  if (titleEl) titleEl.textContent = name || 'Info o produkte';
-  const safeDesc = escapeHtml(desc || '');
-  const imgHtml = img
-    ? `<img src="${img}" alt="${escapeHtml(name||'')}" style="max-width:100%;max-height:280px;display:block;margin-bottom:8px;border:1px solid #e5e7eb;border-radius:8px">`
-    : '';
-  if (bodyEl) {
-    bodyEl.innerHTML =
-      `${imgHtml}<div style="white-space:pre-wrap;color:#334155">${safeDesc || '<span class="muted">Bez popisu.</span>'}</div>`;
-  }
-  openModal('product-info-modal');
-}
-
-/** ======= INFO MODAL (detail produktu) a striktné pravidlá odosielania ======= **/
-
-// 1) Garant: objednávka sa pošle len fyzickým klikom na tlačidlo "Odoslať"
-function enforceManualSubmit() {
-  const form = document.getElementById('orderForm');
-  if (!form) return;
-
-  // nech sa guard nastaví len raz
-  if (form.dataset.manualSubmitGuard === '1') return;
-  form.dataset.manualSubmitGuard = '1';
-
-  // Blokuj Enter (okrem textarea)
-  form.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && e.target && e.target.tagName !== 'TEXTAREA') e.preventDefault();
-  });
-
-  // Dovoľ odoslanie iba po pointer kliku na submit
-  let submitViaPointer = false;
-  form.addEventListener('pointerdown', (e) => {
-    const btn = e.target && e.target.closest('button[type="submit"], input[type="submit"]');
-    if (btn) submitViaPointer = true;
-  }, true);
-
-  form.addEventListener('submit', (e) => {
-    if (!submitViaPointer) e.preventDefault();
-    submitViaPointer = false;
-  });
-
-  // Všetky tlačidlá v cenníku nesmú byť submit
-  form.querySelectorAll('#order-pricelist-container button').forEach((b) => {
-    if (!b.getAttribute('type')) b.setAttribute('type', 'button');
-    if (b.type.toLowerCase() === 'submit') b.type = 'button';
-  });
-}
-
-// 2) Detailný INFO modal (používaný cez handleInfoClick)
 function ensureProductInfoModalV2() {
   if (document.getElementById('product-info-modal')) return;
   const wrap = document.createElement('div');
@@ -1173,41 +806,28 @@ function ensureProductInfoModalV2() {
       </div>
       <div class="modal-body" style="padding:20px;">
         <div id="pim-img-container" style="margin-bottom:15px; text-align:center;"></div>
-        <div id="pim-title" style="font-weight:700;font-size:1.05rem;margin-bottom:4px;"></div>
-        <div id="pim-meta" style="font-weight:bold; color:#16a34a; margin-bottom:10px; border-bottom:1px solid #eee; padding-bottom:10px;"></div>
-        <div id="pim-desc" style="white-space:pre-wrap; color:#333; line-height:1.6;"></div>
+        <div id="pim-title" style="font-weight:700;font-size:1.2rem;margin-bottom:8px; color:#1e293b;"></div>
+        <div id="pim-desc" style="white-space:pre-wrap; color:#333; line-height:1.6; font-size:0.95rem;"></div>
       </div>
     </div>`;
   document.body.appendChild(wrap);
 }
 
-// Použi dataset z tlačidla (bez hoverov, bez náhľadov)
-function handleInfoClick(btn) {
+function openProductInfo(title, imgUrl, desc) {
   ensureProductInfoModalV2();
-
-  const data = {
-    title: btn.dataset.title || '',
-    price: btn.dataset.price || '',
-    unit:  btn.dataset.unit  || '',
-    desc:  btn.dataset.description || '',
-    img:   btn.dataset.image || ''
-  };
-
   const m = document.getElementById('product-info-modal');
   if (!m) return;
 
   const titleEl = m.querySelector('#pim-title');
-  const metaEl  = m.querySelector('#pim-meta');
   const descEl  = m.querySelector('#pim-desc');
   const imgCont = m.querySelector('#pim-img-container');
 
-  if (titleEl) titleEl.textContent = data.title;
-  if (metaEl)  metaEl.textContent  = `${data.price} / ${data.unit}`;
-  if (descEl)  descEl.textContent  = data.desc || 'Bez popisu.';
+  if (titleEl) titleEl.textContent = title;
+  if (descEl)  descEl.textContent  = desc || 'Bez popisu.';
 
   if (imgCont) {
-    if (data.img) {
-      imgCont.innerHTML = `<img src="${data.img}" alt="${escapeHtml(data.title)}"
+    if (imgUrl) {
+      imgCont.innerHTML = `<img src="${imgUrl}" alt="${escapeHtml(title)}"
            style="max-width:100%; max-height:300px; border-radius:8px; box-shadow:0 4px 6px rgba(0,0,0,0.1);">`;
       imgCont.style.display = 'block';
     } else {
@@ -1221,7 +841,33 @@ function handleInfoClick(btn) {
 }
 
 // -----------------------------------------------------------------
-// DOPLNOK – bez zásahu do šablóny: dodacie okno + kód odmeny
+// Garant: objednávka sa pošle len fyzickým klikom na tlačidlo "Odoslať"
+// -----------------------------------------------------------------
+function enforceManualSubmit() {
+  const form = document.getElementById('orderForm');
+  if (!form) return;
+
+  if (form.dataset.manualSubmitGuard === '1') return;
+  form.dataset.manualSubmitGuard = '1';
+
+  form.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && e.target && e.target.tagName !== 'TEXTAREA') e.preventDefault();
+  });
+
+  let submitViaPointer = false;
+  form.addEventListener('pointerdown', (e) => {
+    const btn = e.target && e.target.closest('button[type="submit"], input[type="submit"]');
+    if (btn) submitViaPointer = true;
+  }, true);
+
+  form.addEventListener('submit', (e) => {
+    if (!submitViaPointer) e.preventDefault();
+    submitViaPointer = false;
+  });
+}
+
+// -----------------------------------------------------------------
+// DOPLNOK – dodacie okno + kód odmeny
 // -----------------------------------------------------------------
 function ensureOrderExtras() {
   const host = document.getElementById('order-summary-section') ||
@@ -1229,7 +875,6 @@ function ensureOrderExtras() {
                document.body;
   if (!host) return;
 
-  // 1) Časové okno
   if (!document.getElementById('deliveryWindow')) {
     const g = document.createElement('div');
     g.className = 'form-group';
@@ -1240,11 +885,9 @@ function ensureOrderExtras() {
       </select>`;
     const target = document.querySelector('.total-summary') || host.lastChild;
     host.insertBefore(g, target);
-    // načítaj sloty
     loadDeliveryWindows();
   }
 
-  // 2) Kód odmeny (hmotný darček)
   if (!document.getElementById('rewardCode')) {
     const g = document.createElement('div');
     g.className = 'form-group';
@@ -1259,22 +902,19 @@ function ensureOrderExtras() {
 async function loadDeliveryWindows() {
   const sel = document.getElementById('deliveryWindow');
   if (!sel) return;
-
-  // presne dve pracovné okná, Po–Pia, najneskôr do 15:00
   sel.innerHTML = [
     '<option value="">-- vyberte časové okno (nepovinné) --</option>',
     '<option value="workdays_08_12">Po–Pia 08:00–12:00</option>',
     '<option value="workdays_12_15">Po–Pia 12:00–15:00</option>'
   ].join('');
 }
+
 // =====================================================
 // OBNOVA HESLA (globálne funkcie pre onclick v HTML)
 // =====================================================
 (function () {
-  // token z URL (?reset_token=...)
   let PASSWORD_RESET_TOKEN = '';
 
-  // Požiadavka na odoslanie e‑mailu s odkazom na obnovu hesla
   window.submitPasswordResetRequest = async function () {
     const input = document.getElementById('password-reset-email');
     const msgEl = document.getElementById('password-reset-message');
@@ -1315,7 +955,6 @@ async function loadDeliveryWindows() {
     }
   };
 
-  // Skontroluje URL a prípadne otvorí modal na nové heslo
   window.maybeOpenPasswordChangeModalFromUrl = function () {
     try {
       const params = new URLSearchParams(window.location.search);
@@ -1332,11 +971,9 @@ async function loadDeliveryWindows() {
 
       openModal('password-change-modal');
     } catch (_) {
-      // nič
     }
   };
 
-  // Uloženie nového hesla po kliknutí na tlačidlo v modale
   window.submitNewPassword = async function () {
     const pwd1 = document.getElementById('new-password');
     const pwd2 = document.getElementById('new-password2');
@@ -1407,7 +1044,6 @@ async function loadDeliveryWindows() {
     }
   };
 
-  // Po načítaní stránky automaticky skontrolujeme, či nie je v URL reset_token
   document.addEventListener('DOMContentLoaded', function () {
     window.maybeOpenPasswordChangeModalFromUrl();
   });

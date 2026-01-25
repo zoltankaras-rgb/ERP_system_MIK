@@ -189,14 +189,12 @@ h3 {
   box-shadow: 0 2px 8px rgba(185, 28, 28, 0.25);
 }
 
-/* Na väčších obrazovkách nie full-width */
 @media (min-width: 640px) {
   .button {
     width: auto;
   }
 }
 
-/* Ak potrebuješ vyslovene full-width */
 .button.btn-block {
   width: 100% !important;
 }
@@ -217,7 +215,6 @@ h3 {
 }
 
 /* Vernostný blok */
-
 .loyalty-info {
   display: flex;
   justify-content: space-between;
@@ -240,7 +237,6 @@ h3 {
   font-size: 0.95em;
 }
 
-/* LOGIN panel – na väčších šírkach nech nie je “rozpleštený” */
 #login-tab {
   max-width: 520px;
   margin: 0 auto;
@@ -285,202 +281,107 @@ h3 {
   display: block;
 }
 
-/* =========================
-   CENNÍK – PUBLIC & ORDER
-   ========================= */
+/* =========================================================
+   NOVÝ GRID SYSTÉM (Karty Produktov)
+   Toto nahrádza starý riadkový zoznam
+   ========================================================= */
 
-#public-pricelist-container .product-category,
-#order-pricelist-container .product-category {
-  margin: 1.5rem 0 0.75rem;
-  font-weight: 700;
-  font-size: 1.05rem;
+/* Kontajner pre mriežku */
+.product-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 24px;
+  padding: 10px 0 30px 0;
 }
 
-#public-pricelist-container .product-item,
-#order-pricelist-container .product-item {
-  padding: 12px 0;
-  border-bottom: 1px solid var(--secondary-color);
-}
-
-#public-pricelist-container .product-item:first-of-type,
-#order-pricelist-container .product-item:first-of-type {
-  border-top: 1px solid var(--secondary-color);
-}
-
-/* Verejný cenník – jednoduchý blok */
-
-#public-pricelist-container .product-item {
-  display: block;
-}
-
-/* ===== CENNÍK PO PRIHLÁSENÍ – JEDNA POLOŽKA (FIX MNOŽSTVA) ===== */
-
-#order-pricelist-container {
-  max-height: none;
-  overflow: visible;
-}
-
-/* Riadok v cenníku: flex, nie grid */
-
-#order-pricelist-container .product-item {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem 1rem;
-  padding: 12px 0;
-}
-
-/* Názov položky */
-
-#order-pricelist-container .product-item .pi-title {
-  flex: 1 1 200px;
-  min-width: 0;
-  font-weight: 600;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* Cena */
-
-#order-pricelist-container .product-item .pi-price {
-  flex: 0 0 auto;
-  font-weight: 700;
-  text-align: right;
-}
-
-/* Množstvo – tu bol problém */
-
-#order-pricelist-container .product-item .pi-qty {
-  flex: 0 0 150px;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-#order-pricelist-container .product-item .pi-qty input[type="number"] {
-  flex: 1 1 auto;
-  min-width: 0;
-  max-width: 100%;
-  padding: 8px 10px;
-  border: 1px solid var(--border-color);
-  border-radius: 10px;
-}
-
-/* Akcie – tlačidlá (Pridať, Kusy, Info) */
-
-#order-pricelist-container .product-item .pi-actions {
-  flex: 1 1 200px;
-  display: flex;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
-
-/* Sekundárne "pill" tlačidlá – Info / Kusy */
-
-.info-btn,
-.by-piece-button {
-  appearance: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  border-radius: 999px;
+/* Samotná karta produktu */
+.product-card {
   background: #fff;
-  color: var(--text-color);
   border: 1px solid var(--border-color);
-  font-weight: 600;
-  cursor: pointer;
-  line-height: 1;
-  font-size: 0.9rem;
-}
-
-.info-btn i,
-.by-piece-button i {
-  margin-right: 6px;
-}
-
-.info-btn:hover,
-.by-piece-button:hover {
-  border-color: var(--primary-color);
-  box-shadow: 0 0 0 3px rgba(185, 28, 28, 0.10);
-  color: var(--primary-color);
-}
-
-/* Primárne tlačidlo (Pridať) – kompaktné na desktopoch */
-
-@media (min-width: 640px) {
-  #order-pricelist-container .product-item .button {
-    width: auto;
-  }
-}
-
-/* Mini-popover pri Info */
-
-.b2c-popover {
-  position: absolute;
-  z-index: 1001;
-  background: #fff;
-  color: var(--text-color);
-  border: 1px solid var(--border-color);
-  border-radius: 10px;
-  box-shadow: 0 12px 35px rgba(0, 0, 0, 0.18);
-  max-width: 320px;
-  padding: 10px 12px;
-  font-size: 0.95rem;
-}
-
-.b2c-popover h6 {
-  margin: 0 0 6px 0;
-  font-size: 1rem;
-}
-
-.b2c-popover .muted {
-  color: #6b7280;
-  font-size: 0.9em;
-}
-
-/* Skryť šípky number inputu */
-
-#orderForm input[type=number]::-webkit-outer-spin-button,
-#orderForm input[type=number]::-webkit-inner-spin-button {
-  -webkit-appearance: none;
-  margin: 0;
-}
-
-#orderForm input[type=number] {
-  appearance: textfield;
-  -moz-appearance: textfield;
-}
-
-/* =========================
-   AKCIA TÝŽDŇA
-   ========================= */
-
-.akcia-title {
-  display: inline-block;
-  margin: 1.5rem 0 0.75rem;
-  padding: 0.6rem 1rem;
   border-radius: 12px;
-  border: 2px solid #b91c1c;
-  background: #fef2f2;
-  color: #b91c1c;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  font-size: 0.95rem;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.03);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s;
+  position: relative; /* kvôli Akcia badge */
+  height: 100%;
 }
 
-.akcia-title::before {
-  content: "AKCIA!";
-  display: inline-block;
-  margin-right: 0.75rem;
-  padding: 0.15rem 0.7rem;
-  border-radius: 999px;
-  background: #b91c1c;
-  color: #ffffff;
+.product-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 20px rgba(0,0,0,0.08);
+  border-color: var(--primary-color);
+}
+
+/* Obrázok v karte */
+.product-card .img-wrapper {
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 12px;
+  background-color: #f9fafb;
+}
+
+.product-card img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.3s ease;
+}
+
+.product-card:hover img {
+  transform: scale(1.05);
+}
+
+/* Popis produktu v karte */
+.product-meta {
+  font-size: 0.85rem;
+  color: #64748b;
+  line-height: 1.5;
+  margin-bottom: 15px;
+}
+
+/* Spodná časť karty (Cena + Input) */
+.card-controls {
+  margin-top: auto; /* Tlačí obsah na spodok karty */
+  padding-top: 15px;
+  border-top: 1px solid #f1f5f9;
+}
+
+/* Input množstva v karte */
+.quantity-input {
+  width: 70px !important;
+  text-align: center;
+  font-weight: bold;
+  padding: 6px !important;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+}
+
+/* Checkbox "Objednať na kusy" */
+.piece-checkbox-wrapper {
+  margin-top: 8px;
   font-size: 0.8rem;
+  color: #6b7280;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Badge pre Akciu */
+.badge-sale {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  background: #dc2626;
+  color: white;
+  font-weight: bold;
+  font-size: 0.75rem;
+  padding: 4px 10px;
+  border-radius: 20px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+  z-index: 2;
 }
 
 /* =========================
@@ -524,51 +425,6 @@ h3 {
 .history-body ul {
   padding-left: 20px;
   margin-top: 5px;
-}
-
-/* Tabuľky v pomocníkovi */
-
-.table-container table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-.table-container th,
-.table-container td {
-  padding: 8px;
-  border-bottom: 1px solid #e5e7eb;
-  text-align: left;
-}
-
-.table-container thead th {
-  position: sticky;
-  top: 0;
-  background: #f8fafc;
-  z-index: 1;
-}
-
-.muted {
-  color: #6b7280;
-}
-
-.mini-btn {
-  border: 0;
-  background: #e5e7eb;
-  color: #111827;
-  padding: 0.4rem 0.6rem;
-  border-radius: 0.5rem;
-  cursor: pointer;
-  font: 600 12px/1 Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-}
-
-.mini-btn.primary {
-  background: #2563eb;
-  color: #fff;
-}
-
-.mini-btn.danger {
-  background: #ef4444;
-  color: #fff;
 }
 
 /* =========================
@@ -628,38 +484,9 @@ h3 {
   color: #4b5563;
 }
 
-/* Špeciálny modal pre info o produkte */
-
-#product-info-modal .modal-content {
-  max-width: 720px;
-  width: 92vw;
-}
-
-#product-info-modal .meta {
-  color: #6b7280;
-  font-size: 0.95em;
-  margin: 0.25rem 0 1rem;
-}
-
-#product-info-modal .kv {
-  display: grid;
-  grid-template-columns: 140px 1fr;
-  gap: 10px 16px;
-}
-
-#product-info-modal .kv div:nth-child(odd) {
-  color: #6b7280;
-}
-
-#product-info-modal .kv div:nth-child(even) {
-  font-weight: 600;
-}
-
 /* =========================
    RESPONSIVE – TABLET & MOBIL
    ========================= */
-
-/* Tablet a menšie – container cez celú šírku */
 
 @media (max-width: 1024px) {
   .container {
@@ -668,18 +495,10 @@ h3 {
   }
 }
 
-/* MOBILNÉ ZARIADENIA */
-
 @media (max-width: 768px) {
-  html,
-  body {
+  html, body {
     max-width: 100%;
     overflow-x: hidden;
-  }
-
-  body {
-    padding: 0;
-    background-color: var(--white);
   }
 
   .container {
@@ -694,122 +513,22 @@ h3 {
     flex-direction: column;
     align-items: flex-start;
     gap: 0.75rem;
-    text-align: left;
   }
 
-  .logo {
-    max-width: 190px;
-  }
-
-  .header-auth-links {
-    font-size: 0.9rem;
-  }
-
-  .auth-section,
-  #customer-main-tabs,
-  .loyalty-info {
-    padding: 1rem;
-    box-shadow: none;
-    border-radius: 8px;
-  }
-
-  .loyalty-info {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.5rem;
-  }
-
-  .loyalty-info .button {
-    width: 100%;
-    justify-content: center;
-  }
-
-  .tab-nav {
-    flex-direction: column;
-    gap: 0.5rem;
-  }
-
-  .tab-button {
-    width: 100%;
-    text-align: center;
-  }
-
-  /* Najdôležitejší FIX – celý riadok v cenníku ide POD SEBA */
-
-  #order-pricelist-container .product-item {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  #order-pricelist-container .product-item .pi-title {
-    width: 100%;
-    white-space: normal;
-  }
-
-  #order-pricelist-container .product-item .pi-price,
-  #order-pricelist-container .product-item .pi-qty,
-  #order-pricelist-container .product-item .pi-actions {
-    width: 100%;
-  }
-
-  #order-pricelist-container .product-item .pi-qty {
-    justify-content: flex-start;
-  }
-
-  #order-pricelist-container .product-item .pi-qty input[type="number"] {
-    width: 100%;
-  }
-
-  #order-pricelist-container .product-item .pi-actions {
-    justify-content: flex-start;
-  }
-
-  #order-pricelist-container .product-item .pi-actions .button,
-  #order-pricelist-container .product-item .pi-actions .info-btn,
-  #order-pricelist-container .product-item .pi-actions .by-piece-button {
-    flex: 1 1 100%;
-    justify-content: center;
+  /* Grid na mobile – 1 stĺpec */
+  .product-grid {
+    grid-template-columns: 1fr; 
+    gap: 16px;
   }
 
   .modal-content {
     width: 100%;
-    max-width: 100%;
     padding: 1.25rem 1rem;
     max-height: 90vh;
-    border-radius: 0.75rem;
-  }
-
-  .modal-header h4 {
-    font-size: 1rem;
-  }
-
-  .history-item {
-    font-size: 0.95rem;
-  }
-
-  .total-summary {
-    font-size: 1rem;
   }
 }
 
-/* ÚPLNE MALÉ MOBILY */
-
 @media (max-width: 480px) {
-  h2,
-  h3 {
-    font-size: 1.05rem;
-  }
-
-  .welcome-message {
-    font-size: 1rem;
-  }
-
-  .logo {
-    max-width: 160px;
-  }
-
-  .table-container th,
-  .table-container td {
-    font-size: 0.85rem;
-  }
+  h2, h3 { font-size: 1.05rem; }
+  .logo { max-width: 160px; }
 }
