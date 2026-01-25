@@ -12,6 +12,20 @@
 <body>
     <div class="container">
         <header>
+            <div class="sticky-tools" style="position:sticky; top:0; z-index:900; background:#fff; padding:10px 0; border-bottom:1px solid #e2e8f0; box-shadow:0 2px 4px rgba(0,0,0,0.05);">
+    <div class="container" style="margin:0 auto; padding:0 15px; display:flex; flex-direction:column; gap:10px;">
+        
+        <div style="position:relative;">
+            <i class="fas fa-search" style="position:absolute; left:12px; top:50%; transform:translateY(-50%); color:#94a3b8;"></i>
+            <input type="text" id="productSearch" placeholder="Hľadať produkt (napr. klobása, stehno)..." 
+                   onkeyup="filterProducts()"
+                   style="width:100%; padding:10px 10px 10px 35px; border-radius:20px; border:1px solid #cbd5e1; font-size:1rem;">
+        </div>
+
+        <div id="category-nav" style="display:flex; overflow-x:auto; gap:8px; padding-bottom:5px; scrollbar-width:none;">
+            </div>
+    </div>
+</div>
             <img src="https://www.miksro.sk/wp-content/uploads/2025/09/Dizajn-bez-nazvu-1.png" alt="Logo MIK s.r.o." class="logo">
             <div id="header-auth-links" class="header-auth-links"></div>
         </header>

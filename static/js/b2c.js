@@ -49,7 +49,16 @@ function refreshCaptcha() {
 // -----------------------------------------------------------------
 // Všeobecné helpers
 // -----------------------------------------------------------------
-
+// === OPRAVA PRE TLAČIDLO VIAC ===
+function handleReadMoreClick(el) {
+    // Načítame dáta bezpečne z atribútov elementu
+    const title = el.getAttribute('data-title');
+    const img = el.getAttribute('data-img');
+    const desc = el.getAttribute('data-desc');
+    
+    // Zavoláme pôvodnú funkciu na otvorenie modalu
+    openProductInfo(title, img, desc);
+}
 async function apiRequest(endpoint, options = {}) {
   try {
     const method = (options.method || 'GET').toUpperCase();
@@ -518,7 +527,7 @@ function generateProductCardHTML(p, isLoggedIn) {
         
         <div class="product-meta" style="font-size:0.8rem; color:#64748b; line-height:1.4; margin-bottom:10px; flex-grow:1;">
             ${composition.substring(0, 120)}${composition.length > 120 ? '...' : ''}
-            ${composition.length > 120 ? `<a href="#" onclick="openProductInfo('${title}', '${imgUrl}', '${escapeHtml(p.popis)}'); return false;" style="color:#16a34a; text-decoration:none; font-weight:600;"> Viac</a>` : ''}
+            ${composition.length > 120 ? `<a href="#" onclick="handleReadMoreClick(this); return false;" data-title="${escapeHtml(title)}" data-img="${escapeHtml(imgUrl)}" data-desc="${escapeHtml(p.popis)}" style="color:#16a34a; text-decoration:none; font-weight:600;"> Viac</a>` : ''}
             <div style="margin-top:6px; font-size:0.75rem; color:#94a3b8;">
                 <i class="fas fa-temperature-low"></i> Skladujte pri 0°C až +4°C
             </div>
@@ -539,6 +548,7 @@ function updateOrderTotal() {
   const formEl = document.getElementById('orderForm');
   if (!formEl) return;
 
+  // 1. Spočítanie sumy zo všetkých inputov
   formEl.querySelectorAll('.quantity-input').forEach(input => {
     const rawQty = String(input.value || '').replace(',', '.');
     const quantity      = parseFloat(rawQty) || 0;
@@ -551,45 +561,88 @@ function updateOrderTotal() {
 
   const total_dph = total_s_dph - total_bez_dph;
 
+  // 2. Elementy DOM
   const totalPriceEl      = document.getElementById('total-price');
   const minOrderWarningEl = document.getElementById('min-order-warning');
   const submitBtn         = formEl.querySelector('button[type="submit"]');
 
+  // 3. Výpočet pre Progress Bar (Limit)
+  const minOrder = B2C_STATE.minOrderValue;
+  // Percento naplnenia (max 100%)
+  const percentage = Math.min((total_s_dph / minOrder) * 100, 100);
+  // Koľko chýba do limitu
+  const remaining = Math.max(minOrder - total_s_dph, 0);
+  // Farba: Žltá (nedokončené) vs. Zelená (hotovo)
+  const barColor = total_s_dph >= minOrder ? '#16a34a' : '#eab308';
+
+  // 4. Vykreslenie Progress Baru a Sumy
   if (totalPriceEl) {
     totalPriceEl.innerHTML = `
-      <div style="font-size:.9em; text-align:right; line-height:1.5;">
-        Celkom bez DPH: ${total_bez_dph.toFixed(2).replace('.', ',')} €<br>
-        DPH: ${total_dph.toFixed(2).replace('.', ',')} €<br>
-        <strong style="font-size:1.3em; color:#1e293b;">Suma k úhrade: ${total_s_dph.toFixed(2).replace('.', ',')} €</strong>
-        <div style="font-size:0.75rem; color:#64748b; margin-top:5px; font-style:italic;">
-           Poznámka: Pri váženom tovare je cena orientačná. Presná suma bude určená po prevážení pri expedícii.
+      <div style="background:#f8fafc; padding:15px; border-radius:10px; border:1px solid #e2e8f0; margin-bottom:15px;">
+        
+        <div style="margin-bottom:12px;">
+            <div style="display:flex; justify-content:space-between; font-size:0.9rem; margin-bottom:6px; font-weight:600; color:#334155;">
+                <span>Aktuálna hodnota: ${total_s_dph.toFixed(2)} €</span>
+                <span>Cieľ: ${minOrder.toFixed(2)} €</span>
+            </div>
+            
+            <div style="width:100%; background:#e2e8f0; height:12px; border-radius:6px; overflow:hidden; box-shadow:inset 0 1px 2px rgba(0,0,0,0.05);">
+                <div style="width:${percentage}%; background-color:${barColor}; height:100%; transition:width 0.4s ease-out;"></div>
+            </div>
+
+            <div style="text-align:center; font-size:0.9rem; margin-top:8px; font-weight:500;">
+                ${remaining > 0 
+                    ? `<span style="color:#b45309;">Nakúpte ešte za <strong>${remaining.toFixed(2)} €</strong> pre možnosť objednať.</span>`
+                    : `<span style="color:#16a34a;"><i class="fas fa-check-circle"></i> Minimálna hodnota splnená, môžete objednať!</span>`
+                }
+            </div>
+        </div>
+
+        <div style="border-top:1px dashed #cbd5e1; padding-top:10px; font-size:.9em; text-align:right; line-height:1.6;">
+          Celkom bez DPH: ${total_bez_dph.toFixed(2).replace('.', ',')} €<br>
+          DPH: ${total_dph.toFixed(2).replace('.', ',')} €<br>
+          <strong style="font-size:1.4em; color:#1e293b;">Suma k úhrade: ${total_s_dph.toFixed(2).replace('.', ',')} €</strong>
+          <div style="font-size:0.75rem; color:#64748b; margin-top:5px; font-style:italic;">
+             Poznámka: Pri váženom tovare je cena orientačná. Presná suma bude určená po prevážení pri expedícii.
+          </div>
         </div>
       </div>`;
   }
 
-  if (minOrderWarningEl && submitBtn) {
-    // Upravené tlačidlo podľa zákona
+  // 5. Logika tlačidla (Zamknutie / Odomknutie)
+  if (submitBtn) {
     submitBtn.textContent = 'Objednať s povinnosťou platby';
     
-    if (total_s_dph > 0 && total_s_dph < B2C_STATE.minOrderValue) {
-      minOrderWarningEl.classList.remove('hidden');
+    // Starý textový warning skryjeme, lebo progress bar ho nahrádza
+    if (minOrderWarningEl) minOrderWarningEl.classList.add('hidden');
+
+    if (total_s_dph > 0 && total_s_dph < minOrder) {
+      // Máme tovar, ale pod limitom -> Zablokovať
       submitBtn.disabled = true;
       submitBtn.style.backgroundColor = '#ccc';
       submitBtn.style.cursor = 'not-allowed';
     } else {
-      minOrderWarningEl.classList.add('hidden');
-      submitBtn.disabled = (total_s_dph <= 0); 
-      submitBtn.style.backgroundColor = '';
-      submitBtn.style.cursor = 'pointer';
+      // Buď je košík prázdny (0), alebo je nad limitom
+      // Ak je prázdny, tiež nepovolíme odoslať
+      if (total_s_dph <= 0) {
+          submitBtn.disabled = true;
+          submitBtn.style.backgroundColor = '#ccc'; // šedá pre prázdny košík
+          submitBtn.style.cursor = 'not-allowed';
+      } else {
+          // Všetko OK -> Povoliť
+          submitBtn.disabled = false;
+          submitBtn.style.backgroundColor = ''; // reset na pôvodnú (zelenú/červenú z CSS)
+          submitBtn.style.cursor = 'pointer';
+      }
     }
   }
 
+  // Vždy zobraziť sekciu súhrnu
   const summarySection = document.getElementById('order-summary-section');
   if (summarySection) {
     summarySection.classList.remove('hidden');
   }
 }
-
 async function handleOrderSubmit(event) {
   event.preventDefault();
 
@@ -1120,4 +1173,18 @@ function enableAnalytics() {
 
     // 3. Konfigurácia s vaším ID
     gtag('config', GA_MEASUREMENT_ID);
+}// === FILTER PRODUKTOV ===
+function filterProducts() {
+    const input = document.getElementById('productSearch');
+    const filter = input.value.toLowerCase();
+    const cards = document.querySelectorAll('.product-card');
+
+    cards.forEach(card => {
+        const title = card.querySelector('h3')?.textContent || '';
+        if (title.toLowerCase().includes(filter)) {
+            card.style.display = "";
+        } else {
+            card.style.display = "none";
+        }
+    });
 }
