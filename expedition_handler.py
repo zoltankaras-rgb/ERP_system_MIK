@@ -931,129 +931,103 @@ def start_slicing_request(packaged_product_ean, planned_pieces):
 
 def finalize_slicing_transaction(log_id, actual_pieces):
     """
-    Ukončenie krájania.
-    Parametre:
-      log_id: ID dávky (zaznamy_vyroba.id_davky)
-      actual_pieces: Počet kusov (alebo KG ak je to váhový tovar), ktoré expedícia zadala.
+    Ukončí krájanie a pripraví export tak, aby obsahoval:
+    1. MÍNUSOVÝ záznam pre zdroj (blok) v KG.
+    2. PLUSOVÝ záznam pre cieľ (krájané) v KS.
     """
-    if not log_id:
-        return {"error": "Chýba ID úlohy."}
-    
-    # 1. Načítame úlohu
-    task = db_connector.execute_query(
-        "SELECT * FROM zaznamy_vyroba WHERE id_davky = %s",
-        (log_id,), fetch='one'
-    )
-    
-    if not task:
-        return {"error": f"Úloha {log_id} neexistuje."}
-    
-    # Ak už je hotová, skončíme
-    if task.get('stav') in ['Ukončené', 'Prijaté, čaká na tlač']:
-        return {"message": "Úloha už bola ukončená."}
+    import uuid
+    from datetime import datetime
 
-    # 2. Parsovanie detailov
+    if not log_id or actual_pieces is None:
+        return {"error": "Chýbajú údaje."}
+
     try:
-        details = json.loads(task.get('detaily_zmeny') or '{}')
+        pieces = float(str(actual_pieces).replace(',', '.'))
     except:
-        details = {}
+        return {"error": "Neplatný počet kusov."}
 
-    target_ean = details.get('cielovyEan')
-    source_ean = details.get('zdrojovyEan')
-    
-    # Ak chýba zdrojový EAN v JSONe, skúsime ho nájsť cez produkt v DB
-    if not source_ean:
-        # Skúsime zistiť podľa názvu suroviny v zázname
-        zv_col = _zv_name_col()
-        src_row = db_connector.execute_query(
-            f"SELECT ean FROM produkty WHERE nazov_vyrobku = %s",
-            (task.get(zv_col),), fetch='one'
-        )
-        if src_row:
-            source_ean = src_row['ean']
+    conn = db_connector.get_connection()
+    try:
+        cur = conn.cursor(dictionary=True)
 
-    # 3. Získanie info o cieľovom produkte (kvôli váhe balenia)
-    target_weight_g = 0.0
-    target_mj = 'kg'
-    
-    if target_ean:
-        t_prod = db_connector.execute_query(
-            "SELECT vaha_balenia_g, mj FROM produkty WHERE ean = %s",
-            (target_ean,), fetch='one'
-        )
-        if t_prod:
-            target_weight_g = float(t_prod.get('vaha_balenia_g') or 0)
-            target_mj = t_prod.get('mj') or 'kg'
+        # 1. Načítanie údajov
+        cur.execute("SELECT * FROM slicing_log WHERE id=%s", (log_id,))
+        job = cur.fetchone()
+        if not job or job['status'] == 'Dokončené':
+            return {"error": "Úloha neexistuje alebo už je hotová."}
 
-    # 4. Výpočet reálnej váhy (KG)
-    # Expedícia zadáva číslo. Ak je cieľ na KUSY, je to počet kusov. Ak na KG, sú to KG.
-    real_kg = 0.0
-    real_ks = 0
-    
-    input_val = float(str(actual_pieces).replace(',', '.'))
+        # Načítanie produktov (Zdroj aj Cieľ)
+        cur.execute("SELECT ean, nazov_vyrobku, vaha_balenia_g, nakupna_cena FROM produkty WHERE ean=%s", (job['target_ean'],))
+        target_prod = cur.fetchone()
+        
+        cur.execute("SELECT ean, nazov_vyrobku, nakupna_cena FROM produkty WHERE ean=%s", (job['source_ean'],))
+        source_prod = cur.fetchone()
 
-    if target_mj == 'ks' or (target_weight_g > 0 and input_val > 5): 
-        # Predpokladáme, že ak je hodnota > 5 a existuje váha balenia, sú to kusy (heuristika, ak MJ nie je jasná)
-        # Alebo ak MJ je explicitne 'ks'
-        real_ks = int(input_val)
-        if target_weight_g > 0:
-            real_kg = (real_ks * target_weight_g) / 1000.0
-        else:
-            # Ak nemáme váhu balenia, nevieme vypočítať kg -> chyba konfigurácie, ale nesmieme padnúť
-            real_kg = 0 
-    else:
-        # Je to váhový tovar
-        real_kg = input_val
-        real_ks = 0
+        if not target_prod or not source_prod:
+            return {"error": "Produkty sa nenašli."}
 
-    # 5. Úprava skladových zásob (Sklad 2 - Hotové výrobky)
-    # a) Pripíšeme hotový výrobok
-    if target_ean and real_kg > 0:
-        db_connector.execute_query(
-            "UPDATE produkty SET aktualny_sklad_finalny_kg = aktualny_sklad_finalny_kg + %s WHERE ean = %s",
-            (real_kg, target_ean), fetch='none'
-        )
+        # 2. Výpočet váhy (koľko kg váži tých X kusov)
+        weight_g = float(target_prod['vaha_balenia_g'] or 0)
+        if weight_g <= 0: return {"error": f"Cieľový produkt {target_prod['nazov_vyrobku']} nemá váhu balenia."}
 
-    # b) Korekcia suroviny (Zdroj)
-    # Pri vytvorení úlohy sme odpísali "Plánované množstvo". Teraz musíme spraviť rozdiel.
-    planned_kg = float(task.get('planovane_mnozstvo_kg') or 0.0)
-    diff_kg = real_kg - planned_kg # Ak sme vyrobili viac, treba odpísať viac. Ak menej, vrátiť na sklad.
+        total_weight_kg = (pieces * weight_g) / 1000.0
+        
+        # Ceny
+        target_price = float(target_prod['nakupna_cena'] or 0)
+        source_price = float(source_prod['nakupna_cena'] or 0)
+        
+        # Dopočet ceny cieľa, ak chýba
+        if target_price <= 0 and source_price > 0:
+             target_price = source_price * (weight_g / 1000.0)
 
-    if source_ean and abs(diff_kg) > 0.001:
-        # POZOR: Logika je opačná. 
-        # Ak diff > 0 (minuli sme viac), musíme odpísať zo skladu (-).
-        # Ak diff < 0 (minuli sme menej), musíme vrátiť na sklad (+).
-        # UPDATE: `aktualny_sklad` = `aktualny_sklad` - `diff_kg`
-        db_connector.execute_query(
-            "UPDATE produkty SET aktualny_sklad_finalny_kg = aktualny_sklad_finalny_kg - %s WHERE ean = %s",
-            (diff_kg, source_ean), fetch='none'
-        )
+        # 3. AKTUALIZÁCIA SKLADU (Interný stav - všetko v KG)
+        cur.execute("UPDATE produkty SET aktualny_sklad_finalny_kg = aktualny_sklad_finalny_kg - %s WHERE ean = %s", (total_weight_kg, job['source_ean']))
+        cur.execute("UPDATE produkty SET aktualny_sklad_finalny_kg = aktualny_sklad_finalny_kg + %s WHERE ean = %s", (total_weight_kg, job['target_ean']))
 
-    # 6. Výpočet ceny (ak existuje)
-    total_cost = 0.0
-    # ... (tu môže ostať pôvodná logika výpočtu ceny, ak ju máte, alebo zjednodušene:)
-    source_price = 0.0
-    if source_ean:
-         price_row = db_connector.execute_query("SELECT nakupna_cena FROM sklad WHERE ean=%s LIMIT 1", (source_ean,), fetch='one')
-         if price_row: source_price = float(price_row.get('nakupna_cena') or 0)
-    total_cost = real_kg * source_price
+        # 4. UPDATE ÚLOHY
+        cur.execute("UPDATE slicing_log SET status='Dokončené', real_quantity=%s, real_weight_kg=%s, finished_at=NOW() WHERE id=%s", (pieces, total_weight_kg, log_id))
 
-    # 7. Aktualizácia stavu úlohy
-    db_connector.execute_query(
-        """
-        UPDATE zaznamy_vyroba 
-        SET stav = 'Prijaté, čaká na tlač', 
-            realne_mnozstvo_kg = %s, 
-            realne_mnozstvo_ks = %s, 
-            datum_ukoncenia = NOW(),
-            celkova_cena_surovin = %s
-        WHERE id_davky = %s
-        """,
-        (real_kg, real_ks, total_cost, log_id),
-        fetch='none'
-    )
+        # ==============================================================================
+        # 5. PRÍPRAVA PRE EXPORT (VYROBKY.CSV)
+        # ==============================================================================
+        
+        batch_id_base = f"SLICE-{datetime.now().strftime('%y%m%d')}-{log_id}"
 
-    return {"message": f"Hotovo. Vyrobených {real_ks} ks / {real_kg:.2f} kg."}
+        # --- A) ZÁZNAM PRE CIEĽ (Krájané) -> PLUSOVÝ v KUSOCH ---
+        cur.execute("""
+            INSERT INTO zaznamy_vyroba 
+            (id_davky, nazov_vyrobku, datum_vyroby, datum_ukoncenia, planovane_mnozstvo_kg, realne_mnozstvo_kg, planovane_ks, realne_mnozstvo_ks, stav, cena_za_jednotku)
+            VALUES (%s, %s, NOW(), NOW(), %s, %s, %s, %s, 'Dokončené', %s)
+        """, (batch_id_base + "-IN", target_prod['nazov_vyrobku'], total_weight_kg, total_weight_kg, pieces, pieces, target_price))
+
+        # Zapisujeme 'ks' a počet kusov (pieces)
+        cur.execute("""
+            INSERT INTO expedicia_prijmy (id_davky, datum_prijmu, prijem_kg, prijem_ks, unit, created_at)
+            VALUES (%s, CURDATE(), %s, %s, 'ks', NOW())
+        """, (batch_id_base + "-IN", total_weight_kg, pieces))
+
+
+        # --- B) ZÁZNAM PRE ZDROJ (Blok) -> MÍNUSOVÝ v KG ---
+        cur.execute("""
+            INSERT INTO zaznamy_vyroba 
+            (id_davky, nazov_vyrobku, datum_vyroby, datum_ukoncenia, planovane_mnozstvo_kg, realne_mnozstvo_kg, stav, cena_za_jednotku)
+            VALUES (%s, %s, NOW(), NOW(), %s, %s, 'Dokončené', %s)
+        """, (batch_id_base + "-OUT", source_prod['nazov_vyrobku'], total_weight_kg, total_weight_kg, source_price))
+
+        # Zapisujeme 'kg' a MÍNUSOVÚ váhu (-total_weight_kg)
+        cur.execute("""
+            INSERT INTO expedicia_prijmy (id_davky, datum_prijmu, prijem_kg, prijem_ks, unit, created_at)
+            VALUES (%s, CURDATE(), %s, 0, 'kg', NOW())
+        """, (batch_id_base + "-OUT", -total_weight_kg))
+
+        conn.commit()
+        return {"message": f"Hotovo. Export: +{pieces} ks {target_prod['nazov_vyrobku']} / -{total_weight_kg:.3f} kg {source_prod['nazov_vyrobku']}."}
+
+    except Exception as e:
+        if conn: conn.rollback()
+        return {"error": str(e)}
+    finally:
+        if conn and conn.is_connected(): conn.close()
 # ─────────────────────────────────────────────────────────────
 # Manuálny príjem / škoda (Sklad 2)
 # ─────────────────────────────────────────────────────────────
