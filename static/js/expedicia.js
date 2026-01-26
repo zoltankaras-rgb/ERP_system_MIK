@@ -311,32 +311,33 @@ async function submitManualReceive() {
 // =================================================================
 // === MANUÁLNA POŽIADAVKA NA KRÁJANIE (Rozšírená o Zákazníka a Dátum) ===
 // =================================================================
+// V súbore: static/js/expedicia.js
 
 async function loadAndShowSlicingRequest() {
   showExpeditionView('view-expedition-slicing-request');
 
-  // 1. Tlačidlo Späť (ak tam nie je)
   const container = document.querySelector('#view-expedition-slicing-request .section');
-  if (!document.getElementById('slicing-back-btn')) {
-      const back = document.createElement('button');
-      back.id = 'slicing-back-btn'; 
-      back.className = 'btn-secondary'; 
-      back.style.marginTop = '20px';
-      back.innerHTML = '<i class="fas fa-arrow-left"></i> Späť do menu';
-      back.onclick = () => { isSlicingTransitioning = false; showExpeditionView('view-expedition-menu'); };
-      
-      // Vložíme ho na začiatok alebo koniec, podľa preferencie (tu na začiatok kontajnera)
-      container.insertBefore(back, container.firstChild);
-  }
-
-  // 2. Vykreslenie formulára (Rozšírené polia)
-  const formContainer = document.getElementById('slicing-form-container') || document.createElement('div');
-  formContainer.id = 'slicing-form-container';
   
-  // Ak kontajner ešte neexistoval, pridáme ho
-  if (!container.querySelector('#slicing-form-container')) {
-      container.appendChild(formContainer);
-  }
+  // 1. Vyčistíme celý obsah kontajnera (odstránime staré zbytočné polia)
+  container.innerHTML = '';
+
+  // 2. Pridáme nadpis
+  const header = document.createElement('h4');
+  header.innerHTML = '<i class="fas fa-cut"></i> Nová požiadavka na krájanie';
+  container.appendChild(header);
+
+  // 3. Tlačidlo Späť
+  const back = document.createElement('button');
+  back.className = 'btn-secondary';
+  back.style.marginBottom = '20px';
+  back.innerHTML = '<i class="fas fa-arrow-left"></i> Späť do menu';
+  back.onclick = () => { isSlicingTransitioning = false; showExpeditionView('view-expedition-menu'); };
+  container.appendChild(back);
+
+  // 4. Kontajner pre formulár
+  const formContainer = document.createElement('div');
+  formContainer.id = 'slicing-form-container';
+  container.appendChild(formContainer);
 
   try {
     const products = await apiRequest('/api/expedicia/getSlicableProducts');
@@ -347,41 +348,40 @@ async function loadAndShowSlicingRequest() {
     const options = products.map(p => `<option value="${p.ean}">${escapeHtml(p.name)}</option>`).join('');
     const today = new Date().toISOString().slice(0,10);
 
+    // Vykreslíme LEN to, čo potrebujete
     formContainer.innerHTML = `
-      <div class="form-group" style="margin-bottom:15px;">
-          <label style="display:block; font-weight:600; margin-bottom:5px;">Produkt (Krájaný)</label>
-          <select id="slicing-product-select" class="form-control" style="width:100%; padding:10px; font-size:1rem;">
-              <option value="">-- Vyberte produkt --</option>
-              ${options}
-          </select>
-      </div>
+      <div class="stat-card" style="max-width: 600px; background-color: #f8fafc; border: 1px solid #e2e8f0;">
+          
+          <div class="form-group" style="margin-bottom:15px;">
+              <label style="display:block; font-weight:700; margin-bottom:5px; color:#334155;">Produkt (Krájaný)</label>
+              <select id="slicing-product-select" class="form-control" style="width:100%; padding:12px; font-size:1.1rem; border:1px solid #cbd5e1; border-radius:6px;">
+                  <option value="">-- Vyberte produkt --</option>
+                  ${options}
+              </select>
+          </div>
 
-      <div class="form-group" style="margin-bottom:15px;">
-          <label style="display:block; font-weight:600; margin-bottom:5px;">Počet kusov</label>
-          <input type="number" id="slicing-planned-pieces" class="form-control" placeholder="napr. 50" style="width:100%; padding:10px; font-size:1rem;">
-      </div>
+          <div class="form-group" style="margin-bottom:15px;">
+              <label style="display:block; font-weight:700; margin-bottom:5px; color:#334155;">Počet kusov</label>
+              <input type="number" id="slicing-planned-pieces" class="form-control" placeholder="napr. 50" style="width:100%; padding:12px; font-size:1.1rem; border:1px solid #cbd5e1; border-radius:6px;">
+          </div>
 
-      <div class="form-group" style="margin-bottom:15px;">
-          <label style="display:block; font-weight:600; margin-bottom:5px;">Zákazník / Odberateľ (Voliteľné)</label>
-          <input type="text" id="slicing-customer-name" class="form-control" placeholder="Zadajte meno zákazníka..." style="width:100%; padding:10px; font-size:1rem;">
-          <small class="text-muted">Vyplňte, ak sa krája pre konkrétneho zákazníka.</small>
-      </div>
+          <div class="form-group" style="margin-bottom:15px;">
+              <label style="display:block; font-weight:600; margin-bottom:5px; color:#475569;">Zákazník / Odberateľ (Voliteľné)</label>
+              <input type="text" id="slicing-customer-name" class="form-control" placeholder="Meno zákazníka..." style="width:100%; padding:10px; font-size:1rem; border:1px solid #cbd5e1; border-radius:6px;">
+          </div>
 
-      <div class="form-group" style="margin-bottom:20px;">
-          <label style="display:block; font-weight:600; margin-bottom:5px;">Termín (Voliteľné)</label>
-          <input type="date" id="slicing-due-date" class="form-control" value="${today}" style="width:100%; padding:10px; font-size:1rem;">
-      </div>
+          <div class="form-group" style="margin-bottom:25px;">
+              <label style="display:block; font-weight:600; margin-bottom:5px; color:#475569;">Termín (Voliteľné)</label>
+              <input type="date" id="slicing-due-date" class="form-control" value="${today}" style="width:100%; padding:10px; font-size:1rem; border:1px solid #cbd5e1; border-radius:6px;">
+          </div>
 
-      <div style="text-align:right;">
-          <button class="btn-info" onclick="submitSlicingRequest()" style="padding:12px 24px; font-size:1.1rem;">
-              <i class="fas fa-plus-circle"></i> Vytvoriť Požiadavku
-          </button>
+          <div style="text-align:right;">
+              <button class="btn-info" onclick="submitSlicingRequest()" style="padding:14px 28px; font-size:1.1rem; font-weight:bold; width:100%; background-color:#0ea5e9; border:none; color:white; border-radius:6px; cursor:pointer;">
+                  <i class="fas fa-play"></i> Spustiť krájanie
+              </button>
+          </div>
       </div>
     `;
-    
-    // Skryjeme staré tlačidlo, ak tam ostalo z pôvodného HTML (aby neboli dve)
-    const oldBtn = document.querySelector('#view-expedition-slicing-request .btn-info:not(#slicing-form-container button)');
-    if (oldBtn) oldBtn.style.display = 'none';
 
     isSubmitting = false;
 
