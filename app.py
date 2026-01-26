@@ -1012,6 +1012,8 @@ def exp_get_letter():
     return make_response(render_template('report_template.html', **tpl))
 
 # Krájanie
+
+
 @app.route('/api/expedicia/getSlicableProducts')
 @login_required(role='expedicia')
 def exp_get_slicable():
@@ -2999,6 +3001,18 @@ def delete_recipe():
 @login_required(role='kancelaria')
 def get_slicing_data():
     return handle_request(office_handler.get_slicing_management_data)
+
+@app.route('/api/kancelaria/getSlicingPairs')
+@login_required(role='kancelaria')
+def kanc_get_slicing_pairs():
+    # Volá novú funkciu, ktorú sme pridali do office_handler.py
+    return handle_request(office_handler.get_slicing_pairs)
+
+@app.route('/api/kancelaria/deleteSlicingPair', methods=['POST'])
+@login_required(role='kancelaria')
+def kanc_delete_slicing_pair():
+    # Volá novú funkciu, ktorú sme pridali do office_handler.py
+    return handle_request(office_handler.delete_slicing_pair, request.json)
 
 @app.route('/api/kancelaria/linkSlicedProduct', methods=['POST'])
 @login_required(role='kancelaria')

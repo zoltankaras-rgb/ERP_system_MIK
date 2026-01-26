@@ -2307,7 +2307,41 @@ def create_and_link_sliced_product(data):
     """, (new_ean, new_name, float(new_weight), source_ean, dph_rate, sale_cat), fetch='none')
     return {"message": f"Produkt '{new_name}' vytvorený a prepojený."}
 
+def get_slicing_pairs():
+    """
+    Vráti zoznam existujúcich väzieb pre tabuľku: Blok (zdroj) -> Krájaný (cieľ).
+    """
+    sql = """
+        SELECT
+            t.ean AS id,               -- ako ID riadku použijeme EAN cieľového produktu
+            s.ean AS source_ean,
+            s.nazov_vyrobku AS source_name,
+            t.ean AS target_ean,
+            t.nazov_vyrobku AS target_name,
+            100 AS yield               -- zatiaľ fixne 100%, kým nemáme stĺpec výťažnosť
+        FROM produkty t
+        JOIN produkty s ON s.ean = t.zdrojovy_ean
+        WHERE t.zdrojovy_ean IS NOT NULL AND t.zdrojovy_ean <> ''
+        ORDER BY t.nazov_vyrobku
+    """
+    return db_connector.execute_query(sql) or []
 
+def delete_slicing_pair(data):
+    """
+    Zruší väzbu krájania (nastaví zdrojovy_ean na NULL).
+    """
+    target_ean = data.get('id') # JS posiela EAN krájaného produktu ako 'id'
+    if not target_ean:
+        return {"error": "Chýba ID (EAN) produktu."}
+
+    # Odpojíme väzbu a vrátime typ na bežný výrobok
+    db_connector.execute_query("""
+        UPDATE produkty
+        SET zdrojovy_ean = NULL, typ_polozky = 'VÝROBOK'
+        WHERE ean = %s
+    """, (target_ean,), fetch='none')
+
+    return {"message": "Väzba bola zrušená."}
 # =================================================================
 # === MINIMÁLNE ZÁSOBY (KATALÓG) ===================================
 # =================================================================
