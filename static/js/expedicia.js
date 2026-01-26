@@ -308,49 +308,138 @@ async function submitManualReceive() {
   }
 }
 
+// =================================================================
+// === MANUÁLNA POŽIADAVKA NA KRÁJANIE (Rozšírená o Zákazníka a Dátum) ===
+// =================================================================
+
 async function loadAndShowSlicingRequest() {
   showExpeditionView('view-expedition-slicing-request');
 
-  // Pridanie tlačidla Späť HNEĎ
+  // 1. Tlačidlo Späť (ak tam nie je)
   const container = document.querySelector('#view-expedition-slicing-request .section');
   if (!document.getElementById('slicing-back-btn')) {
       const back = document.createElement('button');
-      back.id = 'slicing-back-btn'; back.className = 'btn-secondary'; back.style.marginTop = '20px';
+      back.id = 'slicing-back-btn'; 
+      back.className = 'btn-secondary'; 
+      back.style.marginTop = '20px';
       back.innerHTML = '<i class="fas fa-arrow-left"></i> Späť do menu';
       back.onclick = () => { isSlicingTransitioning = false; showExpeditionView('view-expedition-menu'); };
-      container.appendChild(back);
+      
+      // Vložíme ho na začiatok alebo koniec, podľa preferencie (tu na začiatok kontajnera)
+      container.insertBefore(back, container.firstChild);
+  }
+
+  // 2. Vykreslenie formulára (Rozšírené polia)
+  const formContainer = document.getElementById('slicing-form-container') || document.createElement('div');
+  formContainer.id = 'slicing-form-container';
+  
+  // Ak kontajner ešte neexistoval, pridáme ho
+  if (!container.querySelector('#slicing-form-container')) {
+      container.appendChild(formContainer);
   }
 
   try {
     const products = await apiRequest('/api/expedicia/getSlicableProducts');
-    const sel = document.getElementById('slicing-product-select');
-    sel.innerHTML = '<option value="">Vyberte finálny balíček...</option>';
-    products.forEach(p => { const o = document.createElement('option'); o.value = p.ean; o.textContent = p.name; sel.add(o); });
     
+    // Zoradíme abecedne
+    products.sort((a,b) => (a.name||'').localeCompare(b.name||''));
+
+    const options = products.map(p => `<option value="${p.ean}">${escapeHtml(p.name)}</option>`).join('');
+    const today = new Date().toISOString().slice(0,10);
+
+    formContainer.innerHTML = `
+      <div class="form-group" style="margin-bottom:15px;">
+          <label style="display:block; font-weight:600; margin-bottom:5px;">Produkt (Krájaný)</label>
+          <select id="slicing-product-select" class="form-control" style="width:100%; padding:10px; font-size:1rem;">
+              <option value="">-- Vyberte produkt --</option>
+              ${options}
+          </select>
+      </div>
+
+      <div class="form-group" style="margin-bottom:15px;">
+          <label style="display:block; font-weight:600; margin-bottom:5px;">Počet kusov</label>
+          <input type="number" id="slicing-planned-pieces" class="form-control" placeholder="napr. 50" style="width:100%; padding:10px; font-size:1rem;">
+      </div>
+
+      <div class="form-group" style="margin-bottom:15px;">
+          <label style="display:block; font-weight:600; margin-bottom:5px;">Zákazník / Odberateľ (Voliteľné)</label>
+          <input type="text" id="slicing-customer-name" class="form-control" placeholder="Zadajte meno zákazníka..." style="width:100%; padding:10px; font-size:1rem;">
+          <small class="text-muted">Vyplňte, ak sa krája pre konkrétneho zákazníka.</small>
+      </div>
+
+      <div class="form-group" style="margin-bottom:20px;">
+          <label style="display:block; font-weight:600; margin-bottom:5px;">Termín (Voliteľné)</label>
+          <input type="date" id="slicing-due-date" class="form-control" value="${today}" style="width:100%; padding:10px; font-size:1rem;">
+      </div>
+
+      <div style="text-align:right;">
+          <button class="btn-info" onclick="submitSlicingRequest()" style="padding:12px 24px; font-size:1.1rem;">
+              <i class="fas fa-plus-circle"></i> Vytvoriť Požiadavku
+          </button>
+      </div>
+    `;
+    
+    // Skryjeme staré tlačidlo, ak tam ostalo z pôvodného HTML (aby neboli dve)
+    const oldBtn = document.querySelector('#view-expedition-slicing-request .btn-info:not(#slicing-form-container button)');
+    if (oldBtn) oldBtn.style.display = 'none';
+
     isSubmitting = false;
-    const btn = document.querySelector('#view-expedition-slicing-request .btn-info');
-    if(btn) { btn.disabled = false; btn.innerHTML = "Vytvoriť Požiadavku"; }
-  } catch(e) {}
+
+  } catch(e) {
+      formContainer.innerHTML = `<p class="error">Chyba pri načítaní produktov: ${escapeHtml(e.message)}</p>`;
+  }
 }
 
 async function submitSlicingRequest() {
   if (isSubmitting) return; 
+  
   const ean = document.getElementById('slicing-product-select').value;
   const pcs = document.getElementById('slicing-planned-pieces').value;
-  const btn = document.querySelector('#view-expedition-slicing-request .btn-info');
+  const customer = document.getElementById('slicing-customer-name').value;
+  const dueDate = document.getElementById('slicing-due-date').value;
 
-  if (!ean || !pcs || Number(pcs)<=0) { showStatus("Zadajte produkt a počet kusov.", true); return; }
+  const btn = document.querySelector('#slicing-form-container button');
+
+  if (!ean || !pcs || Number(pcs)<=0) { 
+      showStatus("Zadajte produkt a platný počet kusov.", true); 
+      return; 
+  }
   
   isSubmitting = true;
-  if(btn) { btn.disabled = true; btn.innerHTML = "Vytváram..."; }
+  if(btn) { 
+      btn.disabled = true; 
+      btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Vytváram...'; 
+  }
 
   try {
-    const res = await apiRequest('/api/expedicia/startSlicingRequest', { method:'POST', body:{ ean, pieces: parseInt(pcs) } });
+    // Použijeme nový endpoint createManualSlicingJob, ktorý podporuje zákazníka a dátum
+    const payload = {
+        ean: ean,
+        quantity: parseInt(pcs),
+        unit: 'ks',
+        customer: customer || '',
+        due_date: dueDate || ''
+    };
+
+    const res = await apiRequest('/api/expedicia/createManualSlicingJob', { 
+        method: 'POST', 
+        body: payload 
+    });
+    
     showStatus(res.message, false);
-    setTimeout(loadAndShowExpeditionMenu, 1000);
+    
+    // Po úspechu sa vrátime do menu
+    setTimeout(() => {
+        loadAndShowExpeditionMenu();
+    }, 1000);
+
   } catch(e) {
-      showStatus("Chyba: " + e.message, true); isSubmitting = false;
-      if(btn) { btn.disabled = false; btn.innerHTML = "Vytvoriť Požiadavku"; }
+      showStatus("Chyba: " + e.message, true); 
+      isSubmitting = false;
+      if(btn) { 
+          btn.disabled = false; 
+          btn.innerHTML = '<i class="fas fa-plus-circle"></i> Vytvoriť Požiadavku'; 
+      }
   }
 }
 
