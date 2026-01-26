@@ -1291,15 +1291,14 @@
     };
     return { html, onReady };
   }
-// ===================== SPRÁVA KRÁJANIA (SLICING) ==========================
+// ===================== SPRÁVA KRÁJANIA (SLICING) - KOMPLETNÁ ==========================
   async function viewSlicingManagement(){
-    // Pokus o načítanie dát (ak existuje endpoint, inak prázdne pole)
-    let data = [];
+    // 1. Načítanie existujúcich väzieb
+    let pairs = [];
     try {
         const resp = await apiRequest('/api/kancelaria/getSlicingPairs');
-        data = Array.isArray(resp) ? resp : (resp.items || []);
+        pairs = Array.isArray(resp) ? resp : (resp.items || []);
     } catch(e) { 
-        // Endpoint možno ešte neexistuje
         console.warn("Slicing API error:", e); 
     }
 
@@ -1325,7 +1324,7 @@
                     </tr>
                 </thead>
                 <tbody>
-                    ${data.length === 0 ? '<tr><td colspan="4" style="text-align:center; padding:20px;" class="text-muted">Žiadne definované väzby.</td></tr>' : ''}
+                    ${pairs.length === 0 ? '<tr><td colspan="4" style="text-align:center; padding:20px;" class="text-muted">Žiadne definované väzby.</td></tr>' : ''}
                 </tbody>
             </table>
         </div>
@@ -1335,9 +1334,9 @@
     const onReady = () => {
         const tbody = document.querySelector('#slice-table tbody');
         
-        // Render riadkov
-        if (data.length > 0) {
-            tbody.innerHTML = data.map(item => `
+        // Render tabuľky
+        if (pairs.length > 0) {
+            tbody.innerHTML = pairs.map(item => `
                 <tr>
                     <td>${escapeHtml(item.source_name)} <span class="text-muted">(${item.source_ean})</span></td>
                     <td>${escapeHtml(item.target_name)} <span class="text-muted">(${item.target_ean})</span></td>
@@ -1349,7 +1348,7 @@
             `).join('');
         }
 
-        // Handler pre Delete
+        // Handler pre Zmazať
         tbody.querySelectorAll('.btn-del-slice').forEach(btn => {
             btn.onclick = async () => {
                 if(!confirm('Naozaj zmazať túto väzbu?')) return;
@@ -1361,12 +1360,88 @@
             };
         });
 
-        // Handler pre Novú väzbu
+        // Handler pre Nová väzba (Otvorí Modal)
         const btnAdd = document.getElementById('btn-add-slice');
         if (btnAdd) {
-            btnAdd.onclick = () => {
-                // Tu môžete neskôr doplniť modal pre výber produktov
-                alert('Funkcia pre pridávanie nových väzieb bude dostupná čoskoro (vyžaduje modal pre výber EANov).');
+            btnAdd.onclick = async () => {
+                // Najprv načítame zoznam produktov pre výber (Dropdown)
+                showStatus('Načítavam produkty...', false);
+                let products = [];
+                try {
+                    const catData = await apiRequest('/api/kancelaria/getCatalogManagementData');
+                    products = catData.products || [];
+                } catch(e) {
+                    showStatus('Nepodarilo sa načítať katalóg: ' + e.message, true);
+                    return;
+                }
+
+                // Zoradíme abecedne
+                products.sort((a,b) => (a.nazov_vyrobku||'').localeCompare(b.nazov_vyrobku||''));
+
+                // Vytvoríme <option> pre select
+                const optionsHtml = products.map(p => 
+                    `<option value="${p.ean}">${escapeHtml(p.nazov_vyrobku)} (${p.ean})</option>`
+                ).join('');
+
+                const modalHtml = `
+                    <div class="form-group">
+                        <label>Zdrojový produkt (Blok)</label>
+                        <select id="slice-source" style="width:100%; padding:8px;" class="select-search">
+                            <option value="">-- Vyberte blok --</option>
+                            ${optionsHtml}
+                        </select>
+                        <small class="text-muted">Produkt, z ktorého sa krája (skladová zásoba sa zníži).</small>
+                    </div>
+                    <div class="form-group" style="margin-top:15px;">
+                        <label>Cieľový produkt (Krájaný)</label>
+                        <select id="slice-target" style="width:100%; padding:8px;" class="select-search">
+                            <option value="">-- Vyberte krájaný výrobok --</option>
+                            ${optionsHtml}
+                        </select>
+                        <small class="text-muted">Produkt, ktorý vznikne (skladová zásoba sa zvýši).</small>
+                    </div>
+                    <div class="form-group" style="margin-top:15px;">
+                        <label>Váha balenia cieľového produktu (g)</label>
+                        <input id="slice-weight" type="number" step="1" value="1000" style="width:100%; padding:8px;">
+                        <small class="text-muted">Zadajte 1000 pre kg, alebo napr. 100 pre 100g balíčky.</small>
+                    </div>
+                    <div style="margin-top:20px; text-align:right;">
+                        <button id="slice-save-btn" class="btn-primary">Vytvoriť väzbu</button>
+                    </div>
+                `;
+
+                openModalCompat('Nová väzba krájania', {
+                    html: modalHtml,
+                    onReady: () => {
+                        const btnSave = document.getElementById('slice-save-btn');
+                        btnSave.onclick = async () => {
+                            const sourceEan = document.getElementById('slice-source').value;
+                            const targetEan = document.getElementById('slice-target').value;
+                            const weight = document.getElementById('slice-weight').value;
+
+                            if (!sourceEan || !targetEan) {
+                                alert("Vyberte zdrojový aj cieľový produkt.");
+                                return;
+                            }
+                            if (sourceEan === targetEan) {
+                                alert("Zdroj a cieľ nemôžu byť ten istý produkt.");
+                                return;
+                            }
+
+                            try {
+                                await apiRequest('/api/kancelaria/linkSlicedProduct', {
+                                    method: 'POST',
+                                    body: { sourceEan, targetEan, weight }
+                                });
+                                showStatus('Väzba vytvorená.', false);
+                                hideModalCompat();
+                                window.erpMount(viewSlicingManagement); // Refresh tabuľky
+                            } catch (e) {
+                                alert('Chyba: ' + e.message);
+                            }
+                        };
+                    }
+                });
             };
         }
     };
