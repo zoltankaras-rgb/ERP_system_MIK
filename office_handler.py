@@ -5639,14 +5639,14 @@ def generate_erp_export_file():
     )
 
 
-    
 def generate_erp_export_file_for_acceptance_day(day_str: str):
     """
     Vygeneruje VYROBKY.CSV (CP1250, fixná šírka) Z PRIJATÝCH MNOŽSTIEV z expedície
     pre konkrétny deň (expedicia_prijmy.datum_prijmu = day_str).
 
-    Ak je jednotka 'ks', exportuje sa počet kusov.
-    Ak je jednotka 'kg', exportuje sa váha.
+    Logika množstva:
+      - Ak je jednotka 'ks' -> exportuje sa počet kusov (prijem_ks).
+      - Ak je jednotka 'kg' -> exportuje sa váha (prijem_kg).
     """
     from decimal import Decimal, ROUND_HALF_UP
 
@@ -5683,6 +5683,8 @@ def generate_erp_export_file_for_acceptance_day(day_str: str):
         "VÝROBOK_KRÁJANÝ",
         "VÝROBOK_KUSOVY",
         "VÝROBOK_KUSOVÝ",
+        "TOVAR",            # Niekedy sa krája aj tovar
+        "TOVAR_KUSOVY"
     ]
     placeholders = ", ".join(["%s"] * len(target_types))
 
@@ -5692,9 +5694,11 @@ def generate_erp_export_file_for_acceptance_day(day_str: str):
             p.nazov_vyrobku,
             SUM(
                 CASE
-                    -- KĽÚČOVÁ ZMENA: Ak je jednotka 'ks', exportujeme KUSY
+                    -- KĽÚČOVÁ ZMENA PRE VÁS:
+                    -- Ak je v príjme evidovaná jednotka 'ks', do CSV zapíšeme POČET KUSOV.
                     WHEN ep.unit = 'ks' THEN COALESCE(ep.prijem_ks, 0)
-                    -- Inak exportujeme VÁHU (kg)
+                    
+                    -- Pre všetko ostatné (kg) zapíšeme VÁHU.
                     ELSE COALESCE(ep.prijem_kg, 0)
                 END
             ) AS qty,
@@ -5752,7 +5756,7 @@ def generate_erp_export_file_for_acceptance_day(day_str: str):
 
                 try:
                     qty_val = Decimal(str(r.get("qty") or 0))
-                    # Formátovanie množstva (aj kusy môžu byť desatinné, ak treba, ale zvyčajne celé)
+                    # Formátovanie množstva (8 znakov, 2 desatinné miesta)
                     qty_fmt = f"{qty_val:.2f}"
                     if len(qty_fmt) > 8: qty_fmt = f"{qty_val:.2f}"
                     qty_str = qty_fmt.rjust(8)[:8]
