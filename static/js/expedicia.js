@@ -762,7 +762,45 @@ async function printLabel(batchId, productName) {
     }
 }
 async function printDailyReport(){const d=document.getElementById('view-expedition-batch-list').dataset.currentDate;if(!d)return;try{const r=await fetch('/api/expedicia/printDailyReport',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({date:d})});if(!r.ok)throw new Error("Chyba reportu");const h=await r.text();const w=window.open('','_blank');w.document.write(h);w.document.close()}catch(e){showStatus(e.message,true)}}
-async function finishDailyReception(){const d=document.getElementById('view-expedition-batch-list').dataset.currentDate,w=document.getElementById('expedition-worker-name').value;if(!w||!confirm("Ukončiť deň?"))return;try{const r=await apiRequest('/api/expedicia/finishDailyReception',{method:'POST',body:{date:d,workerName:w}});showStatus(r.message,false);loadProductionsByDate(d)}catch(e){showStatus(e.message,true)}}
+// V súbore: static/js/expedicia.js
+
+async function finishDailyReception() {
+    const d = document.getElementById('view-expedition-batch-list').dataset.currentDate;
+    const w = document.getElementById('expedition-worker-name').value;
+
+    // 1. KONTROLA MENA - Ak chýba, vyskočí upozornenie
+    if (!w || w.trim() === "") {
+        alert("⚠️ CHYBA: Nie je vyplnené meno pracovníka (v hornej časti obrazovky)!\n\nProsím, zadajte meno a skúste to znova.");
+        
+        // Automaticky presunieme kurzor do poľa pre meno
+        const nameInput = document.getElementById('expedition-worker-name');
+        if (nameInput) {
+            nameInput.focus();
+            nameInput.style.border = "2px solid red"; // Vizuálne zvýraznenie chyby
+            setTimeout(() => nameInput.style.border = "", 3000); // Po 3s zmizne
+        }
+        return;
+    }
+
+    if (!confirm("Naozaj chcete UKONČIŤ tento deň?")) return;
+
+    try {
+        const r = await apiRequest('/api/expedicia/finishDailyReception', {
+            method: 'POST',
+            body: { date: d, workerName: w }
+        });
+        
+        // Zobrazíme úspech
+        showStatus(r.message, false);
+        alert(r.message); 
+        
+        // Obnovíme zoznam
+        loadProductionsByDate(d);
+    } catch (e) {
+        showStatus(e.message, true);
+        alert("Chyba: " + e.message);
+    }
+}
 async function returnToProductionPrompt(bid){const r=prompt("Dôvod vrátenia:");if(!r)return;const w=document.getElementById('expedition-worker-name').value||'Expedícia';try{const res=await apiRequest('/api/expedicia/returnToProduction',{method:'POST',body:{batchId:bid,reason:r,workerName:w}});showStatus(res.message,false);loadProductionsByDate(document.getElementById('view-expedition-batch-list').dataset.currentDate)}catch(e){showStatus(e.message,true)}}
 async function cancelAcceptancePrompt(bid){if(!confirm("Zrušiť príjem?"))return;const w=prompt("Podpis:");if(!w)return;const r=prompt("Dôvod:");if(!r)return;try{const res=await apiRequest('/api/expedicia/cancelAcceptance',{method:'POST',body:{batchId:bid,workerName:w,reason:r}});showStatus(res.message,false);loadProductionsByDate(document.getElementById('view-expedition-batch-list').dataset.currentDate)}catch(e){showStatus(e.message,true)}}
 function startBarcodeScanner(){showExpeditionView('view-expedition-scanner');html5QrCode=new Html5Qrcode("scanner-container");html5QrCode.start({facingMode:"environment"},{fps:10,qrbox:250},t=>{showBatchDetailModal(t);stopBarcodeScanner();});}
