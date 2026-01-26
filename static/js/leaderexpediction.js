@@ -82,7 +82,7 @@
     });
   }
 
-  function modal(title, inner, onReady){
+function modal(title, inner, onReady){
     let wrap = $('#ldr-modal');
     if (!wrap){
       wrap = doc.createElement('div'); wrap.id='ldr-modal';
@@ -103,6 +103,13 @@
     if (typeof onReady === 'function') onReady(card.querySelector('.b2c-modal-body'));
   }
 
+  // --- TOTO JE ČASŤ, KTORÁ VÁM CHÝBALA PRE KALENDÁR ---
+  // Adaptér: keď calendar_planner.js zavolá showModal, presmerujeme to na našu funkciu modal
+  root.showModal = (title, factory) => {
+      if (typeof factory !== 'function') return;
+      const res = factory(); // Získame { html, onReady } z buildera
+      modal(title, res.html, res.onReady);
+  };
   // ========================= SHARED B2B STATE =====================
   var __pickedCustomer = null; var __pickedPricelist = null; var __pricelistMapByEAN = Object.create(null);
 
