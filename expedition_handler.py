@@ -561,22 +561,27 @@ def get_slicing_requirements_from_orders():
 # ─────────────────────────────────────────────────────────────
 # Prevzatie z výroby – dni a položky (len neprijaté)
 # ─────────────────────────────────────────────────────────────
-
 def get_production_dates():
     """
-    Vráti dátumy, pre ktoré existuje výroba v stave 'Vo výrobe' (spustená).
-    Nezobrazuje dni, kde je len 'Automaticky naplánované'.
+    Vráti dátumy, pre ktoré existuje výroba v stave 'Vo výrobe' alebo 'Vrátené do výroby'.
+    Ignoruje dni, kde sú len ukončené, zrušené, naplánované alebo technické záznamy.
     """
     rows = db_connector.execute_query(
         """
         SELECT DISTINCT DATE(datum_vyroby) AS d
           FROM zaznamy_vyroba
-         WHERE stav NOT IN ('Prijaté, čaká na tlač', 'Ukončené', 'Automaticky naplánované', 'Naplánované')
+         WHERE stav NOT IN (
+             'Prijaté, čaká na tlač', 
+             'Ukončené', 
+             'Automaticky naplánované', 
+             'Naplánované', 
+             'Zrušená',    -- <--- PRIDANÉ
+             'Dokončené'   -- <--- PRIDANÉ (technické záznamy z krájania)
+         )
          ORDER BY d DESC
         """
     ) or []
     return [r['d'].strftime('%Y-%m-%d') for r in rows if r.get('d')]
-
 def get_productions_by_date(date_string):
     zv = _zv_name_col()
     rows = db_connector.execute_query(
