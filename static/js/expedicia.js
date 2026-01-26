@@ -44,7 +44,6 @@ async function loadAndShowExpeditionMenu() {
 
   } catch (e) {}
 }
-
 function populatePendingSlicing(tasks) {
   const container = document.getElementById('pending-slicing-container');
   const section = container.closest('.section');
@@ -69,7 +68,7 @@ function populatePendingSlicing(tasks) {
       <tbody>`;
 
   tasks.forEach(t => {
-    // 1. Zákazník a Dátum
+    // 1. Zobrazenie Cieľa a Zákazníka
     let targetDisplay = `<strong>${escapeHtml(t.targetProductName || t.bulkProductName)}</strong>`;
     
     if (t.customer && t.customer !== 'null') {
@@ -83,16 +82,21 @@ function populatePendingSlicing(tasks) {
          </div>`;
     }
 
-    // 2. Množstvo (KG alebo KS)
+    // 2. Množstvo - PRIORITA PRE KUSY
     let qtyDisplay = '';
     let unit = 'kg';
     
-    if (t.plannedPieces > 0) {
-        qtyDisplay = `${t.plannedPieces} ks`;
+    // Konverzia na čísla pre istotu
+    const pcs = parseInt(t.plannedPieces || 0);
+    const kgs = parseFloat(t.plannedKg || 0);
+
+    if (pcs > 0) {
+        // Ak máme naplánované kusy, zobrazíme KUSY
+        qtyDisplay = `<span style="font-size:1.3em; font-weight:800; color:#1e40af;">${pcs} ks</span>`;
         unit = 'ks';
     } else {
-        // Ak nie sú kusy, zobrazíme KG (zaokrúhlené na 2 desatinné)
-        qtyDisplay = `${parseFloat(t.plannedKg || 0).toFixed(2)} kg`;
+        // Inak zobrazíme KG
+        qtyDisplay = `<span style="font-size:1.1em; font-weight:600;">${safeToFixed(kgs)} kg</span>`;
         unit = 'kg';
     }
 
@@ -100,7 +104,7 @@ function populatePendingSlicing(tasks) {
     <tr style="border-bottom:1px solid #eee;">
       <td style="padding:10px;">${escapeHtml(t.bulkProductName)}</td>
       <td style="padding:10px;">${targetDisplay}</td>
-      <td style="padding:10px; text-align:center; font-weight:bold; font-size:1.1em;">${qtyDisplay}</td>
+      <td style="padding:10px; text-align:center;">${qtyDisplay}</td>
       <td style="padding:10px; text-align:right;">
         <button class="btn-danger" style="padding: 8px 12px; font-size:14px; margin-right:5px; border-radius:4px; border:none; background:#dc2626; color:white; cursor:pointer;" 
                 onclick="cancelSlicingTask('${t.logId}')" title="Zrušiť úlohu">
