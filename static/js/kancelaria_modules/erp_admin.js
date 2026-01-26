@@ -1291,7 +1291,88 @@
     };
     return { html, onReady };
   }
+// ===================== SPRÁVA KRÁJANIA (SLICING) ==========================
+  async function viewSlicingManagement(){
+    // Pokus o načítanie dát (ak existuje endpoint, inak prázdne pole)
+    let data = [];
+    try {
+        const resp = await apiRequest('/api/kancelaria/getSlicingPairs');
+        data = Array.isArray(resp) ? resp : (resp.items || []);
+    } catch(e) { 
+        // Endpoint možno ešte neexistuje
+        console.warn("Slicing API error:", e); 
+    }
 
+    const html = `
+      <div class="stat-card">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+            <h3 style="margin:0;">Krájané produkty (Väzby)</h3>
+            <button id="btn-add-slice" class="btn-primary btn-sm"><i class="fas fa-plus"></i> Nová väzba</button>
+        </div>
+        <p class="text-muted" style="margin-top:5px;">
+            Definícia vzťahu: <strong>Zdrojový výrobok (blok)</strong> ➔ <strong>Cieľový výrobok (krájaný)</strong>.
+            <br><small>Slúži na automatický odpísanie bloku zo skladu pri výrobe krájaného tovaru.</small>
+        </p>
+
+        <div class="table-container" style="max-height: 60vh;">
+            <table class="tbl" id="slice-table">
+                <thead>
+                    <tr>
+                        <th>Zdroj (Blok)</th>
+                        <th>Cieľ (Krájaný)</th>
+                        <th style="text-align:right;">Výťažnosť</th>
+                        <th style="width:100px;">Akcia</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${data.length === 0 ? '<tr><td colspan="4" style="text-align:center; padding:20px;" class="text-muted">Žiadne definované väzby.</td></tr>' : ''}
+                </tbody>
+            </table>
+        </div>
+      </div>
+    `;
+
+    const onReady = () => {
+        const tbody = document.querySelector('#slice-table tbody');
+        
+        // Render riadkov
+        if (data.length > 0) {
+            tbody.innerHTML = data.map(item => `
+                <tr>
+                    <td>${escapeHtml(item.source_name)} <span class="text-muted">(${item.source_ean})</span></td>
+                    <td>${escapeHtml(item.target_name)} <span class="text-muted">(${item.target_ean})</span></td>
+                    <td style="text-align:right;">${item.yield ? item.yield + '%' : '100%'}</td>
+                    <td>
+                        <button class="btn-danger btn-sm btn-del-slice" data-id="${item.id}">Zmazať</button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        // Handler pre Delete
+        tbody.querySelectorAll('.btn-del-slice').forEach(btn => {
+            btn.onclick = async () => {
+                if(!confirm('Naozaj zmazať túto väzbu?')) return;
+                try {
+                    await apiRequest('/api/kancelaria/deleteSlicingPair', { method: 'POST', body: { id: btn.dataset.id } });
+                    showStatus('Väzba zmazaná.', false);
+                    window.erpMount(viewSlicingManagement); // Refresh
+                } catch(e) { showStatus('Chyba: ' + e.message, true); }
+            };
+        });
+
+        // Handler pre Novú väzbu
+        const btnAdd = document.getElementById('btn-add-slice');
+        if (btnAdd) {
+            btnAdd.onclick = () => {
+                // Tu môžete neskôr doplniť modal pre výber produktov
+                alert('Funkcia pre pridávanie nových väzieb bude dostupná čoskoro (vyžaduje modal pre výber EANov).');
+            };
+        }
+    };
+
+    return { html, onReady };
+  }
   // ------------------ Export init do globálu -----------------------
   window.initializeErpAdminModule = initializeErpAdminModule;
 
