@@ -875,7 +875,7 @@ function mol_labelHtml(data, cfg){
       <tr><td colspan="4" class="mol-company">${company}</td></tr>
       <tr><td colspan="4" class="mol-approval">${approval}</td></tr>
       <tr><td colspan="4" class="mol-title">${title}</td></tr>
-      ${isBeef ? `<tr><td class="mol-lbl">Referenčné číslo:</td><td colspan="3" class="mol-val">${refVal}</td></tr>` : ''}
+      ${isBeef ? `<tr><td class="mol-lbl">Referenčné číslo:</td><td colspan="3" class="mol-val" style="font-size:0.75em; letter-spacing:-0.5px; white-space:nowrap;">${refVal}</td></tr>` : ''}
       ${isBeef ? `<tr><td class="mol-lbl">Delené:</td><td colspan="3" class="mol-val">${cutVal}</td></tr>` : ''}
       <tr><td class="mol-lbl">CHOVANÉ v:</td><td colspan="3" class="mol-val">${origin}</td></tr>
       <tr><td class="mol-lbl">ZABITÉ v:</td><td colspan="3" class="mol-val">${origin}</td></tr>
