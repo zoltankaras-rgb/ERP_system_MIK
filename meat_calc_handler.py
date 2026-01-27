@@ -195,13 +195,14 @@ def delete_breakdown(breakdown_id: int):
     return {"message": "Rozrábka zmazaná."}
 
 # =================================================================
-# === ŠABLÓNY ROZRÁBKY (TEMPLATES) ================================
+# === ŠABLÓNY ROZRÁBKY (TEMPLATES) - OPRAVENÉ =====================
 # =================================================================
 
 def list_templates():
     """
     Vráti zoznam aktívnych šablón.
-    FIX: Vynútenie COMMIT pred čítaním, aby sa načítali najnovšie dáta z DB.
+    CRITICAL FIX: Vynútenie COMMIT pred čítaním, aby sme videli najnovšie dáta v DB.
+    Toto "prebudí" spojenie v MySQL ak je v režime Repeatable Read.
     """
     try:
         db_connector.execute_query("COMMIT", fetch='none')
@@ -222,7 +223,7 @@ def list_templates():
 def get_template_details(template_id: int):
     """
     Načíta detaily šablóny pre predvyplnenie formulára.
-    FIX: Vynútenie COMMIT aj tu.
+    FIX: Vynútenie COMMIT aj tu pre istotu.
     """
     try:
         db_connector.execute_query("COMMIT", fetch='none')
@@ -290,7 +291,7 @@ def save_template(data):
                 (tmpl_id, int(pid)), fetch='none'
             )
             
-    # FIX: Vynútenie COMMIT po zápise, aby to ostatné thready videli
+    # CRITICAL FIX: Vynútenie COMMIT po zápise, aby to ostatné thready videli
     try:
         db_connector.execute_query("COMMIT", fetch='none')
     except Exception:
@@ -303,6 +304,7 @@ def delete_template(data):
     tid = data.get('id')
     if tid:
         db_connector.execute_query("UPDATE meat_templates SET is_active=0 WHERE id=%s", (int(tid),), fetch='none')
+        # Fix: commit po mazaní
         try:
             db_connector.execute_query("COMMIT", fetch='none')
         except Exception:
