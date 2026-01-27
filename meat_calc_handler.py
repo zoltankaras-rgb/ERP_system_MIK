@@ -195,34 +195,38 @@ def delete_breakdown(breakdown_id: int):
     return {"message": "Rozrábka zmazaná."}
 
 # =================================================================
-# === ŠABLÓNY ROZRÁBKY (TEMPLATES) ================================
+# === ŠABLÓNY ROZRÁBKY (TEMPLATES) - MAXIMUM FORCE REFRESH ========
 # =================================================================
 
 def list_templates():
     """Vráti zoznam aktívnych šablón."""
-    # OPRAVA PRE MySQL TRANSAKCIE: Vynútenie COMMIT pred čítaním
+    # CRITICAL FIX: Nastavíme READ COMMITTED, aby sme videli najnovšie dáta
+    # a spravíme COMMIT pre istotu.
     try:
+        db_connector.execute_query("SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED", fetch='none')
         db_connector.execute_query("COMMIT", fetch='none')
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"Error resetting transaction isolation: {e}")
 
     q = """
-        SELECT t.id, t.name, t.material_id, m.name as material_name 
+        SELECT t.id, t.name, t.material_id, 
+               COALESCE(m.name, 'Neznáma surovina') as material_name 
         FROM meat_templates t
         LEFT JOIN meat_materials m ON m.id = t.material_id
         WHERE t.is_active = 1
         ORDER BY t.name
     """
-    rows = db_connector.execute_query(q) or []
-    return jsonify(rows)
+    rows = db_connector.execute_query(q)
+    print(f"DEBUG TEMPLATES: Found {len(rows) if rows else 0} templates.") # Log na serveri
+    return jsonify(rows or [])
 
 def get_template_details(template_id: int):
     """
-    Načíta detaily šablóny pre predvyplnenie formulára.
-    Vráti aj aktuálne ceny produktov (z price_lock alebo cenníka).
+    Načíta detaily šablóny.
     """
-    # OPRAVA: Pre istotu refresh aj tu
+    # Aj tu refreshneme pohľad na DB
     try:
+        db_connector.execute_query("SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED", fetch='none')
         db_connector.execute_query("COMMIT", fetch='none')
     except Exception:
         pass
@@ -257,7 +261,6 @@ def get_template_details(template_id: int):
 def save_template(data):
     """
     Vytvorí alebo aktualizuje šablónu.
-    data = { id?, name, material_id, product_ids: [1, 2, ...] }
     """
     name = (data.get('name') or '').strip()
     material_id = data.get('material_id')
@@ -273,7 +276,7 @@ def save_template(data):
             "UPDATE meat_templates SET name=%s, material_id=%s, is_active=1 WHERE id=%s",
             (name, int(material_id), tmpl_id), fetch='none'
         )
-        # Premažeme staré položky (jednoduchší update)
+        # Premažeme staré položky
         db_connector.execute_query("DELETE FROM meat_template_items WHERE template_id=%s", (tmpl_id,), fetch='none')
     else:
         tmpl_id = db_connector.execute_query(
@@ -283,15 +286,13 @@ def save_template(data):
 
     # Vloženie položiek
     if product_ids:
-        # Pripravíme hodnoty pre hromadný insert, ak to DB connector podporuje, 
-        # alebo v slučke ak nie. Pre istotu slučka, ktorá je bezpečná.
         for pid in product_ids:
             db_connector.execute_query(
                 "INSERT INTO meat_template_items (template_id, product_id) VALUES (%s, %s)",
                 (tmpl_id, int(pid)), fetch='none'
             )
     
-    # OPRAVA: Explicitný commit po uložení (pre istotu)
+    # CRITICAL: Explicitný commit po zápise
     try:
         db_connector.execute_query("COMMIT", fetch='none')
     except Exception:
@@ -304,11 +305,8 @@ def delete_template(data):
     tid = data.get('id')
     if tid:
         db_connector.execute_query("UPDATE meat_templates SET is_active=0 WHERE id=%s", (int(tid),), fetch='none')
-        # OPRAVA: Explicitný commit
-        try:
-            db_connector.execute_query("COMMIT", fetch='none')
-        except Exception:
-            pass
+        try: db_connector.execute_query("COMMIT", fetch='none')
+        except: pass
     return {"message": "Šablóna zmazaná."}
 
 # ---------- PRICE LOCKS (zamknuté ceny po prvom zázname) ----------
