@@ -1038,7 +1038,7 @@ async function loadTemplatesTable(){
     div.innerHTML = html;
 }
 
-async function openTemplateModal(id=null){
+window.openTemplateModal = async function(id=null){
     let tmpl = null;
     let items = [];
     if(id){
@@ -1071,7 +1071,7 @@ async function openTemplateModal(id=null){
         </div>
       </div>
       <div style="text-align:right; margin-top:1rem;">
-         <button class="btn btn-success" onclick="submitTemplate(${id||''})">Uložiť šablónu</button>
+         <button class="btn btn-success" type="button" onclick="submitTemplate(${id ? id : 'null'})">Uložiť šablónu</button>
       </div>
     `;
 
@@ -1113,21 +1113,42 @@ window.addTemplateItemRowUI = function(pid=null, pname=null){
 };
 
 window.submitTemplate = async function(id){
-    const name = $('tmpl-name').value;
-    const material_id = $('tmpl-material').value;
+    console.log("submitTemplate called with id:", id); // DEBUG log
+    
+    // Explicitné použitie document.getElementById pre istotu
+    const nameInput = document.getElementById('tmpl-name');
+    const materialInput = document.getElementById('tmpl-material');
+    
+    if(!nameInput || !materialInput) {
+        alert("Chyba formulára: nenájdené vstupné polia.");
+        return;
+    }
+
+    const name = nameInput.value;
+    const material_id = materialInput.value;
     const product_ids = Array.from(document.querySelectorAll('#tmpl-items-table tr')).map(tr => tr.dataset.pid);
 
     if(!name || !product_ids.length){ alert("Vyplň názov a pridaj produkty."); return; }
 
-    const res = await apiM('/api/kancelaria/meat/template/save', {
-        method: 'POST', body: { id, name, material_id, product_ids }
-    });
+    try {
+        const res = await apiM('/api/kancelaria/meat/template/save', {
+            method: 'POST', body: { id: id === 'null' ? null : id, name, material_id, product_ids }
+        });
 
-    if(res.error) alert(res.error);
-    else {
-        if($('modal-container')) $('modal-container').style.display = 'none';
-        loadTemplatesTable();
-        loadTemplatesDropdown();
+        console.log("API Response:", res);
+
+        // Oprava: kontrola error aj __error (ak server zlyhá)
+        if(res.error || res.__error) {
+            alert("Chyba pri ukladaní: " + (res.error || res.__error));
+        } else {
+            if(document.getElementById('modal-container')) document.getElementById('modal-container').style.display = 'none';
+            loadTemplatesTable();
+            loadTemplatesDropdown();
+            alert("Šablóna uložená.");
+        }
+    } catch (e) {
+        console.error(e);
+        alert("Kritická chyba: " + e.message);
     }
 };
 
