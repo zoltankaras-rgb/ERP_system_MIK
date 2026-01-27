@@ -823,7 +823,99 @@ def export_breakdown_excel(breakdown_id:int):
     filename = f"rozrabka_{b['id']}_{b['breakdown_date']}.xlsx"
     return send_file(output, as_attachment=True, download_name=filename,
                      mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+# =================================================================
+# === ŠABLÓNY ROZRÁBKY (TEMPLATES) ================================
+# =================================================================
 
+def list_templates():
+    """Vráti zoznam aktívnych šablón."""
+    q = """
+        SELECT t.id, t.name, t.material_id, m.name as material_name 
+        FROM meat_templates t
+        LEFT JOIN meat_materials m ON m.id = t.material_id
+        WHERE t.is_active = 1
+        ORDER BY t.name
+    """
+    rows = db_connector.execute_query(q) or []
+    return jsonify(rows)
+
+def get_template_details(template_id: int):
+    """
+    Načíta detaily šablóny pre predvyplnenie formulára.
+    Vráti aj aktuálne ceny produktov (z price_lock alebo cenníka).
+    """
+    # 1. Hlavička
+    t_rows = db_connector.execute_query("SELECT * FROM meat_templates WHERE id=%s", (template_id,))
+    if not t_rows:
+        return {"error": "Šablóna neexistuje"}
+    templ = t_rows[0]
+
+    # 2. Položky + Ceny
+    #    Logika ceny: Ak existuje zamknutá cena (meat_price_lock) pre túto surovinu, použi ju.
+    #    Inak použi aktuálnu predajnú cenu z číselníka (meat_products).
+    q_items = """
+        SELECT 
+            mti.product_id,
+            p.code, 
+            p.name as product_name,
+            COALESCE(mpl.price_eur_kg, p.selling_price_eur_kg) as current_price
+        FROM meat_template_items mti
+        JOIN meat_products p ON p.id = mti.product_id
+        LEFT JOIN meat_price_lock mpl 
+               ON mpl.product_id = p.id AND mpl.material_id = %s
+        WHERE mti.template_id = %s
+        ORDER BY p.name
+    """
+    items = db_connector.execute_query(q_items, (templ['material_id'], template_id)) or []
+
+    return jsonify({
+        "template": templ,
+        "items": items
+    })
+
+def save_template(data):
+    """
+    Vytvorí alebo aktualizuje šablónu.
+    data = { id?, name, material_id, product_ids: [1, 2, ...] }
+    """
+    name = (data.get('name') or '').strip()
+    material_id = data.get('material_id')
+    product_ids = data.get('product_ids') or []
+
+    if not name or not material_id:
+        return {"error": "Chýba názov alebo surovina."}
+
+    # UPDATE alebo INSERT hlavičky
+    if data.get('id'):
+        tmpl_id = int(data['id'])
+        db_connector.execute_query(
+            "UPDATE meat_templates SET name=%s, material_id=%s WHERE id=%s",
+            (name, int(material_id), tmpl_id), fetch='none'
+        )
+        # Premažeme staré položky (jednoduchší update)
+        db_connector.execute_query("DELETE FROM meat_template_items WHERE template_id=%s", (tmpl_id,), fetch='none')
+    else:
+        tmpl_id = db_connector.execute_query(
+            "INSERT INTO meat_templates (name, material_id) VALUES (%s, %s)",
+            (name, int(material_id)), fetch='lastrowid'
+        )
+
+    # Vloženie položiek
+    # product_ids je zoznam IDčiek, ktoré user vybral
+    for pid in product_ids:
+        db_connector.execute_query(
+            "INSERT INTO meat_template_items (template_id, product_id) VALUES (%s, %s)",
+            (tmpl_id, int(pid)), fetch='none'
+        )
+
+    return {"message": "Šablóna uložená."}
+
+def delete_template(data):
+    """Soft delete šablóny."""
+    tid = data.get('id')
+    if tid:
+        db_connector.execute_query("UPDATE meat_templates SET is_active=0 WHERE id=%s", (int(tid),), fetch='none')
+    return {"message": "Šablóna zmazaná."}
 # =================================================================
 # ==================== HTML REPORTS ===============================
 # =================================================================

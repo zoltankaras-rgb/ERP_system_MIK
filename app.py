@@ -4218,6 +4218,35 @@ def meat_report_supplier_product_api():
 
 
 # =================================================================
+# === NOVÉ ROUTY PRE ŠABLÓNY -Meat calc (Templates) ==========================
+# =================================================================
+
+@app.get('/api/kancelaria/meat/templates', endpoint='meat_templates_list_api')
+@login_required(role='kancelaria')
+def meat_templates_list_api():
+    """Zoznam všetkých šablón."""
+    return meat_calc_handler.list_templates()
+
+@app.get('/api/kancelaria/meat/template/details', endpoint='meat_template_details_api')
+@login_required(role='kancelaria')
+def meat_template_details_api():
+    """Detail konkrétnej šablóny (položky + ceny) pre predvyplnenie."""
+    tid = request.args.get('id', type=int)
+    return meat_calc_handler.get_template_details(tid)
+
+@app.post('/api/kancelaria/meat/template/save', endpoint='meat_template_save_api')
+@login_required(role='kancelaria')
+def meat_template_save_api():
+    """Vytvorenie alebo úprava šablóny."""
+    return handle_request(meat_calc_handler.save_template, request.json)
+
+@app.post('/api/kancelaria/meat/template/delete', endpoint='meat_template_delete_api')
+@login_required(role='kancelaria')
+def meat_template_delete_api():
+    """Zmazanie šablóny."""
+    # Posielame celé JSON data, lebo handler očakáva dict s kľúčom 'id'
+    return handle_request(meat_calc_handler.delete_template, request.json)
+# =================================================================
 # === HYGIENE (Kancelária) - KOMPLETNÁ SEKCIA ===
 # =================================================================
 
