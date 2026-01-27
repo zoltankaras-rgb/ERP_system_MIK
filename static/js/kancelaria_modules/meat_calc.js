@@ -695,7 +695,8 @@ async function fillProductsDatalist(){
 
 // --- Šablóny v New Breakdown ---
 async function loadTemplatesDropdown(){
-    const rows = await apiM('/api/kancelaria/meat/templates');
+    // Pridaný timestamp t=... pre zabránenie cacheovaniu v prehliadači
+    const rows = await apiM('/api/kancelaria/meat/templates?t=' + Date.now());
     const sel = $('meat-template-select');
     if(!sel) return;
     sel.innerHTML = '<option value="">-- Vyber šablónu --</option>' + 
@@ -1008,7 +1009,10 @@ async function initTemplatesTab(){
 }
 
 async function loadTemplatesTable(){
-    const rows = await apiM('/api/kancelaria/meat/templates');
+    // Pridaný timestamp t=... pre zabránenie cacheovaniu v prehliadači
+    const rows = await apiM('/api/kancelaria/meat/templates?t=' + Date.now());
+    console.log("Načítané šablóny:", rows); // Debug log
+
     const div = $('meat-templates-table');
     if(!div) return;
     
@@ -1141,10 +1145,16 @@ window.submitTemplate = async function(id){
         if(res.error || res.__error) {
             alert("Chyba pri ukladaní: " + (res.error || res.__error));
         } else {
-            if(document.getElementById('modal-container')) document.getElementById('modal-container').style.display = 'none';
-            loadTemplatesTable();
-            loadTemplatesDropdown();
-            alert("Šablóna uložená.");
+            // Zavretie modalu (ak existuje)
+            if(document.getElementById('modal-container')) {
+                document.getElementById('modal-container').style.display = 'none';
+            }
+            
+            // Obnovenie tabuliek s vynútením reloadu (cache busting)
+            await loadTemplatesTable();
+            await loadTemplatesDropdown();
+            
+            alert("Šablóna bola úspešne uložená.");
         }
     } catch (e) {
         console.error(e);
