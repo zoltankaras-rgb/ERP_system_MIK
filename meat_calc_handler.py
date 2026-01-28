@@ -199,6 +199,14 @@ def delete_breakdown(breakdown_id: int):
 # =================================================================
 
 def list_templates():
+    # --- PRIDAJ TOTO PRE DIAGNOSTIKU ---
+    db_name = db_connector.execute_query("SELECT DATABASE() as db", fetch='one')
+    db_count = db_connector.execute_query("SELECT COUNT(*) as cnt FROM meat_templates", fetch='one')
+    print(f"\n[DIAGNOSTIKA] Flask DB: {db_name['db']} | Riadkov v meat_templates: {db_count['cnt']}\n")
+    # ----------------------------------
+    
+    try: db_connector.execute_query("COMMIT", fetch='none')
+    except: pass
     # --- TESTOVACÍ BLOK START ---
     print("\n" + "!"*50)
     print("TEST PRIPOJENIA: Python handler beží!")
