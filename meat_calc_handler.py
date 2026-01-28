@@ -199,6 +199,10 @@ def delete_breakdown(breakdown_id: int):
 # =================================================================
 
 def list_templates():
+    # DEBUG: Toto vypíše presný názov DB a počet riadkov do terminálu Flasku
+    info = db_connector.execute_query("SELECT DATABASE() as db, COUNT(*) as cnt FROM meat_templates", fetch='all')
+    print(f"\n--- DEBUG ŠABLÓNY ---\nDatabáza: {info[0]['db']}\nPočet riadkov v meat_templates: {info[0]['cnt']}\n---------------------\n")
+    
     """Vráti zoznam aktívnych šablón."""
     try:
         # Tieto dva riadky sú kľúčové pre MySQL, aby videlo nové dáta
