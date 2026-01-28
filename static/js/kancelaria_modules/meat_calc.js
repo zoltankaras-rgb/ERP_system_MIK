@@ -290,24 +290,45 @@ function initializeMeatCalcModule(){
     </div>
   `;
 
-  // Prepínanie tabov
+  // Prepínanie tabov - OPRAVENÁ VERZIA
   const tabButtons  = document.querySelectorAll('#section-meat-calc .b2b-tab-button');
   const tabContents = document.querySelectorAll('#section-meat-calc .b2b-tab-content');
 
-  tabButtons.forEach(button=>{
-    button.onclick = ()=>{
-      tabButtons.forEach(b=>b.classList.remove('active'));
+  tabButtons.forEach(button => {
+    button.onclick = () => {
+      // 1. Deaktivuj všetky taby
+      tabButtons.forEach(b => b.classList.remove('active'));
       button.classList.add('active');
 
-      tabContents.forEach(c=>{
+      tabContents.forEach(c => {
         c.classList.remove('active');
-        c.style.display='none';
+        c.style.display = 'none';
       });
-      const paneId = `${button.dataset.meatTab}-tab`;
-      const pane   = document.getElementById(paneId);
-      if (pane){
+
+      // 2. Aktivuj vybraný tab
+      const tabName = button.dataset.meatTab;
+      const paneId = `${tabName}-tab`;
+      const pane = document.getElementById(paneId);
+      
+      if (pane) {
         pane.classList.add('active');
-        pane.style.display='block';
+        pane.style.display = 'block';
+      }
+
+      // 3. LOGIKA REFRESHU: Ak prepneme na konkrétny tab, načítame dáta nanovo
+      if (tabName === 'new') {
+        // Obnovíme select šablón v novej evidencii
+        if (typeof loadTemplatesDropdown === 'function') loadTemplatesDropdown();
+      } 
+      else if (tabName === 'templates') {
+        // Obnovíme zoznam šablón v správe šablón
+        if (typeof loadTemplatesTable === 'function') loadTemplatesTable();
+      }
+      else if (tabName === 'settings') {
+        // Pre istotu obnovíme číselníky
+        loadMaterialsTable();
+        loadProductsTable();
+        loadSuppliersTable();
       }
     };
   });

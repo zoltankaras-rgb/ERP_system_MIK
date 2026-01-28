@@ -200,13 +200,11 @@ def delete_breakdown(breakdown_id: int):
 
 def list_templates():
     """Vráti zoznam aktívnych šablón."""
-    # CRITICAL FIX: Nastavíme READ COMMITTED, aby sme videli najnovšie dáta
-    # a spravíme COMMIT pre istotu.
     try:
-        db_connector.execute_query("SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED", fetch='none')
-        db_connector.execute_query("COMMIT", fetch='none')
-    except Exception as e:
-        print(f"Error resetting transaction isolation: {e}")
+        # Vynútenie ukončenia prípadnej visiacej transakcie
+        db_connector.execute_query("COMMIT", fetch='none') 
+    except Exception:
+        pass
 
     q = """
         SELECT t.id, t.name, t.material_id, 
@@ -217,7 +215,6 @@ def list_templates():
         ORDER BY t.name
     """
     rows = db_connector.execute_query(q)
-    print(f"DEBUG TEMPLATES: Found {len(rows) if rows else 0} templates.") # Log na serveri
     return jsonify(rows or [])
 
 def get_template_details(template_id: int):
