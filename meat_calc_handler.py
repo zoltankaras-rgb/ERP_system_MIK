@@ -199,28 +199,23 @@ def delete_breakdown(breakdown_id: int):
 # =================================================================
 
 def list_templates():
-    """Vráti zoznam šablón bez ohľadu na stav suroviny."""
+    # --- TESTOVACÍ BLOK START ---
+    print("\n" + "!"*50)
+    print("TEST PRIPOJENIA: Python handler beží!")
     try:
-        # Vynútené vyčistenie transakčnej cache
-        db_connector.execute_query("COMMIT", fetch='none')
-    except Exception:
-        pass
+        test_rows = db_connector.execute_query("SELECT COUNT(*) as c FROM meat_templates")
+        print(f"TEST DB: Tabuľka meat_templates má {test_rows[0]['c']} riadkov.")
+    except Exception as e:
+        print(f"TEST DB CHYBA: {e}")
+    print("!"*50 + "\n")
+    # --- TESTOVACÍ BLOK END ---
 
-    # OPRAVA: Použijeme LEFT JOIN a odfiltrujeme len zmazané šablóny
-    # Ak surovina neexistuje, vypíše chybu, ale šablónu ZOBRAZÍ
-    q = """
-        SELECT t.id, t.name, t.material_id, 
-               COALESCE(m.name, 'CHYBA: Surovina ID ' + CAST(t.material_id AS CHAR) + ' neexistuje') as material_name 
-        FROM meat_templates t
-        LEFT JOIN meat_materials m ON m.id = t.material_id
-        WHERE t.is_active = 1
-        ORDER BY t.id DESC
-    """
+    try: db_connector.execute_query("COMMIT", fetch='none')
+    except: pass
+
+    # Najjednoduchší možný dopyt bez filtrov
+    q = "SELECT id, name, material_id FROM meat_templates"
     rows = db_connector.execute_query(q)
-    
-    # Logovanie do konzoly Ubuntu, aby si videl, či Python niečo načítal
-    print(f"DEBUG TEMPLATES: Počet nájdených šablón pre API: {len(rows) if rows else 0}")
-    
     return jsonify(rows or [])
 
 def get_template_details(template_id: int):
