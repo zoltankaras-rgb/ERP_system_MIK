@@ -199,27 +199,34 @@ def delete_breakdown(breakdown_id: int):
 # =================================================================
 
 def list_templates():
-    """Vráti zoznam šablón s vynútenou obnovou dát a voľnejším filtrom."""
+    # 1. ABSOLUTNY REFRESH (Zabije cache transakcie v MySQL)
     try:
-        # Kľúčové pre MySQL: vymaže cache transakcie, aby Flask videl nové riadky
         db_connector.execute_query("COMMIT", fetch='none')
-    except Exception as e:
-        print(f"DEBUG: Commit error: {e}")
+    except:
+        pass
 
-    # Použijeme LEFT JOIN: Ak materiál chýba alebo je neaktívny, šablóna NEZMIZNE
+    # 2. DIAGNOSTICKY VYPIS DO LOGU (journalctl)
+    print("\n" + "="*50)
+    print("!!! SEM TO DOSLO: list_templates bezi !!!")
+    
+    # 3. DOTAZ BEZ JOINOV A FILTROV (Overime, ci Flask vidi tie riadky)
+    try:
+        test_rows = db_connector.execute_query("SELECT * FROM meat_templates", fetch='all')
+        print(f"DIAGNOSTIKA: Pocet riadkov v DB: {len(test_rows) if test_rows else 0}")
+    except Exception as e:
+        print(f"DIAGNOSTIKA CHYBA: {e}")
+    print("="*50 + "\n")
+
+    # 4. FINALNY DOTAZ (Osetreny LEFT JOIN)
     q = """
         SELECT t.id, t.name, t.material_id, 
-               COALESCE(m.name, '!!! NEAKTÍVNA ALEBO CHÝBAJÚCA SUROVINA !!!') as material_name 
+               COALESCE(m.name, 'Surovina neexistuje') as material_name 
         FROM meat_templates t
         LEFT JOIN meat_materials m ON m.id = t.material_id
         WHERE t.is_active = 1
         ORDER BY t.name
     """
     rows = db_connector.execute_query(q)
-    
-    # Tento print uvidíš v Ubuntu termináli (journalctl -u erp -f)
-    print(f"DEBUG TEMPLATES: Našiel som {len(rows) if rows else 0} šablón.")
-    
     return jsonify(rows or [])
 
 def get_template_details(template_id: int):
