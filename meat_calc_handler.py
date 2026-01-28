@@ -199,31 +199,27 @@ def delete_breakdown(breakdown_id: int):
 # =================================================================
 
 def list_templates():
-    # --- PRIDAJ TOTO PRE DIAGNOSTIKU ---
-    db_name = db_connector.execute_query("SELECT DATABASE() as db", fetch='one')
-    db_count = db_connector.execute_query("SELECT COUNT(*) as cnt FROM meat_templates", fetch='one')
-    print(f"\n[DIAGNOSTIKA] Flask DB: {db_name['db']} | Riadkov v meat_templates: {db_count['cnt']}\n")
-    # ----------------------------------
-    
-    try: db_connector.execute_query("COMMIT", fetch='none')
-    except: pass
-    # --- TESTOVACÍ BLOK START ---
-    print("\n" + "!"*50)
-    print("TEST PRIPOJENIA: Python handler beží!")
+    """Vráti zoznam aktívnych šablón s ošetrením chýbajúcich materiálov."""
     try:
-        test_rows = db_connector.execute_query("SELECT COUNT(*) as c FROM meat_templates")
-        print(f"TEST DB: Tabuľka meat_templates má {test_rows[0]['c']} riadkov.")
-    except Exception as e:
-        print(f"TEST DB CHYBA: {e}")
-    print("!"*50 + "\n")
-    # --- TESTOVACÍ BLOK END ---
+        # Vynútené vyčistenie transakčnej cache
+        db_connector.execute_query("COMMIT", fetch='none')
+    except Exception:
+        pass
 
-    try: db_connector.execute_query("COMMIT", fetch='none')
-    except: pass
-
-    # Najjednoduchší možný dopyt bez filtrov
-    q = "SELECT id, name, material_id FROM meat_templates"
+    # Použijeme LEFT JOIN, aby šablóna nezmizla, ak je problém v materiáloch
+    q = """
+        SELECT t.id, t.name, t.material_id, 
+               COALESCE(m.name, 'CHYBA: Surovina neexistuje') as material_name 
+        FROM meat_templates t
+        LEFT JOIN meat_materials m ON m.id = t.material_id
+        WHERE t.is_active = 1
+        ORDER BY t.name
+    """
     rows = db_connector.execute_query(q)
+    
+    # Tento výpis uvidíš v journalctl -u erp -f
+    print(f"DEBUG: list_templates vrací {len(rows) if rows else 0} riadkov.")
+    
     return jsonify(rows or [])
 
 def get_template_details(template_id: int):
