@@ -4220,12 +4220,16 @@ def meat_report_supplier_product_api():
 # =================================================================
 # === NOVÉ ROUTY PRE ŠABLÓNY -Meat calc (Templates) ==========================
 # =================================================================
-
-
 @app.get('/api/kancelaria/meat/templates', endpoint='meat_templates_list_api')
 @login_required(role='kancelaria')
 def meat_templates_list_api():
-    """Zoznam všetkých šablón."""
+    # TENTO PRINT MUSÍ BYŤ V JOURNALCTL
+    print("\n!!! EMERGENCY DEBUG V APP.PY START !!!")
+    from db_connector import execute_query
+    res = execute_query("SELECT id, name FROM meat_templates")
+    print(f"!!! APP.PY NASIEL {len(res) if res else 0} SABLON !!!\n")
+    
+    import meat_calc_handler
     return meat_calc_handler.list_templates()
 
 @app.get('/api/kancelaria/meat/template/details', endpoint='meat_template_details_api')
