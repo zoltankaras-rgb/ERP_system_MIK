@@ -199,18 +199,19 @@ def delete_breakdown(breakdown_id: int):
 # =================================================================
 
 def list_templates():
-    """Vráti zoznam šablón bez akýchkoľvek filtrov na diagnostiku."""
     try:
         db_connector.execute_query("COMMIT", fetch='none')
-    except:
-        pass
+    except: pass
 
-    # Skúsime úplne surový dopyt bez JOINu a bez WHERE
-    rows = db_connector.execute_query("SELECT id, name, is_active FROM meat_templates")
-    
-    # Tento print uvidíte v termináli Ubuntu (kde beží python3[2466328])
-    print(f"DIAGNOSTIKA: Riadky priamo z DB: {rows}")
-    
+    # Použijeme COALESCE a LEFT JOIN, aby sme videli všetko
+    q = """
+        SELECT t.id, t.name, t.material_id, 
+               COALESCE(m.name, 'CHYBA: Surovina neexistuje') as material_name 
+        FROM meat_templates t
+        LEFT JOIN meat_materials m ON m.id = t.material_id
+        ORDER BY t.id DESC
+    """
+    rows = db_connector.execute_query(q)
     return jsonify(rows or [])
 
 def get_template_details(template_id: int):
