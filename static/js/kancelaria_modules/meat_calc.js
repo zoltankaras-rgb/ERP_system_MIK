@@ -716,12 +716,14 @@ async function fillProductsDatalist(){
 
 // --- Šablóny v New Breakdown ---
 async function loadTemplatesDropdown(){
-    // Pridaný timestamp t=... pre zabránenie cacheovaniu v prehliadači
     const rows = await apiM('/api/kancelaria/meat/templates?t=' + Date.now());
-    const sel = $('meat-template-select');
-    if(!sel) return;
+    const sel = document.getElementById('meat-template-select'); // Musí sa zhodovať s ID v HTML
+    if(!sel) {
+        console.error("Element meat-template-select nebol nájdený!");
+        return;
+    }
     sel.innerHTML = '<option value="">-- Vyber šablónu --</option>' + 
-        (Array.isArray(rows) ? rows.map(t => `<option value="${t.id}" data-material="${t.material_id}">${esc(t.name)}</option>`).join('') : '');
+        (Array.isArray(rows) ? rows.map(t => `<option value="${t.id}">${esc(t.name)}</option>`).join('') : '');
 }
 
 async function loadSelectedTemplate(){

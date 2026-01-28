@@ -201,10 +201,10 @@ def delete_breakdown(breakdown_id: int):
 def list_templates():
     """Vráti zoznam aktívnych šablón."""
     try:
-        # Vynútenie ukončenia prípadnej visiacej transakcie
-        db_connector.execute_query("COMMIT", fetch='none') 
-    except Exception:
-        pass
+        # Tieto dva riadky sú kľúčové pre MySQL, aby videlo nové dáta
+        db_connector.execute_query("COMMIT", fetch='none')
+    except Exception as e:
+        print(f"Error resetting transaction: {e}")
 
     q = """
         SELECT t.id, t.name, t.material_id, 
@@ -215,6 +215,8 @@ def list_templates():
         ORDER BY t.name
     """
     rows = db_connector.execute_query(q)
+    # Pridajte tento print, aby ste v termináli servera videli, či niečo našlo
+    print(f"DEBUG TEMPLATES: Nájdené {len(rows) if rows else 0} šablón v DB.") 
     return jsonify(rows or [])
 
 def get_template_details(template_id: int):
