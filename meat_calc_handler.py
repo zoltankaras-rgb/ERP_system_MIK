@@ -199,19 +199,28 @@ def delete_breakdown(breakdown_id: int):
 # =================================================================
 
 def list_templates():
+    """Vráti zoznam šablón bez ohľadu na stav suroviny."""
     try:
+        # Vynútené vyčistenie transakčnej cache
         db_connector.execute_query("COMMIT", fetch='none')
-    except: pass
+    except Exception:
+        pass
 
-    # Použijeme COALESCE a LEFT JOIN, aby sme videli všetko
+    # OPRAVA: Použijeme LEFT JOIN a odfiltrujeme len zmazané šablóny
+    # Ak surovina neexistuje, vypíše chybu, ale šablónu ZOBRAZÍ
     q = """
         SELECT t.id, t.name, t.material_id, 
-               COALESCE(m.name, 'CHYBA: Surovina neexistuje') as material_name 
+               COALESCE(m.name, 'CHYBA: Surovina ID ' + CAST(t.material_id AS CHAR) + ' neexistuje') as material_name 
         FROM meat_templates t
         LEFT JOIN meat_materials m ON m.id = t.material_id
+        WHERE t.is_active = 1
         ORDER BY t.id DESC
     """
     rows = db_connector.execute_query(q)
+    
+    # Logovanie do konzoly Ubuntu, aby si videl, či Python niečo načítal
+    print(f"DEBUG TEMPLATES: Počet nájdených šablón pre API: {len(rows) if rows else 0}")
+    
     return jsonify(rows or [])
 
 def get_template_details(template_id: int):

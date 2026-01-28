@@ -717,13 +717,18 @@ async function fillProductsDatalist(){
 // --- Šablóny v New Breakdown ---
 async function loadTemplatesDropdown(){
     const rows = await apiM('/api/kancelaria/meat/templates?t=' + Date.now());
-    const sel = document.getElementById('meat-template-select'); // Musí sa zhodovať s ID v HTML
-    if(!sel) {
-        console.error("Element meat-template-select nebol nájdený!");
+    console.log("Odpoveď zo servera:", rows); // Ak je tu [], tak Python nič nenašiel
+    
+    const sel = document.getElementById('meat-template-select');
+    if(!sel) return;
+
+    if (rows.__error) {
+        alert("API Chyba: " + rows.__error);
         return;
     }
+
     sel.innerHTML = '<option value="">-- Vyber šablónu --</option>' + 
-        (Array.isArray(rows) ? rows.map(t => `<option value="${t.id}">${esc(t.name)}</option>`).join('') : '');
+        (Array.isArray(rows) ? rows.map(t => `<option value="${t.id}" data-material="${t.material_id}">${esc(t.name)}</option>`).join('') : '');
 }
 
 async function loadSelectedTemplate(){
