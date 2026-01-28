@@ -199,28 +199,18 @@ def delete_breakdown(breakdown_id: int):
 # =================================================================
 
 def list_templates():
-    # DEBUG: Toto vypíše presný názov DB a počet riadkov do terminálu Flasku
-    info = db_connector.execute_query("SELECT DATABASE() as db, COUNT(*) as cnt FROM meat_templates", fetch='all')
-    print(f"\n--- DEBUG ŠABLÓNY ---\nDatabáza: {info[0]['db']}\nPočet riadkov v meat_templates: {info[0]['cnt']}\n---------------------\n")
-    
-    """Vráti zoznam aktívnych šablón."""
+    """Vráti zoznam šablón bez akýchkoľvek filtrov na diagnostiku."""
     try:
-        # Tieto dva riadky sú kľúčové pre MySQL, aby videlo nové dáta
         db_connector.execute_query("COMMIT", fetch='none')
-    except Exception as e:
-        print(f"Error resetting transaction: {e}")
+    except:
+        pass
 
-    q = """
-        SELECT t.id, t.name, t.material_id, 
-               COALESCE(m.name, 'Neznáma surovina') as material_name 
-        FROM meat_templates t
-        LEFT JOIN meat_materials m ON m.id = t.material_id
-        WHERE t.is_active = 1
-        ORDER BY t.name
-    """
-    rows = db_connector.execute_query(q)
-    # Pridajte tento print, aby ste v termináli servera videli, či niečo našlo
-    print(f"DEBUG TEMPLATES: Nájdené {len(rows) if rows else 0} šablón v DB.") 
+    # Skúsime úplne surový dopyt bez JOINu a bez WHERE
+    rows = db_connector.execute_query("SELECT id, name, is_active FROM meat_templates")
+    
+    # Tento print uvidíte v termináli Ubuntu (kde beží python3[2466328])
+    print(f"DIAGNOSTIKA: Riadky priamo z DB: {rows}")
+    
     return jsonify(rows or [])
 
 def get_template_details(template_id: int):
