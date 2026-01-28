@@ -199,17 +199,17 @@ def delete_breakdown(breakdown_id: int):
 # =================================================================
 
 def list_templates():
-    """Vráti zoznam aktívnych šablón s ošetrením chýbajúcich materiálov."""
+    """Vráti zoznam šablón s vynútenou obnovou dát a voľnejším filtrom."""
     try:
-        # Vynútené vyčistenie transakčnej cache
+        # Kľúčové pre MySQL: vymaže cache transakcie, aby Flask videl nové riadky
         db_connector.execute_query("COMMIT", fetch='none')
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"DEBUG: Commit error: {e}")
 
-    # Použijeme LEFT JOIN, aby šablóna nezmizla, ak je problém v materiáloch
+    # Použijeme LEFT JOIN: Ak materiál chýba alebo je neaktívny, šablóna NEZMIZNE
     q = """
         SELECT t.id, t.name, t.material_id, 
-               COALESCE(m.name, 'CHYBA: Surovina neexistuje') as material_name 
+               COALESCE(m.name, '!!! NEAKTÍVNA ALEBO CHÝBAJÚCA SUROVINA !!!') as material_name 
         FROM meat_templates t
         LEFT JOIN meat_materials m ON m.id = t.material_id
         WHERE t.is_active = 1
@@ -217,8 +217,8 @@ def list_templates():
     """
     rows = db_connector.execute_query(q)
     
-    # Tento výpis uvidíš v journalctl -u erp -f
-    print(f"DEBUG: list_templates vrací {len(rows) if rows else 0} riadkov.")
+    # Tento print uvidíš v Ubuntu termináli (journalctl -u erp -f)
+    print(f"DEBUG TEMPLATES: Našiel som {len(rows) if rows else 0} šablón.")
     
     return jsonify(rows or [])
 
