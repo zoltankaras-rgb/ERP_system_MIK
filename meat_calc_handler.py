@@ -199,36 +199,41 @@ def delete_breakdown(breakdown_id: int):
 # =================================================================
 
 def list_templates():
-    # 1. ABSOLUTNY REFRESH (Zabije cache transakcie v MySQL)
+    """Vráti zoznam šablón s totálnym ošetrením chýb."""
+    # 1. Vynútený commit na vymazanie cache transakcie (pre MySQL na Ubuntu kritické)
     try:
         db_connector.execute_query("COMMIT", fetch='none')
     except:
         pass
 
-    # 2. DIAGNOSTICKY VYPIS DO LOGU (journalctl)
-    print("\n" + "="*50)
-    print("!!! SEM TO DOSLO: list_templates bezi !!!")
+    # 2. Skúsime najprv najjednoduchší možný dopyt bez JOINOV
+    # Ak toto vráti dáta, tak chyba je v prepojení na meat_materials
+    q_simple = "SELECT id, name, material_id FROM meat_templates WHERE is_active = 1"
     
-    # 3. DOTAZ BEZ JOINOV A FILTROV (Overime, ci Flask vidi tie riadky)
     try:
-        test_rows = db_connector.execute_query("SELECT * FROM meat_templates", fetch='all')
-        print(f"DIAGNOSTIKA: Pocet riadkov v DB: {len(test_rows) if test_rows else 0}")
+        rows = db_connector.execute_query(q_simple)
+        
+        # Ak by rows bolo None, zmeníme ho na prázdny list
+        if not rows:
+            rows = []
+            
+        # 3. Ručne skúsime priradiť názvy materiálov, aby sme sa vyhli JOINu, ktorý by mohol riadky zahodiť
+        for row in rows:
+            mat_id = row.get('material_id')
+            row['material_name'] = 'Neznáma surovina' # Default
+            if mat_id:
+                mat_res = db_connector.execute_query("SELECT name FROM meat_materials WHERE id=%s", (mat_id,), fetch='one')
+                if mat_res:
+                    row['material_name'] = mat_res.get('name', 'Neznáma surovina')
+
+        # Debug print pre journalctl -u erp -f
+        print(f"\n[API DEBUG] list_templates vraciam: {len(rows)} riadkov\n")
+        
+        return jsonify(rows)
+        
     except Exception as e:
-        print(f"DIAGNOSTIKA CHYBA: {e}")
-    print("="*50 + "\n")
-
-    # 4. FINALNY DOTAZ (Osetreny LEFT JOIN)
-    q = """
-        SELECT t.id, t.name, t.material_id, 
-               COALESCE(m.name, 'Surovina neexistuje') as material_name 
-        FROM meat_templates t
-        LEFT JOIN meat_materials m ON m.id = t.material_id
-        WHERE t.is_active = 1
-        ORDER BY t.name
-    """
-    rows = db_connector.execute_query(q)
-    return jsonify(rows or [])
-
+        print(f"\n[API ERROR] Chyba v list_templates: {str(e)}\n")
+        return jsonify({"error": str(e)})
 def get_template_details(template_id: int):
     """
     Načíta detaily šablóny.
