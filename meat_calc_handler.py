@@ -199,40 +199,32 @@ def delete_breakdown(breakdown_id: int):
 # =================================================================
 def list_templates():
     """
-    DEBUG VERZIA: Zobrazí všetky šablóny bez ohľadu na is_active.
+    Vráti zoznam šablón s vynúteným čerstvým čítaním (READ COMMITTED).
     """
-    # 1. Vynútený commit pre refresh dát
     try:
+        # 1. Vynútenie "čerstvého pohľadu" na databázu
+        # Toto vyrieši problém, ak server "nevidel" nové dáta kvôli cacheovaniu spojenia
+        db_connector.execute_query("SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED", fetch='none')
         db_connector.execute_query("COMMIT", fetch='none')
-    except:
-        pass
 
-    # 2. DEBUG QUERY - Vyberieme VŠETKO (bez WHERE is_active=1)
-    q = "SELECT * FROM meat_templates ORDER BY id DESC"
-    
-    try:
+        # 2. Načítanie šablón (bez filtrovania is_active, aby sme videli aspoň niečo)
+        q = """
+            SELECT t.id, t.name, t.material_id, 
+                   COALESCE(m.name, 'Neznáma surovina') as material_name
+            FROM meat_templates t
+            LEFT JOIN meat_materials m ON m.id = t.material_id
+            ORDER BY t.id DESC
+        """
         rows = db_connector.execute_query(q)
-        
-        # Ak nastala chyba v DB (rows je None)
-        if rows is None:
-            return jsonify({"error": "Chyba databázy pri čítaní šablón (rows is None)."})
 
-        # Debug výpis do konzoly servera (uvidíte v logoch)
-        print(f"--- DEBUG list_templates: Nájdených {len(rows)} záznamov v tabuľke ---")
+        # 3. Diagnostický výpis do konzoly servera (pre istotu)
+        count = len(rows) if rows else 0
+        print(f"--- [MEAT CALC] list_templates načítal {count} záznamov. ---")
 
-        # 3. Doplníme názvy materiálov (aby frontend nepadal)
-        for row in rows:
-            mat_id = row.get('material_id')
-            row['material_name'] = 'Neznámy'
-            if mat_id:
-                m = db_connector.execute_query("SELECT name FROM meat_materials WHERE id=%s", (mat_id,), fetch='one')
-                if m: 
-                    row['material_name'] = m.get('name', '')
-
-        return jsonify(rows)
+        return jsonify(rows or [])
 
     except Exception as e:
-        print(f"!!! CRITICAL ERROR list_templates: {e}")
+        print(f"!!! CHYBA v list_templates: {e}")
         return jsonify({"error": str(e)})
     
 def get_template_details(template_id: int):
