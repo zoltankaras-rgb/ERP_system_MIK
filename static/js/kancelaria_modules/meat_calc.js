@@ -740,7 +740,7 @@ async function loadSelectedTemplate(){
     const matId = selectedOpt.getAttribute('data-material');
     if($('meat-new-material')) $('meat-new-material').value = matId;
 
-    const data = await apiM(`/api/kancelaria/meat/template/details?id=${tmplId}`);
+    const data = await apiM(`/api/kancelaria/meat/calc/template/details?id=${tmplId}`);
     if(data.error) { showStatus(data.error, true); return; }
 
     // Vyčisti tabuľku a naplň novými
