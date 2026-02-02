@@ -1038,7 +1038,7 @@ async function initTemplatesTab(){
 
 async function loadTemplatesTable(){
     // Pridaný timestamp t=... pre zabránenie cacheovaniu v prehliadači
-    const rows = await apiM('/api/kancelaria/meat/templates?t=' + Date.now());
+    const rows = await apiM('/api/kancelaria/meat/calc/templates?t=' + Date.now());
     console.log("Načítané šablóny:", rows); // Debug log
 
     const div = $('meat-templates-table');
