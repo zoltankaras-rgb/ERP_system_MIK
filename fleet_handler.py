@@ -94,7 +94,7 @@ def _format_time_cols(logs):
 # ---------------------------- vehicles -----------------------------
 
 def save_vehicle(data: dict):
-    """Insert/Update do fleet_vehicles. Vrátane STK a Diaľničnej známky."""
+    """Insert/Update do fleet_vehicles. Vrátane STK, Diaľničnej a ATP."""
     if not isinstance(data, dict):
         return {"error": "Neplatná požiadavka."}
 
@@ -106,9 +106,10 @@ def save_vehicle(data: dict):
     default_driver = (data.get("default_driver") or "").strip() or None
     initial_odo    = _to_int(data.get("initial_odometer"))
     
-    # --- NOVÉ: Dátumy ---
+    # --- NOVÉ: Dátumy (STK, Známka, ATP) ---
     stk_valid      = data.get("stk_valid_until") or None 
     vignette_valid = data.get("vignette_valid_until") or None 
+    atp_valid      = data.get("atp_valid_until") or None  # <--- NOVÉ
 
     if not license_plate or not name:
         return {"error": "Vyplňte ŠPZ a názov vozidla."}
@@ -116,7 +117,7 @@ def save_vehicle(data: dict):
         return {"error": "Počiatočný stav tachometra je povinný."}
 
     # Helper na SQL params
-    params = [license_plate, vin, name, vtype, default_driver, initial_odo, stk_valid, vignette_valid]
+    params = [license_plate, vin, name, vtype, default_driver, initial_odo, stk_valid, vignette_valid, atp_valid]
 
     if vid:
         dup = db_connector.execute_query(
@@ -129,7 +130,7 @@ def save_vehicle(data: dict):
         db_connector.execute_query(
             """UPDATE fleet_vehicles SET 
                license_plate=%s, vin=%s, name=%s, type=%s, default_driver=%s, initial_odometer=%s,
-               stk_valid_until=%s, vignette_valid_until=%s
+               stk_valid_until=%s, vignette_valid_until=%s, atp_valid_until=%s
                WHERE id=%s""",
             tuple(params + [vid]), fetch="none"
         )
@@ -144,8 +145,8 @@ def save_vehicle(data: dict):
         # INSERT
         db_connector.execute_query(
             """INSERT INTO fleet_vehicles 
-               (license_plate, vin, name, type, default_driver, initial_odometer, stk_valid_until, vignette_valid_until, is_active) 
-               VALUES (%s,%s,%s,%s,%s,%s,%s,%s, TRUE)""",
+               (license_plate, vin, name, type, default_driver, initial_odometer, stk_valid_until, vignette_valid_until, atp_valid_until, is_active) 
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s, TRUE)""",
             tuple(params), fetch="none"
         )
         rid = db_connector.execute_query("SELECT LAST_INSERT_ID() AS id", fetch="one")
@@ -209,7 +210,7 @@ def delete_vehicle(data: dict):
 
 # ------------------------------ data -------------------------------
 def get_fleet_data(vehicle_id=None, year=None, month=None):
-    """Načíta dáta a vyhodnotí notifikácie o STK/Známkach."""
+    """Načíta dáta a vyhodnotí notifikácie o STK/Známkach/ATP."""
     vehicles = db_connector.execute_query("SELECT * FROM fleet_vehicles WHERE is_active=1 ORDER BY name")
     
     # --- LOGIKA NOTIFIKÁCIÍ (Dashboard) ---
@@ -229,7 +230,7 @@ def get_fleet_data(vehicle_id=None, year=None, month=None):
                 try: return datetime.strptime(str(val), '%Y-%m-%d').date()
                 except: return None
 
-            # Kontrola STK
+            # 1. Kontrola STK
             stk = parse_d(v.get('stk_valid_until'))
             if stk:
                 if isinstance(stk, datetime): stk = stk.date()
@@ -239,7 +240,7 @@ def get_fleet_data(vehicle_id=None, year=None, month=None):
                     days = (stk - today).days
                     notifications.append(f"VOZIDLO {plate} ({name}): STK končí o {days} dní ({stk}).")
 
-            # Kontrola Známky
+            # 2. Kontrola Známky
             vig = parse_d(v.get('vignette_valid_until'))
             if vig:
                 if isinstance(vig, datetime): vig = vig.date()
@@ -248,6 +249,16 @@ def get_fleet_data(vehicle_id=None, year=None, month=None):
                 elif vig <= warning_limit:
                     days = (vig - today).days
                     notifications.append(f"VOZIDLO {plate} ({name}): Diaľničná známka končí o {days} dní ({vig}).")
+
+            # 3. Kontrola ATP (NOVÉ)
+            atp = parse_d(v.get('atp_valid_until'))
+            if atp:
+                if isinstance(atp, datetime): atp = atp.date()
+                if atp < today:
+                    notifications.append(f"VOZIDLO {plate} ({name}): ATP EXPIROVALA dňa {atp}!")
+                elif atp <= warning_limit:
+                    days = (atp - today).days
+                    notifications.append(f"VOZIDLO {plate} ({name}): ATP končí o {days} dní ({atp}).")
 
     # --- Pôvodná logika pre logs/refuelings ---
     if not vehicle_id and vehicles:
@@ -305,7 +316,7 @@ def get_fleet_data(vehicle_id=None, year=None, month=None):
       "refuelings": refuelings,
       "last_odometer": last_odo,
       "last_driver": last_driver,
-      "notifications": notifications  # <--- TOTO JE DÔLEŽITÉ PRE DASHBOARD
+      "notifications": notifications
     }
 def get_data(vehicle_id=None, year=None, month=None):
     return get_fleet_data(vehicle_id, year, month)

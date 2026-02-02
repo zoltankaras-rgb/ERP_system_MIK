@@ -1177,7 +1177,6 @@ function handleDeleteCost(costId) {
 // =================== VOZIDLÁ: Nové / Upraviť ===================
 function openAddEditVehicleModal(vehicleId) {
   showModal(vehicleId ? 'Upraviť vozidlo' : 'Pridať nové vozidlo', function () {
-    // Načítame HTML z templatu (ktorý už musí obsahovať input pre VIN a dátumy)
     var html = document.getElementById('vehicle-modal-template').innerHTML;
     
     return {
@@ -1185,7 +1184,6 @@ function openAddEditVehicleModal(vehicleId) {
       onReady: function () {
         var form = document.getElementById('vehicle-form');
 
-        // Ak editujeme existujúce vozidlo, naplníme formulár
         if (vehicleId) {
           var v = (fleetState.vehicles || []).find(function(x) { 
             return String(x.id) === String(vehicleId); 
@@ -1194,26 +1192,19 @@ function openAddEditVehicleModal(vehicleId) {
           if (v) {
             form.elements.id.value = v.id;
             form.elements.license_plate.value = v.license_plate || '';
-            
-            // --- VIN ---
-            if (form.elements.vin) {
-                form.elements.vin.value = v.vin || ''; 
-            }
+            if (form.elements.vin) form.elements.vin.value = v.vin || ''; 
 
-            // --- NOVÉ: Načítanie dátumov pre STK a Známku ---
-            // Musíme dátum orezať na formát YYYY-MM-DD pre input type="date"
+            // --- Načítanie dátumov (STK, Známka, ATP) ---
             const formatDate = (d) => {
                 if (!d) return '';
                 try { return new Date(d).toISOString().split('T')[0]; } catch(e){ return ''; }
             };
 
-            if (form.elements.stk_valid_until) {
-                form.elements.stk_valid_until.value = formatDate(v.stk_valid_until);
-            }
-            if (form.elements.vignette_valid_until) {
-                form.elements.vignette_valid_until.value = formatDate(v.vignette_valid_until);
-            }
-            // ------------------------------------------------
+            if (form.elements.stk_valid_until) form.elements.stk_valid_until.value = formatDate(v.stk_valid_until);
+            if (form.elements.vignette_valid_until) form.elements.vignette_valid_until.value = formatDate(v.vignette_valid_until);
+            // NOVÉ:
+            if (form.elements.atp_valid_until) form.elements.atp_valid_until.value = formatDate(v.atp_valid_until);
+            // ---------------------------------------------
 
             form.elements.name.value = v.name || '';
             form.elements.type.value = v.type || '';
@@ -1222,39 +1213,25 @@ function openAddEditVehicleModal(vehicleId) {
           }
         }
 
-        // Odoslanie formulára
         form.onsubmit = async function (e) {
           e.preventDefault();
-          
-          // Získanie dát z formulára
           const fd = new FormData(form);
           const data = Object.fromEntries(fd.entries());
 
           try {
-            // Vizuálna odozva - disable tlačidla
             const btn = form.querySelector('button[type="submit"]');
-            if(btn) {
-                btn.disabled = true;
-                btn.textContent = 'Ukladám...';
-            }
+            if(btn) { btn.disabled = true; btn.textContent = 'Ukladám...'; }
 
-            // Odoslanie na server
             await apiRequest('/api/kancelaria/fleet/saveVehicle', { method: 'POST', body: data });
             
-            // Zatvorenie modálu a reload dát
             document.getElementById('modal-container').style.display = 'none';
             loadAndRenderFleetData(true);
             
           } catch (err) { 
             console.error(err);
             alert('Chyba pri ukladaní vozidla: ' + (err.message || 'Neznáma chyba'));
-            
-            // Vrátenie tlačidla do pôvodného stavu
             const btn = form.querySelector('button[type="submit"]');
-            if(btn) {
-                btn.disabled = false;
-                btn.textContent = 'Uložiť vozidlo';
-            }
+            if(btn) { btn.disabled = false; btn.textContent = 'Uložiť vozidlo'; }
           }
         };
       }
@@ -1711,8 +1688,7 @@ async function runVehicleTimelineComparison(){
   function ensureFleetTemplates() {
     var mount = document.body || document.documentElement;
 
-    // --- 1. Šablóna pre VOZIDLO (STK / Známka) ---
-    // Nájde existujúci element alebo vytvorí nový
+    // --- 1. Šablóna pre VOZIDLO ---
     var t1 = document.getElementById('vehicle-modal-template');
     if (!t1) {
       t1 = document.createElement('template');
@@ -1720,7 +1696,7 @@ async function runVehicleTimelineComparison(){
       mount.appendChild(t1);
     }
     
-    // VŽDY PREPÍŠ OBSAH (Force Update) - aby sa zobrazili nové polia
+    // VŽDY PREPÍŠ OBSAH
     t1.innerHTML = `
       <form id="vehicle-form">
         <input type="hidden" name="id">
@@ -1746,6 +1722,10 @@ async function runVehicleTimelineComparison(){
               <div class="form-group">
                 <label style="color:#856404; font-weight:bold;">Diaľničná známka do:</label>
                 <input type="date" name="vignette_valid_until">
+              </div>
+              <div class="form-group">
+                <label style="color:#856404; font-weight:bold;">ATP certifikát do:</label>
+                <input type="date" name="atp_valid_until">
               </div>
           </div>
           <small style="color:#856404;">Keď sa termín priblíži (30 dní), systém zobrazí upozornenie.</small>
@@ -1813,13 +1793,11 @@ async function runVehicleTimelineComparison(){
       </form>`;
   }
 
-  // Spustíme hneď
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', ensureFleetTemplates);
   } else {
     ensureFleetTemplates();
   }
-  // Export pre istotu
   window.ensureFleetTemplates = ensureFleetTemplates;
 })();
 // === Append AdBlue rows into analysis table if available ===
