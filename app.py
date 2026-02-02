@@ -4223,7 +4223,6 @@ def meat_report_supplier_product_api():
 @app.route('/api/kancelaria/meat/templates', methods=['GET'])
 @login_required(role='kancelaria')
 def meat_templates_list_api():
-    # Prepojíme požiadavku priamo na náš upravený handler
     return meat_calc_handler.list_templates()
     
 
