@@ -199,15 +199,18 @@ def delete_breakdown(breakdown_id: int):
 # =================================================================
 def list_templates():
     """
-    Vráti zoznam šablón s vynúteným čerstvým čítaním (READ COMMITTED).
+    Vráti zoznam šablón. Ak je prázdny, vráti diagnostický riadok s názvom DB.
     """
     try:
-        # 1. Vynútenie "čerstvého pohľadu" na databázu
-        # Toto vyrieši problém, ak server "nevidel" nové dáta kvôli cacheovaniu spojenia
-        db_connector.execute_query("SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED", fetch='none')
+        # 1. Refresh
         db_connector.execute_query("COMMIT", fetch='none')
 
-        # 2. Načítanie šablón (bez filtrovania is_active, aby sme videli aspoň niečo)
+        # 2. Zistenie info o pripojení
+        info = db_connector.execute_query("SELECT DATABASE() as d, USER() as u", fetch='one')
+        db_name = info['d'] if info else 'Neznáma DB'
+        db_user = info['u'] if info else 'Neznámy user'
+
+        # 3. Načítanie šablón
         q = """
             SELECT t.id, t.name, t.material_id, 
                    COALESCE(m.name, 'Neznáma surovina') as material_name
@@ -215,18 +218,22 @@ def list_templates():
             LEFT JOIN meat_materials m ON m.id = t.material_id
             ORDER BY t.id DESC
         """
-        rows = db_connector.execute_query(q)
+        rows = db_connector.execute_query(q) or []
 
-        # 3. Diagnostický výpis do konzoly servera (pre istotu)
-        count = len(rows) if rows else 0
-        print(f"--- [MEAT CALC] list_templates načítal {count} záznamov. ---")
+        # 4. AK JE ZOZNAM PRÁZDNY -> DIAGNOSTIKA
+        # Toto sa vám zobrazí priamo v tabuľke na webe namiesto šablón
+        if not rows:
+            return jsonify([{
+                "id": 0,
+                "name": f"⚠️ DEBUG: Som pripojený k DB: '{db_name}' (User: {db_user})",
+                "material_name": "Žiadne dáta v tejto DB",
+                "material_id": 0
+            }])
 
-        return jsonify(rows or [])
+        return jsonify(rows)
 
     except Exception as e:
-        print(f"!!! CHYBA v list_templates: {e}")
         return jsonify({"error": str(e)})
-    
 def get_template_details(template_id: int):
     """
     Načíta detaily šablóny.
