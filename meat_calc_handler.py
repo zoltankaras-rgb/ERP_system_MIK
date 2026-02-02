@@ -197,43 +197,44 @@ def delete_breakdown(breakdown_id: int):
 # =================================================================
 # === ŠABLÓNY ROZRÁBKY (TEMPLATES) - MAXIMUM FORCE REFRESH ========
 # =================================================================
-
 def list_templates():
-    """Vráti zoznam šablón s totálnym ošetrením chýb."""
-    # 1. Vynútený commit na vymazanie cache transakcie (pre MySQL na Ubuntu kritické)
+    """
+    DEBUG VERZIA: Zobrazí všetky šablóny bez ohľadu na is_active.
+    """
+    # 1. Vynútený commit pre refresh dát
     try:
         db_connector.execute_query("COMMIT", fetch='none')
     except:
         pass
 
-    # 2. Skúsime najprv najjednoduchší možný dopyt bez JOINOV
-    # Ak toto vráti dáta, tak chyba je v prepojení na meat_materials
-    q_simple = "SELECT id, name, material_id FROM meat_templates WHERE is_active = 1"
+    # 2. DEBUG QUERY - Vyberieme VŠETKO (bez WHERE is_active=1)
+    q = "SELECT * FROM meat_templates ORDER BY id DESC"
     
     try:
-        rows = db_connector.execute_query(q_simple)
+        rows = db_connector.execute_query(q)
         
-        # Ak by rows bolo None, zmeníme ho na prázdny list
-        if not rows:
-            rows = []
-            
-        # 3. Ručne skúsime priradiť názvy materiálov, aby sme sa vyhli JOINu, ktorý by mohol riadky zahodiť
+        # Ak nastala chyba v DB (rows je None)
+        if rows is None:
+            return jsonify({"error": "Chyba databázy pri čítaní šablón (rows is None)."})
+
+        # Debug výpis do konzoly servera (uvidíte v logoch)
+        print(f"--- DEBUG list_templates: Nájdených {len(rows)} záznamov v tabuľke ---")
+
+        # 3. Doplníme názvy materiálov (aby frontend nepadal)
         for row in rows:
             mat_id = row.get('material_id')
-            row['material_name'] = 'Neznáma surovina' # Default
+            row['material_name'] = 'Neznámy'
             if mat_id:
-                mat_res = db_connector.execute_query("SELECT name FROM meat_materials WHERE id=%s", (mat_id,), fetch='one')
-                if mat_res:
-                    row['material_name'] = mat_res.get('name', 'Neznáma surovina')
+                m = db_connector.execute_query("SELECT name FROM meat_materials WHERE id=%s", (mat_id,), fetch='one')
+                if m: 
+                    row['material_name'] = m.get('name', '')
 
-        # Debug print pre journalctl -u erp -f
-        print(f"\n[API DEBUG] list_templates vraciam: {len(rows)} riadkov\n")
-        
         return jsonify(rows)
-        
+
     except Exception as e:
-        print(f"\n[API ERROR] Chyba v list_templates: {str(e)}\n")
+        print(f"!!! CRITICAL ERROR list_templates: {e}")
         return jsonify({"error": str(e)})
+    
 def get_template_details(template_id: int):
     """
     Načíta detaily šablóny.

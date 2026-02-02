@@ -132,8 +132,9 @@ def execute_query(query, params=None, fetch="all"):
             return row
 
         elif fetch == "lastrowid":
+            lid = cur.lastrowid
             conn.commit()
-            return cur.lastrowid
+            return lid
 
         else:  # fetch is None, "none", alebo čokoľvek iné = bez výsledku
             conn.commit()
