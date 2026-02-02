@@ -324,13 +324,30 @@ def save_template(data):
 
     return {"message": "Šablóna uložená."}
 def delete_template(data):
-    """Soft delete šablóny."""
-    tid = data.get('id')
-    if tid:
-        db_connector.execute_query("UPDATE meat_templates SET is_active=0 WHERE id=%s", (int(tid),), fetch='none')
-        try: db_connector.execute_query("COMMIT", fetch='none')
-        except: pass
-    return {"message": "Šablóna zmazaná."}
+    """
+    Zmaže šablónu a jej položky z databázy.
+    """
+    try:
+        # 1. Získame ID z prichádzajúcich dát
+        t_id = data.get('id')
+        if not t_id:
+            return jsonify({"error": "Chýba ID šablóny."}), 400
+
+        # 2. Zmažeme najprv položky šablóny (aby nezostali "siroty")
+        # Predpokladám názov tabuľky 'meat_template_items' podľa logiky. 
+        # Ak sa volá inak, upravte to. Ak nemáte položky, tento riadok vymažte.
+        db_connector.execute_query("DELETE FROM meat_template_items WHERE template_id = %s", (t_id,), fetch='none')
+
+        # 3. Zmažeme samotnú šablónu (hlavičku)
+        db_connector.execute_query("DELETE FROM meat_templates WHERE id = %s", (t_id,), fetch='none')
+
+        # 4. POTVRDENIE ZMENY (Veľmi dôležité!)
+        db_connector.execute_query("COMMIT", fetch='none')
+
+        return jsonify({"message": "Šablóna bola úspešne zmazaná."})
+
+    except Exception as e:
+        return jsonify({"error": f"Chyba pri mazaní: {str(e)}"}), 500
 
 # ---------- PRICE LOCKS (zamknuté ceny po prvom zázname) ----------
 def _ensure_price_locks(material_id:int, outputs:List[Dict[str,Any]]):

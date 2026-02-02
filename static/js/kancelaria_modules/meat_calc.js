@@ -1612,7 +1612,26 @@ async function runEstimate(){
   `;
   box.innerHTML = html;
 }
+async function deleteTemplate(id) {
+    if (!confirm('Naozaj chcete zmazať túto šablónu?')) return;
 
+    try {
+        // TU MUSÍ BYŤ NOVÁ ADRESA S /calc/
+        const response = await apiM('/api/kancelaria/meat/calc/template/delete', {
+            id: id  // Posielame ID
+        });
+
+        if (response.error) {
+            alert('Chyba: ' + response.error);
+        } else {
+            // alert('Zmazané.'); // Voliteľné
+            loadTemplates(); // Obnovíme tabuľku, aby zmizol riadok
+        }
+    } catch (e) {
+        console.error(e);
+        alert('Nepodarilo sa spojiť so serverom.');
+    }
+}
 // =================================================================
 // AUTO-REGISTER
 // =================================================================
