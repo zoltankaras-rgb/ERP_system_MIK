@@ -4220,7 +4220,7 @@ def meat_report_supplier_product_api():
 # =================================================================
 # === NOVÉ ROUTY PRE ŠABLÓNY -Meat calc (Templates) ==========================
 # =================================================================
-@app.route('/api/kancelaria/meat/templates', methods=['GET'])
+@app.route('/api/kancelaria/meat/templates_TEST', methods=['GET'])
 @login_required(role='kancelaria')
 def meat_templates_list_api():
     # PRIAMA INJEKCIA DO APP.PY (Obchádzame handler)
