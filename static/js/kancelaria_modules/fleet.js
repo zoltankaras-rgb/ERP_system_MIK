@@ -1706,98 +1706,122 @@ async function runVehicleTimelineComparison(){
   }
 }
 
-// =================== AUTO-INJECT TEMPLATES ===================
+// =================== AUTO-INJECT TEMPLATES (VYNÚTENÁ AKTUALIZÁCIA) ===================
 (function () {
   function ensureFleetTemplates() {
     var mount = document.body || document.documentElement;
 
-    if (!document.getElementById('vehicle-modal-template')) {
-      var t1 = document.createElement('template');
+    // --- 1. Šablóna pre VOZIDLO (STK / Známka) ---
+    // Nájde existujúci element alebo vytvorí nový
+    var t1 = document.getElementById('vehicle-modal-template');
+    if (!t1) {
+      t1 = document.createElement('template');
       t1.id = 'vehicle-modal-template';
-      t1.innerHTML = `
-        <form id="vehicle-form">
-          <input type="hidden" name="id">
-          <div class="form-grid">
-            <div class="form-group">
-              <label>ŠPZ *</label>
-              <input type="text" name="license_plate" required>
-            </div>
-            <div class="form-group">
-              <label>VIN (Povinné od 2026)</label>
-              <input type="text" name="vin" placeholder="XXXXXXXXXXXXXXXXX">
-            </div>
-          </div>
-          <div class="form-group">
-            <label>Názov vozidla</label>
-            <input type="text" name="name" required>
-          </div>
-          <div class="form-group">
-            <label>Typ vozidla</label>
-            <input type="text" name="type" placeholder="dodávka / osobné / …">
-          </div>
-          <div class="form-group">
-            <label>Predvolený šofér</label>
-            <input type="text" name="default_driver">
-          </div>
-          <div class="form-group">
-            <label>Počiatočný stav tachometra</label>
-            <input type="number" name="initial_odometer" step="1" required>
-          </div>
-          <button type="submit" class="btn btn-success w-full">Uložiť vozidlo</button>
-        </form>`;
       mount.appendChild(t1);
     }
+    
+    // VŽDY PREPÍŠ OBSAH (Force Update) - aby sa zobrazili nové polia
+    t1.innerHTML = `
+      <form id="vehicle-form">
+        <input type="hidden" name="id">
+        
+        <div class="form-grid">
+          <div class="form-group">
+            <label>ŠPZ *</label>
+            <input type="text" name="license_plate" required>
+          </div>
+          <div class="form-group">
+            <label>VIN (Povinné od 2026)</label>
+            <input type="text" name="vin" placeholder="XXXXXXXXXXXXXXXXX">
+          </div>
+        </div>
 
-    if (!document.getElementById('refueling-modal-template')) {
-      var t2 = document.createElement('template');
-      t2.id = 'refueling-modal-template';
-      t2.innerHTML = `
-        <form id="refueling-form">
-          <input type="hidden" name="vehicle_id">
-          <div class="form-group">
-            <label>Dátum tankovania</label>
-            <input type="date" name="refueling_date" required>
-          </div>
-          <div class="form-group">
-            <label>Šofér</label>
-            <input type="text" name="driver">
-          </div>
-          <div class="form-group">
-            <label>Typ paliva</label>
-            <select name="fuel_type">
-              <option value="DIESEL" selected>Nafta</option>
-              <option value="ADBLUE">AdBlue</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label>Litrov</label>
-            <input type="number" name="liters" step="0.01" required>
-          </div>
+        <div style="background:#fff3cd; padding:15px; border-radius:6px; margin-bottom:15px; border:1px solid #ffeeba;">
+          <h4 style="margin-top:0; color:#856404; font-size:1rem; margin-bottom:10px;">Termíny (Upozornenia)</h4>
           <div class="form-grid">
-            <div class="form-group">
-              <label>Cena za liter (€)</label>
-              <input type="number" name="price_per_liter" step="0.001" placeholder="napr. 1.629">
-            </div>
-            <div class="form-group">
-              <label>Cena celkom (€)</label>
-              <input type="number" name="total_price" step="0.01" placeholder="ak nevyplníš, dopočíta sa">
-            </div>
+              <div class="form-group">
+                <label style="color:#856404; font-weight:bold;">Platnosť STK do:</label>
+                <input type="date" name="stk_valid_until">
+              </div>
+              <div class="form-group">
+                <label style="color:#856404; font-weight:bold;">Diaľničná známka do:</label>
+                <input type="date" name="vignette_valid_until">
+              </div>
           </div>
-          <p class="b2c-row-meta">Tip: keď vyplníš <em>Cena/L</em>, <strong>Cena celkom</strong> dopočíta server.</p>
-          <button type="submit" class="btn btn-success w-full">Uložiť záznam</button>
-        </form>`;
+          <small style="color:#856404;">Keď sa termín priblíži (30 dní), systém zobrazí upozornenie.</small>
+        </div>
+        <div class="form-group">
+          <label>Názov vozidla</label>
+          <input type="text" name="name" required>
+        </div>
+        <div class="form-group">
+          <label>Typ vozidla</label>
+          <input type="text" name="type" placeholder="dodávka / osobné / …">
+        </div>
+        <div class="form-group">
+          <label>Predvolený šofér</label>
+          <input type="text" name="default_driver">
+        </div>
+        <div class="form-group">
+          <label>Počiatočný stav tachometra</label>
+          <input type="number" name="initial_odometer" step="1" required>
+        </div>
+        <button type="submit" class="btn btn-success w-full">Uložiť vozidlo</button>
+      </form>`;
+
+    // --- 2. Šablóna pre TANKOVANIE ---
+    var t2 = document.getElementById('refueling-modal-template');
+    if (!t2) {
+      t2 = document.createElement('template');
+      t2.id = 'refueling-modal-template';
       mount.appendChild(t2);
     }
+    t2.innerHTML = `
+      <form id="refueling-form">
+        <input type="hidden" name="vehicle_id">
+        <div class="form-group">
+          <label>Dátum tankovania</label>
+          <input type="date" name="refueling_date" required>
+        </div>
+        <div class="form-group">
+          <label>Šofér</label>
+          <input type="text" name="driver">
+        </div>
+        <div class="form-group">
+          <label>Typ paliva</label>
+          <select name="fuel_type">
+            <option value="DIESEL" selected>Nafta</option>
+            <option value="ADBLUE">AdBlue</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Litrov</label>
+          <input type="number" name="liters" step="0.01" required>
+        </div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Cena za liter (€)</label>
+            <input type="number" name="price_per_liter" step="0.001" placeholder="napr. 1.629">
+          </div>
+          <div class="form-group">
+            <label>Cena celkom (€)</label>
+            <input type="number" name="total_price" step="0.01" placeholder="ak nevyplníš, dopočíta sa">
+          </div>
+        </div>
+        <p class="b2c-row-meta">Tip: keď vyplníš <em>Cena/L</em>, <strong>Cena celkom</strong> dopočíta server.</p>
+        <button type="submit" class="btn btn-success w-full">Uložiť záznam</button>
+      </form>`;
   }
 
+  // Spustíme hneď
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', ensureFleetTemplates, { once: true });
+    document.addEventListener('DOMContentLoaded', ensureFleetTemplates);
   } else {
     ensureFleetTemplates();
   }
+  // Export pre istotu
   window.ensureFleetTemplates = ensureFleetTemplates;
 })();
-
 // === Append AdBlue rows into analysis table if available ===
 try{
   const ana = window.fleetState && window.fleetState.analysis;
