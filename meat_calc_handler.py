@@ -1,6 +1,7 @@
 # =================================================================
 # === HANDLER: KALKULÁTOR ROZRÁBKY MÄSA ===========================
 # =================================================================
+TOTO_MUSI_PADNUT_XYZ
 from datetime import datetime
 from typing import List, Dict, Any, Tuple, Optional
 import io
