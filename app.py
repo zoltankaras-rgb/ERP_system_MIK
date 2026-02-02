@@ -4223,8 +4223,44 @@ def meat_report_supplier_product_api():
 @app.route('/api/kancelaria/meat/templates', methods=['GET'])
 @login_required(role='kancelaria')
 def meat_templates_list_api():
-    return meat_calc_handler.list_templates()
+    # PRIAMA INJEKCIA DO APP.PY (Obchádzame handler)
+    import db_connector
     
+    # 1. Skúsme najprv vrátiť natvrdo testovaciu správu
+    # Ak uvidíte toto v tabuľke, vieme, že ovládame app.py
+    # Potom tento riadok vymažeme a necháme bežať SQL nižšie
+    # return jsonify([{"id": 999, "name": "!!! TEST PRIAMO Z APP.PY !!!", "material_name": "Funguje to", "material_id": 0}])
+
+    try:
+        # Refresh DB
+        db_connector.execute_query("COMMIT", fetch='none')
+        
+        # SQL Dotaz
+        q = """
+            SELECT t.id, t.name, t.material_id, 
+                   COALESCE(m.name, 'Neznáma surovina') as material_name
+            FROM meat_templates t
+            LEFT JOIN meat_materials m ON m.id = t.material_id
+            ORDER BY t.id DESC
+        """
+        rows = db_connector.execute_query(q)
+        
+        if not rows:
+            # Ak je prázdne, vrátime DEBUG info
+            info = db_connector.execute_query("SELECT DATABASE() as d", fetch='one')
+            db_name = info['d'] if info else 'Unknown'
+            return jsonify([{
+                "id": 0, 
+                "name": f"⚠️ DEBUG APP.PY: DB='{db_name}'", 
+                "material_name": "Žiadne dáta", 
+                "material_id": 0
+            }])
+            
+        return jsonify(rows)
+        
+    except Exception as e:
+        print(f"CHYBA V APP.PY: {e}")
+        return jsonify([{"id": 0, "name": f"CHYBA: {str(e)}", "material_name": "Error", "material_id": 0}])
 
 
 @app.get('/api/kancelaria/meat/template/details', endpoint='meat_template_details_api')
