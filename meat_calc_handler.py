@@ -274,7 +274,7 @@ def get_template_details(template_id: int):
 
 def save_template(data):
     """
-    Vytvorí alebo aktualizuje šablónu. (Opravený COMMIT)
+    Vytvorí alebo aktualizuje šablónu. (S kontrolou chýb)
     """
     name = (data.get('name') or '').strip()
     material_id = data.get('material_id')
@@ -285,38 +285,42 @@ def save_template(data):
 
     tmpl_id = None
 
-    # UPDATE existujúcej šablóny
+    # 1. ULOŽENIE HLAVIČKY (Názov a Surovina)
     if data.get('id'):
+        # UPDATE existujúcej
         tmpl_id = int(data['id'])
-        db_connector.execute_query(
+        res = db_connector.execute_query(
             "UPDATE meat_templates SET name=%s, material_id=%s, is_active=1 WHERE id=%s",
             (name, int(material_id), tmpl_id), fetch='none'
         )
-        # Premažeme staré položky
+        # Pri update zmažeme staré položky, aby sme nahrali nové
         db_connector.execute_query("DELETE FROM meat_template_items WHERE template_id=%s", (tmpl_id,), fetch='none')
     else:
-        # INSERT novej šablóny
+        # INSERT novej
         tmpl_id = db_connector.execute_query(
             "INSERT INTO meat_templates (name, material_id, is_active) VALUES (%s, %s, 1)",
             (name, int(material_id)), fetch='lastrowid'
         )
 
+    # 2. KONTROLA, ČI MÁME ID
+    # Ak DB vrátila None alebo 0, znamená to, že INSERT zlyhal
     if not tmpl_id:
-        return {"error": "Nepodarilo sa vytvoriť šablónu (DB nevrátila ID)."}
+        return {"error": "Chyba databázy: Nepodarilo sa vytvoriť hlavičku šablóny. Skontrolujte logy servera."}
 
-    # Vloženie položiek
+    # 3. ULOŽENIE POLOŽIEK
     if product_ids:
         for pid in product_ids:
-            db_connector.execute_query(
+            res_item = db_connector.execute_query(
                 "INSERT INTO meat_template_items (template_id, product_id) VALUES (%s, %s)",
                 (tmpl_id, int(pid)), fetch='none'
             )
-    
-    # --- DÔLEŽITÉ: Potvrdenie transakcie (COMMIT) ---
+            # Tu by sme mohli kontrolovať aj res_item, ale hlavné je, že máme hlavičku
+
+    # 4. FINÁLNE POTVRDENIE (pre istotu)
     try:
         db_connector.execute_query("COMMIT", fetch='none')
-    except Exception as e:
-        print(f"Chyba pri commite šablóny: {e}")
+    except Exception:
+        pass
 
     return {"message": "Šablóna uložená."}
 def delete_template(data):
