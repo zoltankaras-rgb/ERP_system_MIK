@@ -4220,67 +4220,38 @@ def meat_report_supplier_product_api():
 # =================================================================
 # === NOVÉ ROUTY PRE ŠABLÓNY -Meat calc (Templates) ==========================
 # =================================================================
-@app.route('/api/kancelaria/meat/templates_TEST', methods=['GET'])
+# 1. ZOZNAM ŠABLÓN
+# Pôvodne: /api/kancelaria/meat/templates
+# Nové:    /api/kancelaria/meat/calc/templates
+@app.route('/api/kancelaria/meat/calc/templates', methods=['GET'])
 @login_required(role='kancelaria')
-def meat_templates_list_api():
-    # PRIAMA INJEKCIA DO APP.PY (Obchádzame handler)
-    import db_connector
-    
-    # 1. Skúsme najprv vrátiť natvrdo testovaciu správu
-    # Ak uvidíte toto v tabuľke, vieme, že ovládame app.py
-    # Potom tento riadok vymažeme a necháme bežať SQL nižšie
-    # return jsonify([{"id": 999, "name": "!!! TEST PRIAMO Z APP.PY !!!", "material_name": "Funguje to", "material_id": 0}])
+def meat_calc_templates_list_api():
+    # Tu volajte váš handler (alebo kód, ktorý tam máte teraz)
+    return meat_calc_handler.list_templates()
 
-    try:
-        # Refresh DB
-        db_connector.execute_query("COMMIT", fetch='none')
-        
-        # SQL Dotaz
-        q = """
-            SELECT t.id, t.name, t.material_id, 
-                   COALESCE(m.name, 'Neznáma surovina') as material_name
-            FROM meat_templates t
-            LEFT JOIN meat_materials m ON m.id = t.material_id
-            ORDER BY t.id DESC
-        """
-        rows = db_connector.execute_query(q)
-        
-        if not rows:
-            # Ak je prázdne, vrátime DEBUG info
-            info = db_connector.execute_query("SELECT DATABASE() as d", fetch='one')
-            db_name = info['d'] if info else 'Unknown'
-            return jsonify([{
-                "id": 0, 
-                "name": f"⚠️ DEBUG APP.PY: DB='{db_name}'", 
-                "material_name": "Žiadne dáta", 
-                "material_id": 0
-            }])
-            
-        return jsonify(rows)
-        
-    except Exception as e:
-        print(f"CHYBA V APP.PY: {e}")
-        return jsonify([{"id": 0, "name": f"CHYBA: {str(e)}", "material_name": "Error", "material_id": 0}])
-
-
-@app.get('/api/kancelaria/meat/template/details', endpoint='meat_template_details_api')
+# 2. DETAIL ŠABLÓNY
+# Pôvodne: /api/kancelaria/meat/template/details
+# Nové:    /api/kancelaria/meat/calc/template/details
+@app.get('/api/kancelaria/meat/calc/template/details', endpoint='meat_calc_template_details_api')
 @login_required(role='kancelaria')
-def meat_template_details_api():
-    """Detail konkrétnej šablóny (položky + ceny) pre predvyplnenie."""
+def meat_calc_template_details_api():
     tid = request.args.get('id', type=int)
     return meat_calc_handler.get_template_details(tid)
 
-@app.post('/api/kancelaria/meat/template/save', endpoint='meat_template_save_api')
+# 3. ULOŽENIE ŠABLÓNY
+# Pôvodne: /api/kancelaria/meat/template/save
+# Nové:    /api/kancelaria/meat/calc/template/save
+@app.post('/api/kancelaria/meat/calc/template/save', endpoint='meat_calc_template_save_api')
 @login_required(role='kancelaria')
-def meat_template_save_api():
-    """Vytvorenie alebo úprava šablóny."""
+def meat_calc_template_save_api():
     return handle_request(meat_calc_handler.save_template, request.json)
 
-@app.post('/api/kancelaria/meat/template/delete', endpoint='meat_template_delete_api')
+# 4. ZMAZANIE ŠABLÓNY
+# Pôvodne: /api/kancelaria/meat/template/delete
+# Nové:    /api/kancelaria/meat/calc/template/delete
+@app.post('/api/kancelaria/meat/calc/template/delete', endpoint='meat_calc_template_delete_api')
 @login_required(role='kancelaria')
-def meat_template_delete_api():
-    """Zmazanie šablóny."""
-    # Posielame celé JSON data, lebo handler očakáva dict s kľúčom 'id'
+def meat_calc_template_delete_api():
     return handle_request(meat_calc_handler.delete_template, request.json)
 # =================================================================
 # === HYGIENE (Kancelária) - KOMPLETNÁ SEKCIA ===

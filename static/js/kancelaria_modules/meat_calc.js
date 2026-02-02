@@ -716,7 +716,7 @@ async function fillProductsDatalist(){
 
 // --- Šablóny v New Breakdown ---
 async function loadTemplatesDropdown(){
-    const rows = await apiM('/api/kancelaria/meat/templates?t=' + Date.now());
+    const rows = await apiM('/api/kancelaria/meat/calc/templates?t=' + Date.now());
     console.log("Odpoveď zo servera:", rows); // Ak je tu [], tak Python nič nenašiel
     
     const sel = document.getElementById('meat-template-select');
@@ -1074,7 +1074,7 @@ window.openTemplateModal = async function(id=null){
     let tmpl = null;
     let items = [];
     if(id){
-        const detail = await apiM('/api/kancelaria/meat/template/details?id='+id);
+        const detail = await apiM('/api/kancelaria/meat/calc/template/details?id='+id);
         if(!detail.error){ tmpl = detail.template; items = detail.items || []; }
     }
 
@@ -1163,7 +1163,7 @@ window.submitTemplate = async function(id){
     if(!name || !product_ids.length){ alert("Vyplň názov a pridaj produkty."); return; }
 
     try {
-        const res = await apiM('/api/kancelaria/meat/template/save', {
+        const res = await apiM('/api/kancelaria/meat/calc/template/save', {
             method: 'POST', body: { id: id === 'null' ? null : id, name, material_id, product_ids }
         });
 
@@ -1192,7 +1192,7 @@ window.submitTemplate = async function(id){
 
 window.deleteTemplate = async function(id){
     if(!confirm("Zmazať šablónu?")) return;
-    await apiM('/api/kancelaria/meat/template/delete', { method:'POST', body: {id} });
+    await apiM('/api/kancelaria/meat/calc/template/delete', { method:'POST', body: {id} });
     loadTemplatesTable();
     loadTemplatesDropdown();
 };
