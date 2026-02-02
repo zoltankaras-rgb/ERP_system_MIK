@@ -468,6 +468,7 @@ async function _doDeleteDayLogs(dateISO, confirmText){
 
 
 async function loadAndRenderFleetData(initialLoad) {
+  // 1. Synchronizácia filtrov z UI do premenných
   _syncVehicleFromUI();
   _syncPeriodFromUI();
 
@@ -475,28 +476,34 @@ async function loadAndRenderFleetData(initialLoad) {
   const yearSelect    = document.getElementById('fleet-year-select');
   const monthSelect   = document.getElementById('fleet-month-select');
 
+  // Získame aktuálne vybrané hodnoty
   var vehicleId = vehicleSelect && vehicleSelect.value ? vehicleSelect.value : (fleetState.selected_vehicle_id || '');
   var period = _syncPeriodFromUI();
   var year = period.year, month = period.month;
 
   try {
+    // 2. Načítanie dát zo servera (vrátane notifications)
     const url  = '/api/kancelaria/fleet/getData?vehicle_id=' + (vehicleId || '') + '&year=' + year + '&month=' + month;
     const data = await apiRequest(url);
 
+    // 3. Uloženie do globálneho stavu
     Object.assign(fleetState, data);
     window.fleetState = fleetState;
 
+    // =================================================================
     // --- DASHBOARD: Zobrazenie upozornení (STK / Známka) ---
+    // =================================================================
     const container = document.getElementById('section-fleet');
-    // Najprv odstránime starý alert, ak existuje
+    
+    // Odstránime starý alert, aby sa nekopil
     const oldAlert = document.getElementById('fleet-expiry-alert');
     if (oldAlert) oldAlert.remove();
 
-    // Ak máme notifikácie, vytvoríme nový alert box
+    // Ak server poslal nejaké notifikácie, zobrazíme ich
     if (data.notifications && data.notifications.length > 0) {
         const alertBox = document.createElement('div');
         alertBox.id = 'fleet-expiry-alert';
-        // Výrazný červený štýl pre dashboard
+        // Štýl pre výrazný červený box
         alertBox.style.cssText = "background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; padding: 15px; margin-bottom: 20px; border-radius: 8px; font-size: 1.1em; box-shadow: 0 2px 5px rgba(0,0,0,0.1);";
         
         let html = '<strong><i class="fas fa-exclamation-circle"></i> POZOR – Končiace termíny:</strong><ul style="margin: 10px 0 0 20px;">';
@@ -506,7 +513,7 @@ async function loadAndRenderFleetData(initialLoad) {
         html += '</ul>';
         alertBox.innerHTML = html;
         
-        // Vložíme alert hneď pod nadpis (alebo na začiatok, ak nadpis nenájde)
+        // Vložíme alert hneď pod nadpis (h3), alebo na začiatok kontajnera
         const heading = container.querySelector('h3');
         if (heading) {
             heading.insertAdjacentElement('afterend', alertBox);
@@ -514,22 +521,27 @@ async function loadAndRenderFleetData(initialLoad) {
             container.insertBefore(alertBox, container.firstChild);
         }
     }
-    // -------------------------------------------------------
+    // =================================================================
 
+    // 4. Nastavenie default hodnôt ak nič nebolo vybrané
     if (!fleetState.selected_vehicle_id) fleetState.selected_vehicle_id = data.selected_vehicle_id || (data.vehicles && data.vehicles[0] && data.vehicles[0].id) || null;
     if (!fleetState.selected_year)  fleetState.selected_year  = data.selected_year  || year;
     if (!fleetState.selected_month) fleetState.selected_month = data.selected_month || month;
 
+    // 5. Aktualizácia UI selectov
     if (vehicleSelect && fleetState.selected_vehicle_id) vehicleSelect.value = String(fleetState.selected_vehicle_id);
     if (yearSelect)  yearSelect.value  = String(fleetState.selected_year);
     if (monthSelect) monthSelect.value = String(fleetState.selected_month);
 
+    // 6. Vykreslenie pod-tabuliek
     renderVehicleSelect(data.vehicles, fleetState.selected_vehicle_id);
     renderLogbookTable(data.logs, fleetState.selected_year, fleetState.selected_month, data.last_odometer);
     renderRefuelingTable(data.refuelings);
 
+    // Lazy load pre ostatné taby ak sú aktívne
     if (document.querySelector('#analysis-tab.active')) { loadAndRenderFleetAnalysis(); }
     if (document.querySelector('#costs-tab.active')) { loadAndRenderFleetCosts(); }
+
   } catch (e) {
     console.error("Chyba pri načítaní dát vozového parku:", e);
     var cont = document.getElementById('fleet-logbook-container');
@@ -1165,7 +1177,7 @@ function handleDeleteCost(costId) {
 // =================== VOZIDLÁ: Nové / Upraviť ===================
 function openAddEditVehicleModal(vehicleId) {
   showModal(vehicleId ? 'Upraviť vozidlo' : 'Pridať nové vozidlo', function () {
-    // Načítame HTML z templatu (ktorý už musí obsahovať input pre VIN)
+    // Načítame HTML z templatu (ktorý už musí obsahovať input pre VIN a dátumy)
     var html = document.getElementById('vehicle-modal-template').innerHTML;
     
     return {
@@ -1183,11 +1195,25 @@ function openAddEditVehicleModal(vehicleId) {
             form.elements.id.value = v.id;
             form.elements.license_plate.value = v.license_plate || '';
             
-            // --- NOVÉ PRE ZÁKON 2026: Naplnenie VIN ---
+            // --- VIN ---
             if (form.elements.vin) {
                 form.elements.vin.value = v.vin || ''; 
             }
-            // ------------------------------------------
+
+            // --- NOVÉ: Načítanie dátumov pre STK a Známku ---
+            // Musíme dátum orezať na formát YYYY-MM-DD pre input type="date"
+            const formatDate = (d) => {
+                if (!d) return '';
+                try { return new Date(d).toISOString().split('T')[0]; } catch(e){ return ''; }
+            };
+
+            if (form.elements.stk_valid_until) {
+                form.elements.stk_valid_until.value = formatDate(v.stk_valid_until);
+            }
+            if (form.elements.vignette_valid_until) {
+                form.elements.vignette_valid_until.value = formatDate(v.vignette_valid_until);
+            }
+            // ------------------------------------------------
 
             form.elements.name.value = v.name || '';
             form.elements.type.value = v.type || '';
