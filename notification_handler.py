@@ -943,7 +943,6 @@ def send_points_awarded_email(to: str, points_delta: int, template: str | None =
 def send_b2c_campaign_email(to: str, subject: str, html_body: str, preheader: str = ""):
     _send_email(to, subject, html=_brand_html(subject, html_body, preheader))
 
-    
 def send_fleet_expiry_alert_batch(alerts: list, admin_phone: str = None):
     """
     Odošle e-mail a SMS so zoznamom áut, ktorým končí platnosť.
