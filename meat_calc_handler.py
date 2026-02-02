@@ -274,7 +274,7 @@ def get_template_details(template_id: int):
 
 def save_template(data):
     """
-    Vytvorí alebo aktualizuje šablónu. (Opravené získavanie ID)
+    Vytvorí alebo aktualizuje šablónu. (Opravené získavanie ID cez lastrowid)
     """
     name = (data.get('name') or '').strip()
     material_id = data.get('material_id')
@@ -285,44 +285,35 @@ def save_template(data):
 
     tmpl_id = None
 
-    # UPDATE alebo INSERT hlavičky
+    # UPDATE existujúcej šablóny
     if data.get('id'):
         tmpl_id = int(data['id'])
         db_connector.execute_query(
             "UPDATE meat_templates SET name=%s, material_id=%s, is_active=1 WHERE id=%s",
             (name, int(material_id), tmpl_id), fetch='none'
         )
-        # Premažeme staré položky
+        # Premažeme staré položky pre nahradenie novými
         db_connector.execute_query("DELETE FROM meat_template_items WHERE template_id=%s", (tmpl_id,), fetch='none')
     else:
-        # INSERT - bezpečné získanie ID
-        db_connector.execute_query(
+        # INSERT novej šablóny
+        # Použijeme fetch='lastrowid', ktorý vráti ID priamo z kurzora (v tom istom spojení)
+        tmpl_id = db_connector.execute_query(
             "INSERT INTO meat_templates (name, material_id, is_active) VALUES (%s, %s, 1)",
-            (name, int(material_id)), fetch='none'
+            (name, int(material_id)), fetch='lastrowid'
         )
-        # Získame ID hneď po inserte
-        row = db_connector.execute_query("SELECT LAST_INSERT_ID() as id", fetch='one')
-        if row and row.get('id'):
-            tmpl_id = int(row['id'])
 
+    # Kontrola, či máme ID
     if not tmpl_id:
-        return {"error": "Nepodarilo sa vytvoriť/získať ID šablóny."}
+        return {"error": "Nepodarilo sa vytvoriť šablónu (DB nevrátila ID)."}
 
-    # Vloženie položiek
+    # Vloženie položiek (produktov)
     if product_ids:
         for pid in product_ids:
-            # product_id musí byť int
             db_connector.execute_query(
                 "INSERT INTO meat_template_items (template_id, product_id) VALUES (%s, %s)",
                 (tmpl_id, int(pid)), fetch='none'
             )
     
-    # CRITICAL: Explicitný commit
-    try:
-        db_connector.execute_query("COMMIT", fetch='none')
-    except Exception:
-        pass
-
     return {"message": "Šablóna uložená."}
 
 def delete_template(data):
