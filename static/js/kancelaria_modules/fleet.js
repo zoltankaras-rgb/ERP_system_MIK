@@ -536,7 +536,6 @@ async function loadAndRenderFleetData(initialLoad) {
     if (cont) cont.innerHTML = '<p class="error">' + (e.message || 'Chyba pri načítaní.') + '</p>';
   }
 }
-
 function renderVehicleSelect(vehicles, selectedId) {
   const select = document.getElementById('fleet-vehicle-select');
   const currentVal = select.value;
