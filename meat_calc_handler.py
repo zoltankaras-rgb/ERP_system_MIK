@@ -274,7 +274,7 @@ def get_template_details(template_id: int):
 
 def save_template(data):
     """
-    Vytvorí alebo aktualizuje šablónu.
+    Vytvorí alebo aktualizuje šablónu. (Opravené získavanie ID)
     """
     name = (data.get('name') or '').strip()
     material_id = data.get('material_id')
@@ -282,6 +282,8 @@ def save_template(data):
 
     if not name or not material_id:
         return {"error": "Chýba názov alebo surovina."}
+
+    tmpl_id = None
 
     # UPDATE alebo INSERT hlavičky
     if data.get('id'):
@@ -293,20 +295,29 @@ def save_template(data):
         # Premažeme staré položky
         db_connector.execute_query("DELETE FROM meat_template_items WHERE template_id=%s", (tmpl_id,), fetch='none')
     else:
-        tmpl_id = db_connector.execute_query(
+        # INSERT - bezpečné získanie ID
+        db_connector.execute_query(
             "INSERT INTO meat_templates (name, material_id, is_active) VALUES (%s, %s, 1)",
-            (name, int(material_id)), fetch='lastrowid'
+            (name, int(material_id)), fetch='none'
         )
+        # Získame ID hneď po inserte
+        row = db_connector.execute_query("SELECT LAST_INSERT_ID() as id", fetch='one')
+        if row and row.get('id'):
+            tmpl_id = int(row['id'])
+
+    if not tmpl_id:
+        return {"error": "Nepodarilo sa vytvoriť/získať ID šablóny."}
 
     # Vloženie položiek
     if product_ids:
         for pid in product_ids:
+            # product_id musí byť int
             db_connector.execute_query(
                 "INSERT INTO meat_template_items (template_id, product_id) VALUES (%s, %s)",
                 (tmpl_id, int(pid)), fetch='none'
             )
     
-    # CRITICAL: Explicitný commit po zápise
+    # CRITICAL: Explicitný commit
     try:
         db_connector.execute_query("COMMIT", fetch='none')
     except Exception:
@@ -509,14 +520,20 @@ def save_breakdown(data):
                  input_weight_kg, purchase_unit_price_eur_kg, purchase_total_cost_eur, tolerance_pct)
             VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         """
-        breakdown_id = db_connector.execute_query(
+        # 1. Vykonaj INSERT
+        db_connector.execute_query(
             qh,
             (bdate, int(material_id),
              supplier_name, supplier_id, supplier_batch_code,
              note, units_count, workers_count, duration_min,
              input_w, unit_price, total_cost, tolerance),
-            fetch='lastrowid'
+            fetch='none'
         )
+        # 2. Získaj ID
+        row = db_connector.execute_query("SELECT LAST_INSERT_ID() as id", fetch='one')
+        if row and row.get('id'):
+            breakdown_id = int(row['id'])
+        
         msg = "Rozrábka uložená."
 
     # výstupy
