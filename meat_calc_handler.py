@@ -274,7 +274,7 @@ def get_template_details(template_id: int):
 
 def save_template(data):
     """
-    Vytvorí alebo aktualizuje šablónu. (Opravené získavanie ID cez lastrowid)
+    Vytvorí alebo aktualizuje šablónu. (Opravený COMMIT)
     """
     name = (data.get('name') or '').strip()
     material_id = data.get('material_id')
@@ -292,21 +292,19 @@ def save_template(data):
             "UPDATE meat_templates SET name=%s, material_id=%s, is_active=1 WHERE id=%s",
             (name, int(material_id), tmpl_id), fetch='none'
         )
-        # Premažeme staré položky pre nahradenie novými
+        # Premažeme staré položky
         db_connector.execute_query("DELETE FROM meat_template_items WHERE template_id=%s", (tmpl_id,), fetch='none')
     else:
         # INSERT novej šablóny
-        # Použijeme fetch='lastrowid', ktorý vráti ID priamo z kurzora (v tom istom spojení)
         tmpl_id = db_connector.execute_query(
             "INSERT INTO meat_templates (name, material_id, is_active) VALUES (%s, %s, 1)",
             (name, int(material_id)), fetch='lastrowid'
         )
 
-    # Kontrola, či máme ID
     if not tmpl_id:
         return {"error": "Nepodarilo sa vytvoriť šablónu (DB nevrátila ID)."}
 
-    # Vloženie položiek (produktov)
+    # Vloženie položiek
     if product_ids:
         for pid in product_ids:
             db_connector.execute_query(
@@ -314,8 +312,13 @@ def save_template(data):
                 (tmpl_id, int(pid)), fetch='none'
             )
     
-    return {"message": "Šablóna uložená."}
+    # --- DÔLEŽITÉ: Potvrdenie transakcie (COMMIT) ---
+    try:
+        db_connector.execute_query("COMMIT", fetch='none')
+    except Exception as e:
+        print(f"Chyba pri commite šablóny: {e}")
 
+    return {"message": "Šablóna uložená."}
 def delete_template(data):
     """Soft delete šablóny."""
     tid = data.get('id')
