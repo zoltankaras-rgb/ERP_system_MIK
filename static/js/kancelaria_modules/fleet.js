@@ -484,7 +484,38 @@ async function loadAndRenderFleetData(initialLoad) {
     const data = await apiRequest(url);
 
     Object.assign(fleetState, data);
-window.fleetState = fleetState;
+    window.fleetState = fleetState;
+
+    // --- DASHBOARD: Zobrazenie upozornení (STK / Známka) ---
+    const container = document.getElementById('section-fleet');
+    // Najprv odstránime starý alert, ak existuje
+    const oldAlert = document.getElementById('fleet-expiry-alert');
+    if (oldAlert) oldAlert.remove();
+
+    // Ak máme notifikácie, vytvoríme nový alert box
+    if (data.notifications && data.notifications.length > 0) {
+        const alertBox = document.createElement('div');
+        alertBox.id = 'fleet-expiry-alert';
+        // Výrazný červený štýl pre dashboard
+        alertBox.style.cssText = "background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; padding: 15px; margin-bottom: 20px; border-radius: 8px; font-size: 1.1em; box-shadow: 0 2px 5px rgba(0,0,0,0.1);";
+        
+        let html = '<strong><i class="fas fa-exclamation-circle"></i> POZOR – Končiace termíny:</strong><ul style="margin: 10px 0 0 20px;">';
+        data.notifications.forEach(msg => {
+            html += `<li>${msg}</li>`;
+        });
+        html += '</ul>';
+        alertBox.innerHTML = html;
+        
+        // Vložíme alert hneď pod nadpis (alebo na začiatok, ak nadpis nenájde)
+        const heading = container.querySelector('h3');
+        if (heading) {
+            heading.insertAdjacentElement('afterend', alertBox);
+        } else {
+            container.insertBefore(alertBox, container.firstChild);
+        }
+    }
+    // -------------------------------------------------------
+
     if (!fleetState.selected_vehicle_id) fleetState.selected_vehicle_id = data.selected_vehicle_id || (data.vehicles && data.vehicles[0] && data.vehicles[0].id) || null;
     if (!fleetState.selected_year)  fleetState.selected_year  = data.selected_year  || year;
     if (!fleetState.selected_month) fleetState.selected_month = data.selected_month || month;

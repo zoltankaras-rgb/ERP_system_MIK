@@ -1,115 +1,146 @@
-import db_connector
-from datetime import datetime
 import os
 import csv
+from datetime import datetime
 import traceback
 from pathlib import Path
+import db_connector
 
 # =================================================================
-# === MODUL PRE INTEGRÁCIU S EXTERNÝMI SYSTÉMAMI ===
+# === MODUL PRE INTEGRÁCIU S EXTERNÝMI SYSTÉMAMI (ERP) ===
 # =================================================================
 
 # --- KONFIGURÁCIA ---
 # Načítame cestu z .env premennej ERP_EXCHANGE_DIR (nastavené na serveri)
-# Ak by náhodou nebola nastavená, použije sa default /var/app/data/erp_exchange
 env_path = os.getenv("ERP_EXCHANGE_DIR", "/var/app/data/erp_exchange")
 BASE_PATH = Path(env_path)
 
-# Exportujeme a importujeme priamo v hlavnej zložke (kde vidíte aj ostatné CSV)
+# Exportujeme a importujeme priamo v hlavnej zložke
 EXPORT_FOLDER = BASE_PATH
 IMPORT_FOLDER = BASE_PATH
 
+def generate_daily_receipt_export(date_str):
+    """
+    Vygeneruje súbor VYROBA.CSV pre daný dátum (uzávierka dňa).
+    Formát je presne podľa vzoru ZASOBA.CSV:
+    Stĺpce: REG_CIS;NAZOV;JCM11;MNOZ
+    Hodnoty: EAN na 13 miest, čísla na 4 desatinné miesta.
+    """
+    
+    # 1. Príprava cesty a názvu
+    file_name = "VYROBA.CSV"
+    file_path = EXPORT_FOLDER / file_name
 
-def generate_daily_receipt_export(export_date_str=None):
+    # 2. SQL dotaz - Získame sumár príjmov z expedície pre daný deň
+    #    Priorita ceny (JCM11): Cena z výroby -> Výrobná cena produktu -> Skladová cena -> 0
+    sql = """
+        SELECT 
+            p.ean AS REG_CIS,
+            ep.nazov_vyrobku AS NAZOV,
+            COALESCE(zv.cena_za_jednotku, p.vyrobna_cena, p.skladova_cena, 0) AS JCM11,
+            p.mj AS MJ,
+            SUM(
+                CASE 
+                    -- Ak je produkt v KS a príjem bol v KS, exportujeme KS
+                    WHEN p.mj = 'ks' AND ep.prijem_ks IS NOT NULL AND ep.prijem_ks != 0 THEN ep.prijem_ks
+                    -- Inak exportujeme KG (to zahŕňa aj záporné pohyby z krájania)
+                    ELSE ep.prijem_kg 
+                END
+            ) AS MNOZ
+        FROM expedicia_prijmy ep
+        LEFT JOIN zaznamy_vyroba zv ON ep.id_davky = zv.id_davky
+        LEFT JOIN produkty p ON TRIM(ep.nazov_vyrobku) = TRIM(p.nazov_vyrobku)
+        WHERE ep.datum_prijmu = %s 
+          AND ep.is_deleted = 0
+        GROUP BY p.ean, ep.nazov_vyrobku, JCM11, p.mj
+        HAVING MNOZ <> 0
     """
-    Vygeneruje CSV súbor (VYROBKY.CSV) s denným príjmom finálnych produktov.
-    Súbor obsahuje EAN a celkové prijaté množstvo za deň.
-    Túto funkciu volá app.py pri ukončení dňa v expedícii.
-    """
+
     try:
-        export_date = export_date_str or datetime.now().strftime('%Y-%m-%d')
-
-        # Získa dáta z databázy pre daný deň
-        # Hľadáme iba položky, ktoré boli práve prepnuté do stavu 'Ukončené' v daný deň
-        query = """
-            SELECT p.ean, zv.realne_mnozstvo_kg, zv.realne_mnozstvo_ks, p.mj as unit 
-            FROM zaznamy_vyroba zv
-            LEFT JOIN produkty p ON zv.nazov_vyrobku = p.nazov_vyrobku
-            WHERE zv.stav = 'Ukončené' AND DATE(zv.datum_ukoncenia) = %s
-        """
-        records = db_connector.execute_query(query, (export_date,))
-
-        if not records:
-            return {"message": f"Pre dátum {export_date} neboli nájdené žiadne ukončené výroby na export.", "file_path": None}
-
-        # Zoskupí dáta podľa EAN, aby sa sčítali rovnaké produkty
-        consolidated = {}
-        for r in records:
-            if not r.get('ean'): continue
-            
-            ean = r['ean']
-            if ean not in consolidated:
-                consolidated[ean] = 0
-            
-            qty_to_add = float(r.get('realne_mnozstvo_ks') or 0.0) if r.get('unit') == 'ks' else float(r.get('realne_mnozstvo_kg') or 0.0)
-            consolidated[ean] += qty_to_add
-        
-        # Vytvorí priečinok, ak neexistuje
+        # Uistíme sa, že priečinok existuje
         os.makedirs(EXPORT_FOLDER, exist_ok=True)
-        
-        # Názov súboru presne podľa požiadavky
-        file_name = "VYROBKY.CSV"
-        file_path = EXPORT_FOLDER / file_name
 
-        # Zapíše dáta do CSV súboru s kódovaním vhodným pre Slovensko (cp1250)
-        with open(file_path, 'w', newline='', encoding='cp1250') as csvfile:
-            writer = csv.writer(csvfile, delimiter=';')
-            writer.writerow(['EAN', 'Mnozstvo'])  # Hlavička súboru
-            for ean, quantity in consolidated.items():
-                # Formátujeme číslo s desatinnou čiarkou (slovenský formát)
-                writer.writerow([ean, f"{quantity:.2f}".replace('.', ',')])
+        rows = db_connector.execute_query(sql, (date_str,), fetch='all')
         
-        return {"message": f"Exportný súbor bol úspešne vygenerovaný: {file_path}", "file_path": str(file_path)}
+        if not rows:
+            rows = []
+
+        # 3. Zápis do CSV
+        # Kódovanie cp1250 je nutné pre slovenské znaky v starších systémoch
+        with open(file_path, mode='w', newline='', encoding='cp1250') as csvfile:
+            # Používame delimiter ';' (bodkočiarka) podľa ZASOBA.CSV
+            writer = csv.writer(csvfile, delimiter=';', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+            
+            # Hlavička presne podľa vzoru
+            writer.writerow(['REG_CIS', 'NAZOV', 'JCM11', 'MNOZ'])
+            
+            for r in rows:
+                # A) REG_CIS: EAN kód doplnený nulami na 13 miest (ak je to číslo)
+                #    Napr. '23112' -> '0000000023112'
+                raw_ean = str(r['REG_CIS'] or '').strip()
+                if raw_ean.isdigit() and len(raw_ean) > 0 and len(raw_ean) <= 13:
+                    reg_cis = raw_ean.zfill(13)
+                else:
+                    reg_cis = raw_ean
+                
+                # B) NAZOV
+                nazov = str(r['NAZOV'] or '').strip()
+                
+                # C) JCM11: Cena na 4 desatinné miesta (napr. 3.2500)
+                try:
+                    price = float(r['JCM11'] or 0)
+                    jcm11 = f"{price:.4f}"
+                except:
+                    jcm11 = "0.0000"
+                
+                # D) MNOZ: Množstvo na 4 desatinné miesta (napr. 160.0000)
+                try:
+                    qty = float(r['MNOZ'] or 0)
+                    mnoz = f"{qty:.4f}"
+                except:
+                    mnoz = "0.0000"
+                
+                # Zapíšeme riadok
+                writer.writerow([reg_cis, nazov, jcm11, mnoz])
+
+        print(f">>> Export VYROBA.CSV úspešný: {file_path}")
+        return {"success": True, "file_path": str(file_path)}
+
     except Exception as e:
-        print(f"!!! CHYBA pri generovaní exportu: {traceback.format_exc()}")
-        return {"error": f"Nastala chyba pri zápise súboru: {e}"}
+        print(f"!!! Export Error: {traceback.format_exc()}")
+        return {"error": str(e)}
 
-
+# --- Pôvodná funkcia pre import (ponechaná pre kompatibilitu, ak ju používate) ---
 def process_stock_update_import():
     """
-    Spracuje importný CSV súbor so stavom skladu finálnych produktov.
-    Očakáva súbor `sklad.csv` v importnom priečinku.
-    (Poznámka: Ak používate ZASOBA.CSV cez iný skript, táto funkcia sa možno nepoužíva, ale je opravená pre istotu)
+    Spracuje importný CSV súbor (sklad.csv) - ak sa používa.
     """
     try:
         file_path = IMPORT_FOLDER / 'sklad.csv'
 
         if not os.path.exists(file_path):
-            return {"error": f"Importný súbor nebol nájdený na ceste: {file_path}"}
+            return {"error": f"Importný súbor nebol nájdený: {file_path}"}
         
-        updates_to_catalog = []
+        updates = []
         with open(file_path, 'r', newline='', encoding='cp1250') as csvfile:
             reader = csv.reader(csvfile, delimiter=';')
-            next(reader)  # Preskočí hlavičku
+            next(reader, None)  # Preskočí hlavičku
             for row in reader:
-                if len(row) == 2:
-                    ean, quantity_str = row
-                    quantity = float(quantity_str.replace(',', '.'))
-                    updates_to_catalog.append((quantity, ean))
+                if len(row) >= 2:
+                    ean = row[0]
+                    qty_str = row[1].replace(',', '.')
+                    try:
+                        updates.append((float(qty_str), ean))
+                    except: pass
 
-        if not updates_to_catalog:
-            return {"message": "Importný súbor neobsahoval žiadne platné dáta."}
+        if not updates:
+            return {"message": "Žiadne dáta na import."}
 
-        # Aktualizuje databázu v jednej hromadnej operácii
         db_connector.execute_query(
             "UPDATE produkty SET aktualny_sklad_finalny_kg = %s WHERE ean = %s",
-            updates_to_catalog,
-            fetch='none',
-            multi=True
+            updates, fetch='none', multi=True
         )
         
-        return {"message": f"Sklad bol úspešne aktualizovaný. Počet aktualizovaných produktov: {len(updates_to_catalog)}."}
+        return {"message": f"Aktualizovaných {len(updates)} produktov."}
     
     except Exception as e:
-        print(f"!!! CHYBA pri spracovaní importu: {traceback.format_exc()}")
-        return {"error": f"Nastala chyba pri spracovaní importného súboru: {e}"}
+        return {"error": str(e)}

@@ -942,7 +942,42 @@ def send_points_awarded_email(to: str, points_delta: int, template: str | None =
 
 def send_b2c_campaign_email(to: str, subject: str, html_body: str, preheader: str = ""):
     _send_email(to, subject, html=_brand_html(subject, html_body, preheader))
+def send_fleet_expiry_alert_batch(alerts: list, admin_phone: str = None):
+    """
+    Odošle e-mail a SMS so zoznamom áut, ktorým končí platnosť.
+    """
+    if not alerts:
+        return
 
+    # 1. E-mail adminovi
+    subject = f"FLEET ALERT: {len(alerts)} vozidiel vyžaduje pozornosť"
+    html_list = "".join([f"<li>{a}</li>" for a in alerts])
+    html_body = f"""
+        <h2>Upozornenie na termíny vozového parku</h2>
+        <p>Nasledujúcim vozidlám končí platnosť STK alebo známky:</p>
+        <ul style='color:red; font-weight:bold;'>
+            {html_list}
+        </ul>
+        <p>Prosím, aktualizujte dátumy v module Vozový park.</p>
+    """
+    
+    if ADMIN_NOTIFY_EMAIL:
+        _send_email(
+            ADMIN_NOTIFY_EMAIL, 
+            subject, 
+            html=_brand_html("Fleet Alert", html_body, "Upozornenie na exspirácie")
+        )
+
+    # 2. SMS (ak je zapnuté a máme číslo)
+    if B2C_SMS_ENABLED and admin_phone:
+        sms_lines = ["MIK FLEET POZOR:"]
+        for a in alerts:
+            # Skrátime text pre SMS
+            clean_a = a.replace("VOZIDLO ", "").replace("Diaľničná známka", "Znamka")
+            sms_lines.append(clean_a)
+        
+        full_sms = "\n".join(sms_lines)
+        _maybe_send_sms(admin_phone, full_sms)
 # =================================================================
 # =========================  ADMIN ALERT  =========================
 # =================================================================
