@@ -1359,22 +1359,52 @@ function initMeatOriginLabels(){
     window.addEventListener('resize', ()=>{ if(popup.style.display==='block') position(); }); document.addEventListener('click', (e)=>{ if (!popup.contains(e.target) && e.target!==input) popup.style.display='none'; });
   }
 
-  function boot(){
-  $$('.sidebar-link').forEach(a=>{
-    a.onclick = ()=>{
-      $$('.sidebar-link').forEach(x=> x.classList.remove('active')); a.classList.add('active');
-      const secId = a.getAttribute('data-section'); $$('.content-section').forEach(s=> s.classList.remove('active'));
-      const target = secId ? $('#'+secId) : null; if (target) target.classList.add('active');
-      
-      if (secId === 'leader-dashboard')  loadDashboard();
-      if (secId === 'leader-b2c')        loadB2C();
-      if (secId === 'leader-b2b')        loadB2B();
-      if (secId === 'leader-meat-origin-labels') { initMeatOriginLabels(); mol_preview(); }
-      if (secId === 'leader-cut')        loadCutJobs();
-      if (secId === 'leader-lowstock')   loadLeaderLowStockDetail();
-      if (secId === 'leader-plan')       loadLeaderProductionCalendar();
-    };
-  });
+ function boot(){
+    $$('.sidebar-link').forEach(a=>{
+      a.onclick = ()=>{
+        $$('.sidebar-link').forEach(x=> x.classList.remove('active')); a.classList.add('active');
+        const secId = a.getAttribute('data-section'); $$('.content-section').forEach(s=> s.classList.remove('active'));
+        const target = secId ? $('#'+secId) : null; if (target) target.classList.add('active');
+        
+        if (secId === 'leader-dashboard')  loadDashboard();
+        if (secId === 'leader-b2c')        loadB2C();
+        if (secId === 'leader-b2b')        loadB2B();
+        // Nová podmienka pre B2B komunikáciu
+        if (secId === 'leader-b2b-comm')   loadCommView(); 
+        if (secId === 'leader-meat-origin-labels') { initMeatOriginLabels(); mol_preview(); }
+        if (secId === 'leader-cut')        loadCutJobs();
+        if (secId === 'leader-lowstock')   loadLeaderLowStockDetail();
+        if (secId === 'leader-plan')       loadLeaderProductionCalendar();
+      };
+    });
+
+    // Inicializácia dátumov
+    $('#ldr-date') && ($('#ldr-date').value = todayISO());
+    $('#b2c-date') && ($('#b2c-date').value = todayISO());
+    $('#b2b-date') && ($('#b2b-date').value = todayISO());
+    $('#cut-date') && ($('#cut-date').value = todayISO());
+    $('#nb2b-date') && ($('#nb2b-date').value = todayISO());
+
+    // Handlery tlačidiel
+    $('#ldr-refresh') && ($('#ldr-refresh').onclick = loadDashboard);
+    $('#plan-commit') && ($('#plan-commit').onclick = commitPlan);
+    $('#b2c-refresh') && ($('#b2c-refresh').onclick = loadB2C);
+    $('#b2b-refresh') && ($('#b2b-refresh').onclick = loadB2B);
+    $('#leader-lowstock-refresh') && ($('#leader-lowstock-refresh').onclick = loadLeaderLowStockDetail);
+    
+    // Ostatné inicializácie
+    attachProductSearch();
+    attachSupplierAutocomplete();
+    
+    $('#nb2b-add')  && ($('#nb2b-add').onclick  = ()=> addManualRow($('#nb2b-items tbody')));
+    $('#nb2b-save') && ($('#nb2b-save').onclick = saveManualB2B);
+    
+    $('#cut-refresh') && ($('#cut-refresh').onclick = loadCutJobs);
+    $('#cut-new')     && ($('#cut-new').onclick     = openNewCutModal);
+
+    // Predvolené načítanie dashboardu
+    loadDashboard();
+  
 
   // Init dates
   $('#ldr-date') && ($('#ldr-date').value = todayISO());

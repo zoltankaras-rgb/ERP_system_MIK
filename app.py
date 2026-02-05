@@ -3112,29 +3112,29 @@ def print_b2b_order_pdf_route(order_id):
 
 # ---- B2B KOMUNIKÁCIA (KANCELÁRIA)
 @app.get('/api/kancelaria/b2b/messages')
-@login_required(role='kancelaria')
+@login_required(role=('kancelaria', 'veduci', 'admin'))
 def api_kanc_b2b_messages():
     return handle_request(b2b_handler.admin_messages_list, request.args)
 
 @app.get('/api/kancelaria/b2b/messages/unread')
-@login_required(role='kancelaria')
+@login_required(role=('kancelaria', 'veduci', 'admin'))
 def api_kanc_b2b_messages_unread():
     return handle_request(b2b_handler.admin_messages_unread_count)
 
 @app.post('/api/kancelaria/b2b/messages/mark-read')
-@login_required(role='kancelaria')
+@login_required(role=('kancelaria', 'veduci', 'admin'))
 def api_kanc_b2b_messages_mark():
     return handle_request(b2b_handler.admin_messages_mark_read, request.json or {})
 
 @app.post('/api/kancelaria/b2b/messages/reply')
-@login_required(role='kancelaria')
+@login_required(role=('kancelaria', 'veduci', 'admin'))
 def api_kanc_b2b_messages_reply():
     # multipart/form-data kvôli prílohe
     return handle_request(b2b_handler.admin_messages_reply, request)
 
 # voliteľné: download prílohy pre adminov
 @app.get('/api/kancelaria/b2b/messages/attachment/<int:msg_id>')
-@login_required(role='kancelaria')
+@login_required(role=('kancelaria', 'veduci', 'admin'))
 def api_kanc_b2b_messages_attachment(msg_id):
     row = db_connector.execute_query("SELECT attachment_path, attachment_filename FROM b2b_messages WHERE id=%s", (msg_id,), fetch="one")
     if not row or not row.get('attachment_path') or not os.path.isfile(row['attachment_path']):
@@ -4587,7 +4587,7 @@ def api_mail_assign_customer(message_id: int):
     return jsonify(res)
 
 @app.route('/api/mail/messages')
-@login_required(role='kancelaria')
+@login_required(role=('kancelaria', 'veduci', 'admin'))
 def mail_list():
     folder     = request.args.get('folder', 'INBOX')
     page       = request.args.get('page', 1)
