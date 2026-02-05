@@ -777,7 +777,10 @@
       } catch(e) { box.innerHTML = `<p class="error">${e.message}</p>`; }
   }
 
-  // Export
-  (function (g) { g.initializeB2BAdminModule = initializeB2BAdminModule; })(typeof window !== 'undefined' ? window : this);
+// Vyhľadajte tento blok na konci súboru b2b_admin.js a doplňte riadok pre loadCommView
+  (function (g) { 
+    g.initializeB2BAdminModule = initializeB2BAdminModule; 
+    g.loadCommView = loadCommView; // <--- PRIDAJTE TENTO RIADOK
+  })(typeof window !== 'undefined' ? window : this);
 
 })(typeof window !== 'undefined' ? window : this, typeof document !== 'undefined' ? document : undefined);

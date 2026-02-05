@@ -1370,7 +1370,14 @@ function initMeatOriginLabels(){
         if (secId === 'leader-b2c')        loadB2C();
         if (secId === 'leader-b2b')        loadB2B();
         // Nová podmienka pre B2B komunikáciu
-        if (secId === 'leader-b2b-comm')   loadCommView(); 
+        if (secId === 'leader-b2b-comm') {
+    if (typeof window.loadCommView === 'function') {
+        window.loadCommView(); 
+    } else {
+        console.error("Modul B2B komunikácie (loadCommView) nebol nájdený. Skontrolujte poradie skriptov v HTML.");
+        showStatus("Chyba: Modul komunikácie nie je načítaný.", true);
+    }
+}
         if (secId === 'leader-meat-origin-labels') { initMeatOriginLabels(); mol_preview(); }
         if (secId === 'leader-cut')        loadCutJobs();
         if (secId === 'leader-lowstock')   loadLeaderLowStockDetail();
