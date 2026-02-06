@@ -9,26 +9,36 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
   <style>
-      /* --- Pôvodné štýly (ponechané) --- */
+      /* --- Pôvodné štýly --- */
       .product-search-wrapper { position: relative; }
       .product-search-results {
-          position: absolute; top: 100%; left: 0; right: 0; background: white; border: 1px solid #ddd;
-          border-radius: 0 0 6px 6px; max-height: 300px; overflow-y: auto; z-index: 1000;
-          box-shadow: 0 4px 6px rgba(0,0,0,0.1); display: none;
+          position: absolute; top: 100%; left: 0; right: 0;
+          background: white; border: 1px solid #ddd; border-radius: 0 0 6px 6px;
+          max-height: 300px; overflow-y: auto; z-index: 1000; box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+          display: none;
       }
-      .product-search-item { padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #f3f4f6; display: flex; justify-content: space-between; }
+      .product-search-item {
+          padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #f3f4f6; display: flex; justify-content: space-between;
+      }
       .product-search-item:hover { background-color: #f3f4f6; }
+      .product-search-item .meta { font-size: 0.85em; color: #6b7280; }
+
+      /* Náhľad štítkov pôvodu mäsa */
       .mol-preview { background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 10px; padding: 12px; }
+      .mol-preview .mol-root { font-size: var(--mol-font, 11px); }
       .mol-preview .mol-entry { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
       .mol-preview .mol-page { padding: 8px; border: 1px dashed #d1d5db; border-radius: 10px; margin-bottom: 16px; background: #fff; }
+      .mol-preview .mol-page:last-child { margin-bottom: 0; }
       .mol-preview .mol-label { width: 100%; border-collapse: collapse; table-layout: fixed; border: 1px solid #111; }
       .mol-preview .mol-label td { border: 1px solid #111; padding: 6px 7px; vertical-align: middle; }
       .mol-preview .mol-company, .mol-preview .mol-approval, .mol-preview .mol-title { text-align: center; font-weight: 700; }
       .mol-preview .mol-lbl { font-weight: 700; white-space: nowrap; }
 
-      /* === ŠTÝLY PRE CHAT (SKOPÍROVANÉ Z B2B ADMINA) === */
-      /* Toto zabezpečí pekný vzhľad bez nutnosti spúšťať celý admin modul */
-      .chat-wrapper { display: grid; grid-template-columns: 300px 1fr; height: 650px; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; background: white; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
+      /* === ŠTÝLY PRE CHAT (Aby to nevyzeralo zle) === */
+      .chat-wrapper {
+          display: grid; grid-template-columns: 300px 1fr; height: 600px;
+          border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; background: white;
+      }
       .chat-sidebar { border-right: 1px solid #e5e7eb; background: #f8fafc; display: flex; flex-direction: column; }
       .chat-list { overflow-y: auto; flex: 1; }
       .chat-item { padding: 15px; border-bottom: 1px solid #e2e8f0; cursor: pointer; transition: background 0.2s; }
@@ -87,49 +97,221 @@
       <main class="main-content">
         
         <div id="leader-dashboard" class="content-section active">
-            <h3>Prehľad dňa</h3>
-            <div class="card"><div class="card-body" style="display:flex;gap:12px;align-items:center"><label>Dátum: <input id="ldr-date" type="date"></label><button id="ldr-refresh" class="btn btn-primary">Obnoviť</button></div></div>
-            <div id="plan-preview"></div>
+          <h3>Prehľad dňa</h3>
+          <div class="card">
+            <div class="card-body" style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">
+              <label>Dátum: <input id="ldr-date" type="date"></label>
+              <button id="ldr-refresh" class="btn btn-primary">Obnoviť</button>
+            </div>
+          </div>
+
+          <div class="grid-kpi" style="display:grid;grid-template-columns:repeat(4,minmax(180px,1fr));gap:12px;margin-top:12px">
+            <div class="card"><div class="card-body"><div class="muted">B2C objednávky</div><div id="kpi-b2c" style="font-weight:800;font-size:1.4rem">—</div></div></div>
+            <div class="card"><div class="card-body"><div class="muted">B2B objednávky</div><div id="kpi-b2b" style="font-weight:800;font-size:1.4rem">—</div></div></div>
+            <div class="card"><div class="card-body"><div class="muted">Počet položiek</div><div id="kpi-items" style="font-weight:800;font-size:1.4rem">—</div></div></div>
+            <div class="card"><div class="card-body"><div class="muted">Suma spolu</div><div id="kpi-sum" style="font-weight:800;font-size:1.4rem">—</div></div></div>
+          </div>
+
+          <div id="leader-next7"></div>
+          <div id="leader-promos"></div>
+          <div id="leader-lowstock-goods"></div>
+          <div id="leader-forecast"></div>
+
+          <div class="card" style="margin-top:16px">
+            <div class="card-header"><strong>Plán výroby – 7 pracovných dní (preview)</strong></div>
+            <div class="card-body" id="plan-preview"></div>
+            <div class="card-footer"><button id="plan-commit" class="btn btn-secondary">Zapísať plán (vyroba)</button></div>
+          </div>
         </div>
 
         <div id="leader-b2c" class="content-section">
-            <h3>B2C objednávky (deň)</h3>
-            <div class="card"><div class="card-body" style="display:flex;gap:12px;align-items:center"><label>Dátum: <input id="b2c-date" type="date"></label><button id="b2c-refresh" class="btn btn-primary">Obnoviť</button></div></div>
-            <div class="card" style="margin-top:12px"><div class="card-body"><div class="table-container"><table id="tbl-b2c"><thead><tr><th>#</th><th>Zákazník</th><th>Dodanie</th><th>Suma</th><th>Stav</th><th>Akcia</th></tr></thead><tbody></tbody></table></div></div></div>
+          <h3>B2C objednávky (deň)</h3>
+          <div class="card">
+            <div class="card-body" style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">
+              <label>Dátum: <input id="b2c-date" type="date"></label>
+              <button id="b2c-refresh" class="btn btn-primary">Obnoviť</button>
+              <span style="flex:1"></span>
+              <button id="b2c-export" class="btn btn-secondary">Export CSV</button>
+              <button id="b2c-pick"   class="btn btn-secondary">Picklist CSV</button>
+            </div>
+          </div>
+          <div class="card" style="margin-top:12px">
+            <div class="card-body">
+              <div class="table-container">
+                <table id="tbl-b2c">
+                  <thead>
+                    <tr><th>#</th><th>Zákazník</th><th>Dodanie</th><th>Predb./Finálna</th><th>Stav</th><th>Akcia</th></tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div id="leader-b2b" class="content-section">
-            <h3>B2B objednávky (deň)</h3>
-            <div class="card"><div class="card-body" style="display:flex;gap:12px;align-items:center"><label>Dátum: <input id="b2b-date" type="date"></label><button id="b2b-refresh" class="btn btn-primary">Obnoviť</button></div></div>
-            <div class="card" style="margin-top:12px"><div class="card-body"><div class="table-container"><table id="tbl-b2b"><thead><tr><th>#</th><th>Odberateľ</th><th>Dodanie</th><th>Suma</th><th>Stav</th><th>Akcia</th></tr></thead><tbody></tbody></table></div></div></div>
+          <h3>B2B objednávky (deň)</h3>
+          <div class="card">
+            <div class="card-body" style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">
+              <label>Dátum: <input id="b2b-date" type="date"></label>
+              <button id="b2b-refresh" class="btn btn-primary">Obnoviť</button>
+              <span style="flex:1"></span>
+              <button id="b2b-export" class="btn btn-secondary">Export CSV</button>
+              <button id="b2b-pick"   class="btn btn-secondary">Picklist CSV</button>
+            </div>
+          </div>
+          <div class="card" style="margin-top:12px">
+            <div class="card-body">
+              <div class="table-container">
+                <table id="tbl-b2b">
+                  <thead>
+                    <tr><th>#</th><th>Odberateľ</th><th>Dodanie</th><th>Predb./Finálna</th><th>Stav</th><th>Akcia</th></tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div id="leader-manual-b2b" class="content-section">
-            <h3>Manuálna B2B objednávka</h3>
-            <div id="manual-b2b-form" class="card">
-                <div class="card-body">
-                    <div class="form-grid"><div class="form-group"><label>Odberateľ</label><input id="nb2b-name"></div><div class="form-group"><label>Termín</label><input id="nb2b-date" type="date"></div></div>
-                    <table id="nb2b-items" class="tbl" style="width:100%"><thead><tr><th>EAN</th><th>Názov</th><th>Mn.</th><th>MJ</th><th>Cena</th><th></th></tr></thead><tbody></tbody></table>
-                    <button id="nb2b-add" class="btn btn-secondary">+ riadok</button>
-                </div>
-                <div class="card-footer"><button id="nb2b-save" class="btn btn-primary">Uložiť</button></div>
+          <h3>Manuálna B2B objednávka / Ambulant</h3>
+          <div id="manual-b2b-form" class="card">
+            <div class="card-body">
+              <div style="background:#f0f9ff; padding:10px; border:1px solid #bae6fd; border-radius:6px; margin-bottom:15px; display:flex; align-items:center; gap:10px;">
+                  <input type="checkbox" id="nb2b-ambulant" style="width:18px; height:18px; cursor:pointer;">
+                  <label for="nb2b-ambulant" style="margin:0; font-weight:600; cursor:pointer; color:#0369a1;">Ambulantný predaj (Všetky produkty z katalógu)</label>
+              </div>
+
+              <div class="form-grid">
+                <div class="form-group"><label>Odberateľ</label><input id="nb2b-name" placeholder="Vyhľadať firmu..."></div>
+                <div class="form-group"><label>Termín dodania</label><input id="nb2b-date" type="date"></div>
+                <div class="form-group" style="grid-column:1 / -1"><label>Poznámka</label><input id="nb2b-note"></div>
+              </div>
+
+              <hr style="margin: 20px 0; border-top: 1px solid #eee;">
+
+              <div class="form-group product-search-wrapper" style="margin-bottom:15px;">
+                  <label style="display:block; margin-bottom:5px; font-weight:600;">Pridať položku (Názov alebo EAN)</label>
+                  <div style="display:flex; gap:10px;">
+                      <input id="nb2b-product-search" placeholder="Začnite písať názov výrobku..." style="flex:1; padding:8px; border:1px solid #ccc; border-radius:4px;">
+                  </div>
+                  <div id="nb2b-search-results" class="product-search-results"></div>
+              </div>
+
+              <h4>Položky objednávky</h4>
+              <table id="nb2b-items" class="tbl" style="width:100%">
+                <thead>
+                  <tr><th>EAN</th><th>Názov</th><th>Množstvo</th><th>MJ</th><th>Cena bez DPH</th><th></th></tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+              <button id="nb2b-add" class="btn btn-secondary" style="margin-top:8px">+ prázdny riadok</button>
             </div>
+            <div class="card-footer">
+              <button id="nb2b-save" class="btn btn-primary">Uložiť objednávku</button>
+            </div>
+          </div>
         </div>
 
         <div id="leader-b2b-comm" class="content-section">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
                 <h3>B2B Komunikácia so zákazníkmi</h3>
             </div>
-            <div id="b2b-comm-container"></div>
+            <div id="b2b-comm-container" style="background:#fff; border-radius:12px;"></div>
         </div>
 
         <div id="leader-meat-origin-labels" class="content-section">
-             <h3>Štítky pôvodu mäsa</h3>
-             <div class="card"><div class="card-body"><div id="mol-items"></div></div></div>
+          <h3>Štítky pôvodu mäsa (tlač)</h3>
+          <div class="card">
+            <div class="card-body">
+              <p class="muted" style="margin-top:0">
+                Vyplňte riadky (dátum, kód dávky, pôvod) a vytvorte štítky v rovnakej štruktúre ako v tlačených šablónach.
+                Každý riadok sa vytlačí <strong>2× vedľa seba</strong> (ľavý + pravý štítok).
+              </p>
+              <div class="form-grid" style="grid-template-columns:repeat(4,minmax(220px,1fr));">
+                <div class="form-group">
+                  <label>Typ mäsa</label>
+                  <select id="mol-type">
+                    <option value="beef">Hovädzie</option>
+                    <option value="pork">Ošípané</option>
+                    <option value="poultry">Hydinové</option>
+                  </select>
+                </div>
+                <div class="form-group"><label>Schvaľovacie číslo (ES)</label><input id="mol-approval" value="SK 4053 ES"></div>
+                <div class="form-group" style="grid-column: span 2;"><label>Hlavička firmy</label><input id="mol-company" value="MIK,s.r.o.,Hollého 1999/13,927 05 Šaľa"></div>
+                <div class="form-group mol-beef-only" style="grid-column: span 4;"><label>Delené (hovädzie)</label><input id="mol-cuttext" value="v Slovenskej republike SK 4053 ES"></div>
+                <div class="form-group"><label>Text dátumu na štítku</label><select id="mol-date-label"><option value="Dátum spot:">Dátum spot:</option><option value="Dátum:">Dátum:</option><option value="Dátum :">Dátum :</option></select></div>
+                <div class="form-group"><label>Riadkov na 1 stranu</label><input id="mol-rows-per-page" type="number" min="1" max="12" step="1" value="6"></div>
+                <div class="form-group"><label>Formát dátumu</label><select id="mol-date-format"><option value="sk">dd.mm.rrrr</option><option value="iso">rrrr-mm-dd</option></select></div>
+                <div class="form-group"><label>Veľkosť písma</label><select id="mol-font-size"><option value="11">11 px</option><option value="10">10 px</option><option value="12">12 px</option></select></div>
+              </div>
+              <hr style="margin:16px 0;border-top:1px solid #eee;">
+              <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+                <h4 style="margin:0">Zoznam štítkov</h4>
+                <span class="muted">(Dátum, kód dávky, pôvod)</span>
+                <span style="flex:1"></span>
+                <button id="mol-add" class="btn btn-secondary">+ pridať riadok</button>
+                <button id="mol-preview" class="btn btn-secondary">Náhľad</button>
+                <button id="mol-save-history" class="btn btn-secondary"><i class="fas fa-save"></i> Uložiť do histórie</button>
+                <button id="mol-print" class="btn btn-primary"><i class="fas fa-print"></i> Tlačiť</button>
+              </div>
+              <div class="table-container" style="margin-top:10px;"><table id="mol-items" class="tbl"><thead><tr><th style="width:160px">Dátum</th><th style="width:160px">Kód dávky</th><th class="mol-beef-only" style="width:220px">Referenčné číslo</th><th>Pôvod</th><th style="width:80px"></th></tr></thead><tbody></tbody></table></div>
+              <div id="mol-preview-wrap" style="margin-top:16px;"></div>
+              <hr style="margin:16px 0;border-top:1px solid #eee;">
+              <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+                <h4 style="margin:0">História dávok</h4>
+                <span class="muted">(uložené v tomto prehliadači – pre opakovanú tlač)</span>
+                <span style="flex:1"></span>
+                <input id="mol-history-filter" placeholder="Hľadať (kód dávky / pôvod)…" style="padding:8px 10px;border:1px solid #ddd;border-radius:6px;min-width:260px">
+                <button id="mol-history-clear" class="btn btn-secondary">Vyčistiť históriu</button>
+              </div>
+              <div id="mol-history-list" style="margin-top:10px;"></div>
+            </div>
+          </div>
         </div>
-        <div id="leader-lowstock" class="content-section"><div id="leader-lowstock-detail"></div></div>
-        <div id="leader-plan" class="content-section"><div id="planner-inline-root"></div></div>
-        <div id="leader-cut" class="content-section"><div class="card-body"><table id="tbl-cut"></table></div></div>
+
+        <div id="leader-lowstock" class="content-section">
+          <h3>Sklad pod minimom</h3>
+          <div class="card">
+            <div class="card-body" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+              <button id="leader-lowstock-refresh" class="btn btn-primary">
+                <i class="fas fa-rotate"></i> Obnoviť
+              </button>
+              <span class="muted">Prehľad všetkých výrobkov a tovaru, ktoré sú pod minimálnou zásobou na centrálnom sklade.</span>
+            </div>
+          </div>
+          <div id="leader-lowstock-detail" style="margin-top:12px;"></div>
+        </div>
+
+        <div id="leader-plan" class="content-section">
+          <h3>Kalendár výroby (vedúca expedície)</h3>
+          <div id="planner-inline-root" class="card" style="margin-top:1rem;"></div>
+        </div>
+
+        <div id="leader-cut" class="content-section">
+          <h3>Krájanie / Výroba</h3>
+          <div class="card">
+            <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
+                <strong>Zoznam úloh</strong>
+                <div>
+                    <label style="margin-right:10px;">Dátum: <input id="cut-date" type="date" style="padding:4px; border:1px solid #ddd; border-radius:4px;"></label>
+                    <button id="cut-refresh" class="btn btn-secondary"><i class="fas fa-sync"></i> Obnoviť</button>
+                    <button id="cut-new" class="btn btn-primary"><i class="fas fa-plus"></i> Nová úloha</button>
+                </div>
+            </div>
+            <div class="card-body">
+              <div class="table-container">
+                <table id="tbl-cut" class="tbl">
+                  <thead>
+                    <tr><th>ID</th><th>Pre koho (Zákazník)</th><th>EAN</th><th>Názov</th><th>Množstvo</th><th>MJ</th><th>Termín</th><th>Stav</th><th>Akcia</th></tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
 
       </main>
     </div>
