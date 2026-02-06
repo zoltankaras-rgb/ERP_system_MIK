@@ -34,11 +34,20 @@
       .mol-preview .mol-company, .mol-preview .mol-approval, .mol-preview .mol-title { text-align: center; font-weight: 700; }
       .mol-preview .mol-lbl { font-weight: 700; white-space: nowrap; }
 
-      /* Fix pre vizuálnu stránku B2B Komunikácie v rámci layoutu expedície */
+      /* === FIX PRE B2B KOMUNIKÁCIU === */
       #leader-b2b-comm .b2b-layout {
+          display: block !important;
           background: #fff;
-          border-radius: 8px;
-          overflow: hidden;
+          border-radius: 12px;
+          border: 1px solid #e2e8f0;
+          box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
+          margin-top: 1rem;
+          min-height: 600px;
+      }
+      /* Zabezpečenie, aby messenger vnútri nezdedil zlé štýly */
+      #b2b-comm-container {
+          width: 100%;
+          height: 100%;
       }
       #badge-msgs {
           display: inline-flex;
@@ -59,7 +68,7 @@
     <header class="app-header">
       <div>
         <h1>Vedúci expedície</h1>
-        <p id="user-info">Vitajte, {{ user.get('full_name') or user.get('username') }}</p>
+        <p id="user-info">Vitajte, {{ user.get('name') if user else '' }}</p>
       </div>
       <a href="/logout" class="btn btn-danger"><i class="fas fa-sign-out-alt"></i> Odhlásiť</a>
     </header>
@@ -73,10 +82,10 @@
           <li><a class="sidebar-link" data-section="leader-manual-b2b"><i class="fas fa-plus-square"></i> Manuálna B2B objednávka</a></li>
           
           <li>
-              <a class="sidebar-link" data-section="leader-b2b-comm">
-                  <i class="fas fa-comments"></i> B2B Komunikácia 
-                  <span id="badge-msgs" style="display:none">0</span>
-              </a>
+            <a class="sidebar-link" data-section="leader-b2b-comm">
+                <i class="fas fa-comments"></i> B2B Komunikácia
+                <span id="badge-msgs" style="display:none">0</span>
+            </a>
           </li>
 
           <li><a class="sidebar-link" data-section="leader-meat-origin-labels"><i class="fas fa-tags"></i> Štítky pôvodu mäsa</a></li>
@@ -206,20 +215,11 @@
           </div>
         </div>
 
-        <div id="leader-b2b-comm" class="content-section">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
-                <h3>B2B Komunikácia so zákazníkmi</h3>
-            </div>
-            <div class="b2b-layout">
-                <div id="b2b-comm-container"></div>
-            </div>
-        </div>
-
         <div id="leader-meat-origin-labels" class="content-section">
           <h3>Štítky pôvodu mäsa (tlač)</h3>
           <div class="card">
             <div class="card-body">
-              <p class="muted">Každý riadok vytlačí štítky na celú A4 (2 stĺpce).</p>
+              <p class="muted">Vyplňte riadky a vytvorte štítky. Každý riadok sa vytlačí 2× vedľa seba.</p>
               <div class="form-grid" style="grid-template-columns:repeat(4,minmax(220px,1fr));">
                 <div class="form-group">
                   <label>Typ mäsa</label>
@@ -230,7 +230,7 @@
                   </select>
                 </div>
                 <div class="form-group">
-                  <label>Schvaľovacie číslo</label>
+                  <label>Schvaľovacie číslo (ES)</label>
                   <input id="mol-approval" value="SK 4053 ES">
                 </div>
                 <div class="form-group" style="grid-column: span 2;">
@@ -242,30 +242,22 @@
                   <input id="mol-cuttext" value="v Slovenskej republike SK 4053 ES">
                 </div>
               </div>
-
-              <div style="display:flex;gap:10px;margin-top:1rem;flex-wrap:wrap;">
+              <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:1rem;">
                 <button id="mol-add" class="btn btn-secondary">+ pridať riadok</button>
                 <button id="mol-preview" class="btn btn-secondary">Náhľad</button>
                 <button id="mol-save-history" class="btn btn-secondary">Uložiť do histórie</button>
                 <button id="mol-print" class="btn btn-primary">Tlačiť</button>
               </div>
-
               <div class="table-container" style="margin-top:10px;">
                 <table id="mol-items" class="tbl">
                   <thead>
-                    <tr>
-                      <th style="width:160px">Dátum</th>
-                      <th style="width:160px">Kód dávky</th>
-                      <th class="mol-beef-only" style="width:220px">Referenčné číslo</th>
-                      <th>Pôvod</th>
-                      <th style="width:80px"></th>
-                    </tr>
+                    <tr><th>Dátum</th><th>Kód dávky</th><th class="mol-beef-only">Referenčné č.</th><th>Pôvod</th><th></th></tr>
                   </thead>
                   <tbody></tbody>
                 </table>
               </div>
               <div id="mol-preview-wrap" style="margin-top:16px;"></div>
-              <div id="mol-history-list" style="margin-top:20px;"></div>
+              <div id="mol-history-list" style="margin-top:10px;"></div>
             </div>
           </div>
         </div>
@@ -309,6 +301,13 @@
           </div>
         </div>
 
+        <div id="leader-b2b-comm" class="content-section">
+          <h3>B2B Komunikácia so zákazníkmi</h3>
+          <div class="b2b-layout">
+            <div id="b2b-comm-container"></div>
+          </div>
+        </div>
+
       </main>
     </div>
   </div>
@@ -316,8 +315,7 @@
   <script src="{{ url_for('static', filename='js/kancelaria_modules/b2b_admin.js') }}"></script>
   <script src="{{ url_for('static', filename='js/kancelaria_modules/planning.js') }}"></script>
   <script src="{{ url_for('static', filename='js/kancelaria_modules/calendar_planner.js') }}"></script>
-  
-  <script src="{{ url_for('static', filename='js/leaderexpediction.js') }}?v=17"></script>
+  <script src="{{ url_for('static', filename='js/leaderexpediction.js') }}?v=18"></script>
 
 </body>
 </html>
