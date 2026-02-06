@@ -192,6 +192,7 @@ def _register_fonts():
 def _make_csv(order):
     """
     COOP-štýl CSV pre expedíciu.
+    Opravené: Načítanie množstva z rôznych kľúčov a formátovanie.
     """
     sio = io.StringIO(newline="")
 
@@ -226,13 +227,18 @@ def _make_csv(order):
     for it in order.get("items", []):
         ean   = str(it.get("ean") or "")
         name  = (it.get("name") or "").strip()
+        
+        # OPRAVA: Skúsiť načítať 'qty' (nové) aj 'quantity' (staré)
         qty   = _to_float(it.get("qty") or it.get("quantity"))
         price = _to_float(it.get("price"))
 
         code_field = ean[:13].ljust(13)
         desc_field = name[:45].ljust(45)
+        
+        # Formátovanie množstva
         qty_str    = f"{qty:.2f}"
         qty_field  = qty_str.rjust(5)
+        
         odb_field  = cust_code[:13].ljust(13) if cust_code else "".ljust(13)
 
         line = (
@@ -503,12 +509,16 @@ def _make_pdf(order):
 def create_order_files(order_data: dict):
     """
     Vráti (pdf_bytes, csv_bytes, csv_filename).
+    Opravené: Mapovanie poznámok, jednotiek a množstva.
     """
     order_no   = _pick(order_data, "orderNumber", "order_number", default="—")
     cust_name  = _pick(order_data, "customerName", "customer_name", default="")
     cust_addr  = _pick(order_data, "customerAddress", "customer_address", default="")
     deliv_date = _pick(order_data, "deliveryDate", "delivery_date", default="")
-    note       = _pick(order_data, "note", default="")
+    
+    # OPRAVA: Pridaný alias "poznamka" pre istotu
+    note       = _pick(order_data, "note", "poznamka", default="")
+    
     raw_items  = order_data.get("items", []) or []
     cust_code  = _pick(order_data, "customerCode", "customer_code", default="")
 
@@ -518,7 +528,6 @@ def create_order_files(order_data: dict):
     
     # Odmeny
     points_reward_note = _pick(order_data, "uplatnena_odmena_poznamka", "points_reward_note", default="")
-    
     rewards_list = []
     for r in (order_data.get("rewards") or []):
         if not isinstance(r, dict):
@@ -529,31 +538,50 @@ def create_order_files(order_data: dict):
     rates = set()
     total_net = 0.0
     total_vat = 0.0
+    
     for it in raw_items:
         name = it.get("name") or it.get("nazov_vyrobku") or ""
         ean  = it.get("ean")  or it.get("ean_produktu") or ""
+        
+        # OPRAVA: Prioritne berie unit/mj z objednávky, inak fallback 'ks'
         unit = it.get("unit") or it.get("mj") or "ks"
-        qty  = _to_float(it.get("quantity") or it.get("mnozstvo"))
+        
+        # OPRAVA: Zjednotenie kľúčov pre množstvo (quantity, qty, mnozstvo)
+        qty  = _to_float(it.get("quantity") or it.get("qty") or it.get("mnozstvo"))
+        
         price= _to_float(it.get("price") or it.get("cena") or it.get("cena_bez_dph"))
         dph  = abs(_to_float(it.get("dph") or it.get("vat") or it.get("dph_percent")))
+        
         line_net   = _to_float(it.get("line_net"),   default=price * qty)
         line_vat   = _to_float(it.get("line_vat"),   default=line_net * (dph/100.0))
         line_gross = _to_float(it.get("line_gross"), default=line_net + line_vat)
+        
         total_net += line_net
         total_vat += line_vat
         rates.add(dph)
+        
+        # OPRAVA: Načítanie poznámky k položke
+        item_note = it.get("item_note") or it.get("note") or ""
+
         items.append({
-            "name": name, "ean": ean, "unit": unit,
-            "qty": qty, "price": price, "dph": dph,
-            "line_net": line_net, "line_vat": line_vat, "line_gross": line_net + line_vat,
-            "item_note": it.get("item_note") or "",
+            "name": name, 
+            "ean": ean, 
+            "unit": unit,
+            "qty": qty, 
+            "price": price, 
+            "dph": dph,
+            "line_net": line_net, 
+            "line_vat": line_vat, 
+            "line_gross": line_net + line_vat,
+            "item_note": item_note, # Prenesie sa do PDF
         })
 
-    # Použijeme sumy z order_data ak sú, inak vypočítané
+    # Finálne sumy
     final_total_gross = _to_float(order_data.get("totalWithVat"), total_net + total_vat)
     final_total_net   = _to_float(order_data.get("totalNet"), total_net)
     final_total_vat   = _to_float(order_data.get("totalVat"), total_vat)
 
+    # Rozpis DPH
     canonical = [5.0, 10.0, 19.0, 23.0]
     base_by_rate = {r: 0.0 for r in canonical}
     vat_by_rate  = {r: 0.0 for r in canonical}
@@ -563,15 +591,16 @@ def create_order_files(order_data: dict):
         vat_by_rate[r]  = vat_by_rate.get(r, 0.0)  + it["line_vat"]
     others = sorted([r for r in rates if r not in canonical])
 
+    # Zostavenie objektu objednávky
     order = {
         "order_no": order_no,
         "customer_name": cust_name,
         "customer_address": cust_addr,
         "delivery_date": deliv_date,
-        "delivery_window": delivery_window, # <--- Tu sa ukladá formátovaný string
+        "delivery_window": delivery_window,
         "points_reward_note": points_reward_note,
         "rewards": rewards_list,
-        "note": note,
+        "note": note, # Tu je celková poznámka
         "items": items,
         "total_net": final_total_net,
         "total_vat": final_total_vat,
@@ -600,7 +629,6 @@ def create_order_files(order_data: dict):
         csv_filename = f"{safe_cust}_{now_str}.csv"
 
     return pdf_bytes, csv_bytes, csv_filename
-
 # ──────────────── PRIDANÉ PRE KOMPATIBILITU (SMART CENNÍKY) ────────────────
 import re
 

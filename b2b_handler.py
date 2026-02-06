@@ -988,6 +988,7 @@ def submit_b2b_order(data: dict):
     if not (user_id and items_in and delivery_date and customer_email):
         return {"error": "Chýbajú povinné údaje (zákazník, položky, dátum dodania, e-mail)."}
 
+    # 1. Načítanie zákazníka
     cust = db_connector.execute_query(
         "SELECT id, zakaznik_id, nazov_firmy, adresa FROM b2b_zakaznici WHERE id=%s",
         (user_id,), fetch="one",
@@ -996,7 +997,7 @@ def submit_b2b_order(data: dict):
         return {"error": "Zákazník neexistuje."}
     login_id = cust["zakaznik_id"]
 
-    # DPH, MJ, názvy z 'produkty' podľa EAN
+    # 2. Načítanie produktov (DPH, MJ, názvy) z tabuľky 'produkty' pre validáciu a fallback
     eans = [str(it.get("ean")) for it in items_in if it.get("ean")]
     pmap: Dict[str, Any] = {}
     if eans:
@@ -1007,33 +1008,48 @@ def submit_b2b_order(data: dict):
         ) or []
         pmap = {str(r["ean"]): r for r in rows}
 
-    # doplníme cenníkové ceny na základe priradeného cenníka
+    # 3. Doplnenie cenníkových cien
     pricelist_price_by_ean = _get_pricelist_price_map(login_id, eans)
 
     pdf_items: List[Dict[str, Any]] = []
     total_net = 0.0
     total_vat = 0.0
 
+    # 4. Spracovanie položiek pre PDF a DB
     for it in items_in:
+        # Konverzia čísel
         qty   = _to_float(it.get("quantity"))
-        price = _to_float(it.get("price"))               # bez DPH / MJ (objednávková cena)
+        price = _to_float(it.get("price")) # cena bez DPH (z objednávky)
+        
+        # Dáta z DB (fallback)
         pm    = pmap.get(str(it.get("ean"))) or {}
         dph   = abs(_to_float(pm.get("dph", it.get("dph"))))
+        
+        # OPRAVA JEDNOTKY: Prioritu má jednotka z objednávky (napr. 'ks'), potom DB, potom default 'ks'
+        unit = it.get("unit") or pm.get("mj") or "ks"
+        
+        # OPRAVA POZNÁMKY K POLOŽKE: Načítame note alebo item_note
+        item_note = it.get("note") or it.get("item_note") or ""
+
+        # Výpočty cien
         line_net = price * qty
         line_vat = line_net * (dph / 100.0)
         total_net += line_net
         total_vat += line_vat
+        
+        # Príprava objektu pre PDF generátor
         pdf_items.append({
             "ean": str(it.get("ean")),
             "name": it.get("name") or pm.get("nazov_vyrobku") or "",
-            "unit": it.get("unit") or pm.get("mj") or "ks",
+            "unit": unit,
             "quantity": qty,
-            "price": price,                  # objednávková cena bez DPH
+            "price": price,
             "dph": dph,
             "line_net": line_net,
             "line_vat": line_vat,
             "line_gross": line_net + line_vat,
-            "pricelist_price": pricelist_price_by_ean.get(str(it.get("ean")))
+            "pricelist_price": pricelist_price_by_ean.get(str(it.get("ean"))),
+            "item_note": item_note  # <--- Dôležité pre zobrazenie v PDF
         })
 
     total_gross = total_net + total_vat
@@ -1043,7 +1059,7 @@ def submit_b2b_order(data: dict):
         "customerName": cust["nazov_firmy"],
         "customerAddress": cust["adresa"],
         "deliveryDate": delivery_date,
-        "note": note,
+        "note": note,  # Celková poznámka k objednávke
         "items": pdf_items,
         "totalNet": total_net,
         "totalVat": total_vat,
@@ -1051,11 +1067,12 @@ def submit_b2b_order(data: dict):
         "customerCode": login_id, 
     }
 
-    # uloženie hlavičky + položiek
+    # 5. Uloženie do databázy
     order_number = f"B2B-{login_id}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
     conn = db_connector.get_connection()
     cur = conn.cursor()
     try:
+        # Insert hlavičky
         cur.execute(
             """
             INSERT INTO b2b_objednavky
@@ -1066,22 +1083,24 @@ def submit_b2b_order(data: dict):
         )
         oid = cur.lastrowid
 
+        # Insert položiek
         lines: List[Tuple[Any, ...]] = []
         for i in pdf_items:
             pm = pmap.get(str(i.get("ean"))) or {}
             lines.append((
                 oid,
                 i.get("ean"),
-                i.get("name") or pm.get("nazov_vyrobku") or "",
+                i.get("name"),
                 i["quantity"],
-                pm.get("mj") or i.get("unit") or "ks",
-                abs(_to_float(pm.get("dph", i.get("dph")))),
+                i["unit"], # Uložíme jednotku použitú v objednávke
+                i["dph"],
                 pm.get("predajna_kategoria"),
                 pm.get("vaha_balenia_g"),
                 pm.get("typ_polozky"),
-                i["price"],  # bez DPH
+                i["price"],
                 _normalize_date_to_str(delivery_date),
             ))
+        
         cur.executemany(
             """
             INSERT INTO b2b_objednavky_polozky
@@ -1097,13 +1116,13 @@ def submit_b2b_order(data: dict):
         except Exception:
             pass
 
-    # vygenerujeme PDF + CSV a odošleme
+    # 6. Generovanie PDF + CSV a odoslanie e-mailov
     order_payload["order_number"] = order_number
     try:
-        # 1. Získame 3 hodnoty vrátane NÁZVU SÚBORU
+        # Získame PDF, CSV a názov súboru (vyžaduje upravený pdf_generator.py)
         pdf_bytes, csv_bytes, csv_filename = pdf_generator.create_order_files(order_payload)
 
-        # 1a. Uložíme CSV aj do zložky na serveri pre B2B import
+        # Uloženie CSV na server pre import
         try:
             export_dir = os.getenv("B2B_CSV_EXPORT_DIR", "/var/app/data/b2bobjednavky")
             os.makedirs(export_dir, exist_ok=True)
@@ -1115,10 +1134,9 @@ def submit_b2b_order(data: dict):
                 with open(file_path, "wb") as f:
                     f.write(csv_bytes)
         except Exception:
-            # nech nepadne objednávka kvôli problému so zápisom na disk
             traceback.print_exc()
         
-        # zákazník – PDF
+        # Odoslanie zákazníkovi (iba PDF)
         try:
             notification_handler.send_order_confirmation_email(
                 to=customer_email, order_number=order_number, pdf_content=pdf_bytes, csv_content=None
@@ -1126,18 +1144,18 @@ def submit_b2b_order(data: dict):
         except Exception:
             traceback.print_exc()
         
-        # expedícia – PDF + CSV
+        # Odoslanie expedícii (PDF + CSV)
         try:
             notification_handler.send_order_confirmation_email(
                 to=EXPEDITION_EMAIL, 
                 order_number=order_number, 
                 pdf_content=pdf_bytes, 
                 csv_content=csv_bytes,
-                csv_filename=csv_filename  # použije správny názov CSV
+                csv_filename=csv_filename
             )
         except Exception:
             traceback.print_exc()
-            # Fallback pre prípad, že notification_handler nemá tento parameter
+            # Fallback pre prípad, že notification_handler nepodporuje csv_filename
             try:
                 notification_handler.send_order_confirmation_email(
                     to=EXPEDITION_EMAIL, order_number=order_number, pdf_content=pdf_bytes, csv_content=csv_bytes
