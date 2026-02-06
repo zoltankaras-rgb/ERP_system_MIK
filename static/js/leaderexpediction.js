@@ -1370,19 +1370,21 @@ function initMeatOriginLabels(){
         if (secId === 'leader-b2c')        loadB2C();
         if (secId === 'leader-b2b')        loadB2B();
         // Nová podmienka pre B2B komunikáciu
-       if (secId === 'leader-b2b-comm') {
-    if (typeof window.initializeB2BAdminModule === 'function' && typeof window.loadCommView === 'function') {
-        const commContainer = document.getElementById('b2b-comm-container');
-        
-        // Ak je kontajner prázdny, zinicializujeme modul (toto vytvorí štýly v hlavičke)
-        if (commContainer && commContainer.innerHTML === '') {
-            window.initializeB2BAdminModule();
+       // static/js/leaderexpediction.js v rámci funkcie boot()
+
+if (secId === 'leader-b2b-comm') {
+    // 1. Inicializácia CSS štýlov modulu (ak ešte nie sú)
+    if (typeof window.initializeB2BAdminModule === 'function') {
+        const container = document.getElementById('b2b-comm-container');
+        // Inicializuj len ak je kontajner prázdny
+        if (container && container.innerHTML.trim() === '') {
+             window.initializeB2BAdminModule();
         }
-        
-        // Teraz zavoláme načítanie správ do pripraveného prostredia
+    }
+    
+    // 2. Načítanie dát
+    if (typeof window.loadCommView === 'function') {
         window.loadCommView();
-    } else {
-        showStatus("Chyba: Modul B2B komunikácie nie je správne načítaný.", true);
     }
 }
         if (secId === 'leader-meat-origin-labels') { initMeatOriginLabels(); mol_preview(); }

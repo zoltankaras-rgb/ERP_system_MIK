@@ -778,9 +778,10 @@
   }
 
 // Vyhľadajte tento blok na konci súboru b2b_admin.js a doplňte riadok pre loadCommView
+// static/js/kancelaria_modules/b2b_admin.js
   (function (g) { 
-    g.initializeB2BAdminModule = initializeB2BAdminModule; 
-    g.loadCommView = loadCommView; // <--- PRIDAJTE TENTO RIADOK
+      g.initializeB2BAdminModule = initializeB2BAdminModule; 
+      g.loadCommView = loadCommView; // <--- PRIDAJTE TENTO RIADOK
   })(typeof window !== 'undefined' ? window : this);
 
 })(typeof window !== 'undefined' ? window : this, typeof document !== 'undefined' ? document : undefined);
