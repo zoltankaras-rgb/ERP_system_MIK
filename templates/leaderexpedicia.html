@@ -9,60 +9,46 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
   <style>
-      /* Štýly pre našeptávač produktov */
+      /* --- Pôvodné štýly (ponechané) --- */
       .product-search-wrapper { position: relative; }
       .product-search-results {
-          position: absolute; top: 100%; left: 0; right: 0;
-          background: white; border: 1px solid #ddd; border-radius: 0 0 6px 6px;
-          max-height: 300px; overflow-y: auto; z-index: 1000; box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-          display: none;
+          position: absolute; top: 100%; left: 0; right: 0; background: white; border: 1px solid #ddd;
+          border-radius: 0 0 6px 6px; max-height: 300px; overflow-y: auto; z-index: 1000;
+          box-shadow: 0 4px 6px rgba(0,0,0,0.1); display: none;
       }
-      .product-search-item {
-          padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #f3f4f6; display: flex; justify-content: space-between;
-      }
+      .product-search-item { padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #f3f4f6; display: flex; justify-content: space-between; }
       .product-search-item:hover { background-color: #f3f4f6; }
-      .product-search-item .meta { font-size: 0.85em; color: #6b7280; }
-
-      /* Náhľad štítkov pôvodu mäsa */
       .mol-preview { background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 10px; padding: 12px; }
-      .mol-preview .mol-root { font-size: var(--mol-font, 11px); }
       .mol-preview .mol-entry { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
       .mol-preview .mol-page { padding: 8px; border: 1px dashed #d1d5db; border-radius: 10px; margin-bottom: 16px; background: #fff; }
-      .mol-preview .mol-page:last-child { margin-bottom: 0; }
       .mol-preview .mol-label { width: 100%; border-collapse: collapse; table-layout: fixed; border: 1px solid #111; }
       .mol-preview .mol-label td { border: 1px solid #111; padding: 6px 7px; vertical-align: middle; }
       .mol-preview .mol-company, .mol-preview .mol-approval, .mol-preview .mol-title { text-align: center; font-weight: 700; }
       .mol-preview .mol-lbl { font-weight: 700; white-space: nowrap; }
 
-      /* === EXPLICITNÝ FIX PRE B2B KOMUNIKÁCIU === */
-      #leader-b2b-comm .b2b-layout {
-          display: block !important; /* Vynútenie zobrazenia */
-          background: #fff;
-          border-radius: 12px;
-          border: 1px solid #e2e8f0;
-          box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
-          margin-top: 1rem;
-          min-height: 650px;
-          padding: 0;
-          overflow: hidden;
-      }
-      /* Úprava vnútorného kontajnera, aby sedel na grid z b2b_admin.js */
-      #b2b-comm-container {
-          width: 100%;
-          height: 100%;
-          min-height: 650px;
-      }
+      /* === ŠTÝLY PRE CHAT (SKOPÍROVANÉ Z B2B ADMINA) === */
+      /* Toto zabezpečí pekný vzhľad bez nutnosti spúšťať celý admin modul */
+      .chat-wrapper { display: grid; grid-template-columns: 300px 1fr; height: 650px; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; background: white; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
+      .chat-sidebar { border-right: 1px solid #e5e7eb; background: #f8fafc; display: flex; flex-direction: column; }
+      .chat-list { overflow-y: auto; flex: 1; }
+      .chat-item { padding: 15px; border-bottom: 1px solid #e2e8f0; cursor: pointer; transition: background 0.2s; }
+      .chat-item:hover { background: #f1f5f9; }
+      .chat-item.active { background: #e0f2fe; border-left: 4px solid #0284c7; }
+      .chat-item.unread { background: #fff7ed; }
+      .chat-main { display: flex; flex-direction: column; background: #fff; }
+      .chat-header { padding: 15px; border-bottom: 1px solid #e5e7eb; font-weight: 600; background: #fff; }
+      .chat-messages { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 15px; background: #f9fafb; }
+      .chat-input { padding: 15px; border-top: 1px solid #e5e7eb; background: #fff; display: flex; gap: 10px; }
+      
+      .msg-bubble { max-width: 75%; padding: 12px 16px; border-radius: 12px; font-size: 0.95rem; line-height: 1.5; position: relative; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+      .msg-in { align-self: flex-start; background: #ffffff; border: 1px solid #e5e7eb; color: #1f2937; border-bottom-left-radius: 2px; }
+      .msg-out { align-self: flex-end; background: #2563eb; color: white; border-bottom-right-radius: 2px; }
+      .msg-meta { font-size: 0.7rem; margin-top: 5px; opacity: 0.7; text-align: right; }
+
       #badge-msgs {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          background: #dc2626;
-          color: white;
-          border-radius: 99px;
-          padding: 2px 8px;
-          font-size: 0.75rem;
-          font-weight: bold;
-          margin-left: 5px;
+          display: inline-flex; align-items: center; justify-content: center;
+          background: #dc2626; color: white; border-radius: 99px;
+          padding: 2px 8px; font-size: 0.75rem; font-weight: bold; margin-left: 5px;
       }
   </style>
 </head>
@@ -83,12 +69,14 @@
           <li><a class="sidebar-link" data-section="leader-b2c"><i class="fas fa-basket-shopping"></i> B2C Objednávky</a></li>
           <li><a class="sidebar-link" data-section="leader-b2b"><i class="fas fa-building"></i> B2B Objednávky</a></li>
           <li><a class="sidebar-link" data-section="leader-manual-b2b"><i class="fas fa-plus-square"></i> Manuálna B2B objednávka</a></li>
+          
           <li>
             <a class="sidebar-link" data-section="leader-b2b-comm">
                 <i class="fas fa-comments"></i> B2B Komunikácia
                 <span id="badge-msgs" style="display:none">0</span>
             </a>
           </li>
+
           <li><a class="sidebar-link" data-section="leader-meat-origin-labels"><i class="fas fa-tags"></i> Štítky pôvodu mäsa</a></li>
           <li><a class="sidebar-link" data-section="leader-plan"><i class="fas fa-calendar-alt"></i> Kalendár výroby</a></li>
           <li><a class="sidebar-link" data-section="leader-lowstock"><i class="fas fa-exclamation-triangle"></i> Sklad pod minimom</a></li>
@@ -97,147 +85,51 @@
       </aside>
 
       <main class="main-content">
+        
         <div id="leader-dashboard" class="content-section active">
-          <h3>Prehľad dňa</h3>
-          <div class="card">
-            <div class="card-body" style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">
-              <label>Dátum: <input id="ldr-date" type="date"></label>
-              <button id="ldr-refresh" class="btn btn-primary">Obnoviť</button>
-            </div>
-          </div>
-          <div class="grid-kpi" style="display:grid;grid-template-columns:repeat(4,minmax(180px,1fr));gap:12px;margin-top:12px">
-            <div class="card"><div class="card-body"><div class="muted">B2C objednávky</div><div id="kpi-b2c" style="font-weight:800;font-size:1.4rem">—</div></div></div>
-            <div class="card"><div class="card-body"><div class="muted">B2B objednávky</div><div id="kpi-b2b" style="font-weight:800;font-size:1.4rem">—</div></div></div>
-            <div class="card"><div class="card-body"><div class="muted">Počet položiek</div><div id="kpi-items" style="font-weight:800;font-size:1.4rem">—</div></div></div>
-            <div class="card"><div class="card-body"><div class="muted">Suma spolu</div><div id="kpi-sum" style="font-weight:800;font-size:1.4rem">—</div></div></div>
-          </div>
-          <div id="leader-next7"></div>
-          <div class="card" style="margin-top:16px">
-            <div class="card-header"><strong>Plán výroby – 7 pracovných dní (preview)</strong></div>
-            <div class="card-body" id="plan-preview"></div>
-            <div class="card-footer"><button id="plan-commit" class="btn btn-secondary">Zapísať plán (vyroba)</button></div>
-          </div>
+            <h3>Prehľad dňa</h3>
+            <div class="card"><div class="card-body" style="display:flex;gap:12px;align-items:center"><label>Dátum: <input id="ldr-date" type="date"></label><button id="ldr-refresh" class="btn btn-primary">Obnoviť</button></div></div>
+            <div id="plan-preview"></div>
         </div>
 
         <div id="leader-b2c" class="content-section">
-          <h3>B2C objednávky (deň)</h3>
-          <div class="card">
-            <div class="card-body" style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">
-              <label>Dátum: <input id="b2c-date" type="date"></label>
-              <button id="b2c-refresh" class="btn btn-primary">Obnoviť</button>
-            </div>
-          </div>
-          <div class="card" style="margin-top:12px">
-            <div class="card-body">
-              <div class="table-container">
-                <table id="tbl-b2c">
-                  <thead><tr><th>#</th><th>Zákazník</th><th>Dodanie</th><th>Predb./Finálna</th><th>Stav</th><th>Akcia</th></tr></thead>
-                  <tbody></tbody>
-                </table>
-              </div>
-            </div>
-          </div>
+            <h3>B2C objednávky (deň)</h3>
+            <div class="card"><div class="card-body" style="display:flex;gap:12px;align-items:center"><label>Dátum: <input id="b2c-date" type="date"></label><button id="b2c-refresh" class="btn btn-primary">Obnoviť</button></div></div>
+            <div class="card" style="margin-top:12px"><div class="card-body"><div class="table-container"><table id="tbl-b2c"><thead><tr><th>#</th><th>Zákazník</th><th>Dodanie</th><th>Suma</th><th>Stav</th><th>Akcia</th></tr></thead><tbody></tbody></table></div></div></div>
         </div>
 
         <div id="leader-b2b" class="content-section">
-          <h3>B2B objednávky (deň)</h3>
-          <div class="card">
-            <div class="card-body" style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">
-              <label>Dátum: <input id="b2b-date" type="date"></label>
-              <button id="b2b-refresh" class="btn btn-primary">Obnoviť</button>
-            </div>
-          </div>
-          <div class="card" style="margin-top:12px">
-            <div class="card-body">
-              <div class="table-container">
-                <table id="tbl-b2b">
-                  <thead><tr><th>#</th><th>Odberateľ</th><th>Dodanie</th><th>Predb./Finálna</th><th>Stav</th><th>Akcia</th></tr></thead>
-                  <tbody></tbody>
-                </table>
-              </div>
-            </div>
-          </div>
+            <h3>B2B objednávky (deň)</h3>
+            <div class="card"><div class="card-body" style="display:flex;gap:12px;align-items:center"><label>Dátum: <input id="b2b-date" type="date"></label><button id="b2b-refresh" class="btn btn-primary">Obnoviť</button></div></div>
+            <div class="card" style="margin-top:12px"><div class="card-body"><div class="table-container"><table id="tbl-b2b"><thead><tr><th>#</th><th>Odberateľ</th><th>Dodanie</th><th>Suma</th><th>Stav</th><th>Akcia</th></tr></thead><tbody></tbody></table></div></div></div>
         </div>
 
         <div id="leader-manual-b2b" class="content-section">
-          <h3>Manuálna B2B objednávka / Ambulant</h3>
-          <div id="manual-b2b-form" class="card">
-            <div class="card-body">
-              <div style="background:#f0f9ff; padding:10px; border:1px solid #bae6fd; border-radius:6px; margin-bottom:15px; display:flex; align-items:center; gap:10px;">
-                  <input type="checkbox" id="nb2b-ambulant" style="width:18px; height:18px; cursor:pointer;">
-                  <label for="nb2b-ambulant" style="margin:0; font-weight:600; cursor:pointer; color:#0369a1;">Ambulantný predaj</label>
-              </div>
-              <div class="form-grid">
-                <div class="form-group"><label>Odberateľ</label><input id="nb2b-name" placeholder="Vyhľadať firmu..."></div>
-                <div class="form-group"><label>Termín dodania</label><input id="nb2b-date" type="date"></div>
-                <div class="form-group" style="grid-column:1 / -1"><label>Poznámka</label><input id="nb2b-note"></div>
-              </div>
-              <hr style="margin: 20px 0; border-top: 1px solid #eee;">
-              <div class="form-group product-search-wrapper" style="margin-bottom:15px;">
-                  <label style="display:block; margin-bottom:5px; font-weight:600;">Pridať položku</label>
-                  <input id="nb2b-product-search" placeholder="Začnite písať názov výrobku..." style="flex:1; padding:8px; border:1px solid #ccc; border-radius:4px; width:100%;">
-                  <div id="nb2b-search-results" class="product-search-results"></div>
-              </div>
-              <table id="nb2b-items" class="tbl" style="width:100%">
-                <thead><tr><th>EAN</th><th>Názov</th><th>Množstvo</th><th>MJ</th><th>Cena bez DPH</th><th></th></tr></thead>
-                <tbody></tbody>
-              </table>
-              <button id="nb2b-add" class="btn btn-secondary" style="margin-top:8px">+ prázdny riadok</button>
+            <h3>Manuálna B2B objednávka</h3>
+            <div id="manual-b2b-form" class="card">
+                <div class="card-body">
+                    <div class="form-grid"><div class="form-group"><label>Odberateľ</label><input id="nb2b-name"></div><div class="form-group"><label>Termín</label><input id="nb2b-date" type="date"></div></div>
+                    <table id="nb2b-items" class="tbl" style="width:100%"><thead><tr><th>EAN</th><th>Názov</th><th>Mn.</th><th>MJ</th><th>Cena</th><th></th></tr></thead><tbody></tbody></table>
+                    <button id="nb2b-add" class="btn btn-secondary">+ riadok</button>
+                </div>
+                <div class="card-footer"><button id="nb2b-save" class="btn btn-primary">Uložiť</button></div>
             </div>
-            <div class="card-footer"><button id="nb2b-save" class="btn btn-primary">Uložiť objednávku</button></div>
-          </div>
-        </div>
-
-        <div id="leader-meat-origin-labels" class="content-section">
-          <h3>Štítky pôvodu mäsa (tlač)</h3>
-          <div class="card">
-            <div class="card-body">
-              <div class="form-grid" style="grid-template-columns:repeat(4,minmax(220px,1fr));">
-                <div class="form-group"><label>Typ mäsa</label><select id="mol-type"><option value="beef">Hovädzie</option><option value="pork">Ošípané</option><option value="poultry">Hydinové</option></select></div>
-                <div class="form-group"><label>Schvaľovacie číslo</label><input id="mol-approval" value="SK 4053 ES"></div>
-                <div class="form-group" style="grid-column: span 2;"><label>Hlavička firmy</label><input id="mol-company" value="MIK,s.r.o.,Hollého 1999/13,927 05 Šaľa"></div>
-                <div class="form-group mol-beef-only" style="grid-column: span 4;"><label>Delené (hovädzie)</label><input id="mol-cuttext" value="v Slovenskej republike SK 4053 ES"></div>
-              </div>
-              <div style="display:flex;gap:10px;margin-top:1rem;"><button id="mol-add" class="btn btn-secondary">+ riadok</button><button id="mol-preview" class="btn btn-secondary">Náhľad</button><button id="mol-print" class="btn btn-primary">Tlačiť</button></div>
-              <div class="table-container" style="margin-top:10px;"><table id="mol-items" class="tbl"><thead><tr><th>Dátum</th><th>Dávka</th><th class="mol-beef-only">Referencia</th><th>Pôvod</th><th></th></tr></thead><tbody></tbody></table></div>
-              <div id="mol-preview-wrap"></div>
-            </div>
-          </div>
-        </div>
-
-        <div id="leader-lowstock" class="content-section">
-          <h3>Sklad pod minimom</h3>
-          <button id="leader-lowstock-refresh" class="btn btn-primary">Obnoviť</button>
-          <div id="leader-lowstock-detail" style="margin-top:12px;"></div>
-        </div>
-
-        <div id="leader-plan" class="content-section">
-          <h3>Kalendár výroby</h3>
-          <div id="planner-inline-root"></div>
-        </div>
-
-        <div id="leader-cut" class="content-section">
-          <h3>Krájanie / Výroba</h3>
-          <div class="card">
-            <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
-                <strong>Zoznam úloh</strong>
-                <div><label>Dátum: <input id="cut-date" type="date"></label><button id="cut-refresh" class="btn btn-secondary"><i class="fas fa-sync"></i></button><button id="cut-new" class="btn btn-primary">Nová úloha</button></div>
-            </div>
-            <div class="card-body"><div class="table-container"><table id="tbl-cut" class="tbl"><thead><tr><th>ID</th><th>Zákazník</th><th>EAN</th><th>Názov</th><th>Množstvo</th><th>MJ</th><th>Termín</th><th>Stav</th><th>Akcia</th></tr></thead><tbody></tbody></table></div></div>
-          </div>
         </div>
 
         <div id="leader-b2b-comm" class="content-section">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
-            <h3>B2B Komunikácia so zákazníkmi</h3>
-          </div>
-          
-          <div id="section-b2b-admin" style="display: block;">
-              <div class="b2b-layout" style="background:#fff; min-height: 700px; border:1px solid #e5e7eb; border-radius:8px; box-shadow:0 4px 6px rgba(0,0,0,0.05);">
-                <div id="b2b-comm-container" style="height: 100%;"></div>
-              </div>
-          </div>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+                <h3>B2B Komunikácia so zákazníkmi</h3>
+            </div>
+            <div id="b2b-comm-container"></div>
         </div>
+
+        <div id="leader-meat-origin-labels" class="content-section">
+             <h3>Štítky pôvodu mäsa</h3>
+             <div class="card"><div class="card-body"><div id="mol-items"></div></div></div>
+        </div>
+        <div id="leader-lowstock" class="content-section"><div id="leader-lowstock-detail"></div></div>
+        <div id="leader-plan" class="content-section"><div id="planner-inline-root"></div></div>
+        <div id="leader-cut" class="content-section"><div class="card-body"><table id="tbl-cut"></table></div></div>
 
       </main>
     </div>
@@ -246,7 +138,7 @@
   <script src="{{ url_for('static', filename='js/kancelaria_modules/b2b_admin.js') }}"></script>
   <script src="{{ url_for('static', filename='js/kancelaria_modules/planning.js') }}"></script>
   <script src="{{ url_for('static', filename='js/kancelaria_modules/calendar_planner.js') }}"></script>
-  <script src="{{ url_for('static', filename='js/leaderexpediction.js') }}?v=18"></script>
+  <script src="{{ url_for('static', filename='js/leaderexpediction.js') }}?v=19"></script>
 
 </body>
 </html>

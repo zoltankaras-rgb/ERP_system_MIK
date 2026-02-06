@@ -1373,18 +1373,11 @@ function initMeatOriginLabels(){
        // static/js/leaderexpediction.js v rámci funkcie boot()
 
 if (secId === 'leader-b2b-comm') {
-    // 1. Inicializácia CSS štýlov modulu (ak ešte nie sú)
-    if (typeof window.initializeB2BAdminModule === 'function') {
-        const container = document.getElementById('b2b-comm-container');
-        // Inicializuj len ak je kontajner prázdny
-        if (container && container.innerHTML.trim() === '') {
-             window.initializeB2BAdminModule();
-        }
-    }
-    
-    // 2. Načítanie dát
+    // Iba načítame dáta chatu. NESPÚŠŤAME initializeB2BAdminModule!
     if (typeof window.loadCommView === 'function') {
-        window.loadCommView();
+        window.loadCommView(); 
+    } else {
+        console.error("Funkcia loadCommView nie je dostupná.");
     }
 }
         if (secId === 'leader-meat-origin-labels') { initMeatOriginLabels(); mol_preview(); }
