@@ -1220,32 +1220,64 @@ function filterProducts() {
     });
 }
 
-// === GENERÁTOR NAVIGAČNÝCH TLAČIDIEL ===
+// ==========================================
+// === GENERÁTOR NAVIGAČNÝCH TLAČIDIEL (OPRAVENÝ) ===
+// ==========================================
 function renderCategoryChips(categories) {
     const nav = document.getElementById('category-nav');
     if (!nav) return;
 
-    let html = '';
+    // Vyčistíme existujúci obsah navigácie
+    nav.innerHTML = '';
+
+    // 1. Tlačidlo pre AKCIU (ak existuje sekcia s akciou)
+    // Skontrolujeme, či v HTML existuje element pre akciu
+    const actionSection = document.querySelector('.akcia-tyzdna-box') || document.querySelector('.fa-fire');
     
-    // 1. Tlačidlo pre AKCIU (ak existuje)
-    if (document.querySelector('.akcia-tyzdna-box') || document.querySelector('.fa-fire')) {
-        html += `
-        <button type="button" class="nav-chip akcia" onclick="window.scrollTo({top:0, behavior:'smooth'})" 
-                style="white-space:nowrap; background:#fef2f2; color:#b91c1c; border:1px solid #fecaca; border-radius:20px; padding:6px 14px; font-size:0.85rem; font-weight:700; cursor:pointer; margin-right:8px;">
-            <i class="fas fa-fire"></i> AKCIA
-        </button>`;
+    if (actionSection) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'nav-chip akcia';
+        // Nastavenie štýlov priamo
+        btn.style.cssText = "white-space:nowrap; background:#fef2f2; color:#b91c1c; border:1px solid #fecaca; border-radius:20px; padding:6px 14px; font-size:0.85rem; font-weight:700; cursor:pointer; margin-right:8px;";
+        btn.innerHTML = '<i class="fas fa-fire"></i> AKCIA';
+        
+        // Priradenie funkcie kliknutia priamo (nie cez HTML string)
+        btn.onclick = function() {
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        };
+        
+        nav.appendChild(btn);
     }
 
-    // 2. Tlačidlá pre ostatné kategórie (Tovar, Výrobky, Mäso...)
+    // 2. Tlačidlá pre ostatné kategórie
     categories.forEach(cat => {
-        const id = `cat-${cat.replace(/\s+/g, '-')}`;
-        html += `
-        <button type="button" class="nav-chip" 
-                onclick="document.getElementById('${id}')?.scrollIntoView({behavior: 'smooth'})"
-                style="white-space:nowrap; background:#f1f5f9; border:1px solid #cbd5e1; border-radius:20px; padding:6px 14px; font-size:0.85rem; font-weight:600; color:#475569; cursor:pointer; margin-right:8px;">
-            ${escapeHtml(cat)}
-        </button>`;
+        // Vytvoríme ID rovnakým spôsobom ako pri generovaní produktov
+        const catId = `cat-${cat.replace(/\s+/g, '-')}`;
+        
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'nav-chip';
+        btn.style.cssText = "white-space:nowrap; background:#f1f5f9; border:1px solid #cbd5e1; border-radius:20px; padding:6px 14px; font-size:0.85rem; font-weight:600; color:#475569; cursor:pointer; margin-right:8px;";
+        btn.textContent = cat; // Bezpečné vloženie textu
+        
+        btn.onclick = function() {
+            const targetEl = document.getElementById(catId);
+            if (targetEl) {
+                // Posun (scroll) s malou rezervou pre fixnú hlavičku
+                const headerOffset = 130; 
+                const elementPosition = targetEl.getBoundingClientRect().top;
+                const offsetPosition = elementPosition + window.pageYOffset - headerOffset;
+                
+                window.scrollTo({
+                    top: offsetPosition,
+                    behavior: "smooth"
+                });
+            } else {
+                console.warn('Cieľ scrollovania nenájdený:', catId);
+            }
+        };
+        
+        nav.appendChild(btn);
     });
-
-    nav.innerHTML = html;
 }
