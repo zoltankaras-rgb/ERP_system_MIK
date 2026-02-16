@@ -1219,9 +1219,7 @@ function filterProducts() {
     });
 }
 
-// ==========================================
 // === GENERÁTOR NAVIGAČNÝCH TLAČIDIEL ===
-// ==========================================
 function renderCategoryChips(categories) {
     const nav = document.getElementById('category-nav');
     if (!nav) return;
