@@ -40,10 +40,74 @@
     .order-summary { margin-top:20px; padding-top:20px; border-top:2px solid var(--border-color); display:flex; justify-content:flex-end; }
     .order-summary-box { width:100%; max-width:350px; }
     .btn-row { display:flex; gap:10px; flex-wrap:wrap; justify-content:flex-end; margin-top:10px; }
+    
+    /* === UPDATE: STARÉ MODÁLNE OKNO (ponechané pre kompatibilitu) === */
     #modal-container { display:none; position:fixed; inset:0; z-index:1000; justify-content:center; align-items:center; }
     .modal-backdrop { position:absolute; inset:0; background:rgba(0,0,0,.5); }
-    .modal-content { background:#fff; padding:2rem; border-radius:var(--border-radius); z-index:1001; width:90%; max-width:450px; box-shadow:0 20px 25px -5px rgba(0,0,0,.1), 0 10px 10px -5px rgba(0,0,0,.04); }
-    .modal-header { display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border-color); padding-bottom:1rem; margin-bottom:1rem; }
+    
+    /* === UPDATE: NOVÉ ŠTÝLY PRE POPUP (INFO O PRODUKTE) === */
+    .modal-overlay {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0, 0, 0, 0.5);
+        z-index: 9999;
+        justify-content: center;
+        align-items: center;
+    }
+    .modal-overlay.visible {
+        display: flex !important;
+    }
+    
+    .modal-content { 
+        background:#fff; 
+        padding:0; 
+        border-radius:var(--border-radius); 
+        z-index:1001; 
+        width:90%; 
+        max-width:500px; 
+        max-height:90vh;
+        overflow-y:auto;
+        box-shadow:0 20px 25px -5px rgba(0,0,0,.1), 0 10px 10px -5px rgba(0,0,0,.04);
+        position: relative;
+        animation: slideDown 0.3s ease-out;
+    }
+    
+    .modal-header { 
+        display:flex; 
+        justify-content:space-between; 
+        align-items:center; 
+        border-bottom:1px solid var(--border-color); 
+        padding: 15px 20px;
+        background: #f8fafc;
+        border-radius: 8px 8px 0 0;
+    }
+    
+    .modal-header h4 {
+        margin: 0;
+        font-size: 1.1rem;
+        color: #334155;
+    }
+
+    .modal-close {
+        background: none;
+        border: none;
+        font-size: 1.5rem;
+        line-height: 1;
+        color: #94a3b8;
+        cursor: pointer;
+    }
+    .modal-close:hover {
+        color: #ef4444;
+    }
+
+    @keyframes slideDown {
+        from { transform: translateY(-20px); opacity: 0; }
+        to { transform: translateY(0); opacity: 1; }
+    }
   </style>
 </head>
 <body>
@@ -134,7 +198,6 @@
       </div>
 
       <div id="portal-views-container">
-        <!-- KROK 1 – cenník -->
         <div id="view-new-order">
           <h3>Krok 1: Zvoľte cenník</h3>
           <div class="form-group">
@@ -142,7 +205,6 @@
             <select id="pricelist-select"></select>
           </div>
 
-          <!-- KROK 2 – produkty -->
           <div id="step-products" class="hidden">
             <h3>Krok 2: Vyberte si tovar z cenníka</h3>
             <div id="products-container"></div>
@@ -160,12 +222,10 @@
           </div>
         </div>
 
-        <!-- História -->
         <div id="view-order-history" class="hidden">
           <div id="history-container"></div>
         </div>
 
-        <!-- Komunikácia -->
         <div id="view-communication" class="hidden">
           <h3>Komunikácia</h3>
           <div class="form-group">
@@ -194,7 +254,8 @@
   </div>
 
   <div id="modal-container"></div>
-  <script src="static/js/b2b_app.js"></script>
+  <script src="{{ url_for('static', filename='js/b2b_app.js', v=5) }}"></script>
+  
   <div id="product-info-modal" class="modal-overlay">
     <div class="modal-content">
         <div class="modal-header">
@@ -207,6 +268,6 @@
             <div id="pim-desc" style="white-space:pre-wrap; color:#333; line-height:1.6; font-size:0.95rem;"></div>
         </div>
     </div>
-</div>
+  </div>
 </body>
 </html>

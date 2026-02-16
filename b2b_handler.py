@@ -229,9 +229,10 @@ def _login_from_user_id(num_or_login):
 def get_products_for_pricelist(pricelist_id):
     if not pricelist_id:
         return {"error": "Chýba ID cenníka."}
+    # PRIDANÉ: cp.info do SELECTu
     rows = db_connector.execute_query(
         """
-        SELECT cp.ean_produktu, p.nazov_vyrobku, cp.cena, p.dph, p.mj, p.predajna_kategoria
+        SELECT cp.ean_produktu, p.nazov_vyrobku, cp.cena, cp.info, p.dph, p.mj, p.predajna_kategoria
         FROM b2b_cennik_polozky cp
         JOIN produkty p
           ON (p.ean COLLATE utf8mb4_slovak_ci) = (cp.ean_produktu COLLATE utf8mb4_slovak_ci)
@@ -243,7 +244,9 @@ def get_products_for_pricelist(pricelist_id):
     out: Dict[str, List[Dict[str, Any]]] = {}
     for r in rows:
         r["cena"] = _to_float(r.get("cena"))
-        r["dph"]  = abs(_to_float(r.get("dph")))  # DPH pozitívne
+        r["dph"]  = abs(_to_float(r.get("dph")))
+        # Info posielame na frontend
+        r["info"] = r.get("info") or ""
         out.setdefault(r.get("predajna_kategoria") or "Nezaradené", []).append(r)
     return {"productsByCategory": out}
 
@@ -693,40 +696,41 @@ def create_pricelist(data: dict):
     _ensure_pricelist_tables()
     name = (data or {}).get("nazov_cennika") or (data or {}).get("name")
     items = (data or {}).get("items") or []
-    # NOVÉ: Zoznam ID zákazníkov na priradenie
     customer_ids = (data or {}).get("customer_ids") or []
     
     if not name:
         return {"error": "Názov cenníka je povinný."}
 
-    # Normalizácia položiek
-    normalized: List[Tuple[str, float]] = []
+    # Normalizácia položiek (EAN + Cena + Info)
+    normalized: List[Tuple[str, float, str]] = []
     for it in items:
         e_raw = it.get("ean") if "ean" in it else it.get("ean_produktu")
-        if e_raw is None:
-            continue
+        if e_raw is None: continue
         e = str(e_raw).strip()
+        
         c_val = it.get("cena") if "cena" in it else it.get("price")
         c = _to_float(c_val)
-        if e and c is not None and c >= 0:
-            normalized.append((e, c))
+        
+        # ZMENA: Načítame info
+        info = str(it.get("info") or it.get("poznamka") or "").strip()
 
-    # deduplikácia EAN -> posledná cena vyhráva
-    by_ean: Dict[str, float] = {}
-    for e, c in normalized:
-        by_ean[e] = c
+        if e and c is not None and c >= 0:
+            normalized.append((e, c, info))
+
+    # Deduplikácia (posledný vyhráva)
+    by_ean = {item[0]: (item[1], item[2]) for item in normalized}
     eans = list(by_ean.keys())
 
     conn = db_connector.get_connection()
     cur = conn.cursor()
     try:
-        # 1. Vytvoríme hlavičku cenníka
+        # 1. Hlavička cenníka
         cur.execute("INSERT INTO b2b_cenniky (nazov_cennika) VALUES (%s)", (name,))
         pl_id = cur.lastrowid
 
-        # 2. Vloženie položiek
-        batch: List[Tuple[int, str, str, float]] = []
-        skipped: List[str] = []
+        # 2. Položky
+        batch = []
+        skipped = []
 
         if eans:
             placeholders = ",".join(["%s"] * len(eans))
@@ -735,8 +739,8 @@ def create_pricelist(data: dict):
                 tuple(eans),
             ) or []
 
-            exist_set: set[str] = set()
-            name_map: Dict[str, str] = {}
+            exist_set = set()
+            name_map = {}
             for r in rows:
                 e = str(r["ean"])
                 exist_set.add(e)
@@ -746,33 +750,29 @@ def create_pricelist(data: dict):
             skipped = [e for e in eans if e not in exist_set]
 
             for e in valid_eans:
-                price = by_ean[e]
+                price, info_text = by_ean[e]
                 title = name_map.get(e) or f"EAN {e}"
-                batch.append((pl_id, e, title, price))
+                # ZMENA: Pridávame info do batchu
+                batch.append((pl_id, e, title, price, info_text))
 
             if batch:
+                # ZMENA: Insertujeme aj stĺpec info
                 cur.executemany(
-                    "INSERT INTO b2b_cennik_polozky (cennik_id, ean_produktu, nazov_vyrobku, cena) "
-                    "VALUES (%s,%s,%s,%s)",
+                    "INSERT INTO b2b_cennik_polozky (cennik_id, ean_produktu, nazov_vyrobku, cena, info) "
+                    "VALUES (%s,%s,%s,%s,%s)",
                     batch,
                 )
 
-        # 3. NOVÉ: Okamžité priradenie zákazníkom
+        # 3. Priradenie zákazníkom
         if customer_ids:
             _ensure_mapping_table()
-            # Najprv zistíme login (zakaznik_id) pre dané IDčka, lebo tabuľka b2b_zakaznik_cennik používa varchar zakaznik_id
             placeholders_cust = ",".join(["%s"] * len(customer_ids))
             cust_rows = db_connector.execute_query(
                 f"SELECT zakaznik_id FROM b2b_zakaznici WHERE id IN ({placeholders_cust})",
-                tuple(customer_ids),
-                fetch="all"
+                tuple(customer_ids), fetch="all"
             ) or []
             
-            map_batch = []
-            for c in cust_rows:
-                if c.get('zakaznik_id'):
-                    map_batch.append((c['zakaznik_id'], pl_id))
-            
+            map_batch = [(c['zakaznik_id'], pl_id) for c in cust_rows if c.get('zakaznik_id')]
             if map_batch:
                 cur.executemany(
                     "INSERT IGNORE INTO b2b_zakaznik_cennik (zakaznik_id, cennik_id) VALUES (%s, %s)",
@@ -780,28 +780,19 @@ def create_pricelist(data: dict):
                 )
 
         conn.commit()
-        result: Dict[str, Any] = {
-            "message": "Cenník vytvorený.",
-            "id": pl_id,
-            "count": len(batch),
-        }
-        if skipped:
-            result["skipped_eans"] = skipped
+        result = {"message": "Cenník vytvorený.", "id": pl_id, "count": len(batch)}
+        if skipped: result["skipped_eans"] = skipped
         return result
-    except Exception as e:
-        try:
-            conn.rollback()
-        except Exception:
-            pass
-        traceback.print_exc()
-        return {"error": f"Nepodarilo sa vytvoriť cenník: {e}"}
-    finally:
-        try:
-            cur.close()
-            conn.close()
-        except Exception:
-            pass
 
+    except Exception as e:
+        try: conn.rollback()
+        except: pass
+        traceback.print_exc()
+        return {"error": f"Chyba: {e}"}
+    finally:
+        try: cur.close(); conn.close()
+        except: pass
+        
 def get_pricelist_details(data: dict):
     pl_id = (data or {}).get("id")
     if not pl_id:
@@ -811,8 +802,9 @@ def get_pricelist_details(data: dict):
     )
     if not pl:
         return {"error": "Cenník neexistuje."}
+    # PRIDANÉ: info do SELECTu
     items = db_connector.execute_query(
-        "SELECT ean_produktu, nazov_vyrobku, cena FROM b2b_cennik_polozky WHERE cennik_id = %s ORDER BY nazov_vyrobku",
+        "SELECT ean_produktu, nazov_vyrobku, cena, info FROM b2b_cennik_polozky WHERE cennik_id = %s ORDER BY nazov_vyrobku",
         (pl_id,),
     ) or []
     return {"pricelist": pl, "items": items}
@@ -820,20 +812,6 @@ def get_pricelist_details(data: dict):
 # V súbore b2b_handler.py nájdite funkciu update_pricelist a nahraďte ju týmto:
 
 def update_pricelist(data: dict):
-    """
-    Uloží položky cenníka takto:
-
-      - pre každý riadok z `items`:
-          * vezme EAN (reťazec) a cenu
-          * overí, že v tabuľke `produkty` existuje riadok s týmto EAN
-          * ak neexistuje -> cenník sa NEULOŽÍ a vráti sa chyba s týmto EAN
-          * ak existuje -> vloží sa do `b2b_cennik_polozky` riadok s EAN-om a názvom
-            priamo z tabuľky `produkty`
-
-      - žiadne INSERTY do `produkty`, žiadne triggery, žiadne executemany.
-      - FOREIGN KEY fk_b2bcp_produkt (ean_produktu -> produkty.ean) ostáva,
-        ale nedostane šancu spadnúť, ak EAN neexistuje – v tom prípade sa insert ani neskúsi.
-    """
     _ensure_pricelist_tables()
 
     pl_id = (data or {}).get("id")
@@ -841,73 +819,62 @@ def update_pricelist(data: dict):
     if not pl_id:
         return {"error": "Chýba id cenníka."}
 
-    # 1) normalizácia vstupu: zober len zmysluplné EAN + cena
-    cleaned: List[Tuple[str, float]] = []
+    # 1) normalizácia vstupu: EAN, cena A INFO
+    cleaned: List[Tuple[str, float, str]] = []
     for it in items:
         e_raw = it.get("ean") if "ean" in it else it.get("ean_produktu")
         if not e_raw:
             continue
         ean = str(e_raw).strip()
         cena = _to_float(it.get("price") if "price" in it else it.get("cena"))
+        # Načítame info
+        info = str(it.get("info") or "").strip()
+        
         if not ean or cena is None or cena < 0:
             continue
-        cleaned.append((ean, cena))
+        cleaned.append((ean, cena, info))
 
     conn = db_connector.get_connection()
     cur = conn.cursor()
     try:
-        # 2) vymaž existujúce položky cenníka
+        # 2) vymaž existujúce položky
         cur.execute("DELETE FROM b2b_cennik_polozky WHERE cennik_id=%s", (pl_id,))
 
         if not cleaned:
             conn.commit()
             return {"message": "Cenník vyčistený.", "count": 0}
 
-        # 3) ukladáme riadok po riadku, vždy cez `produkty`
+        # 3) ukladáme riadok po riadku
         inserted = 0
-        for ean, cena in cleaned:
-            # najprv nájdi produkt v `produkty`
+        for ean, cena, info in cleaned:
+            # Overenie produktu
             cur.execute(
-                "SELECT ean, nazov_vyrobku, dph, mj, predajna_kategoria "
-                "FROM produkty WHERE ean = %s",
+                "SELECT ean, nazov_vyrobku, dph, mj, predajna_kategoria FROM produkty WHERE ean = %s",
                 (ean,),
             )
             row = cur.fetchone()
             if row is None:
-                # produkt NEEXISTUJE v `produkty` -> rollback a chyba
                 conn.rollback()
-                return {
-                    "error": (
-                        "Produkt s týmto EAN kódom neexistuje v tabuľke 'produkty', "
-                        "preto ho nemôžem pridať do cenníka."
-                    ),
-                    "missing_ean": ean,
-                }
+                return {"error": f"Produkt EAN {ean} neexistuje.", "missing_ean": ean}
 
             prod_ean, nazov_vyrobku, dph, mj, pred_kat = row
-            if dph is None:
-                dph = 0.00
-            if not mj:
-                mj = "kg"
+            if dph is None: dph = 0.00
+            if not mj: mj = "kg"
 
-            # teraz vlož položku do cenníka – EAN ide PRIAMO z `produkty.ean`
+            # VLOŽENIE AJ S INFOM
             try:
                 cur.execute(
                     """
                     INSERT INTO b2b_cennik_polozky
-                      (cennik_id, ean_produktu, nazov_vyrobku, cena, dph, mj, predajna_kategoria)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s)
+                      (cennik_id, ean_produktu, nazov_vyrobku, cena, info)
+                    VALUES (%s,%s,%s,%s,%s)
                     """,
-                    (pl_id, str(prod_ean), nazov_vyrobku, cena, dph, mj, pred_kat),
+                    (pl_id, str(prod_ean), nazov_vyrobku, cena, info),
                 )
             except Exception as e:
-                # ak by tu aj tak spadol FK, vieme presne, na ktorom EAN-e
                 conn.rollback()
                 traceback.print_exc()
-                return {
-                    "error": f"Chyba pri ukladaní položky cenníka pre EAN {ean}: {e}",
-                    "ean": ean,
-                }
+                return {"error": f"Chyba pri EAN {ean}: {e}"}
 
             inserted += 1
 
@@ -915,19 +882,13 @@ def update_pricelist(data: dict):
         return {"message": "Cenník aktualizovaný.", "count": inserted}
 
     except Exception as e:
-        try:
-            conn.rollback()
-        except Exception:
-            pass
+        try: conn.rollback() 
+        except: pass
         traceback.print_exc()
-        return {"error": f"Nepodarilo sa uložiť položky cenníka: {e}"}
+        return {"error": f"Chyba DB: {e}"}
     finally:
-        try:
-            cur.close()
-            conn.close()
-        except Exception:
-            pass
-
+        try: cur.close(); conn.close()
+        except: pass
 
 def get_announcement():
     _ensure_system_settings()
