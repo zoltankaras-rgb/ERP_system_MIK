@@ -340,21 +340,41 @@ def process_b2b_login(data: dict):
 
 # ───────────────── Registrácia / Reset ─────────────────
 def process_b2b_registration(data: dict):
-    # anti-bot
-    if (data or {}).get("hp"):
+    req = data or {}
+
+    # 1. ANTI-BOT: Honeypot (ak je vyplnené skryté pole 'hp', je to bot)
+    if req.get("hp"):
         return {"error": "Neplatný vstup."}
-    if not _verify_antibot_token_if_present(data):
+
+    # 2. ANTI-BOT: Token (existujúca funkcia)
+    if not _verify_antibot_token_if_present(req):
         return {"error": "Overenie zlyhalo. Skúste znova."}
 
-    req = data or {}
+    # 3. ANTI-BOT: Matematická Captcha (NOVÉ)
+    # Očakávame kľúče: captcha_a, captcha_b, captcha_answer
+    try:
+        c_a = int(req.get('captcha_a', 0))
+        c_b = int(req.get('captcha_b', 0))
+        # Default -999, aby 0+0 neprešlo náhodou
+        c_ans = int(req.get('captcha_answer', -999))
+
+        if c_a + c_b != c_ans:
+            return {"error": "Nesprávny výsledok bezpečnostného príkladu (Antispam)."}
+    except (ValueError, TypeError):
+        # Ak používateľ pošle text namiesto čísla alebo nič
+        return {"error": "Prosím, vyplňte číselný výsledok bezpečnostného príkladu."}
+
+    # 4. Kontrola povinných polí
     required = ["email", "nazov_firmy", "telefon", "adresa", "password"]
     for k in required:
         if not req.get(k):
             return {"error": "Všetky polia sú povinné."}
+
+    # 5. Kontrola GDPR
     if not req.get("gdpr"):
         return {"error": "Je potrebný súhlas so spracovaním osobných údajov."}
 
-    # unikátny email
+    # 6. Kontrola unikátneho emailu v DB
     if db_connector.execute_query(
         "SELECT id FROM b2b_zakaznici WHERE LOWER(email)=LOWER(%s) LIMIT 1",
         (req["email"],),
@@ -362,13 +382,13 @@ def process_b2b_registration(data: dict):
     ):
         return {"error": "Účet s týmto e-mailom už existuje."}
 
-    # vygeneruj prihlasovacie meno a heslo
+    # 7. Generovanie loginu a hashovanie hesla
     pending_login = _pending_login()
     salt_hex, hash_hex = _hash_password(req["password"])
 
+    # 8. Dynamické zistenie stĺpcov v tabuľke (aby to nepadlo pri zmene štruktúry)
     cols_in_db = _existing_columns("b2b_zakaznici")
 
-    # dynamicky poskladáme zoznam stĺpcov a hodnôt podľa reálnej schémy
     cols = []
     vals = []
 
@@ -377,7 +397,7 @@ def process_b2b_registration(data: dict):
             cols.append(col)
             vals.append(val)
 
-    # povinné “core” polia
+    # Pridanie hodnôt do zoznamu
     add("zakaznik_id", pending_login)
     add("nazov_firmy", req["nazov_firmy"])
     add("email", req["email"])
@@ -385,24 +405,24 @@ def process_b2b_registration(data: dict):
     add("adresa", req["adresa"])
     add("adresa_dorucenia", req.get("adresa_dorucenia") or "")
 
-    # typ/flagy/reset len ak existujú v tejto schéme
+    # Nastavenie flagov
     add("typ", "B2B")
-    add("je_schvaleny", 0)
+    add("je_schvaleny", 0)     # Čaká na schválenie
     add("je_admin", 0)
     add("reset_token", None)
     add("reset_token_expiry", None)
 
-    # >>> kľúčové: nastavíme OBE dvojice hesla, ak existujú <<<
+    # Uloženie hesla (podporujeme oba typy stĺpcov pre kompatibilitu)
     add("password_hash_hex", hash_hex)
     add("password_salt_hex", salt_hex)
     add("heslo_hash", hash_hex)
     add("heslo_salt", salt_hex)
 
-    # bezpečnostná poistka – ak by v DB chýbalo niektoré úplne základné pole
+    # Bezpečnostná poistka – ak by v DB chýbalo kľúčové pole
     if "zakaznik_id" not in cols:
         return {"error": "Schéma tabuľky b2b_zakaznici je neúplná (chýba 'zakaznik_id')."}
 
-    # skladanie SQL
+    # 9. Zostavenie a vykonanie SQL príkazu
     placeholders = ",".join(["%s"] * len(cols))
     sql = f"INSERT INTO b2b_zakaznici ({', '.join(cols)}) VALUES ({placeholders})"
 
@@ -412,7 +432,7 @@ def process_b2b_registration(data: dict):
         traceback.print_exc()
         return {"error": f"Registrácia zlyhala: {getattr(e, 'msg', str(e))}"}
 
-    # notifikácie (bez blokovania registrácie pri chybe)
+    # 10. Odoslanie notifikácií (Email zákazníkovi + Alert adminovi)
     try:
         notification_handler.send_registration_pending_email(
             to=req["email"], company=req["nazov_firmy"]
@@ -420,6 +440,7 @@ def process_b2b_registration(data: dict):
         notification_handler.send_new_registration_admin_alert(req)
     except Exception:
         traceback.print_exc()
+        # Chyba v mailoch by nemala zablokovať úspešnú registráciu v DB
 
     return {"message": "Registrácia odoslaná. Po schválení v kancelárii dostanete e-mail."}
 

@@ -69,13 +69,13 @@
     .order-summary-box { width:100%; max-width:350px; }
     .btn-row { display:flex; gap:10px; flex-wrap:wrap; justify-content:flex-end; margin-top:10px; }
     
-    /* === MODÁLNE OKNO (GENERICKÉ - napr. poznámky) === */
+    /* === MODÁLNE OKNO (GENERICKÉ) === */
     #modal-container { display:none; position:fixed; inset:0; z-index:1000; justify-content:center; align-items:center; }
     .modal-backdrop { position:absolute; inset:0; background:rgba(0,0,0,.5); }
     
     /* === MODÁLNE OKNO PRE INFO O PRODUKTE (POPUP) === */
     .modal-overlay {
-        display: none; /* Predvolene skryté */
+        display: none;
         position: fixed;
         top: 0;
         left: 0;
@@ -87,7 +87,6 @@
         align-items: center;
     }
     
-    /* Trieda, ktorú JS pridá na zobrazenie */
     .modal-overlay.visible {
         display: flex !important;
     }
@@ -254,6 +253,7 @@
             <div class="form-group"><label for="reg-email">Kontaktný E-mail</label><input type="email" id="reg-email" name="email" required /></div>
             <div class="form-group"><label for="reg-phone">Telefón</label><input type="tel" id="reg-phone" name="telefon" required /></div>
             <div class="form-group"><label for="reg-password">Heslo (min. 6 znakov)</label><input type="password" id="reg-password" name="password" required minlength="6" /></div>
+            
             <div class="form-group" style="display:flex;gap:10px;align-items:flex-start">
               <input type="checkbox" id="gdpr-checkbox" name="gdpr" required />
               <label for="gdpr-checkbox" style="margin:0">
@@ -262,6 +262,17 @@
                 zmluvných odberateľov a odoslaním registrácie vyjadrujem súhlas s týmto nastavením.
               </label>
             </div>
+
+            <div class="form-group" style="background:#f0f9ff; padding:15px; border-radius:6px; border:1px solid #bae6fd; margin-top:15px;">
+                <label style="color:#0369a1; font-weight:bold; margin-bottom:8px;">
+                    Bezpečnostná otázka: <span id="captcha-question">...</span>
+                </label>
+                <div style="display:flex; align-items:center; gap:10px;">
+                    <input type="number" id="captcha-answer" required placeholder="Výsledok" style="width:100px; font-weight:bold; text-align:center;" />
+                    <small style="color:#64748b;">(Ochrana proti robotom)</small>
+                </div>
+            </div>
+
             <button type="submit" class="button" style="width:100%;">Zaregistrovať sa</button>
           </form>
         </div>

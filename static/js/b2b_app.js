@@ -18,6 +18,23 @@ document.addEventListener('DOMContentLoaded', () => {
   let commInited = false;
   let helpLoaded = false;
 
+  // ==========================================
+  // === ANTISPAM (CAPTCHA) PREMENNÉ ===
+  // ==========================================
+  let captchaA = 0;
+  let captchaB = 0;
+
+  function generateCaptcha() {
+    captchaA = Math.floor(Math.random() * 10) + 1; // Číslo 1-10
+    captchaB = Math.floor(Math.random() * 10) + 1; // Číslo 1-10
+    
+    const label = document.getElementById('captcha-question');
+    const input = document.getElementById('captcha-answer');
+    
+    if (label) label.textContent = `Koľko je ${captchaA} + ${captchaB}?`;
+    if (input) input.value = ''; // Vyčistíme pole
+  }
+
   // =========================
   // Anti-bot (AB)
   // =========================
@@ -142,7 +159,9 @@ document.addEventListener('DOMContentLoaded', () => {
       e.preventDefault();
       const pwd = registerForm.elements.password.value;
       if (pwd.length < 6) return showNotification('Heslo musí mať aspoň 6 znakov.', 'error');
+      
       await ensureMinDelay();
+      
       const data = {
         nazov_firmy: registerForm.elements.nazov_firmy.value,
         adresa: registerForm.elements.adresa.value,
@@ -151,9 +170,16 @@ document.addEventListener('DOMContentLoaded', () => {
         telefon: registerForm.elements.telefon.value,
         password: pwd,
         gdpr: registerForm.elements.gdpr.checked,
+        
         ab_token: AB.token,
-        hp: registerForm.querySelector('input[name="hp"]')?.value || ''
+        hp: registerForm.querySelector('input[name="hp"]')?.value || '',
+        
+        // === PRIDANÉ: Antispam dáta ===
+        captcha_a: captchaA,
+        captcha_b: captchaB,
+        captcha_answer: document.getElementById('captcha-answer').value
       };
+      
       const out = await apiCall('/api/b2b/register', data);
       if (out) {
         showNotification(out.message || 'Registrácia odoslaná.', 'success');
@@ -294,7 +320,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // =========================
   // PRODUKTY + OBJEDNÁVKA
   // =========================
-function renderProducts() {
+  function renderProducts() {
     const container = document.getElementById('products-container');
     const details = document.getElementById('order-form-details');
     container.innerHTML = '';
@@ -314,7 +340,6 @@ function renderProducts() {
         const ean = p.ean_produktu;
         const isKg = (p.mj || '').toLowerCase() === 'kg';
         
-        // Bezpečné ošetrenie textov pre HTML atribúty
         const safeTitle = (p.nazov_vyrobku || '').replace(/"/g, '&quot;');
         const safeImg = (p.obrazok_url || '').replace(/"/g, '&quot;');
         const safeDesc = (p.info || p.popis || '').replace(/"/g, '&quot;');
@@ -806,6 +831,11 @@ function renderProducts() {
         document.getElementById('register-form-container').classList.toggle('hidden', tab !== 'register');
         document.querySelectorAll('.tab-button').forEach(b => b.classList.remove('active'));
         e.currentTarget.classList.add('active');
+        
+        // === PRIDANÉ: Ak prepneme na registráciu, vygeneruj CAPTCHA ===
+        if (tab === 'register') {
+            generateCaptcha();
+        }
       });
     });
 
@@ -814,6 +844,7 @@ function renderProducts() {
     ensureHelpTab();
   })();
 });
+
 // =========================================================
 // === OPRAVA: ZATVÁRANIE OKIEN (AUTOMATICKÁ) ===
 // =========================================================
@@ -852,14 +883,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 });
 
-// 3. Záložná globálna funkcia (ak by ju HTML silou-mocou hľadalo)
-window.closeModal = function(modalId) {
-    const el = document.getElementById(modalId);
-    if (el) {
-        el.classList.remove('visible');
-        el.style.display = 'none';
-    }
-};
 // =========================================================
 // === GLOBÁLNE FUNKCIE PRE MODÁLNE OKNO (INFO O PRODUKTE) ===
 // =========================================================
@@ -905,13 +928,14 @@ window.closeModal = function(modalId) {
     }
 };
 
-// Zatvorenie kliknutím na tmavé pozadie
+// Zatvorenie kliknutím na tmavé pozadie (Global fallback)
 document.addEventListener('click', function(event) {
     if (event.target.classList.contains('modal-overlay')) {
         event.target.classList.remove('visible');
         event.target.style.display = 'none';
     }
 });
+
 // =========================================================
 // === COOKIE CONSENT & ANALYTICS (B2B) ===
 // =========================================================
