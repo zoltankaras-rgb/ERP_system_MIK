@@ -1326,34 +1326,34 @@ function initMeatOriginLabels(){
   mol_hist_render();
 }
 // =================================================================
-// LOGISTIKA & TRASY (Mirror z B2B Admin)
+// LOGISTIKA & TRASY (Napojené na existujúce endpointy RouteTemplates)
 // =================================================================
 
 // Hlavná funkcia na načítanie zoznamu trás
 async function loadLogistics() {
-    // Použijeme kontajner špecifický pre leadera, ak neexistuje, vytvoríme ho
     let box = document.getElementById('leader-logistics-container');
     if (!box) {
-        // Ak voláte túto funkciu, predpokladá sa, že existuje nejaký hlavný div, kam to vložiť.
-        // Ak nie, nájdeme hlavný content a vložíme to tam.
-        const mainContent = document.getElementById('leader-view-content') || document.querySelector('.container-fluid') || document.body;
+        const mainContent = document.getElementById('leader-view-content') || document.querySelector('.main-content') || document.body;
         box = document.createElement('div');
         box.id = 'leader-logistics-container';
-        box.className = 'tab-content-view'; // Pre CSS štýlovanie
+        box.className = 'content-section'; // Použijeme vašu CSS triedu pre sekcie
         mainContent.appendChild(box);
     }
 
-    // Vyčistíme a zobrazíme loader
-    // Skryjeme ostatné viewy (ak máte funkciu hideAllViews, použite ju, inak manuálne skryjeme iné kontajnery)
-    document.querySelectorAll('.tab-content-view').forEach(el => el.style.display = 'none');
+    // Skryjeme ostatné sekcie a zobrazíme túto (logika z vášho webu)
+    document.querySelectorAll('.content-section').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll('.content-section').forEach(el => el.style.display = 'none'); // Poistka
+    box.classList.add('active');
     box.style.display = 'block';
     
     box.innerHTML = '<div class="text-center p-4"><i class="fas fa-spinner fa-spin fa-2x"></i><p>Načítavam trasy...</p></div>';
 
     try {
-        // Voláme API na získanie trás (používame rovnaké API ako admin)
-        const data = await callFirstOk([{ url: '/api/kancelaria/b2b/getRoutes' }]);
-        state.routes = data.routes || [];
+        // === ZMENA 1: Voláme správny endpoint ===
+        const data = await callFirstOk([{ url: '/api/kancelaria/b2b/getRouteTemplates' }]);
+        
+        // Backend pravdepodobne vracia { templates: [...] } alebo { routes: [...] }
+        state.routes = data.templates || data.routes || [];
 
         let html = `
             <div class="d-flex justify-content-between align-items-center mb-3">
@@ -1361,13 +1361,13 @@ async function loadLogistics() {
                 <button class="btn btn-success" onclick="window.editRoute(null)"><i class="fas fa-plus"></i> Nová trasa</button>
             </div>
             
-            <div class="stat-card">
-                <table class="table table-hover align-middle">
+            <div class="card">
+                <div class="card-body">
+                <table class="table table-hover align-middle" style="width:100%">
                     <thead class="table-light">
                         <tr>
                             <th>Názov trasy</th>
                             <th>Poznámka / Šofér</th>
-                            <th class="text-center">Stav</th>
                             <th class="text-end">Akcia</th>
                         </tr>
                     </thead>
@@ -1375,18 +1375,17 @@ async function loadLogistics() {
         `;
 
         if (state.routes.length === 0) {
-            html += `<tr><td colspan="4" class="text-center text-muted p-3">Zatiaľ nie sú definované žiadne trasy.</td></tr>`;
+            html += `<tr><td colspan="3" class="text-center text-muted p-3">Zatiaľ nie sú definované žiadne trasy.</td></tr>`;
         } else {
             state.routes.forEach(r => {
-                const badge = r.aktivna 
-                    ? '<span class="badge bg-success">Aktívna</span>' 
-                    : '<span class="badge bg-secondary">Neaktívna</span>';
+                // Backend používa pravdepodobne 'name' alebo 'template_name'
+                const rName = r.name || r.template_name || r.nazov || 'Bez názvu';
+                const rNote = r.note || r.poznamka || '';
                 
                 html += `
                     <tr>
-                        <td><strong>${escapeHtml(r.nazov_trasy)}</strong></td>
-                        <td>${escapeHtml(r.poznamka || '')}</td>
-                        <td class="text-center">${badge}</td>
+                        <td><strong>${escapeHtml(rName)}</strong></td>
+                        <td>${escapeHtml(rNote)}</td>
                         <td class="text-end">
                             <button class="btn btn-sm btn-outline-primary" onclick="window.editRoute(${r.id})">Upraviť</button>
                             <button class="btn btn-sm btn-outline-danger ms-1" onclick="window.deleteRoute(${r.id})">Zmazať</button>
@@ -1396,7 +1395,7 @@ async function loadLogistics() {
             });
         }
 
-        html += `</tbody></table></div>`;
+        html += `</tbody></table></div></div>`;
         box.innerHTML = html;
 
     } catch (e) {
@@ -1404,23 +1403,23 @@ async function loadLogistics() {
     }
 }
 
-// Otvorenie modálneho okna pre úpravu/vytvorenie trasy
+// Otvorenie modálneho okna
 window.editRoute = function(id) {
-    const route = id ? state.routes.find(r => r.id === id) : { nazov_trasy: '', poznamka: '', aktivna: 1 };
-    if (!route) return;
+    const route = id ? state.routes.find(r => r.id === id) : { name: '', note: '' };
+    if (!route && id) return;
+
+    // Ošetríme rôzne názvy atribútov z backendu
+    const valName = route.name || route.template_name || route.nazov || '';
+    const valNote = route.note || route.poznamka || '';
 
     const modalHtml = `
         <div class="form-group mb-3">
             <label class="form-label fw-bold">Názov trasy</label>
-            <input type="text" id="route-name" class="form-control" value="${escapeHtml(route.nazov_trasy)}" placeholder="Napr. Trasa Žilina - Utorok">
+            <input type="text" id="route-name" class="form-control" value="${escapeHtml(valName)}" placeholder="Napr. Trasa Žilina - Utorok">
         </div>
         <div class="form-group mb-3">
             <label class="form-label">Poznámka / Šofér</label>
-            <input type="text" id="route-note" class="form-control" value="${escapeHtml(route.poznamka || '')}" placeholder="Meno šoféra alebo dni rozvozu">
-        </div>
-        <div class="form-check mb-3">
-            <input class="form-check-input" type="checkbox" id="route-active" ${route.aktivna ? 'checked' : ''}>
-            <label class="form-check-label" for="route-active">Trasa je aktívna (zobrazovať v ponuke)</label>
+            <input type="text" id="route-note" class="form-control" value="${escapeHtml(valNote)}" placeholder="Meno šoféra alebo dni rozvozu">
         </div>
         <div class="text-end mt-4">
             <button class="btn btn-secondary me-2" onclick="closeModal()">Zrušiť</button>
@@ -1428,33 +1427,44 @@ window.editRoute = function(id) {
         </div>
     `;
 
-    openModal(modalHtml, id ? 'Upraviť trasu' : 'Nová trasa');
+    // Použijeme vašu existujúcu funkciu openModal (ak v leader.js nie je, použijeme fallback)
+    if (typeof openModal === 'function') {
+        openModal(modalHtml, id ? 'Upraviť trasu' : 'Nová trasa');
+    } else {
+        // Fallback ak leader.js nemá openModal, vytvoríme jednoduchý
+        const overlay = document.createElement('div');
+        overlay.id = 'temp-modal-overlay';
+        overlay.style = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:9999;display:flex;justify-content:center;align-items:center;';
+        overlay.innerHTML = `<div style="background:white;padding:20px;border-radius:8px;width:90%;max-width:500px;"><h4>${id ? 'Upraviť' : 'Nová'} trasa</h4>${modalHtml}</div>`;
+        document.body.appendChild(overlay);
+        
+        window.closeModal = function() { document.body.removeChild(overlay); };
+    }
 };
 
 // Uloženie trasy
 window.saveRoute = async function(id) {
     const name = document.getElementById('route-name').value.trim();
     const note = document.getElementById('route-note').value.trim();
-    const active = document.getElementById('route-active').checked ? 1 : 0;
 
     if (!name) return alert("Zadajte názov trasy.");
 
     try {
+        // === ZMENA 2: Voláme saveRouteTemplate ===
         await callFirstOk([{
-            url: '/api/kancelaria/b2b/updateRoute', // Predpokladám, že tento endpoint existuje v b2b_handler
+            url: '/api/kancelaria/b2b/saveRouteTemplate',
             opts: {
                 method: 'POST',
                 body: {
                     id: id,
-                    nazov_trasy: name,
-                    poznamka: note,
-                    aktivna: active
+                    name: name,   // Posielame 'name', backend to snáď takto čaká
+                    note: note
                 }
             }
         }]);
 
-        showStatus("Trasa bola uložená.");
-        closeModal();
+        showStatus("Trasa bola uložená."); // Vaša funkcia showStatus
+        if (typeof closeModal === 'function') closeModal();
         loadLogistics(); // Obnovíme zoznam
     } catch (e) {
         alert("Chyba pri ukladaní: " + e.message);
@@ -1463,11 +1473,12 @@ window.saveRoute = async function(id) {
 
 // Vymazanie trasy
 window.deleteRoute = async function(id) {
-    if (!confirm("Naozaj chcete vymazať túto trasu? Zákazníci priradení k tejto trase stratia priradenie.")) return;
+    if (!confirm("Naozaj chcete vymazať túto trasu?")) return;
 
     try {
+        // === ZMENA 3: Voláme deleteRouteTemplate ===
         await callFirstOk([{
-            url: '/api/kancelaria/b2b/deleteRoute', // Predpokladám endpoint
+            url: '/api/kancelaria/b2b/deleteRouteTemplate',
             opts: { method: 'POST', body: { id: id } }
         }]);
         showStatus("Trasa vymazaná.");
