@@ -7,47 +7,75 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet"/>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"/>
   <style>
-    :root { --primary-color:#b91c1c; --primary-color-dark:#991b1b; --secondary-color:#f3f4f6; --text-color:#1f2937; --border-color:#d1d5db; --white:#ffffff; --info-bg:#eff6ff; --info-text:#1e40af; --border-radius:8px; }
+    :root { 
+        --primary-color:#b91c1c; 
+        --primary-color-dark:#991b1b; 
+        --secondary-color:#f3f4f6; 
+        --text-color:#1f2937; 
+        --border-color:#d1d5db; 
+        --white:#ffffff; 
+        --info-bg:#eff6ff; 
+        --info-text:#1e40af; 
+        --border-radius:8px; 
+    }
+    
     body { font-family:'Inter',sans-serif; background:var(--secondary-color); color:var(--text-color); margin:0; display:flex; justify-content:center; align-items:flex-start; min-height:100vh; padding:20px; box-sizing:border-box; }
+    
     .portal-container { width:100%; max-width:1200px; background:var(--white); padding:30px 40px; border-radius:var(--border-radius); box-shadow:0 10px 15px -3px rgba(0,0,0,.1),0 4px 6px -2px rgba(0,0,0,.05); margin:2rem 0; }
     .auth-container { max-width:450px; margin:auto; }
     .logo { max-width:250px; height:auto; display:block; margin:0 auto 30px auto; }
+    
     h2 { text-align:center; color:var(--text-color); font-size:1.5rem; margin-bottom:25px; }
     h3 { color:var(--primary-color); border-bottom:2px solid var(--border-color); padding-bottom:10px; margin-top:30px; }
+    
+    /* NAVIGÁCIA */
     .tab-nav { display:flex; border-bottom:2px solid var(--border-color); margin-bottom:25px; gap:6px; }
     .tab-button { flex:1; padding:15px; cursor:pointer; border:none; background:transparent; font-size:1rem; font-weight:600; color:#6b7280; border-bottom:3px solid transparent; transition:.2s; }
     .tab-button.active { color:var(--primary-color); border-bottom-color:var(--primary-color); }
+    
+    /* FORMULÁRE */
     .form-group { margin-bottom:20px; }
     .form-group label { display:block; margin-bottom:5px; font-weight:600; font-size:.9rem; }
     .form-group input, .form-group select, .form-group textarea { width:100%; padding:12px; border:1px solid var(--border-color); border-radius:6px; box-sizing:border-box; transition:border-color .2s, box-shadow .2s; font-family:inherit; font-size:1rem; }
     .form-group input:focus, .form-group select:focus, .form-group textarea:focus { border-color:var(--primary-color); box-shadow:0 0 0 3px rgba(185,28,28,.1); outline:none; }
+    
+    /* TLAČIDLÁ */
     .button { background:var(--primary-color); color:#fff; padding:14px 20px; border:none; border-radius:6px; cursor:pointer; font-size:1rem; font-weight:bold; transition:.2s; }
     .button:hover { background:var(--primary-color-dark); }
     .button.secondary { background:#374151; }
-    .hidden { display:none; }
+    
+    .hidden { display:none !important; }
+    
+    /* NOTIFIKÁCIE & LOADER */
     #notification { padding:15px; border-radius:6px; font-weight:bold; text-align:center; margin-top:20px; position:fixed; top:10px; left:50%; transform:translateX(-50%); z-index:1000; box-shadow:0 4px 6px rgba(0,0,0,.1); }
     .success { background:#dcfce7; color:#16a34a; }
     .error { background:#fee2e2; color:#dc2626; }
     #loader { text-align:center; padding:20px; font-weight:bold; color:var(--primary-color); }
+    
     .footer-link { display:block; text-align:center; margin-top:20px; color:#6b7280; font-size:.9rem; text-decoration:none; }
     .footer-link:hover { color:var(--primary-color); text-decoration:underline; }
+    
+    /* HEADER PORTÁLU */
     .header { display:flex; justify-content:space-between; align-items:center; padding-bottom:20px; border-bottom:1px solid var(--border-color); margin-bottom:20px; }
     .header-info { text-align:right; }
     .announcement-bar { background:var(--info-bg); color:var(--info-text); padding:15px; border-radius:6px; margin-bottom:20px; text-align:center; }
+    
+    /* TABUĽKY */
     table { width:100%; border-collapse:collapse; margin-top:20px; font-size:14px; }
     th,td { border:1px solid var(--border-color); padding:12px; text-align:left; vertical-align:middle; }
     th { background:var(--secondary-color); text-align:center; font-weight:600; }
+    
     .order-summary { margin-top:20px; padding-top:20px; border-top:2px solid var(--border-color); display:flex; justify-content:flex-end; }
     .order-summary-box { width:100%; max-width:350px; }
     .btn-row { display:flex; gap:10px; flex-wrap:wrap; justify-content:flex-end; margin-top:10px; }
     
-    /* === UPDATE: STARÉ MODÁLNE OKNO (ponechané pre kompatibilitu) === */
+    /* === MODÁLNE OKNO (GENERICKÉ - napr. poznámky) === */
     #modal-container { display:none; position:fixed; inset:0; z-index:1000; justify-content:center; align-items:center; }
     .modal-backdrop { position:absolute; inset:0; background:rgba(0,0,0,.5); }
     
-    /* === UPDATE: NOVÉ ŠTÝLY PRE POPUP (INFO O PRODUKTE) === */
+    /* === MODÁLNE OKNO PRE INFO O PRODUKTE (POPUP) === */
     .modal-overlay {
-        display: none;
+        display: none; /* Predvolene skryté */
         position: fixed;
         top: 0;
         left: 0;
@@ -58,29 +86,31 @@
         justify-content: center;
         align-items: center;
     }
+    
+    /* Trieda, ktorú JS pridá na zobrazenie */
     .modal-overlay.visible {
         display: flex !important;
     }
     
     .modal-content { 
-        background:#fff; 
-        padding:0; 
-        border-radius:var(--border-radius); 
-        z-index:1001; 
-        width:90%; 
-        max-width:500px; 
-        max-height:90vh;
-        overflow-y:auto;
-        box-shadow:0 20px 25px -5px rgba(0,0,0,.1), 0 10px 10px -5px rgba(0,0,0,.04);
+        background: #fff; 
+        padding: 0; 
+        border-radius: var(--border-radius); 
+        z-index: 1001; 
+        width: 90%; 
+        max-width: 500px; 
+        max-height: 90vh;
+        overflow-y: auto;
+        box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,.04);
         position: relative;
         animation: slideDown 0.3s ease-out;
     }
     
     .modal-header { 
-        display:flex; 
-        justify-content:space-between; 
-        align-items:center; 
-        border-bottom:1px solid var(--border-color); 
+        display: flex; 
+        justify-content: space-between; 
+        align-items: center; 
+        border-bottom: 1px solid var(--border-color); 
         padding: 15px 20px;
         background: #f8fafc;
         border-radius: 8px 8px 0 0;
@@ -99,6 +129,7 @@
         line-height: 1;
         color: #94a3b8;
         cursor: pointer;
+        padding: 0 5px;
     }
     .modal-close:hover {
         color: #ef4444;
@@ -107,6 +138,83 @@
     @keyframes slideDown {
         from { transform: translateY(-20px); opacity: 0; }
         to { transform: translateY(0); opacity: 1; }
+    }
+
+    /* === COOKIE LIŠTA (B2B) === */
+    .cookie-banner {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        width: 100%;
+        background-color: #fff;
+        border-top: 1px solid #e2e8f0;
+        box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.1);
+        padding: 20px;
+        z-index: 10000;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: center;
+        gap: 20px;
+        font-family: 'Inter', sans-serif;
+        box-sizing: border-box;
+    }
+
+    .cookie-content {
+        flex: 1;
+        max-width: 800px;
+    }
+
+    .cookie-content h3 {
+        margin: 0 0 8px 0;
+        font-size: 1.1rem;
+        color: var(--text-color);
+        border: none;
+        padding: 0;
+    }
+
+    .cookie-content p {
+        margin: 0;
+        font-size: 0.9rem;
+        color: #475569;
+        line-height: 1.5;
+    }
+
+    .cookie-actions {
+        display: flex;
+        gap: 10px;
+    }
+
+    .cookie-actions button {
+        margin: 0;
+        white-space: nowrap;
+        padding: 10px 20px;
+        cursor: pointer;
+        border-radius: 6px;
+        font-weight: bold;
+        border: none;
+    }
+    
+    .cookie-btn-accept {
+        background-color: var(--primary-color);
+        color: white;
+    }
+    .cookie-btn-accept:hover {
+        background-color: var(--primary-color-dark);
+    }
+    
+    .cookie-btn-reject {
+        background-color: #64748b;
+        color: white;
+    }
+    .cookie-btn-reject:hover {
+        background-color: #475569;
+    }
+
+    @media (max-width: 768px) {
+        .cookie-banner { flex-direction: column; text-align: center; }
+        .cookie-actions { width: 100%; flex-direction: column; }
+        .cookie-actions button { width: 100%; }
     }
   </style>
 </head>
@@ -254,13 +362,14 @@
   </div>
 
   <div id="modal-container"></div>
-  <script src="{{ url_for('static', filename='js/b2b_app.js', v=5) }}"></script>
+
+  <script src="{{ url_for('static', filename='js/b2b_app.js', v=8) }}"></script>
   
   <div id="product-info-modal" class="modal-overlay">
     <div class="modal-content">
         <div class="modal-header">
             <h4>Informácie o produkte</h4>
-            <button class="modal-close" onclick="closeModal('product-info-modal')">&times;</button>
+            <button class="modal-close" onclick="window.closeModal('product-info-modal')">&times;</button>
         </div>
         <div class="modal-body" style="padding:20px;">
             <div id="pim-img-container" style="margin-bottom:15px; text-align:center;"></div>
@@ -269,5 +378,20 @@
         </div>
     </div>
   </div>
+
+  <div id="cookie-banner" class="cookie-banner hidden">
+      <div class="cookie-content">
+          <h3>Súkromie a cookies</h3>
+          <p>
+              Tento portál používa súbory cookies pre správne fungovanie a analytiku.
+              Používaním portálu súhlasíte s ich používaním.
+          </p>
+      </div>
+      <div class="cookie-actions">
+          <button id="cookie-reject" class="cookie-btn-reject">Len nevyhnutné</button>
+          <button id="cookie-accept" class="cookie-btn-accept">Súhlasím so všetkým</button>
+      </div>
+  </div>
+
 </body>
 </html>

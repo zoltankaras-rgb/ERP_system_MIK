@@ -912,3 +912,63 @@ document.addEventListener('click', function(event) {
         event.target.style.display = 'none';
     }
 });
+// =========================================================
+// === COOKIE CONSENT & ANALYTICS (B2B) ===
+// =========================================================
+
+document.addEventListener('DOMContentLoaded', () => {
+    initCookieBanner();
+});
+
+function initCookieBanner() {
+    const banner = document.getElementById('cookie-banner');
+    if (!banner) return;
+
+    // Skontrolujeme, či už máme rozhodnutie (uložené v localStorage)
+    const consent = localStorage.getItem('mik_cookie_consent');
+
+    // Ak ešte nemáme rozhodnutie, ukážeme lištu
+    if (!consent) {
+        banner.classList.remove('hidden');
+    } else {
+        // Tu by sa spustili skripty podľa súhlasu (napr. Google Analytics)
+        if (consent === 'all') {
+            enableAnalytics(); 
+        }
+    }
+
+    // Tlačidlo "Súhlasím so všetkým"
+    document.getElementById('cookie-accept')?.addEventListener('click', () => {
+        localStorage.setItem('mik_cookie_consent', 'all');
+        banner.classList.add('hidden');
+        enableAnalytics();
+    });
+
+    // Tlačidlo "Len nevyhnutné"
+    document.getElementById('cookie-reject')?.addEventListener('click', () => {
+        localStorage.setItem('mik_cookie_consent', 'necessary');
+        banner.classList.add('hidden');
+        // Nespustíme analytiku
+    });
+}
+
+function enableAnalytics() {
+    console.log('Spúšťam Google Analytics (GA4) pre B2B...');
+    
+    // ID merania (z B2C)
+    const GA_MEASUREMENT_ID = 'G-S399B7ZDCT'; 
+
+    // 1. Dynamické vloženie <script> tagu pre Google Tag Manager
+    const script = document.createElement('script');
+    script.src = `https://www.googletagmanager.com/gtag/js?id=${GA_MEASUREMENT_ID}`;
+    script.async = true;
+    document.head.appendChild(script);
+
+    // 2. Inicializácia gtag funkcie
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+
+    // 3. Konfigurácia s vaším ID
+    gtag('config', GA_MEASUREMENT_ID);
+}
