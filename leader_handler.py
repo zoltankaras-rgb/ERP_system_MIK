@@ -1025,3 +1025,67 @@ def leader_delete_route():
         return jsonify({'message': 'Trasa zmazaná.'})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+    # =============================================================================
+# DEFINITÍVNA OPRAVA: LOGISTIKA
+# =============================================================================
+
+@leader_bp.get('/routes/list')
+@login_required(role=('veduci','admin'))
+def leader_routes_list_fixed():
+    try:
+        # 1. Overíme, či tabuľka existuje, ak nie, vytvoríme ju (Self-healing)
+        db_connector.execute_query("""
+            CREATE TABLE IF NOT EXISTS b2b_route_templates (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                template_name VARCHAR(255) NOT NULL,
+                note TEXT,
+                is_active TINYINT DEFAULT 1
+            )
+        """, fetch=None)
+
+        # 2. Načítame dáta
+        rows = db_connector.execute_query(
+            "SELECT id, template_name, note FROM b2b_route_templates WHERE is_active=1 ORDER BY template_name",
+            fetch='all'
+        ) or []
+        
+        return jsonify({'routes': rows})
+    except Exception as e:
+        return jsonify({'error': f"Chyba DB: {str(e)}"}), 500
+
+@leader_bp.post('/routes/save')
+@login_required(role=('veduci','admin'))
+def leader_routes_save_fixed():
+    data = request.get_json(silent=True) or {}
+    rid = data.get('id')
+    name = (data.get('name') or '').strip()
+    note = (data.get('note') or '').strip()
+
+    if not name:
+        return jsonify({'error': 'Názov trasy je povinný.'}), 400
+
+    try:
+        if rid:
+            db_connector.execute_query(
+                "UPDATE b2b_route_templates SET template_name=%s, note=%s WHERE id=%s",
+                (name, note, rid), fetch=None
+            )
+        else:
+            db_connector.execute_query(
+                "INSERT INTO b2b_route_templates (template_name, note, is_active) VALUES (%s, %s, 1)",
+                (name, note), fetch=None
+            )
+        return jsonify({'message': 'OK'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@leader_bp.post('/routes/delete')
+@login_required(role=('veduci','admin'))
+def leader_routes_delete_fixed():
+    data = request.get_json(silent=True) or {}
+    rid = data.get('id')
+    try:
+        db_connector.execute_query("DELETE FROM b2b_route_templates WHERE id=%s", (rid,), fetch=None)
+        return jsonify({'message': 'Deleted'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
