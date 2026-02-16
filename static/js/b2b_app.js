@@ -826,7 +826,12 @@ function openProductInfo(title, imgUrl, desc) {
   const imgCont = m.querySelector('#pim-img-container');
 
   if (titleEl) titleEl.textContent = title;
-  if (descEl)  descEl.textContent  = desc || 'Zloženie a pôvod sú k dispozícii na vyžiadanie.';
+  
+  // === ZMENA TEXTU TU ===
+  // Ak nie je popis (desc), zobrazí sa táto veta:
+  if (descEl) {
+      descEl.textContent = desc || 'Zloženie a pôvod sú v súlade so súťažnými podkladmi.';
+  }
 
   if (imgCont) {
     if (imgUrl) {
