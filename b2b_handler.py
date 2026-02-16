@@ -1655,6 +1655,7 @@ def get_order_history(user_id):
         (login,),
     ) or []
     return {"orders": rows}
+
 def delete_b2b_customer(data: dict):
     cid = data.get("id")
     if not cid:
@@ -1662,41 +1663,63 @@ def delete_b2b_customer(data: dict):
     
     # 1. Získanie loginu zákazníka
     cust = db_connector.execute_query(
-        "SELECT zakaznik_id, nazov_firmy FROM b2b_zakaznici WHERE id=%s", 
+        "SELECT id, zakaznik_id, nazov_firmy FROM b2b_zakaznici WHERE id=%s", 
         (cid,), fetch="one"
     )
     if not cust:
-        return {"error": "Zákazník neexistuje."}
+        return {"error": "Zákazník neexistuje (už bol pravdepodobne zmazaný)."}
         
     login = cust["zakaznik_id"]
     
-    # 2. Kontrola cenníkov
-    try:
-        mapping = db_connector.execute_query(
-            "SELECT COUNT(*) as c FROM b2b_zakaznik_cennik WHERE zakaznik_id=%s", 
-            (login,), fetch="one"
-        )
-        if mapping and mapping["c"] > 0:
-            return {"error": f"Zákazník má priradených {mapping['c']} cenníkov. Najprv mu ich musíte odobrať (cez tlačidlo Upraviť)."}
-    except Exception:
-        pass
-        
-    # 3. Kontrola rozpracovaných objednávok
-    # Systém dovolí zmazať zákazníka, len ak nemá objednávky, alebo sú už všetky uzavreté (Hotová, Vybavená, Zrušená)
+    # 2. Kontrola OBJEDNÁVOK (Bezpečnostná poistka)
+    # Ak má zákazník akékoľvek objednávky (aj vybavené), nemali by sme ho mazať, 
+    # aby sa nepokazili štatistiky a história.
     try:
         orders = db_connector.execute_query(
-            "SELECT COUNT(*) as c FROM b2b_objednavky WHERE zakaznik_id=%s AND stav NOT IN ('Hotová', 'Vybavená', 'Zrušená', 'Ukončená')", 
+            "SELECT COUNT(*) as c FROM b2b_objednavky WHERE zakaznik_id=%s", 
             (login,), fetch="one"
         )
         if orders and orders["c"] > 0:
-            return {"error": "Zákazníka nemožno zmazať, momentálne má rozpracované objednávky."}
+            return {
+                "error": f"Tento zákazník má v systéme {orders['c']} objednávok (história). "
+                         "Zmazanie nie je možné z dôvodu archivácie dát."
+            }
     except Exception:
         pass
-        
-    # 4. Samotné zmazanie
+
+    # 3. ČISTENIE ZÁVISLOSTÍ (Aby databáza dovolila zmazanie)
     try:
-        db_connector.execute_query("DELETE FROM b2b_zakaznici WHERE id=%s", (cid,), fetch="none")
-        return {"message": f"Zákazník {cust['nazov_firmy']} bol úspešne zmazaný."}
+        # A) Zmažeme priradenie k cenníkom
+        db_connector.execute_query(
+            "DELETE FROM b2b_zakaznik_cennik WHERE zakaznik_id=%s", 
+            (login,), fetch="none"
+        )
+        
+        # B) Zmažeme správy (komunikáciu)
+        db_connector.execute_query(
+            "DELETE FROM b2b_messages WHERE customer_id=%s", 
+            (cid,), fetch="none"
+        )
     except Exception as e:
         traceback.print_exc()
-        return {"error": f"Zákazníka sa nepodarilo zmazať (môže byť prepojený na iné historické záznamy v DB). Chyba: {e}"}
+        # Pokračujeme ďalej, možno to prejde
+        
+    # 4. SAMOTNÉ ZMAZANIE ZÁKAZNÍKA
+    try:
+        db_connector.execute_query("DELETE FROM b2b_zakaznici WHERE id=%s", (cid,), fetch="none")
+        
+        # 5. OVERENIE, ČI ZMAZANIE PREBEHLO
+        # Keďže db_connector nevracia chybu priamo, musíme sa opýtať databázy, či tam ten záznam ešte je.
+        check = db_connector.execute_query("SELECT id FROM b2b_zakaznici WHERE id=%s", (cid,), fetch="one")
+        
+        if check:
+            # Ak sme ho našli, znamená to, že DELETE zlyhal (asi nejaký iný cudzí kľúč)
+            return {
+                "error": "Databáza odmietla zmazať zákazníka. Skontrolujte, či nemá iné väzby (napr. šablóny trás alebo iné moduly)."
+            }
+            
+        return {"message": f"Zákazník {cust['nazov_firmy']} bol úspešne a trvalo zmazaný."}
+        
+    except Exception as e:
+        traceback.print_exc()
+        return {"error": f"Chyba pri mazaní: {e}"}
