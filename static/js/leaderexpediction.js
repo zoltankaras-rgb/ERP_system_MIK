@@ -1326,33 +1326,50 @@ function initMeatOriginLabels(){
   mol_hist_render();
 }
 // =================================================================
-// LOGISTIKA & TRASY (Napojené na existujúce endpointy RouteTemplates)
+// LOGISTIKA & TRASY (OPRAVENÉ ZOBRAZOVANIE)
 // =================================================================
 
-// Hlavná funkcia na načítanie zoznamu trás
-async function loadLogistics() {
-    let box = document.getElementById('leader-logistics-container');
-    if (!box) {
-        const mainContent = document.getElementById('leader-view-content') || document.querySelector('.main-content') || document.body;
-        box = document.createElement('div');
-        box.id = 'leader-logistics-container';
-        box.className = 'content-section'; // Použijeme vašu CSS triedu pre sekcie
-        mainContent.appendChild(box);
-    }
+// 1. Funkcia na prepnutie zobrazenia (volaná z HTML tlačidla)
+window.showLogisticsSection = function() {
+    // Skryjeme všetky ostatné sekcie
+    document.querySelectorAll('.content-section').forEach(el => {
+        el.classList.remove('active');
+        el.style.display = 'none'; // Pre istotu vynútime skrytie
+    });
+    
+    // Zrušíme "active" triedu na všetkých odkazoch v menu
+    document.querySelectorAll('.sidebar-link').forEach(el => el.classList.remove('active'));
 
-    // Skryjeme ostatné sekcie a zobrazíme túto (logika z vášho webu)
-    document.querySelectorAll('.content-section').forEach(el => el.classList.remove('active'));
-    document.querySelectorAll('.content-section').forEach(el => el.style.display = 'none'); // Poistka
-    box.classList.add('active');
-    box.style.display = 'block';
+    // Nájdeme našu sekciu
+    const section = document.getElementById('leader-logistics');
+    if (section) {
+        section.classList.add('active');
+        section.style.display = 'block'; // Vynútime zobrazenie
+        
+        // Zvýrazníme tlačidlo v menu (nájdeme ho podľa ikony fa-truck)
+        const btn = document.querySelector('.sidebar-link i.fa-truck')?.closest('a');
+        if (btn) btn.classList.add('active');
+
+        // Spustíme načítanie dát
+        loadLogistics();
+    } else {
+        console.error("Chyba: V HTML chýba <div id='leader-logistics'>!");
+        alert("Chyba: V HTML chýba kontajner pre logistiku. (Pozri Krok 1)");
+    }
+};
+
+// 2. Funkcia na načítanie dát (API)
+async function loadLogistics() {
+    const box = document.getElementById('leader-logistics-container');
+    if (!box) return;
     
     box.innerHTML = '<div class="text-center p-4"><i class="fas fa-spinner fa-spin fa-2x"></i><p>Načítavam trasy...</p></div>';
 
     try {
-        // === ZMENA 1: Voláme správny endpoint ===
+        // Voláme endpoint pre šablóny trás
         const data = await callFirstOk([{ url: '/api/kancelaria/b2b/getRouteTemplates' }]);
         
-        // Backend pravdepodobne vracia { templates: [...] } alebo { routes: [...] }
+        // Ošetríme, či dáta prišli v 'templates' alebo 'routes'
         state.routes = data.templates || data.routes || [];
 
         let html = `
@@ -1378,7 +1395,6 @@ async function loadLogistics() {
             html += `<tr><td colspan="3" class="text-center text-muted p-3">Zatiaľ nie sú definované žiadne trasy.</td></tr>`;
         } else {
             state.routes.forEach(r => {
-                // Backend používa pravdepodobne 'name' alebo 'template_name'
                 const rName = r.name || r.template_name || r.nazov || 'Bez názvu';
                 const rNote = r.note || r.poznamka || '';
                 
@@ -1403,12 +1419,11 @@ async function loadLogistics() {
     }
 }
 
-// Otvorenie modálneho okna
+// 3. Modálne okno (Edit/New)
 window.editRoute = function(id) {
     const route = id ? state.routes.find(r => r.id === id) : { name: '', note: '' };
     if (!route && id) return;
 
-    // Ošetríme rôzne názvy atribútov z backendu
     const valName = route.name || route.template_name || route.nazov || '';
     const valNote = route.note || route.poznamka || '';
 
@@ -1427,22 +1442,23 @@ window.editRoute = function(id) {
         </div>
     `;
 
-    // Použijeme vašu existujúcu funkciu openModal (ak v leader.js nie je, použijeme fallback)
+    // Fallback pre otvorenie modálu
     if (typeof openModal === 'function') {
         openModal(modalHtml, id ? 'Upraviť trasu' : 'Nová trasa');
     } else {
-        // Fallback ak leader.js nemá openModal, vytvoríme jednoduchý
         const overlay = document.createElement('div');
         overlay.id = 'temp-modal-overlay';
         overlay.style = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:9999;display:flex;justify-content:center;align-items:center;';
-        overlay.innerHTML = `<div style="background:white;padding:20px;border-radius:8px;width:90%;max-width:500px;"><h4>${id ? 'Upraviť' : 'Nová'} trasa</h4>${modalHtml}</div>`;
+        overlay.innerHTML = `<div style="background:white;padding:20px;border-radius:8px;width:90%;max-width:500px;box-shadow:0 10px 25px rgba(0,0,0,0.2);"><h4>${id ? 'Upraviť' : 'Nová'} trasa</h4>${modalHtml}</div>`;
         document.body.appendChild(overlay);
-        
-        window.closeModal = function() { document.body.removeChild(overlay); };
+        // Prepíšeme closeModal pre tento prípad
+        window.closeModal = function() { 
+            if(document.getElementById('temp-modal-overlay')) document.body.removeChild(document.getElementById('temp-modal-overlay')); 
+        };
     }
 };
 
-// Uloženie trasy
+// 4. Uloženie
 window.saveRoute = async function(id) {
     const name = document.getElementById('route-name').value.trim();
     const note = document.getElementById('route-note').value.trim();
@@ -1450,33 +1466,27 @@ window.saveRoute = async function(id) {
     if (!name) return alert("Zadajte názov trasy.");
 
     try {
-        // === ZMENA 2: Voláme saveRouteTemplate ===
         await callFirstOk([{
             url: '/api/kancelaria/b2b/saveRouteTemplate',
             opts: {
                 method: 'POST',
-                body: {
-                    id: id,
-                    name: name,   // Posielame 'name', backend to snáď takto čaká
-                    note: note
-                }
+                body: { id: id, name: name, note: note }
             }
         }]);
 
-        showStatus("Trasa bola uložená."); // Vaša funkcia showStatus
+        showStatus("Trasa bola uložená.");
         if (typeof closeModal === 'function') closeModal();
-        loadLogistics(); // Obnovíme zoznam
+        loadLogistics(); 
     } catch (e) {
         alert("Chyba pri ukladaní: " + e.message);
     }
 };
 
-// Vymazanie trasy
+// 5. Mazanie
 window.deleteRoute = async function(id) {
     if (!confirm("Naozaj chcete vymazať túto trasu?")) return;
 
     try {
-        // === ZMENA 3: Voláme deleteRouteTemplate ===
         await callFirstOk([{
             url: '/api/kancelaria/b2b/deleteRouteTemplate',
             opts: { method: 'POST', body: { id: id } }

@@ -34,7 +34,7 @@
       .mol-preview .mol-company, .mol-preview .mol-approval, .mol-preview .mol-title { text-align: center; font-weight: 700; }
       .mol-preview .mol-lbl { font-weight: 700; white-space: nowrap; }
 
-      /* === ŠTÝLY PRE CHAT (Aby to nevyzeralo zle) === */
+      /* === ŠTÝLY PRE CHAT === */
       .chat-wrapper {
           display: grid; grid-template-columns: 300px 1fr; height: 600px;
           border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; background: white;
@@ -81,10 +81,11 @@
           <li><a class="sidebar-link" data-section="leader-manual-b2b"><i class="fas fa-plus-square"></i> Manuálna B2B objednávka</a></li>
           
           <li>
-            <a class="sidebar-link" href="#" onclick="loadLogistics(); document.querySelectorAll('.sidebar-link').forEach(el=>el.classList.remove('active')); this.classList.add('active'); return false;">
+            <a class="sidebar-link" href="#" onclick="window.showLogisticsSection(); return false;">
                 <i class="fas fa-truck"></i> Logistika & Trasy
             </a>
           </li>
+          
           <li>
             <a class="sidebar-link" data-section="leader-b2b-comm">
                 <i class="fas fa-comments"></i> B2B Komunikácia
@@ -219,6 +220,9 @@
           </div>
         </div>
 
+        <div id="leader-logistics" class="content-section">
+            <div id="leader-logistics-container"></div>
+        </div>
         <div id="leader-b2b-comm" class="content-section">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
                 <h3>B2B Komunikácia so zákazníkmi</h3>
@@ -326,6 +330,16 @@
   <script src="{{ url_for('static', filename='js/kancelaria_modules/planning.js') }}"></script>
   <script src="{{ url_for('static', filename='js/kancelaria_modules/calendar_planner.js') }}"></script>
   <script src="{{ url_for('static', filename='js/leaderexpediction.js') }}?v=19"></script>
+  
+  <script>
+    function closeModal() {
+      // Skúsime nájsť a odstrániť overlay ak existuje
+      const overlay = document.getElementById('temp-modal-overlay');
+      if (overlay) document.body.removeChild(overlay);
+    }
+    // Pridáme globálne, aby bol dostupný
+    window.closeModal = closeModal;
+  </script>
 
 </body>
 </html>
