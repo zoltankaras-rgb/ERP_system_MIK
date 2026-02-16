@@ -1661,65 +1661,72 @@ def delete_b2b_customer(data: dict):
     if not cid:
         return {"error": "Chýba ID zákazníka."}
     
-    # 1. Získanie loginu zákazníka
+    # 1. Získame LOGIN (zakaznik_id), lebo objednávky sú viazané na string, nie na ID
     cust = db_connector.execute_query(
         "SELECT id, zakaznik_id, nazov_firmy FROM b2b_zakaznici WHERE id=%s", 
         (cid,), fetch="one"
     )
+    
     if not cust:
-        return {"error": "Zákazník neexistuje (už bol pravdepodobne zmazaný)."}
+        return {"error": "Zákazník už neexistuje."}
         
     login = cust["zakaznik_id"]
     
-    # 2. Kontrola OBJEDNÁVOK (Bezpečnostná poistka)
-    # Ak má zákazník akékoľvek objednávky (aj vybavené), nemali by sme ho mazať, 
-    # aby sa nepokazili štatistiky a história.
-    try:
-        orders = db_connector.execute_query(
-            "SELECT COUNT(*) as c FROM b2b_objednavky WHERE zakaznik_id=%s", 
-            (login,), fetch="one"
-        )
-        if orders and orders["c"] > 0:
-            return {
-                "error": f"Tento zákazník má v systéme {orders['c']} objednávok (história). "
-                         "Zmazanie nie je možné z dôvodu archivácie dát."
-            }
-    except Exception:
-        pass
+    print(f"--- ZAČÍNAM MAZANIE TESTOVACIEHO PROFILU: {login} (ID: {cid}) ---")
 
-    # 3. ČISTENIE ZÁVISLOSTÍ (Aby databáza dovolila zmazanie)
     try:
-        # A) Zmažeme priradenie k cenníkom
+        # A) Zmažeme položky v KOŠÍKU (ak nejaké zostali visieť)
+        db_connector.execute_query(
+            "DELETE FROM b2b_kosik WHERE zakaznik_id=%s", 
+            (login,), fetch="none"
+        )
+
+        # B) Zmažeme POLOŽKY OBJEDNÁVOK (Najprv deti, potom rodičov!)
+        # Musíme nájsť ID objednávok tohto zákazníka a zmazať ich položky
+        db_connector.execute_query(
+            """
+            DELETE FROM b2b_objednavky_polozky 
+            WHERE objednavka_id IN (
+                SELECT id FROM b2b_objednavky WHERE zakaznik_id = %s
+            )
+            """, 
+            (login,), fetch="none"
+        )
+
+        # C) Teraz môžeme zmazať samotné OBJEDNÁVKY
+        db_connector.execute_query(
+            "DELETE FROM b2b_objednavky WHERE zakaznik_id=%s", 
+            (login,), fetch="none"
+        )
+
+        # D) Zmažeme väzby na CENNÍKY
         db_connector.execute_query(
             "DELETE FROM b2b_zakaznik_cennik WHERE zakaznik_id=%s", 
             (login,), fetch="none"
         )
         
-        # B) Zmažeme správy (komunikáciu)
+        # E) Zmažeme SPRÁVY
         db_connector.execute_query(
             "DELETE FROM b2b_messages WHERE customer_id=%s", 
             (cid,), fetch="none"
         )
-    except Exception as e:
-        traceback.print_exc()
-        # Pokračujeme ďalej, možno to prejde
-        
-    # 4. SAMOTNÉ ZMAZANIE ZÁKAZNÍKA
-    try:
-        db_connector.execute_query("DELETE FROM b2b_zakaznici WHERE id=%s", (cid,), fetch="none")
-        
-        # 5. OVERENIE, ČI ZMAZANIE PREBEHLO
-        # Keďže db_connector nevracia chybu priamo, musíme sa opýtať databázy, či tam ten záznam ešte je.
-        check = db_connector.execute_query("SELECT id FROM b2b_zakaznici WHERE id=%s", (cid,), fetch="one")
+
+        # F) Konečne zmažeme ZÁKAZNÍKA
+        db_connector.execute_query(
+            "DELETE FROM b2b_zakaznici WHERE id=%s", 
+            (cid,), fetch="none"
+        )
+
+        # 2. OVERENIE (pre istotu)
+        check = db_connector.execute_query(
+            "SELECT id FROM b2b_zakaznici WHERE id=%s", (cid,), fetch="one"
+        )
         
         if check:
-            # Ak sme ho našli, znamená to, že DELETE zlyhal (asi nejaký iný cudzí kľúč)
-            return {
-                "error": "Databáza odmietla zmazať zákazníka. Skontrolujte, či nemá iné väzby (napr. šablóny trás alebo iné moduly)."
-            }
-            
-        return {"message": f"Zákazník {cust['nazov_firmy']} bol úspešne a trvalo zmazaný."}
-        
+            return {"error": "Databáza stále odmieta zmazať záznam. Pravdepodobne existuje ešte iná tabuľka s väzbou, o ktorej nevieme."}
+
+        return {"message": f"Testovací profil '{cust['nazov_firmy']}' a všetky jeho dáta boli kompletne odstránené."}
+
     except Exception as e:
         traceback.print_exc()
-        return {"error": f"Chyba pri mazaní: {e}"}
+        return {"error": f"Chyba pri mazaní: {str(e)}"}
