@@ -816,7 +816,11 @@ document.addEventListener('DOMContentLoaded', () => {
     ensureHelpTab();
   })();
 });
-// === FUNKCIA PRE OTVORENIE INFO OKNA (B2B) ===
+// =========================================================
+// === FUNKCIE PRE MODÁLNE OKNO (INFO O PRODUKTE) ===
+// =========================================================
+
+// 1. Otvorenie okna (s upraveným textom)
 function openProductInfo(title, imgUrl, desc) {
   const m = document.getElementById('product-info-modal');
   if (!m) return;
@@ -827,8 +831,7 @@ function openProductInfo(title, imgUrl, desc) {
 
   if (titleEl) titleEl.textContent = title;
   
-  // === ZMENA TEXTU TU ===
-  // Ak nie je popis (desc), zobrazí sa táto veta:
+  // === ZMENA: Text pre súťažné podklady ===
   if (descEl) {
       descEl.textContent = desc || 'Zloženie a pôvod sú v súlade so súťažnými podkladmi.';
   }
@@ -847,3 +850,21 @@ function openProductInfo(title, imgUrl, desc) {
   m.classList.add('visible');
   m.style.display = 'flex';
 }
+
+// 2. Globálna funkcia pre zatvorenie krížikom
+// (Musí byť priradená k 'window', aby ju HTML videlo)
+window.closeModal = function(modalId) {
+    const el = document.getElementById(modalId);
+    if (el) {
+        el.classList.remove('visible');
+        el.style.display = 'none';
+    }
+};
+
+// 3. Zatvorenie kliknutím na tmavé pozadie
+window.addEventListener('click', function(event) {
+    if (event.target.classList.contains('modal-overlay')) {
+        event.target.classList.remove('visible');
+        event.target.style.display = 'none';
+    }
+});
