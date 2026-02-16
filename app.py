@@ -3419,7 +3419,7 @@ def b2b_save_route_template():
 @app.route('/api/kancelaria/b2b/deleteRouteTemplate', methods=['POST'])
 @login_required(role=('kancelaria','veduci','admin'))
 def b2b_delete_route_template():
-    return handle_request(b2b_handler.delete_route_template, request.json)# ============================================================================
+    return handle_request(b2b_handler.delete_route_template, request.json)
 
 
 

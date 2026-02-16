@@ -81,6 +81,11 @@
           <li><a class="sidebar-link" data-section="leader-manual-b2b"><i class="fas fa-plus-square"></i> Manuálna B2B objednávka</a></li>
           
           <li>
+            <a class="sidebar-link" href="#" onclick="loadLogistics(); document.querySelectorAll('.sidebar-link').forEach(el=>el.classList.remove('active')); this.classList.add('active'); return false;">
+                <i class="fas fa-truck"></i> Logistika & Trasy
+            </a>
+          </li>
+          <li>
             <a class="sidebar-link" data-section="leader-b2b-comm">
                 <i class="fas fa-comments"></i> B2B Komunikácia
                 <span id="badge-msgs" style="display:none">0</span>
