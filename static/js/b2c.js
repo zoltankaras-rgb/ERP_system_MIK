@@ -1217,25 +1217,9 @@ function filterProducts() {
             card.style.display = "none";
         }
     });
-}// === GENERÁTOR NAVIGAČNÝCH TLAČIDIEL ===
-function renderCategoryChips(categories) {
-    const nav = document.getElementById('category-nav');
-    if (!nav) return;
+}
 
-    let html = '';
-    // Prvé tlačidlo pre AKCIU
-    if (document.querySelector('.akcia-tyzdna-box') || document.querySelector('.fa-fire')) {
-        html += `<button type="button" class="nav-chip akcia" onclick="window.scrollTo({top:0, behavior:'smooth'})"><i class="fas fa-fire"></i> AKCIA</button>`;
-    }
-
-    // Tlačidlá pre ostatné kategórie
-    categories.forEach(cat => {
-        const id = `cat-${cat.replace(/\s+/g, '-')}`;
-        html += `<button type="button" class="nav-chip" onclick="document.getElementById('${id}')?.scrollIntoView({behavior: 'smooth'})">${escapeHtml(cat)}</button>`;
-    });
-
-    nav.innerHTML = html;
-}// ==========================================
+// ==========================================
 // === GENERÁTOR NAVIGAČNÝCH TLAČIDIEL ===
 // ==========================================
 function renderCategoryChips(categories) {
