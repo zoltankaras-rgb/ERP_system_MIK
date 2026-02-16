@@ -3025,6 +3025,11 @@ def create_and_link_sliced():
     return handle_request(office_handler.create_and_link_sliced_product, request.json)
 
 # =========================== KANCELÁRIA – B2B =============================
+@app.route('/api/kancelaria/b2b/deleteCustomer', methods=['POST'])
+@login_required # (ak používate dekorátor)
+def b2b_delete_customer():
+    return jsonify(b2b_handler.delete_b2b_customer(request.get_json()))
+
 @app.route('/api/kancelaria/b2b/getPendingB2BRegistrations')
 @login_required(role='kancelaria')
 def kanc_get_pending_b2b():

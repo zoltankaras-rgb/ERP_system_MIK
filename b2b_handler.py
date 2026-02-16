@@ -792,7 +792,7 @@ def create_pricelist(data: dict):
     finally:
         try: cur.close(); conn.close()
         except: pass
-        
+
 def get_pricelist_details(data: dict):
     pl_id = (data or {}).get("id")
     if not pl_id:
@@ -1655,3 +1655,48 @@ def get_order_history(user_id):
         (login,),
     ) or []
     return {"orders": rows}
+def delete_b2b_customer(data: dict):
+    cid = data.get("id")
+    if not cid:
+        return {"error": "Chýba ID zákazníka."}
+    
+    # 1. Získanie loginu zákazníka
+    cust = db_connector.execute_query(
+        "SELECT zakaznik_id, nazov_firmy FROM b2b_zakaznici WHERE id=%s", 
+        (cid,), fetch="one"
+    )
+    if not cust:
+        return {"error": "Zákazník neexistuje."}
+        
+    login = cust["zakaznik_id"]
+    
+    # 2. Kontrola cenníkov
+    try:
+        mapping = db_connector.execute_query(
+            "SELECT COUNT(*) as c FROM b2b_zakaznik_cennik WHERE zakaznik_id=%s", 
+            (login,), fetch="one"
+        )
+        if mapping and mapping["c"] > 0:
+            return {"error": f"Zákazník má priradených {mapping['c']} cenníkov. Najprv mu ich musíte odobrať (cez tlačidlo Upraviť)."}
+    except Exception:
+        pass
+        
+    # 3. Kontrola rozpracovaných objednávok
+    # Systém dovolí zmazať zákazníka, len ak nemá objednávky, alebo sú už všetky uzavreté (Hotová, Vybavená, Zrušená)
+    try:
+        orders = db_connector.execute_query(
+            "SELECT COUNT(*) as c FROM b2b_objednavky WHERE zakaznik_id=%s AND stav NOT IN ('Hotová', 'Vybavená', 'Zrušená', 'Ukončená')", 
+            (login,), fetch="one"
+        )
+        if orders and orders["c"] > 0:
+            return {"error": "Zákazníka nemožno zmazať, momentálne má rozpracované objednávky."}
+    except Exception:
+        pass
+        
+    # 4. Samotné zmazanie
+    try:
+        db_connector.execute_query("DELETE FROM b2b_zakaznici WHERE id=%s", (cid,), fetch="none")
+        return {"message": f"Zákazník {cust['nazov_firmy']} bol úspešne zmazaný."}
+    except Exception as e:
+        traceback.print_exc()
+        return {"error": f"Zákazníka sa nepodarilo zmazať (môže byť prepojený na iné historické záznamy v DB). Chyba: {e}"}
