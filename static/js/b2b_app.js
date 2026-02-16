@@ -294,8 +294,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // =========================
   // PRODUKTY + OBJEDNÁVKA
   // =========================
-
-  function renderProducts() {
+function renderProducts() {
     const container = document.getElementById('products-container');
     const details = document.getElementById('order-form-details');
     container.innerHTML = '';
@@ -310,29 +309,28 @@ document.addEventListener('DOMContentLoaded', () => {
 
     cats.forEach(category => {
       let html = `<h3>${category}</h3><table class="b2b-products-table"><thead><tr><th>Názov</th><th style="width: 120px; text-align: center;">Cena/MJ</th><th style="width: 260px;">Množstvo</th></tr></thead><tbody>`;
-      
       (appState.products[category] || []).forEach(p => {
         const price = Number(p.cena || 0).toFixed(2);
         const ean = p.ean_produktu;
         const isKg = (p.mj || '').toLowerCase() === 'kg';
         
-        // --- PRÍPRAVA DÁT PRE MODÁLNE OKNO (Ošetrenie úvodzoviek) ---
+        // Bezpečné ošetrenie textov pre HTML atribúty
         const safeTitle = (p.nazov_vyrobku || '').replace(/"/g, '&quot;');
         const safeImg = (p.obrazok_url || '').replace(/"/g, '&quot;');
-        const safeDesc = (p.popis || '').replace(/"/g, '&quot;');
+        const safeDesc = (p.info || p.popis || '').replace(/"/g, '&quot;');
 
         html += `<tr data-product-ean="${ean}">
           <td>
             ${p.nazov_vyrobku}
             <div style="margin-top: 4px;">
-                <a href="#" 
-                   style="color:#16a34a; font-size:0.8rem; text-decoration:underline;"
+                <button type="button"
+                   style="background:none; border:none; padding:0; color:#16a34a; font-size:0.8rem; text-decoration:underline; cursor:pointer;"
                    data-title="${safeTitle}"
                    data-img="${safeImg}"
                    data-desc="${safeDesc}"
-                   onclick="openProductInfo(this.dataset.title, this.dataset.img, this.dataset.desc); return false;">
+                   onclick="window.openProductInfo(this.dataset.title, this.dataset.img, this.dataset.desc);">
                    Viac info
-                </a>
+                </button>
             </div>
           </td>
           <td style="text-align:center;">${price} € / ${p.mj}</td>
@@ -862,3 +860,55 @@ window.closeModal = function(modalId) {
         el.style.display = 'none';
     }
 };
+// =========================================================
+// === GLOBÁLNE FUNKCIE PRE MODÁLNE OKNO (INFO O PRODUKTE) ===
+// =========================================================
+
+window.openProductInfo = function(title, imgUrl, desc) {
+  const m = document.getElementById('product-info-modal');
+  if (!m) return;
+
+  const titleEl = m.querySelector('#pim-title');
+  const descEl  = m.querySelector('#pim-desc');
+  const imgCont = m.querySelector('#pim-img-container');
+
+  if (titleEl) titleEl.textContent = title;
+  
+  if (descEl) {
+      // Ak je popis prázdny, zobrazíme predvolenú hlášku
+      descEl.textContent = desc || 'Zloženie a pôvod sú v súlade so súťažnými podkladmi.';
+  }
+
+  if (imgCont) {
+    if (imgUrl && imgUrl !== 'undefined') {
+      imgCont.innerHTML = `<img src="${imgUrl}" alt="${title}" 
+           style="max-width:100%; max-height:300px; border-radius:8px; box-shadow:0 4px 6px rgba(0,0,0,0.1);">`;
+      imgCont.style.display = 'block';
+    } else {
+      imgCont.innerHTML = '';
+      imgCont.style.display = 'none';
+    }
+  }
+
+  m.classList.add('visible');
+  m.style.display = 'flex';
+};
+
+// Funkcia na zatvorenie okna (volaná cez onclick="window.closeModal(...)")
+window.closeModal = function(modalId) {
+    // Ak nezadáme ID, skúsime nájsť product-info-modal
+    const id = modalId || 'product-info-modal';
+    const el = document.getElementById(id);
+    if (el) {
+        el.classList.remove('visible');
+        el.style.display = 'none';
+    }
+};
+
+// Zatvorenie kliknutím na tmavé pozadie
+document.addEventListener('click', function(event) {
+    if (event.target.classList.contains('modal-overlay')) {
+        event.target.classList.remove('visible');
+        event.target.style.display = 'none';
+    }
+});
