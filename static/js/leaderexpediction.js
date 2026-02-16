@@ -109,22 +109,26 @@
       modal(title, res.html, res.onReady);
   };
 
-  // ========================= LOGISTIKA A TRASY =====================
+// ========================= LOGISTIKA A TRASY (OPRAVENÉ) =====================
   let _routesCache = [];
 
+  // Funkcia pre načítanie zoznamu
   async function loadLogistics() {
       const box = $('#leader-logistics-container');
       if (!box) { console.error("Kontajner #leader-logistics-container nenájdený"); return; }
       
-      box.innerHTML = '<div class="muted p-4">Načítavam trasy...</div>';
+      box.innerHTML = '<div class="muted p-4" style="text-align:center"><i class="fas fa-spinner fa-spin"></i> Načítavam trasy...</div>';
       
       try {
-          const data = await apiRequest('/api/kancelaria/b2b/getRouteTemplates');
+          // POUŽÍVAME apiRequest (lokálna funkcia), nie callFirstOk
+          // Posielame GET požiadavku
+          const data = await apiRequest('/api/kancelaria/b2b/getRouteTemplates', { method: 'GET' });
+          
           _routesCache = data.templates || data.routes || [];
 
           let html = `
               <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
-                  <h3>Logistika & Trasy</h3>
+                  <h3><i class="fas fa-truck"></i> Logistika & Trasy</h3>
                   <button class="btn btn-primary" onclick="ldr_editRoute(null)">+ Nová trasa</button>
               </div>
               <div class="card">
@@ -157,18 +161,27 @@
           box.innerHTML = html;
 
       } catch (e) {
-          box.innerHTML = `<div class="error p-4">Chyba pri načítaní: ${escapeHtml(e.message)}</div>`;
+          box.innerHTML = `<div class="p-4" style="color:red; background:#fee2e2; border-radius:8px;">
+              <strong>Chyba pri načítaní:</strong> ${escapeHtml(e.message)}<br>
+              <small>Skontrolujte, či je spustený server a či máte oprávnenia.</small>
+          </div>`;
+          console.error("Logistika Error:", e);
       }
   }
 
+  // Funkcia pre Editáciu (zavesená na root/window)
   root.ldr_editRoute = function(id) {
       const route = id ? _routesCache.find(r => r.id == id) : { name: '', note: '' };
       if (!route && id) return;
 
       const title = id ? 'Upraviť trasu' : 'Nová trasa';
+      // Skúsime nájsť názov v rôznych parametroch
+      const valName = route.name || route.template_name || route.nazov || '';
+      const valNote = route.note || route.poznamka || '';
+
       const html = `
-          <div class="form-group"><label>Názov trasy</label><input id="rt-name" class="form-control" value="${escapeHtml(route.name||route.template_name||'')}"></div>
-          <div class="form-group"><label>Poznámka / Šofér</label><input id="rt-note" class="form-control" value="${escapeHtml(route.note||route.poznamka||'')}"></div>
+          <div class="form-group"><label>Názov trasy</label><input id="rt-name" class="form-control" value="${escapeHtml(valName)}"></div>
+          <div class="form-group"><label>Poznámka / Šofér</label><input id="rt-note" class="form-control" value="${escapeHtml(valNote)}"></div>
           <div style="text-align:right; margin-top:1rem;">
               <button class="btn btn-secondary" onclick="closeModal()">Zrušiť</button>
               <button class="btn btn-primary" id="rt-save">Uložiť</button>
@@ -196,6 +209,7 @@
       });
   };
 
+  // Funkcia pre Zmazanie
   root.ldr_deleteRoute = async function(id) {
       const ok = await modalConfirm({ title:'Zmazať trasu', message:'Naozaj chcete zmazať túto trasu?' });
       if (!ok) return;
@@ -208,13 +222,26 @@
       }
   };
 
+  // Hlavný spúšťač (zavesený na root)
   root.loadLogistics = function() {
+      // 1. Skryť ostatné sekcie
       $$('.content-section').forEach(s => { s.classList.remove('active'); s.style.display = 'none'; });
+      $$('.sidebar-link').forEach(l => l.classList.remove('active'));
+
+      // 2. Aktivovať sekciu logistiky
       const sec = $('#leader-logistics');
-      if (sec) { sec.classList.add('active'); sec.style.display = 'block'; }
+      if (sec) { 
+          sec.classList.add('active'); 
+          sec.style.display = 'block'; 
+      }
+      
+      // 3. Aktivovať tlačidlo v menu (nájdeme podľa ikony)
+      const btn = document.querySelector('.sidebar-link i.fa-truck')?.closest('a');
+      if(btn) btn.classList.add('active');
+
+      // 4. Načítať dáta
       loadLogistics();
   };
-
 
   // ========================= SHARED B2B STATE =====================
   var __pickedCustomer = null; var __pickedPricelist = null; var __pricelistMapByEAN = Object.create(null);
