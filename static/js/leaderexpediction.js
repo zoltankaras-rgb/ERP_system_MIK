@@ -119,7 +119,6 @@
       box.innerHTML = '<div class="muted p-4">Načítavam trasy...</div>';
       
       try {
-          // Používame tvoj apiRequest
           const data = await apiRequest('/api/kancelaria/b2b/getRouteTemplates');
           _routesCache = data.templates || data.routes || [];
 
@@ -162,7 +161,6 @@
       }
   }
 
-  // Tieto funkcie zavesíme na root (window), aby ich HTML onclick videl
   root.ldr_editRoute = function(id) {
       const route = id ? _routesCache.find(r => r.id == id) : { name: '', note: '' };
       if (!route && id) return;
@@ -210,9 +208,7 @@
       }
   };
 
-  // Sprístupníme loadLogistics globálne pre onclick v HTML (ak by bolo treba)
   root.loadLogistics = function() {
-      // Prepnutie UI
       $$('.content-section').forEach(s => { s.classList.remove('active'); s.style.display = 'none'; });
       const sec = $('#leader-logistics');
       if (sec) { sec.classList.add('active'); sec.style.display = 'block'; }
@@ -1434,6 +1430,38 @@ function initMeatOriginLabels(){
 
   mol_hist_render();
 }
+
+function attachSupplierAutocomplete(){
+    const input = $('#nb2b-name'); if (!input) return;
+    let popup = $('#nb2b-suggest');
+    if (!popup){ popup = doc.createElement('div'); popup.id='nb2b-suggest'; popup.style.cssText='position:absolute;z-index:1000;background:#fff;border:1px solid #e5e7eb;border-radius:8px;box-shadow:0 10px 30px rgba(0,0,0,.15);display:none;max-height:240px;overflow:auto'; doc.body.appendChild(popup); }
+    function position(){ const r = input.getBoundingClientRect(); popup.style.left=(window.scrollX+r.left)+'px'; popup.style.top=(window.scrollY+r.bottom+4)+'px'; popup.style.minWidth=r.width+'px'; }
+    input.addEventListener('input', async ()=>{
+      const q = input.value.trim(); if (q.length < 2){ popup.style.display='none'; return; }
+      position(); popup.innerHTML = '<div style="padding:.5rem" class="muted">Hľadám…</div>'; popup.style.display='block';
+      const list = await searchSuppliers(q);
+      if (!list.length){ popup.innerHTML = '<div style="padding:.5rem" class="muted">Žiadne výsledky</div>'; return; }
+      popup.innerHTML = list.map(x=>`<div data-id="${escapeHtml(String(x.id))}" data-json='${escapeHtml(JSON.stringify(x))}' style="padding:.4rem .6rem;cursor:pointer">${escapeHtml(x.name)} <span class="muted">(${escapeHtml(x.code||'')})</span></div>`).join('');
+      Array.from(popup.children).forEach(div=>{
+        div.onclick = async ()=>{
+          const data = JSON.parse(div.getAttribute('data-json')); __pickedCustomer = data; input.value = data.name; popup.style.display='none';
+          const box = $('#nb2b-pl-box') || (()=>{ const d = doc.createElement('div'); d.id='nb2b-pl-box'; d.className='muted'; d.style.margin='8px 0'; const body = $('#manual-b2b-form .card-body') || $('#leader-manual-b2b .card .card-body') || doc.body; body.insertBefore(d, body.firstChild); return d; })();
+          const pls = await fetchPricelists(data.id);
+          if (!pls.length){ box.innerHTML = '<div class="muted">Pre odberateľa nie sú evidované cenníky.</div>'; __pickedPricelist=null; __pricelistMapByEAN=Object.create(null); return; }
+          box.innerHTML = `<label>Vyber cenník:</label> <select id="nb2b-pl" style="min-width:260px">${pls.map(p=>`<option value="${escapeHtml(p.id)}">${escapeHtml(p.name||('Cenník '+String(p.id||'')))}</option>`).join('')}</select><div id="nb2b-pl-note" class="muted" style="margin-top:.25rem">Ceny položiek sa doplnia pri pridávaní EAN z vybraného cenníka.</div><div id="nb2b-pl-preview" style="margin-top:.5rem"></div>`;
+          __pickedPricelist = pls[0]||null; __pricelistMapByEAN = Object.create(null);
+          if (__pickedPricelist && Array.isArray(__pickedPricelist.items)){ __pickedPricelist.items.forEach(it=>{ if (it && it.ean != null) __pricelistMapByEAN[String(it.ean)] = toNum(it.price||it.cena_bez_dph||0,0); }); }
+          renderPricelistPreview(__pickedPricelist, box);
+          $('#nb2b-pl').onchange = (e)=>{
+            const pick = pls.find(x=> String(x.id) === e.target.value); __pickedPricelist = pick || null; __pricelistMapByEAN = Object.create(null);
+            if (__pickedPricelist && Array.isArray(__pickedPricelist.items)){ __pickedPricelist.items.forEach(it=>{ if (it && it.ean != null) __pricelistMapByEAN[String(it.ean)] = toNum(it.price||it.cena_bez_dph||0,0); }); }
+            renderPricelistPreview(__pickedPricelist, box);
+          };
+        };
+      });
+    });
+    window.addEventListener('resize', ()=>{ if(popup.style.display==='block') position(); }); document.addEventListener('click', (e)=>{ if (!popup.contains(e.target) && e.target!==input) popup.style.display='none'; });
+  }
 
 function boot(){
   $$('.sidebar-link').forEach(a=>{
