@@ -3406,22 +3406,6 @@ def b2b_update_order():
 #    Poznámka: tu iba zostrojíme údaje a „best effort“ zavoláme mailer, ak ho máš.
 # app.py (Pridajte k B2B Kancelária endpointom)
 
-@app.route('/api/kancelaria/b2b/getRouteTemplates')
-@login_required(role=('kancelaria','veduci','admin'))
-def b2b_get_route_templates():
-    return handle_request(b2b_handler.get_route_templates)
-
-@app.route('/api/kancelaria/b2b/saveRouteTemplate', methods=['POST'])
-@login_required(role=('kancelaria','veduci','admin'))
-def b2b_save_route_template():
-    return handle_request(b2b_handler.save_route_template, request.json)
-
-@app.route('/api/kancelaria/b2b/deleteRouteTemplate', methods=['POST'])
-@login_required(role=('kancelaria','veduci','admin'))
-def b2b_delete_route_template():
-    return handle_request(b2b_handler.delete_route_template, request.json)
-
-
 
 @app.route('/api/b2b/messages/attachment', methods=['POST'])
 def b2b_messages_attachment():
@@ -3473,7 +3457,28 @@ def b2b_notify_order():
     except Exception as e:
         # FE to volá ako best effort a chyby ignoruje – nech sa to nehroutí
         return jsonify({'error': f'notify zlyhalo: {e}'}), 500
+# =================================================================
+# B2B LOGISTIKA & TRASY (Šablóny)
+# =================================================================
 
+# OPRAVA: Pridané methods=['GET', 'POST'], aby to fungovalo s callFirstOk
+@app.route('/api/kancelaria/b2b/getRouteTemplates', methods=['GET', 'POST'])
+@login_required(role=('kancelaria','veduci','admin'))
+def b2b_get_route_templates():
+    return handle_request(b2b_handler.get_route_templates)
+
+@app.route('/api/kancelaria/b2b/saveRouteTemplate', methods=['POST'])
+@login_required(role=('kancelaria','veduci','admin'))
+def b2b_save_route_template():
+    # Použi get_json(silent=True) pre bezpečnosť
+    data = request.get_json(silent=True) or {}
+    return handle_request(b2b_handler.save_route_template, data)
+
+@app.route('/api/kancelaria/b2b/deleteRouteTemplate', methods=['POST'])
+@login_required(role=('kancelaria','veduci','admin'))
+def b2b_delete_route_template():
+    data = request.get_json(silent=True) or {}
+    return handle_request(b2b_handler.delete_route_template, data)
 # ----------------------------------------------------------------------------
 # 1) MASTER: Zákazníci + ich cenníky (ideálne používať túto jednu cestu)
 # ----------------------------------------------------------------------------
