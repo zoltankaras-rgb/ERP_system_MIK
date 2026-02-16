@@ -650,13 +650,13 @@ function updateOrderTotal() {
     }
   }
 
-  // Vždy zobraziť sekciu súhrnu
+// Vždy zobraziť sekciu súhrnu
   const summarySection = document.getElementById('order-summary-section');
   if (summarySection) {
     summarySection.classList.remove('hidden');
   }
-}
-// === UPDATE STICKY BAR (MOBILE) ===
+
+  // === UPDATE STICKY BAR (MOBILE) ===
   const stickyBar = document.getElementById('mobile-sticky-cart');
   const stickyTotal = document.getElementById('msc-total');
   
@@ -673,6 +673,7 @@ function updateOrderTotal() {
           document.body.style.paddingBottom = '0';
       }
   }
+}
 async function handleOrderSubmit(event) {
   event.preventDefault();
 
