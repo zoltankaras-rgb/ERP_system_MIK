@@ -817,42 +817,44 @@ document.addEventListener('DOMContentLoaded', () => {
   })();
 });
 // =========================================================
-// === FUNKCIE PRE MODÁLNE OKNO (INFO O PRODUKTE) ===
+// === OPRAVA: ZATVÁRANIE OKIEN (AUTOMATICKÁ) ===
 // =========================================================
+document.addEventListener('DOMContentLoaded', () => {
+    // 1. Oživenie všetkých krížikov (tlačidiel s triedou .modal-close)
+    const closeButtons = document.querySelectorAll('.modal-close');
+    closeButtons.forEach(btn => {
+        // Odstránime staré eventy, aby sa nebili
+        btn.replaceWith(btn.cloneNode(true));
+    });
 
-// 1. Otvorenie okna (s upraveným textom)
-function openProductInfo(title, imgUrl, desc) {
-  const m = document.getElementById('product-info-modal');
-  if (!m) return;
+    // Znova nájdeme tlačidlá (lebo sme ich nahradili) a pridáme funkčnosť
+    document.querySelectorAll('.modal-close').forEach(btn => {
+        btn.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            // Nájde najbližšie okno (rodiča) a zatvorí ho
+            const modal = this.closest('.modal-overlay');
+            if (modal) {
+                modal.classList.remove('visible');
+                modal.style.display = 'none';
+            }
+        });
+        // Zmeníme kurzor, aby bolo jasné, že sa na to dá kliknúť
+        btn.style.cursor = 'pointer'; 
+    });
 
-  const titleEl = m.querySelector('#pim-title');
-  const descEl  = m.querySelector('#pim-desc');
-  const imgCont = m.querySelector('#pim-img-container');
+    // 2. Zatváranie kliknutím na tmavé pozadie
+    document.querySelectorAll('.modal-overlay').forEach(modal => {
+        modal.addEventListener('click', (event) => {
+            if (event.target === modal) {
+                modal.classList.remove('visible');
+                modal.style.display = 'none';
+            }
+        });
+    });
+});
 
-  if (titleEl) titleEl.textContent = title;
-  
-  // === ZMENA: Text pre súťažné podklady ===
-  if (descEl) {
-      descEl.textContent = desc || 'Zloženie a pôvod sú v súlade so súťažnými podkladmi.';
-  }
-
-  if (imgCont) {
-    if (imgUrl) {
-      imgCont.innerHTML = `<img src="${imgUrl}" alt="${title}" 
-           style="max-width:100%; max-height:300px; border-radius:8px; box-shadow:0 4px 6px rgba(0,0,0,0.1);">`;
-      imgCont.style.display = 'block';
-    } else {
-      imgCont.innerHTML = '';
-      imgCont.style.display = 'none';
-    }
-  }
-
-  m.classList.add('visible');
-  m.style.display = 'flex';
-}
-
-// 2. Globálna funkcia pre zatvorenie krížikom
-// (Musí byť priradená k 'window', aby ju HTML videlo)
+// 3. Záložná globálna funkcia (ak by ju HTML silou-mocou hľadalo)
 window.closeModal = function(modalId) {
     const el = document.getElementById(modalId);
     if (el) {
@@ -860,11 +862,3 @@ window.closeModal = function(modalId) {
         el.style.display = 'none';
     }
 };
-
-// 3. Zatvorenie kliknutím na tmavé pozadie
-window.addEventListener('click', function(event) {
-    if (event.target.classList.contains('modal-overlay')) {
-        event.target.classList.remove('visible');
-        event.target.style.display = 'none';
-    }
-});
