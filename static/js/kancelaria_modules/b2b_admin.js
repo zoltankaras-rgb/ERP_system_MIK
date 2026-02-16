@@ -683,12 +683,20 @@
   }
 
   let currentPlItems = new Map();
-  async function loadPricelistItemsForEdit(plId) {
+
+ async function loadPricelistItemsForEdit(plId) {
       currentPlItems.clear();
       try {
           const data = await callFirstOk([{ url: '/api/kancelaria/b2b/getPricelistDetails', opts: { method:'POST', body:{id:plId} } }]);
-          (data.items || []).forEach(i => currentPlItems.set(i.ean_produktu, Number(i.cena)));
-          renderSourceProducts(''); renderTargetProducts();
+          // ZMENA: Ukladáme objekt {price, info} namiesto len čísla
+          (data.items || []).forEach(i => {
+              currentPlItems.set(i.ean_produktu, { 
+                  price: Number(i.cena), 
+                  info: i.info || i.poznamka || '' // Načítame info alebo poznámku
+              });
+          });
+          renderSourceProducts(''); 
+          renderTargetProducts();
       } catch(e) { console.error(e); }
   }
 
@@ -707,29 +715,86 @@
       container.innerHTML = html || '<div style="padding:10px;color:#666;">Žiadne produkty.</div>';
   }
 
-  window.plAdd = (ean) => {
+window.plAdd = (ean) => {
       const input = doc.getElementById(`price-in-${ean}`);
       const price = parseFloat(input.value);
       if (isNaN(price) || price < 0) return showStatus('Zadajte cenu', true);
-      currentPlItems.set(ean, price);
+      
+      // ZMENA: Ukladáme objekt
+      currentPlItems.set(ean, { price: price, info: '' });
+      
       renderSourceProducts(doc.getElementById('pl-prod-filter').value);
       renderTargetProducts();
   };
 
-  function renderTargetProducts() {
+ function renderTargetProducts() {
       const container = doc.getElementById('pl-target-list');
       let html = '';
-      currentPlItems.forEach((price, ean) => {
+      
+      // ZMENA: Iterujeme cez objekty data = {price, info}
+      currentPlItems.forEach((data, ean) => {
           const p = state.productsAll.find(x => x.ean === ean) || { nazov_vyrobku: 'Neznámy produkt' };
-          html += `<div class="cust-option" style="justify-content:space-between; background:#f0fdf4;"><div><div style="font-size:0.9rem; font-weight:600;">${escapeHtml(p.nazov_vyrobku)}</div><small>${ean}</small></div><div style="display:flex;gap:5px;align-items:center;"><input type="number" class="price-edit-input" data-ean="${ean}" value="${price}" style="width:70px; padding:2px;" step="0.01"><button class="btn btn-danger btn-sm" onclick="window.plRem('${ean}')">X</button></div></div>`;
+          
+          html += `
+          <div class="cust-option pl-item-row" data-ean="${ean}" style="background:#f0fdf4; flex-direction:column; align-items:stretch; gap:5px; padding:10px;">
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                  <div>
+                      <div style="font-size:0.9rem; font-weight:600;">${escapeHtml(p.nazov_vyrobku)}</div>
+                      <small>${ean}</small>
+                  </div>
+                  <button class="btn btn-danger btn-sm" onclick="window.plRem('${ean}')">X</button>
+              </div>
+              
+              <div style="display:flex; gap:10px; align-items:center; margin-top:5px;">
+                  <div style="flex:1;">
+                      <input type="text" class="info-edit-input" value="${escapeHtml(data.info)}" placeholder="Popis / Info pre zákazníka..." style="width:100%; padding:4px; border:1px solid #cbd5e1; borderRadius:4px; font-size:0.85rem;">
+                  </div>
+                  <div style="width:100px; display:flex; align-items:center; gap:5px;">
+                      <label style="font-size:0.8rem;">Cena:</label>
+                      <input type="number" class="price-edit-input" value="${data.price}" style="width:100%; padding:4px; border:1px solid #cbd5e1; borderRadius:4px; font-weight:bold;" step="0.01">
+                  </div>
+              </div>
+          </div>`;
       });
       container.innerHTML = html || '<div style="padding:10px;color:#666;">Prázdny cenník.</div>';
   }
   window.plRem = (ean) => { currentPlItems.delete(ean); renderSourceProducts(doc.getElementById('pl-prod-filter').value); renderTargetProducts(); };
   async function savePricelistItems(plId) {
-      doc.querySelectorAll('.price-edit-input').forEach(inp => currentPlItems.set(inp.dataset.ean, parseFloat(inp.value)));
-      const items = []; currentPlItems.forEach((price, ean) => items.push({ ean, price }));
-      try { await callFirstOk([{ url: '/api/kancelaria/b2b/updatePricelist', opts: { method: 'POST', body: { id: plId, items } } }]); showStatus('Cenník uložený'); loadPricelistsForManagement(); } catch(e) { showStatus(e.message, true); }
+      // ZMENA: Prejdeme všetky riadky a aktualizujeme mapu
+      const rows = doc.querySelectorAll('.pl-item-row');
+      rows.forEach(row => {
+          const ean = row.dataset.ean;
+          const priceInput = row.querySelector('.price-edit-input');
+          const infoInput = row.querySelector('.info-edit-input');
+          
+          if (ean && priceInput) {
+              currentPlItems.set(ean, {
+                  price: parseFloat(priceInput.value) || 0,
+                  info: infoInput ? infoInput.value.trim() : ''
+              });
+          }
+      });
+
+      // Pripravíme pole pre API
+      const items = []; 
+      currentPlItems.forEach((data, ean) => items.push({ 
+          ean: ean, 
+          price: data.price,
+          info: data.info // Posielame info na server
+      }));
+
+      try { 
+          await callFirstOk([{ 
+              url: '/api/kancelaria/b2b/updatePricelist', 
+              opts: { method: 'POST', body: { id: plId, items } } 
+          }]); 
+          showStatus('Cenník uložený'); 
+          loadPricelistsForManagement(); 
+          // Vyčistíme editor
+          doc.getElementById('pl-editor-area').innerHTML='';
+      } catch(e) { 
+          showStatus(e.message, true); 
+      }
   }
 
   // =================================================================

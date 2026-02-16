@@ -310,12 +310,31 @@ document.addEventListener('DOMContentLoaded', () => {
 
     cats.forEach(category => {
       let html = `<h3>${category}</h3><table class="b2b-products-table"><thead><tr><th>Názov</th><th style="width: 120px; text-align: center;">Cena/MJ</th><th style="width: 260px;">Množstvo</th></tr></thead><tbody>`;
+      
       (appState.products[category] || []).forEach(p => {
         const price = Number(p.cena || 0).toFixed(2);
         const ean = p.ean_produktu;
         const isKg = (p.mj || '').toLowerCase() === 'kg';
+        
+        // --- PRÍPRAVA DÁT PRE MODÁLNE OKNO (Ošetrenie úvodzoviek) ---
+        const safeTitle = (p.nazov_vyrobku || '').replace(/"/g, '&quot;');
+        const safeImg = (p.obrazok_url || '').replace(/"/g, '&quot;');
+        const safeDesc = (p.popis || '').replace(/"/g, '&quot;');
+
         html += `<tr data-product-ean="${ean}">
-          <td>${p.nazov_vyrobku}</td>
+          <td>
+            ${p.nazov_vyrobku}
+            <div style="margin-top: 4px;">
+                <a href="#" 
+                   style="color:#16a34a; font-size:0.8rem; text-decoration:underline;"
+                   data-title="${safeTitle}"
+                   data-img="${safeImg}"
+                   data-desc="${safeDesc}"
+                   onclick="openProductInfo(this.dataset.title, this.dataset.img, this.dataset.desc); return false;">
+                   Viac info
+                </a>
+            </div>
+          </td>
           <td style="text-align:center;">${price} € / ${p.mj}</td>
           <td>
             <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
@@ -797,3 +816,29 @@ document.addEventListener('DOMContentLoaded', () => {
     ensureHelpTab();
   })();
 });
+// === FUNKCIA PRE OTVORENIE INFO OKNA (B2B) ===
+function openProductInfo(title, imgUrl, desc) {
+  const m = document.getElementById('product-info-modal');
+  if (!m) return;
+
+  const titleEl = m.querySelector('#pim-title');
+  const descEl  = m.querySelector('#pim-desc');
+  const imgCont = m.querySelector('#pim-img-container');
+
+  if (titleEl) titleEl.textContent = title;
+  if (descEl)  descEl.textContent  = desc || 'Zloženie a pôvod sú k dispozícii na vyžiadanie.';
+
+  if (imgCont) {
+    if (imgUrl) {
+      imgCont.innerHTML = `<img src="${imgUrl}" alt="${title}" 
+           style="max-width:100%; max-height:300px; border-radius:8px; box-shadow:0 4px 6px rgba(0,0,0,0.1);">`;
+      imgCont.style.display = 'block';
+    } else {
+      imgCont.innerHTML = '';
+      imgCont.style.display = 'none';
+    }
+  }
+
+  m.classList.add('visible');
+  m.style.display = 'flex';
+}
