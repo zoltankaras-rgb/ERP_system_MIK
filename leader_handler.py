@@ -946,3 +946,82 @@ def leader_b2b_search_products():
         })
         
     return jsonify(out)
+# =============================================================================
+# LOGISTIKA & TRASY (Priamo v Leader Handler)
+# =============================================================================
+
+@leader_bp.get('/logistics/routes')
+@login_required(role=('veduci','admin'))
+def leader_get_routes():
+    # Načítanie trás z DB
+    try:
+        # Overíme, či tabuľka existuje (pre istotu)
+        if not _table_exists('b2b_route_templates'):
+            return jsonify({'routes': []}) # Vrátime prázdne, ak tabuľka nie je
+
+        rows = db_connector.execute_query(
+            "SELECT id, template_name, note FROM b2b_route_templates WHERE is_active=1 ORDER BY template_name",
+            fetch='all'
+        ) or []
+        
+        # Sformátujeme pre frontend
+        out = [{'id': r['id'], 'name': r['template_name'], 'note': r['note']} for r in rows]
+        return jsonify({'routes': out})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@leader_bp.post('/logistics/routes/save')
+@login_required(role=('veduci','admin'))
+def leader_save_route():
+    data = request.get_json(silent=True) or {}
+    rid = data.get('id')
+    name = (data.get('name') or '').strip()
+    note = (data.get('note') or '').strip()
+
+    if not name:
+        return jsonify({'error': 'Názov trasy je povinný.'}), 400
+
+    try:
+        # Vytvoríme tabuľku, ak neexistuje (Self-healing)
+        db_connector.execute_query("""
+            CREATE TABLE IF NOT EXISTS b2b_route_templates (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                template_name VARCHAR(255) NOT NULL,
+                note TEXT,
+                is_active TINYINT DEFAULT 1
+            )
+        """, fetch=None)
+
+        if rid:
+            # Update
+            db_connector.execute_query(
+                "UPDATE b2b_route_templates SET template_name=%s, note=%s WHERE id=%s",
+                (name, note, rid), fetch=None
+            )
+        else:
+            # Insert
+            db_connector.execute_query(
+                "INSERT INTO b2b_route_templates (template_name, note, is_active) VALUES (%s, %s, 1)",
+                (name, note), fetch=None
+            )
+        return jsonify({'message': 'Trasa uložená.'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@leader_bp.post('/logistics/routes/delete')
+@login_required(role=('veduci','admin'))
+def leader_delete_route():
+    data = request.get_json(silent=True) or {}
+    rid = data.get('id')
+    
+    if not rid: return jsonify({'error': 'Chýba ID.'}), 400
+
+    try:
+        # Soft delete (alebo hard delete podľa preferencie)
+        db_connector.execute_query(
+            "DELETE FROM b2b_route_templates WHERE id=%s",
+            (rid,), fetch=None
+        )
+        return jsonify({'message': 'Trasa zmazaná.'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500

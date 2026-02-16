@@ -109,22 +109,21 @@
       modal(title, res.html, res.onReady);
   };
 
-// ========================= LOGISTIKA A TRASY (OPRAVENÉ) =====================
+// ========================= LOGISTIKA A TRASY (LEADER VERZIA) =====================
   let _routesCache = [];
 
-  // Funkcia pre načítanie zoznamu
+  // 1. Načítanie trás
   async function loadLogistics() {
       const box = $('#leader-logistics-container');
-      if (!box) { console.error("Kontajner #leader-logistics-container nenájdený"); return; }
+      if (!box) { console.error("CHYBA: Kontajner #leader-logistics-container v HTML chýba!"); return; }
       
-      box.innerHTML = '<div class="muted p-4" style="text-align:center"><i class="fas fa-spinner fa-spin"></i> Načítavam trasy...</div>';
+      // Spinner
+      box.innerHTML = '<div class="muted p-4" style="text-align:center"><i class="fas fa-spinner fa-spin fa-2x"></i><br>Načítavam trasy...</div>';
       
       try {
-          // POUŽÍVAME apiRequest (lokálna funkcia), nie callFirstOk
-          // Posielame GET požiadavku
-          const data = await apiRequest('/api/kancelaria/b2b/getRouteTemplates', { method: 'GET' });
-          
-          _routesCache = data.templates || data.routes || [];
+          // !!! ZMENA URL na novú v leader_handler.py !!!
+          const data = await apiRequest('/api/leader/logistics/routes');
+          _routesCache = data.routes || [];
 
           let html = `
               <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
@@ -141,14 +140,12 @@
           `;
 
           if (!_routesCache.length) {
-              html += `<tr><td colspan="3" class="muted" style="text-align:center; padding:1rem;">Žiadne definované trasy.</td></tr>`;
+              html += `<tr><td colspan="3" class="muted" style="text-align:center; padding:2rem;">Zatiaľ nie sú vytvorené žiadne trasy. Kliknite na "+ Nová trasa".</td></tr>`;
           } else {
               html += _routesCache.map(r => {
-                  const rName = r.name || r.template_name || r.nazov || 'Bez názvu';
-                  const rNote = r.note || r.poznamka || '';
                   return `<tr>
-                      <td><strong>${escapeHtml(rName)}</strong></td>
-                      <td>${escapeHtml(rNote)}</td>
+                      <td style="font-weight:bold">${escapeHtml(r.name)}</td>
+                      <td>${escapeHtml(r.note)}</td>
                       <td style="text-align:right">
                           <button class="btn btn-sm btn-secondary" onclick="ldr_editRoute(${r.id})">Upraviť</button>
                           <button class="btn btn-sm btn-danger" onclick="ldr_deleteRoute(${r.id})" style="margin-left:5px">Zmazať</button>
@@ -161,28 +158,29 @@
           box.innerHTML = html;
 
       } catch (e) {
-          box.innerHTML = `<div class="p-4" style="color:red; background:#fee2e2; border-radius:8px;">
-              <strong>Chyba pri načítaní:</strong> ${escapeHtml(e.message)}<br>
-              <small>Skontrolujte, či je spustený server a či máte oprávnenia.</small>
-          </div>`;
           console.error("Logistika Error:", e);
+          box.innerHTML = `<div class="p-4" style="color:red; background:#fee2e2; border:1px solid red; border-radius:8px;">
+              <strong>Chyba pri načítaní:</strong> ${escapeHtml(e.message)}
+          </div>`;
       }
   }
 
-  // Funkcia pre Editáciu (zavesená na root/window)
+  // 2. Editácia (Modal)
   root.ldr_editRoute = function(id) {
       const route = id ? _routesCache.find(r => r.id == id) : { name: '', note: '' };
       if (!route && id) return;
 
       const title = id ? 'Upraviť trasu' : 'Nová trasa';
-      // Skúsime nájsť názov v rôznych parametroch
-      const valName = route.name || route.template_name || route.nazov || '';
-      const valNote = route.note || route.poznamka || '';
-
       const html = `
-          <div class="form-group"><label>Názov trasy</label><input id="rt-name" class="form-control" value="${escapeHtml(valName)}"></div>
-          <div class="form-group"><label>Poznámka / Šofér</label><input id="rt-note" class="form-control" value="${escapeHtml(valNote)}"></div>
-          <div style="text-align:right; margin-top:1rem;">
+          <div class="form-group" style="margin-bottom:15px">
+              <label style="font-weight:bold">Názov trasy</label>
+              <input id="rt-name" class="form-control" value="${escapeHtml(route.name||'')}" placeholder="Napr. Rozvoz Žilina">
+          </div>
+          <div class="form-group">
+              <label>Poznámka / Šofér</label>
+              <input id="rt-note" class="form-control" value="${escapeHtml(route.note||'')}" placeholder="Meno vodiča, EČV...">
+          </div>
+          <div style="text-align:right; margin-top:20px;">
               <button class="btn btn-secondary" onclick="closeModal()">Zrušiť</button>
               <button class="btn btn-primary" id="rt-save">Uložiť</button>
           </div>
@@ -195,13 +193,14 @@
               if (!name) { showStatus('Zadajte názov trasy.', true); return; }
 
               try {
-                  await apiRequest('/api/kancelaria/b2b/saveRouteTemplate', {
+                  // !!! ZMENA URL !!!
+                  await apiRequest('/api/leader/logistics/routes/save', {
                       method: 'POST',
                       body: { id: id, name: name, note: note }
                   });
                   showStatus('Trasa uložená.', false);
                   closeModal();
-                  loadLogistics();
+                  loadLogistics(); // Refresh
               } catch (e) {
                   showStatus(e.message, true);
               }
@@ -209,12 +208,13 @@
       });
   };
 
-  // Funkcia pre Zmazanie
+  // 3. Mazanie
   root.ldr_deleteRoute = async function(id) {
       const ok = await modalConfirm({ title:'Zmazať trasu', message:'Naozaj chcete zmazať túto trasu?' });
       if (!ok) return;
       try {
-          await apiRequest('/api/kancelaria/b2b/deleteRouteTemplate', { method: 'POST', body: { id: id } });
+          // !!! ZMENA URL !!!
+          await apiRequest('/api/leader/logistics/routes/delete', { method: 'POST', body: { id: id } });
           showStatus('Trasa zmazaná.', false);
           loadLogistics();
       } catch (e) {
@@ -222,27 +222,20 @@
       }
   };
 
-  // Hlavný spúšťač (zavesený na root)
+  // 4. Spúšťač (z HTML onclick)
   root.loadLogistics = function() {
-      // 1. Skryť ostatné sekcie
+      // Prepnutie UI (skryje ostatné, zobrazí logistiku)
       $$('.content-section').forEach(s => { s.classList.remove('active'); s.style.display = 'none'; });
-      $$('.sidebar-link').forEach(l => l.classList.remove('active'));
-
-      // 2. Aktivovať sekciu logistiky
       const sec = $('#leader-logistics');
       if (sec) { 
           sec.classList.add('active'); 
           sec.style.display = 'block'; 
+      } else {
+          alert("Chyba: V HTML chýba <div id='leader-logistics'>! Prosím obnovte stránku.");
+          return;
       }
-      
-      // 3. Aktivovať tlačidlo v menu (nájdeme podľa ikony)
-      const btn = document.querySelector('.sidebar-link i.fa-truck')?.closest('a');
-      if(btn) btn.classList.add('active');
-
-      // 4. Načítať dáta
       loadLogistics();
   };
-
   // ========================= SHARED B2B STATE =====================
   var __pickedCustomer = null; var __pickedPricelist = null; var __pricelistMapByEAN = Object.create(null);
 
