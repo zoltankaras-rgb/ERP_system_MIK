@@ -82,7 +82,7 @@
     });
   }
 
-function modal(title, inner, onReady){
+  function modal(title, inner, onReady){
     let wrap = $('#ldr-modal');
     if (!wrap){
       wrap = doc.createElement('div'); wrap.id='ldr-modal';
@@ -103,13 +103,123 @@ function modal(title, inner, onReady){
     if (typeof onReady === 'function') onReady(card.querySelector('.b2c-modal-body'));
   }
 
-  // --- TOTO JE ČASŤ, KTORÁ VÁM CHÝBALA PRE KALENDÁR ---
-  // Adaptér: keď calendar_planner.js zavolá showModal, presmerujeme to na našu funkciu modal
   root.showModal = (title, factory) => {
       if (typeof factory !== 'function') return;
-      const res = factory(); // Získame { html, onReady } z buildera
+      const res = factory();
       modal(title, res.html, res.onReady);
   };
+
+  // ========================= LOGISTIKA A TRASY =====================
+  let _routesCache = [];
+
+  async function loadLogistics() {
+      const box = $('#leader-logistics-container');
+      if (!box) { console.error("Kontajner #leader-logistics-container nenájdený"); return; }
+      
+      box.innerHTML = '<div class="muted p-4">Načítavam trasy...</div>';
+      
+      try {
+          // Používame tvoj apiRequest
+          const data = await apiRequest('/api/kancelaria/b2b/getRouteTemplates');
+          _routesCache = data.templates || data.routes || [];
+
+          let html = `
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+                  <h3>Logistika & Trasy</h3>
+                  <button class="btn btn-primary" onclick="ldr_editRoute(null)">+ Nová trasa</button>
+              </div>
+              <div class="card">
+                  <div class="card-body">
+                      <table class="tbl" style="width:100%">
+                          <thead>
+                              <tr><th>Názov trasy</th><th>Poznámka / Šofér</th><th style="text-align:right">Akcia</th></tr>
+                          </thead>
+                          <tbody>
+          `;
+
+          if (!_routesCache.length) {
+              html += `<tr><td colspan="3" class="muted" style="text-align:center; padding:1rem;">Žiadne definované trasy.</td></tr>`;
+          } else {
+              html += _routesCache.map(r => {
+                  const rName = r.name || r.template_name || r.nazov || 'Bez názvu';
+                  const rNote = r.note || r.poznamka || '';
+                  return `<tr>
+                      <td><strong>${escapeHtml(rName)}</strong></td>
+                      <td>${escapeHtml(rNote)}</td>
+                      <td style="text-align:right">
+                          <button class="btn btn-sm btn-secondary" onclick="ldr_editRoute(${r.id})">Upraviť</button>
+                          <button class="btn btn-sm btn-danger" onclick="ldr_deleteRoute(${r.id})" style="margin-left:5px">Zmazať</button>
+                      </td>
+                  </tr>`;
+              }).join('');
+          }
+          
+          html += `</tbody></table></div></div>`;
+          box.innerHTML = html;
+
+      } catch (e) {
+          box.innerHTML = `<div class="error p-4">Chyba pri načítaní: ${escapeHtml(e.message)}</div>`;
+      }
+  }
+
+  // Tieto funkcie zavesíme na root (window), aby ich HTML onclick videl
+  root.ldr_editRoute = function(id) {
+      const route = id ? _routesCache.find(r => r.id == id) : { name: '', note: '' };
+      if (!route && id) return;
+
+      const title = id ? 'Upraviť trasu' : 'Nová trasa';
+      const html = `
+          <div class="form-group"><label>Názov trasy</label><input id="rt-name" class="form-control" value="${escapeHtml(route.name||route.template_name||'')}"></div>
+          <div class="form-group"><label>Poznámka / Šofér</label><input id="rt-note" class="form-control" value="${escapeHtml(route.note||route.poznamka||'')}"></div>
+          <div style="text-align:right; margin-top:1rem;">
+              <button class="btn btn-secondary" onclick="closeModal()">Zrušiť</button>
+              <button class="btn btn-primary" id="rt-save">Uložiť</button>
+          </div>
+      `;
+
+      modal(title, html, (body) => {
+          body.querySelector('#rt-save').onclick = async () => {
+              const name = body.querySelector('#rt-name').value.trim();
+              const note = body.querySelector('#rt-note').value.trim();
+              if (!name) { showStatus('Zadajte názov trasy.', true); return; }
+
+              try {
+                  await apiRequest('/api/kancelaria/b2b/saveRouteTemplate', {
+                      method: 'POST',
+                      body: { id: id, name: name, note: note }
+                  });
+                  showStatus('Trasa uložená.', false);
+                  closeModal();
+                  loadLogistics();
+              } catch (e) {
+                  showStatus(e.message, true);
+              }
+          };
+      });
+  };
+
+  root.ldr_deleteRoute = async function(id) {
+      const ok = await modalConfirm({ title:'Zmazať trasu', message:'Naozaj chcete zmazať túto trasu?' });
+      if (!ok) return;
+      try {
+          await apiRequest('/api/kancelaria/b2b/deleteRouteTemplate', { method: 'POST', body: { id: id } });
+          showStatus('Trasa zmazaná.', false);
+          loadLogistics();
+      } catch (e) {
+          showStatus(e.message, true);
+      }
+  };
+
+  // Sprístupníme loadLogistics globálne pre onclick v HTML (ak by bolo treba)
+  root.loadLogistics = function() {
+      // Prepnutie UI
+      $$('.content-section').forEach(s => { s.classList.remove('active'); s.style.display = 'none'; });
+      const sec = $('#leader-logistics');
+      if (sec) { sec.classList.add('active'); sec.style.display = 'block'; }
+      loadLogistics();
+  };
+
+
   // ========================= SHARED B2B STATE =====================
   var __pickedCustomer = null; var __pickedPricelist = null; var __pricelistMapByEAN = Object.create(null);
 
@@ -122,10 +232,10 @@ function modal(title, inner, onReady){
 
     try{
       const r = await apiRequest(`/api/leader/dashboard?date=${encodeURIComponent(d)}`);
-      if($id('kpi-b2c')) $id('kpi-b2c').textContent   = (r.kpi && r.kpi.b2c_count!=null)   ? r.kpi.b2c_count   : '—';
-      if($id('kpi-b2b')) $id('kpi-b2b').textContent   = (r.kpi && r.kpi.b2b_count!=null)   ? r.kpi.b2b_count   : '—';
+      if($id('kpi-b2c')) $id('kpi-b2c').textContent    = (r.kpi && r.kpi.b2c_count!=null)    ? r.kpi.b2c_count    : '—';
+      if($id('kpi-b2b')) $id('kpi-b2b').textContent    = (r.kpi && r.kpi.b2b_count!=null)    ? r.kpi.b2b_count    : '—';
       if($id('kpi-items')) $id('kpi-items').textContent = (r.kpi && r.kpi.items_total!=null) ? r.kpi.items_total : '—';
-      if($id('kpi-sum')) $id('kpi-sum').textContent   = (r.kpi && r.kpi.sum_total!=null)   ? `${fmt2(r.kpi.sum_total)} €` : '—';
+      if($id('kpi-sum')) $id('kpi-sum').textContent    = (r.kpi && r.kpi.sum_total!=null)    ? `${fmt2(r.kpi.sum_total)} €` : '—';
 
       const planHost = $id('plan-preview');
       if (planHost) {
@@ -217,7 +327,7 @@ function modal(title, inner, onReady){
     const price = String(priceStr).replace(',','.').trim();
     try{
       await apiRequest('/api/kancelaria/b2c/markReady', { method:'POST', body:{ order_id:id, final_price: price } });
-      await apiRequest('/api/kancelaria/b2c/sms/ready',   { method:'POST', body:{ order_id:id, order_no:no, final_price:price } }).catch(()=>{});
+      await apiRequest('/api/kancelaria/b2c/sms/ready',   { method:'POST', body:{ order_id:id, order_no:no, final_price:price } }).catch(()=>{});
       await apiRequest('/api/kancelaria/b2c/email/ready', { method:'POST', body:{ order_id:id, order_no:no, final_price:price } }).catch(()=>{});
       showStatus('Objednávka je v stave „Pripravená“.', false); loadB2C();
     }catch(e){ showStatus(e.message||String(e), true); }
@@ -356,7 +466,7 @@ function modal(title, inner, onReady){
     }
     search.oninput = redraw; redraw();
   }
-  
+   
   function addManualRow(tb){
     const tr = doc.createElement('tr');
     tr.innerHTML = `<td><input class="nb2b-ean" placeholder="EAN"></td><td><input class="nb2b-name" placeholder="Názov"></td><td><input class="nb2b-qty" type="number" step="0.001" min="0"></td><td><input class="nb2b-mj" value="kg" style="width:60px"></td><td><input class="nb2b-price" type="number" step="0.01" min="0"></td><td><button class="btn btn-sm" data-del>×</button></td>`;
@@ -482,7 +592,7 @@ function modal(title, inner, onReady){
     const poznamka = safeStr($('#nb2b-note').value);
     const tb = $('#nb2b-items tbody'); 
     const items=[];
-    
+     
     $$('.nb2b-ean', tb).forEach((e,i)=>{
       const ean = safeStr(e.value);
       const name = safeStr($$('.nb2b-name', tb)[i].value);
@@ -509,7 +619,6 @@ function modal(title, inner, onReady){
       if (!res?.order_id){ showStatus('Server nevrátil ID.', true); return; }
 
       // 3. Notifikácia (CSV na sklad) - VOLÁME VŽDY
-      // Backend sa postará o to, že zákazníkovi 255 sa mail nepošle
       await apiRequest(`/api/leader/b2b/notify_order`, { method:'POST', body:{ order_id: res.order_id } }).catch(()=>{});
       
       showStatus('Objednávka uložená a CSV odoslané.', false); 
@@ -538,7 +647,7 @@ function modal(title, inner, onReady){
   }
 
   // ============================== KRÁJAČKY (CUT JOBS) ======================
-  
+   
   // 1. ZRUŠENIE ÚLOHY (Globálne dostupná funkcia)
   async function cancelCutJob(id) {
     if (!confirm("Naozaj chcete zrušiť túto úlohu? Surovina sa vráti na sklad.")) return;
@@ -558,9 +667,9 @@ function modal(title, inner, onReady){
     const d = $('#cut-date').value || todayISO();
     const tb = $('#tbl-cut tbody'); 
     if(!tb) return;
-    
+     
     tb.innerHTML='<tr><td colspan="9" class="muted">Načítavam…</td></tr>';
-    
+     
     try{
       const rows = await apiRequest(`/api/leader/cut_jobs?date=${encodeURIComponent(d)}`);
       
@@ -1325,266 +1434,29 @@ function initMeatOriginLabels(){
 
   mol_hist_render();
 }
-// =================================================================
-// LOGISTIKA & TRASY (OPRAVENÉ ZOBRAZOVANIE)
-// =================================================================
 
-// 1. Funkcia na prepnutie zobrazenia (volaná z HTML tlačidla)
-window.showLogisticsSection = function() {
-    // Skryjeme všetky ostatné sekcie
-    document.querySelectorAll('.content-section').forEach(el => {
-        el.classList.remove('active');
-        el.style.display = 'none'; // Pre istotu vynútime skrytie
-    });
-    
-    // Zrušíme "active" triedu na všetkých odkazoch v menu
-    document.querySelectorAll('.sidebar-link').forEach(el => el.classList.remove('active'));
-
-    // Nájdeme našu sekciu
-    const section = document.getElementById('leader-logistics');
-    if (section) {
-        section.classList.add('active');
-        section.style.display = 'block'; // Vynútime zobrazenie
-        
-        // Zvýrazníme tlačidlo v menu (nájdeme ho podľa ikony fa-truck)
-        const btn = document.querySelector('.sidebar-link i.fa-truck')?.closest('a');
-        if (btn) btn.classList.add('active');
-
-        // Spustíme načítanie dát
-        loadLogistics();
-    } else {
-        console.error("Chyba: V HTML chýba <div id='leader-logistics'>!");
-        alert("Chyba: V HTML chýba kontajner pre logistiku. (Pozri Krok 1)");
-    }
-};
-
-// 2. Funkcia na načítanie dát (API)
-async function loadLogistics() {
-    const box = document.getElementById('leader-logistics-container');
-    if (!box) return;
-    
-    box.innerHTML = '<div class="text-center p-4"><i class="fas fa-spinner fa-spin fa-2x"></i><p>Načítavam trasy...</p></div>';
-
-    try {
-        // Voláme endpoint pre šablóny trás
-        const data = await callFirstOk([{ url: '/api/kancelaria/b2b/getRouteTemplates' }]);
-        
-        // Ošetríme, či dáta prišli v 'templates' alebo 'routes'
-        state.routes = data.templates || data.routes || [];
-
-        let html = `
-            <div class="d-flex justify-content-between align-items-center mb-3">
-                <h3><i class="fas fa-truck"></i> Logistika & Trasy</h3>
-                <button class="btn btn-success" onclick="window.editRoute(null)"><i class="fas fa-plus"></i> Nová trasa</button>
-            </div>
-            
-            <div class="card">
-                <div class="card-body">
-                <table class="table table-hover align-middle" style="width:100%">
-                    <thead class="table-light">
-                        <tr>
-                            <th>Názov trasy</th>
-                            <th>Poznámka / Šofér</th>
-                            <th class="text-end">Akcia</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-        `;
-
-        if (state.routes.length === 0) {
-            html += `<tr><td colspan="3" class="text-center text-muted p-3">Zatiaľ nie sú definované žiadne trasy.</td></tr>`;
-        } else {
-            state.routes.forEach(r => {
-                const rName = r.name || r.template_name || r.nazov || 'Bez názvu';
-                const rNote = r.note || r.poznamka || '';
-                
-                html += `
-                    <tr>
-                        <td><strong>${escapeHtml(rName)}</strong></td>
-                        <td>${escapeHtml(rNote)}</td>
-                        <td class="text-end">
-                            <button class="btn btn-sm btn-outline-primary" onclick="window.editRoute(${r.id})">Upraviť</button>
-                            <button class="btn btn-sm btn-outline-danger ms-1" onclick="window.deleteRoute(${r.id})">Zmazať</button>
-                        </td>
-                    </tr>
-                `;
-            });
-        }
-
-        html += `</tbody></table></div></div>`;
-        box.innerHTML = html;
-
-    } catch (e) {
-        box.innerHTML = `<div class="alert alert-danger">Chyba pri načítaní trás: ${e.message}</div>`;
-    }
-}
-
-// 3. Modálne okno (Edit/New)
-window.editRoute = function(id) {
-    const route = id ? state.routes.find(r => r.id === id) : { name: '', note: '' };
-    if (!route && id) return;
-
-    const valName = route.name || route.template_name || route.nazov || '';
-    const valNote = route.note || route.poznamka || '';
-
-    const modalHtml = `
-        <div class="form-group mb-3">
-            <label class="form-label fw-bold">Názov trasy</label>
-            <input type="text" id="route-name" class="form-control" value="${escapeHtml(valName)}" placeholder="Napr. Trasa Žilina - Utorok">
-        </div>
-        <div class="form-group mb-3">
-            <label class="form-label">Poznámka / Šofér</label>
-            <input type="text" id="route-note" class="form-control" value="${escapeHtml(valNote)}" placeholder="Meno šoféra alebo dni rozvozu">
-        </div>
-        <div class="text-end mt-4">
-            <button class="btn btn-secondary me-2" onclick="closeModal()">Zrušiť</button>
-            <button class="btn btn-success" onclick="window.saveRoute(${id || 'null'})">Uložiť trasu</button>
-        </div>
-    `;
-
-    // Fallback pre otvorenie modálu
-    if (typeof openModal === 'function') {
-        openModal(modalHtml, id ? 'Upraviť trasu' : 'Nová trasa');
-    } else {
-        const overlay = document.createElement('div');
-        overlay.id = 'temp-modal-overlay';
-        overlay.style = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:9999;display:flex;justify-content:center;align-items:center;';
-        overlay.innerHTML = `<div style="background:white;padding:20px;border-radius:8px;width:90%;max-width:500px;box-shadow:0 10px 25px rgba(0,0,0,0.2);"><h4>${id ? 'Upraviť' : 'Nová'} trasa</h4>${modalHtml}</div>`;
-        document.body.appendChild(overlay);
-        // Prepíšeme closeModal pre tento prípad
-        window.closeModal = function() { 
-            if(document.getElementById('temp-modal-overlay')) document.body.removeChild(document.getElementById('temp-modal-overlay')); 
-        };
-    }
-};
-
-// 4. Uloženie
-window.saveRoute = async function(id) {
-    const name = document.getElementById('route-name').value.trim();
-    const note = document.getElementById('route-note').value.trim();
-
-    if (!name) return alert("Zadajte názov trasy.");
-
-    try {
-        await callFirstOk([{
-            url: '/api/kancelaria/b2b/saveRouteTemplate',
-            opts: {
-                method: 'POST',
-                body: { id: id, name: name, note: note }
-            }
-        }]);
-
-        showStatus("Trasa bola uložená.");
-        if (typeof closeModal === 'function') closeModal();
-        loadLogistics(); 
-    } catch (e) {
-        alert("Chyba pri ukladaní: " + e.message);
-    }
-};
-
-// 5. Mazanie
-window.deleteRoute = async function(id) {
-    if (!confirm("Naozaj chcete vymazať túto trasu?")) return;
-
-    try {
-        await callFirstOk([{
-            url: '/api/kancelaria/b2b/deleteRouteTemplate',
-            opts: { method: 'POST', body: { id: id } }
-        }]);
-        showStatus("Trasa vymazaná.");
-        loadLogistics();
-    } catch (e) {
-        alert("Chyba: " + e.message);
-    }
-};
-  // ============================== BOOT =====================================
-  function attachSupplierAutocomplete(){
-    const input = $('#nb2b-name'); if (!input) return;
-    let popup = $('#nb2b-suggest');
-    if (!popup){ popup = doc.createElement('div'); popup.id='nb2b-suggest'; popup.style.cssText='position:absolute;z-index:1000;background:#fff;border:1px solid #e5e7eb;border-radius:8px;box-shadow:0 10px 30px rgba(0,0,0,.15);display:none;max-height:240px;overflow:auto'; doc.body.appendChild(popup); }
-    function position(){ const r = input.getBoundingClientRect(); popup.style.left=(window.scrollX+r.left)+'px'; popup.style.top=(window.scrollY+r.bottom+4)+'px'; popup.style.minWidth=r.width+'px'; }
-    input.addEventListener('input', async ()=>{
-      const q = input.value.trim(); if (q.length < 2){ popup.style.display='none'; return; }
-      position(); popup.innerHTML = '<div style="padding:.5rem" class="muted">Hľadám…</div>'; popup.style.display='block';
-      const list = await searchSuppliers(q);
-      if (!list.length){ popup.innerHTML = '<div style="padding:.5rem" class="muted">Žiadne výsledky</div>'; return; }
-      popup.innerHTML = list.map(x=>`<div data-id="${escapeHtml(String(x.id))}" data-json='${escapeHtml(JSON.stringify(x))}' style="padding:.4rem .6rem;cursor:pointer">${escapeHtml(x.name)} <span class="muted">(${escapeHtml(x.code||'')})</span></div>`).join('');
-      Array.from(popup.children).forEach(div=>{
-        div.onclick = async ()=>{
-          const data = JSON.parse(div.getAttribute('data-json')); __pickedCustomer = data; input.value = data.name; popup.style.display='none';
-          const box = $('#nb2b-pl-box') || (()=>{ const d = doc.createElement('div'); d.id='nb2b-pl-box'; d.className='muted'; d.style.margin='8px 0'; const body = $('#manual-b2b-form .card-body') || $('#leader-manual-b2b .card .card-body') || doc.body; body.insertBefore(d, body.firstChild); return d; })();
-          const pls = await fetchPricelists(data.id);
-          if (!pls.length){ box.innerHTML = '<div class="muted">Pre odberateľa nie sú evidované cenníky.</div>'; __pickedPricelist=null; __pricelistMapByEAN=Object.create(null); return; }
-          box.innerHTML = `<label>Vyber cenník:</label> <select id="nb2b-pl" style="min-width:260px">${pls.map(p=>`<option value="${escapeHtml(p.id)}">${escapeHtml(p.name||('Cenník '+String(p.id||'')))}</option>`).join('')}</select><div id="nb2b-pl-note" class="muted" style="margin-top:.25rem">Ceny položiek sa doplnia pri pridávaní EAN z vybraného cenníka.</div><div id="nb2b-pl-preview" style="margin-top:.5rem"></div>`;
-          __pickedPricelist = pls[0]||null; __pricelistMapByEAN = Object.create(null);
-          if (__pickedPricelist && Array.isArray(__pickedPricelist.items)){ __pickedPricelist.items.forEach(it=>{ if (it && it.ean != null) __pricelistMapByEAN[String(it.ean)] = toNum(it.price||it.cena_bez_dph||0,0); }); }
-          renderPricelistPreview(__pickedPricelist, box);
-          $('#nb2b-pl').onchange = (e)=>{
-            const pick = pls.find(x=> String(x.id) === e.target.value); __pickedPricelist = pick || null; __pricelistMapByEAN = Object.create(null);
-            if (__pickedPricelist && Array.isArray(__pickedPricelist.items)){ __pickedPricelist.items.forEach(it=>{ if (it && it.ean != null) __pricelistMapByEAN[String(it.ean)] = toNum(it.price||it.cena_bez_dph||0,0); }); }
-            renderPricelistPreview(__pickedPricelist, box);
-          };
-        };
-      });
-    });
-    window.addEventListener('resize', ()=>{ if(popup.style.display==='block') position(); }); document.addEventListener('click', (e)=>{ if (!popup.contains(e.target) && e.target!==input) popup.style.display='none'; });
-  }
-
- function boot(){
-    $$('.sidebar-link').forEach(a=>{
-      a.onclick = ()=>{
-        $$('.sidebar-link').forEach(x=> x.classList.remove('active')); a.classList.add('active');
-        const secId = a.getAttribute('data-section'); $$('.content-section').forEach(s=> s.classList.remove('active'));
-        const target = secId ? $('#'+secId) : null; if (target) target.classList.add('active');
-        
-        if (secId === 'leader-dashboard')  loadDashboard();
-        if (secId === 'leader-b2c')        loadB2C();
-        if (secId === 'leader-b2b')        loadB2B();
-        // Nová podmienka pre B2B komunikáciu
-       // static/js/leaderexpediction.js v rámci funkcie boot()
-
-if (secId === 'leader-b2b-comm') {
-    // Iba načítame dáta chatu. NESPÚŠŤAME initializeB2BAdminModule!
-    if (typeof window.loadCommView === 'function') {
-        window.loadCommView(); 
-    } else {
-        console.error("Funkcia loadCommView nie je dostupná.");
-    }
-}
-        if (secId === 'leader-meat-origin-labels') { initMeatOriginLabels(); mol_preview(); }
-        if (secId === 'leader-cut')        loadCutJobs();
-        if (secId === 'leader-lowstock')   loadLeaderLowStockDetail();
-        if (secId === 'leader-plan')       loadLeaderProductionCalendar();
-      };
-    });
-
-    // Inicializácia dátumov
-    $('#ldr-date') && ($('#ldr-date').value = todayISO());
-    $('#b2c-date') && ($('#b2c-date').value = todayISO());
-    $('#b2b-date') && ($('#b2b-date').value = todayISO());
-    $('#cut-date') && ($('#cut-date').value = todayISO());
-    $('#nb2b-date') && ($('#nb2b-date').value = todayISO());
-
-    // Handlery tlačidiel
-    $('#ldr-refresh') && ($('#ldr-refresh').onclick = loadDashboard);
-    $('#plan-commit') && ($('#plan-commit').onclick = commitPlan);
-    $('#b2c-refresh') && ($('#b2c-refresh').onclick = loadB2C);
-    $('#b2b-refresh') && ($('#b2b-refresh').onclick = loadB2B);
-    $('#leader-lowstock-refresh') && ($('#leader-lowstock-refresh').onclick = loadLeaderLowStockDetail);
-    
-    // Ostatné inicializácie
-    attachProductSearch();
-    attachSupplierAutocomplete();
-    
-    $('#nb2b-add')  && ($('#nb2b-add').onclick  = ()=> addManualRow($('#nb2b-items tbody')));
-    $('#nb2b-save') && ($('#nb2b-save').onclick = saveManualB2B);
-    
-    $('#cut-refresh') && ($('#cut-refresh').onclick = loadCutJobs);
-    $('#cut-new')     && ($('#cut-new').onclick     = openNewCutModal);
-
-    // Predvolené načítanie dashboardu
-    loadDashboard();
-  
+function boot(){
+  $$('.sidebar-link').forEach(a=>{
+    a.onclick = ()=>{
+      if (a.getAttribute('onclick')) return; // ak má inline onclick, nechaj tak
+      
+      $$('.sidebar-link').forEach(x=> x.classList.remove('active')); a.classList.add('active');
+      const secId = a.getAttribute('data-section'); $$('.content-section').forEach(s=> s.classList.remove('active'));
+      const target = secId ? $('#'+secId) : null; if (target) target.classList.add('active');
+      
+      if (secId === 'leader-dashboard')  loadDashboard();
+      if (secId === 'leader-b2c')        loadB2C();
+      if (secId === 'leader-b2b')        loadB2B();
+      if (secId === 'leader-b2b-comm') {
+          if (typeof window.loadCommView === 'function') window.loadCommView();
+      }
+      if (secId === 'leader-meat-origin-labels') { initMeatOriginLabels(); mol_preview(); }
+      if (secId === 'leader-cut')        loadCutJobs();
+      if (secId === 'leader-lowstock')   loadLeaderLowStockDetail();
+      if (secId === 'leader-plan')       loadLeaderProductionCalendar();
+      if (secId === 'leader-logistics')  loadLogistics();
+    };
+  });
 
   // Init dates
   $('#ldr-date') && ($('#ldr-date').value = todayISO());
