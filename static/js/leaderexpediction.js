@@ -109,14 +109,10 @@
       modal(title, res.html, res.onReady);
   };
 
-// ========================= LOGISTIKA A TRASY (DEFINITÍVNA OPRAVA) =====================
-  
-  // Premenná pre cache trás
-  let _routesCache = [];
+  // ========================= LOGISTIKA A TRASY =====================
 
-  // Hlavná funkcia na načítanie (zavesená na root)
   root.loadLogistics = async function() {
-      // 1. Prepnutie UI (aby bolo vidno kontajner)
+      // 1. Prepnutie UI
       $$('.content-section').forEach(s => { s.classList.remove('active'); s.style.display = 'none'; });
       $$('.sidebar-link').forEach(l => l.classList.remove('active'));
       
@@ -124,22 +120,25 @@
       if (sec) { 
           sec.classList.add('active'); 
           sec.style.display = 'block'; 
+      } else {
+          console.error("Chýba #leader-logistics kontajner v HTML");
+          return;
       }
       
-      // Zvýraznenie tlačidla v menu
+      // Zvýraznenie tlačidla v menu (nájdeme podľa ikony fa-truck)
       const btn = document.querySelector('.sidebar-link i.fa-truck')?.closest('a');
       if(btn) btn.classList.add('active');
 
-      // 2. Vykreslenie obsahu
+      // 2. Načítanie
       const box = $('#leader-logistics-container');
-      if (!box) { console.error("Chýba #leader-logistics-container"); return; }
+      if (!box) return;
       
-      box.innerHTML = '<div class="muted p-4" style="text-align:center">Načítavam trasy...</div>';
+      box.innerHTML = '<div class="muted p-4" style="text-align:center"><i class="fas fa-spinner fa-spin"></i> Načítavam trasy...</div>';
       
       try {
-          // Voláme NOVÝ endpoint
-          const res = await apiRequest('/api/leader/routes/list');
-          _routesCache = res.routes || [];
+          // !!! TUTO BOLA CHYBA - TERAZ VOLÁME SPRÁVNE API Z LEADER_HANDLER.PY !!!
+          const data = await apiRequest('/api/leader/routes/list');
+          _routesCache = data.routes || [];
 
           let html = `
               <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
@@ -156,27 +155,28 @@
           `;
 
           if (!_routesCache.length) {
-              html += `<tr><td colspan="3" class="muted" style="text-align:center; padding:1rem;">Zatiaľ žiadne trasy.</td></tr>`;
+              html += `<tr><td colspan="3" class="muted" style="text-align:center; padding:1rem;">Žiadne definované trasy.</td></tr>`;
           } else {
-              html += _routesCache.map(r => `<tr>
+              html += _routesCache.map(r => {
+                  return `<tr>
                       <td><strong>${escapeHtml(r.template_name)}</strong></td>
                       <td>${escapeHtml(r.note || '')}</td>
                       <td style="text-align:right">
                           <button class="btn btn-sm btn-secondary" onclick="ldr_editRoute(${r.id})">Upraviť</button>
                           <button class="btn btn-sm btn-danger" onclick="ldr_deleteRoute(${r.id})" style="margin-left:5px">Zmazať</button>
                       </td>
-                  </tr>`).join('');
+                  </tr>`;
+              }).join('');
           }
           
           html += `</tbody></table></div></div>`;
           box.innerHTML = html;
 
       } catch (e) {
-          box.innerHTML = `<div class="error p-4">Chyba: ${escapeHtml(e.message)}</div>`;
+          box.innerHTML = `<div class="error p-4">Chyba pri načítaní: ${escapeHtml(e.message)}</div>`;
       }
   };
 
-  // Editácia
   root.ldr_editRoute = function(id) {
       const route = id ? _routesCache.find(r => r.id == id) : { template_name: '', note: '' };
       if (!route && id) return;
@@ -195,29 +195,38 @@
           body.querySelector('#rt-save').onclick = async () => {
               const name = body.querySelector('#rt-name').value.trim();
               const note = body.querySelector('#rt-note').value.trim();
-              if (!name) { showStatus('Zadajte názov.', true); return; }
+              if (!name) { showStatus('Zadajte názov trasy.', true); return; }
 
               try {
+                  // !!! SPRÁVNE VOLANIE API !!!
                   await apiRequest('/api/leader/routes/save', {
-                      method: 'POST', body: { id: id, name: name, note: note }
+                      method: 'POST',
+                      body: { id: id, name: name, note: note }
                   });
-                  showStatus('Uložené.', false);
+                  showStatus('Trasa uložená.', false);
                   closeModal();
                   root.loadLogistics();
-              } catch (e) { showStatus(e.message, true); }
+              } catch (e) {
+                  showStatus(e.message, true);
+              }
           };
       });
   };
 
-  // Mazanie
   root.ldr_deleteRoute = async function(id) {
-      if (!confirm('Naozaj zmazať?')) return;
+      const ok = await modalConfirm({ title:'Zmazať trasu', message:'Naozaj chcete zmazať túto trasu?' });
+      if (!ok) return;
       try {
+          // !!! SPRÁVNE VOLANIE API !!!
           await apiRequest('/api/leader/routes/delete', { method: 'POST', body: { id: id } });
-          showStatus('Zmazané.', false);
+          showStatus('Trasa zmazaná.', false);
           root.loadLogistics();
-      } catch (e) { showStatus(e.message, true); }
+      } catch (e) {
+          showStatus(e.message, true);
+      }
   };
+
+
   // ========================= SHARED B2B STATE =====================
   var __pickedCustomer = null; var __pickedPricelist = null; var __pricelistMapByEAN = Object.create(null);
 
@@ -1464,6 +1473,116 @@ function attachSupplierAutocomplete(){
     });
     window.addEventListener('resize', ()=>{ if(popup.style.display==='block') position(); }); document.addEventListener('click', (e)=>{ if (!popup.contains(e.target) && e.target!==input) popup.style.display='none'; });
   }
+
+// ========================= LOGISTIKA A TRASY (DEFINITÍVNA OPRAVA) =====================
+  
+  // Premenná pre cache trás
+  let _routesCache = [];
+
+  // Hlavná funkcia na načítanie (zavesená na root)
+  root.loadLogistics = async function() {
+      // 1. Prepnutie UI (aby bolo vidno kontajner)
+      $$('.content-section').forEach(s => { s.classList.remove('active'); s.style.display = 'none'; });
+      $$('.sidebar-link').forEach(l => l.classList.remove('active'));
+      
+      const sec = $('#leader-logistics');
+      if (sec) { 
+          sec.classList.add('active'); 
+          sec.style.display = 'block'; 
+      }
+      
+      // Zvýraznenie tlačidla v menu
+      const btn = document.querySelector('.sidebar-link i.fa-truck')?.closest('a');
+      if(btn) btn.classList.add('active');
+
+      // 2. Vykreslenie obsahu
+      const box = $('#leader-logistics-container');
+      if (!box) { console.error("Chýba #leader-logistics-container"); return; }
+      
+      box.innerHTML = '<div class="muted p-4" style="text-align:center">Načítavam trasy...</div>';
+      
+      try {
+          // Voláme NOVÝ endpoint
+          const res = await apiRequest('/api/leader/routes/list');
+          _routesCache = res.routes || [];
+
+          let html = `
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+                  <h3><i class="fas fa-truck"></i> Logistika & Trasy</h3>
+                  <button class="btn btn-primary" onclick="ldr_editRoute(null)">+ Nová trasa</button>
+              </div>
+              <div class="card">
+                  <div class="card-body">
+                      <table class="tbl" style="width:100%">
+                          <thead>
+                              <tr><th>Názov trasy</th><th>Poznámka / Šofér</th><th style="text-align:right">Akcia</th></tr>
+                          </thead>
+                          <tbody>
+          `;
+
+          if (!_routesCache.length) {
+              html += `<tr><td colspan="3" class="muted" style="text-align:center; padding:1rem;">Zatiaľ žiadne trasy.</td></tr>`;
+          } else {
+              html += _routesCache.map(r => `<tr>
+                      <td><strong>${escapeHtml(r.template_name)}</strong></td>
+                      <td>${escapeHtml(r.note || '')}</td>
+                      <td style="text-align:right">
+                          <button class="btn btn-sm btn-secondary" onclick="ldr_editRoute(${r.id})">Upraviť</button>
+                          <button class="btn btn-sm btn-danger" onclick="ldr_deleteRoute(${r.id})" style="margin-left:5px">Zmazať</button>
+                      </td>
+                  </tr>`).join('');
+          }
+          
+          html += `</tbody></table></div></div>`;
+          box.innerHTML = html;
+
+      } catch (e) {
+          box.innerHTML = `<div class="error p-4">Chyba: ${escapeHtml(e.message)}</div>`;
+      }
+  };
+
+  // Editácia
+  root.ldr_editRoute = function(id) {
+      const route = id ? _routesCache.find(r => r.id == id) : { template_name: '', note: '' };
+      if (!route && id) return;
+
+      const title = id ? 'Upraviť trasu' : 'Nová trasa';
+      const html = `
+          <div class="form-group"><label>Názov trasy</label><input id="rt-name" class="form-control" value="${escapeHtml(route.template_name||'')}"></div>
+          <div class="form-group"><label>Poznámka / Šofér</label><input id="rt-note" class="form-control" value="${escapeHtml(route.note||'')}"></div>
+          <div style="text-align:right; margin-top:1rem;">
+              <button class="btn btn-secondary" onclick="closeModal()">Zrušiť</button>
+              <button class="btn btn-primary" id="rt-save">Uložiť</button>
+          </div>
+      `;
+
+      modal(title, html, (body) => {
+          body.querySelector('#rt-save').onclick = async () => {
+              const name = body.querySelector('#rt-name').value.trim();
+              const note = body.querySelector('#rt-note').value.trim();
+              if (!name) { showStatus('Zadajte názov.', true); return; }
+
+              try {
+                  await apiRequest('/api/leader/routes/save', {
+                      method: 'POST', body: { id: id, name: name, note: note }
+                  });
+                  showStatus('Uložené.', false);
+                  closeModal();
+                  root.loadLogistics();
+              } catch (e) { showStatus(e.message, true); }
+          };
+      });
+  };
+
+  // Mazanie
+  root.ldr_deleteRoute = async function(id) {
+      if (!confirm('Naozaj zmazať?')) return;
+      try {
+          await apiRequest('/api/leader/routes/delete', { method: 'POST', body: { id: id } });
+          showStatus('Zmazané.', false);
+          root.loadLogistics();
+      } catch (e) { showStatus(e.message, true); }
+  };
 
 function boot(){
   $$('.sidebar-link').forEach(a=>{
