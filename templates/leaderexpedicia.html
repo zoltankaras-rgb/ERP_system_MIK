@@ -60,6 +60,13 @@
           background: #dc2626; color: white; border-radius: 99px;
           padding: 2px 8px; font-size: 0.75rem; font-weight: bold; margin-left: 5px;
       }
+
+      /* Logistics Styles */
+      .logistics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+      .cust-check-list { max-height: 400px; overflow-y: auto; border: 1px solid #ddd; padding: 10px; border-radius: 6px; background: #fff; }
+      .cust-row { display: flex; align-items: center; padding: 8px; border-bottom: 1px solid #f1f5f9; cursor: pointer; }
+      .cust-row:hover { background: #f8fafc; }
+      .cust-row input { margin-right: 12px; transform: scale(1.2); cursor: pointer; }
   </style>
 </head>
 <body>
@@ -333,11 +340,9 @@
   
   <script>
     function closeModal() {
-      // Skúsime nájsť a odstrániť overlay ak existuje
       const overlay = document.getElementById('temp-modal-overlay');
       if (overlay) document.body.removeChild(overlay);
     }
-    // Pridáme globálne, aby bol dostupný
     window.closeModal = closeModal;
   </script>
 
