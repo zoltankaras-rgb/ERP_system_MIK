@@ -541,56 +541,221 @@
       };
   }
 
- // -----------------------------------------------------------------
-// 4. ZÁKAZNÍCI & CENNÍKY (Upravené pre správu pobočiek)
-// -----------------------------------------------------------------
+ // =================================================================
+// 4. ZÁKAZNÍCI (S FILTROM A STRÁNKOVANÍM)
+// =================================================================
 
 async function loadCustomersAndPricelists() {
     const box = ensureContainer('b2b-customers-container');
-    box.innerHTML = '<p>Načítavam...</p>';
+    box.innerHTML = '<div style="text-align:center;padding:40px;color:#666;"><i class="fas fa-spinner fa-spin"></i> Načítavam databázu zákazníkov...</div>';
+    
     try {
+        // 1. Načítanie dát
         const data = await callFirstOk([{url:'/api/kancelaria/b2b/getCustomersAndPricelists'}]);
         state.customers = data.customers || []; 
         state.pricelists = data.pricelists || []; 
         state.mapping = data.mapping || {};
         
+        // Mapa pre rýchle hľadanie názvov cenníkov
         const plMap = new Map(state.pricelists.map(p=>[p.id, p.nazov_cennika]));
-        
-        let html = `<div class="table-container"><table class="table-refined"><thead><tr><th>ID</th><th>Firma</th><th>Kontakt</th><th>Priradené cenníky</th><th>Akcia</th></tr></thead><tbody>`;
-        
-        state.customers.sort((a,b) => a.nazov_firmy.localeCompare(b.nazov_firmy));
 
-        state.customers.forEach(c => {
-            const assignedIds = state.mapping[c.zakaznik_id] || state.mapping[c.id] || [];
-            const assignedNames = assignedIds.map(id => plMap.get(Number(id)) || 'ID '+id).join(', ');
-            
-            // === NOVÉ: Detekcia pobočky ===
-            const isBranch = c.parent_id ? true : false;
-            const branchLabel = isBranch ? '<span style="color:#2563eb; font-size:0.8em; font-weight:bold; margin-left:5px;">(Pobočka)</span>' : '';
-            // Jemné odsadenie pre pobočky
-            const rowStyle = isBranch ? 'background-color: #f8fafc;' : '';
-            const nameStyle = isBranch ? 'padding-left: 20px; border-left: 3px solid #cbd5e1;' : '';
+        // 2. HTML Layout (Filter + Tabuľka)
+        let html = `
+            <div style="background:#f8fafc; padding:15px; border-radius:8px; border:1px solid #e2e8f0; margin-bottom:20px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                    <h4 style="margin:0; color:#1e293b;">👥 Databáza B2B zákazníkov</h4>
+                    </div>
+                
+                <div class="filter-bar" style="border:none; padding:0; margin:0; box-shadow:none; background:transparent; gap:15px;">
+                    <div class="filter-group">
+                        <label>Hľadať (Názov, ID, Email)</label>
+                        <input type="text" id="cust-search-text" class="filter-input" placeholder="napr. MIK s.r.o..." style="width:220px;">
+                    </div>
+                    
+                    <div class="filter-group">
+                        <label>Filter podľa cenníka</label>
+                        <select id="cust-filter-pricelist" class="filter-input" style="width:200px;">
+                            <option value="">-- Všetky cenníky --</option>
+                            ${state.pricelists.map(p => `<option value="${p.id}">${escapeHtml(p.nazov_cennika)}</option>`).join('')}
+                        </select>
+                    </div>
 
-            html += `<tr style="${rowStyle}">
-                <td>${escapeHtml(c.zakaznik_id)}</td>
-                <td style="${nameStyle}">
-                    <strong>${escapeHtml(c.nazov_firmy)}</strong> ${branchLabel}
-                    ${isBranch ? `<div style="font-size:0.75rem;color:#64748b;">Patrí pod ID: ${c.parent_id}</div>` : ''}
-                </td>
-                <td>${escapeHtml(c.email)}<br>${escapeHtml(c.telefon)}</td>
-                <td>${assignedNames || '<span class="muted">Žiadne</span>'}</td>
-                <td>
-                    <button class="btn btn-primary btn-sm" onclick="window.editB2BCustomer(${c.id})">Upraviť</button>
+                    <div class="filter-group">
+                        <label>Typ účtu</label>
+                        <select id="cust-filter-type" class="filter-input" style="width:150px;">
+                            <option value="all">Všetci</option>
+                            <option value="main">👑 Hlavné účty</option>
+                            <option value="branch">🏢 Pobočky</option>
+                        </select>
+                    </div>
                     
-                    ${!isBranch ? `<button class="btn btn-warning btn-sm" style="margin-left:5px;" onclick="window.addB2BBranch(${c.id}, '${escapeHtml(c.nazov_firmy)}')">+ Pobočka</button>` : ''}
-                    
-                    <button class="btn btn-danger btn-sm" style="margin-left:5px;" onclick="window.deleteB2BCustomer(${c.id})">Zmazať</button>
-                </td>
-            </tr>`;
-        });
-        html += `</tbody></table></div>`;
+                    <div class="filter-group" style="justify-content:flex-end;">
+                         <label>&nbsp;</label>
+                         <button id="cust-reset-filter" class="btn btn-secondary">Reset</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="cust-table-wrapper"></div>
+            <div id="cust-pagination" style="display:flex; justify-content:center; gap:5px; margin-top:20px;"></div>
+        `;
         box.innerHTML = html;
-    } catch(e) { box.innerHTML = `<p class="error">${e.message}</p>`; }
+
+        // 3. Logika renderovania
+        let currentPage = 1;
+        const itemsPerPage = 10;
+
+        const renderTable = () => {
+            const searchText = doc.getElementById('cust-search-text').value.toLowerCase();
+            const plFilter = doc.getElementById('cust-filter-pricelist').value;
+            const typeFilter = doc.getElementById('cust-filter-type').value;
+
+            // Filtrovanie
+            const filtered = state.customers.filter(c => {
+                // A. Text filter
+                const textMatch = 
+                    c.nazov_firmy.toLowerCase().includes(searchText) || 
+                    (c.zakaznik_id || '').toLowerCase().includes(searchText) ||
+                    (c.email || '').toLowerCase().includes(searchText);
+                if (searchText && !textMatch) return false;
+
+                // B. Pricelist filter
+                if (plFilter) {
+                    const assignedIds = state.mapping[c.zakaznik_id] || state.mapping[c.id] || [];
+                    // assignedIds sú stringy alebo čísla, porovnávame s plFilter (string)
+                    if (!assignedIds.map(String).includes(String(plFilter))) return false;
+                }
+
+                // C. Type filter
+                const isBranch = !!c.parent_id;
+                if (typeFilter === 'main' && isBranch) return false;
+                if (typeFilter === 'branch' && !isBranch) return false;
+
+                return true;
+            });
+
+            // Zoradenie (A-Z)
+            filtered.sort((a,b) => a.nazov_firmy.localeCompare(b.nazov_firmy));
+
+            // Stránkovanie
+            const totalPages = Math.ceil(filtered.length / itemsPerPage);
+            if (currentPage > totalPages) currentPage = 1;
+            const start = (currentPage - 1) * itemsPerPage;
+            const paginated = filtered.slice(start, start + itemsPerPage);
+
+            // HTML Tabuľky
+            let tableHtml = `
+            <div class="stat-card" style="padding:0; overflow:hidden; border:1px solid #e2e8f0;">
+                <table class="table-refined">
+                    <thead>
+                        <tr>
+                            <th style="width:100px;">ERP ID</th>
+                            <th>Firma / Pobočka</th>
+                            <th>Kontakt & Adresa</th>
+                            <th>Priradené cenníky</th>
+                            <th style="width:260px; text-align:right;">Akcia</th>
+                        </tr>
+                    </thead>
+                    <tbody>`;
+
+            if (paginated.length === 0) {
+                tableHtml += `<tr><td colspan="5" style="text-align:center;padding:40px;color:#94a3b8;">Žiadni zákazníci nevyhovujú filtru.</td></tr>`;
+            } else {
+                paginated.forEach(c => {
+                    const assignedIds = state.mapping[c.zakaznik_id] || state.mapping[c.id] || [];
+                    
+                    // Názvy cenníkov
+                    let plBadges = '';
+                    if (assignedIds.length > 0) {
+                        plBadges = assignedIds.map(id => {
+                            const name = plMap.get(Number(id)) || 'ID '+id;
+                            return `<span style="background:#e0f2fe; color:#0369a1; padding:2px 6px; border-radius:4px; font-size:0.75rem; margin-right:3px;">${escapeHtml(name)}</span>`;
+                        }).join('');
+                    } else {
+                        plBadges = `<span style="color:#94a3b8; font-size:0.8rem;">Žiadne cenníky</span>`;
+                    }
+
+                    // Detekcia pobočky
+                    const isBranch = !!c.parent_id;
+                    const nameDisplay = isBranch 
+                        ? `<div style="display:flex; flex-direction:column;">
+                             <span style="font-weight:600; color:#0f172a;">${escapeHtml(c.nazov_firmy)}</span>
+                             <span style="color:#2563eb; font-size:0.75rem; display:flex; align-items:center; gap:3px;">🏢 Pobočka (Rodič ID: ${c.parent_id})</span>
+                           </div>`
+                        : `<span style="font-weight:700; font-size:1.05rem; color:#0f172a;">${escapeHtml(c.nazov_firmy)}</span>`;
+
+                    const rowStyle = isBranch ? 'background:#f8fafc;' : '';
+
+                    tableHtml += `<tr style="${rowStyle}">
+                        <td style="color:#64748b; font-family:monospace; font-weight:bold;">${escapeHtml(c.zakaznik_id)}</td>
+                        <td>${nameDisplay}</td>
+                        <td style="font-size:0.85rem;">
+                            <div style="font-weight:600;">${escapeHtml(c.email || '')}</div>
+                            <div style="color:#64748b;">${escapeHtml(c.telefon || '')}</div>
+                            <div style="color:#64748b; font-size:0.75rem;">${escapeHtml(c.adresa_dorucenia || c.adresa || '')}</div>
+                        </td>
+                        <td>${plBadges}</td>
+                        <td style="text-align:right;">
+                            <button class="btn btn-primary btn-sm" onclick="window.editB2BCustomer(${c.id})" title="Upraviť údaje a cenníky">✏️ Upraviť</button>
+                            
+                            ${!isBranch ? `<button class="btn btn-warning btn-sm" style="margin-left:5px;" onclick="window.addB2BBranch(${c.id}, '${escapeHtml(c.nazov_firmy)}')" title="Pridať pobočku">+ Pobočka</button>` : ''}
+                            
+                            <button class="btn btn-danger btn-sm" style="margin-left:5px;" onclick="window.deleteB2BCustomer(${c.id})" title="Zmazať účet">🗑️</button>
+                        </td>
+                    </tr>`;
+                });
+            }
+            tableHtml += `</tbody></table></div>`;
+            
+            // Pätička
+            tableHtml += `<div style="text-align:right; font-size:0.8rem; color:#64748b; margin-top:8px;">Zobrazené ${paginated.length} z ${filtered.length} zákazníkov</div>`;
+
+            doc.getElementById('cust-table-wrapper').innerHTML = tableHtml;
+
+            // Renderovanie stránkovania
+            let pagHtml = '';
+            if (totalPages > 1) {
+                pagHtml += `<button class="btn btn-secondary btn-sm" ${currentPage===1?'disabled':''} onclick="window.changeCustPage(${currentPage-1})">«</button>`;
+                
+                let startPage = Math.max(1, currentPage - 2);
+                let endPage = Math.min(totalPages, currentPage + 2);
+                
+                for(let i=startPage; i<=endPage; i++) {
+                    pagHtml += `<button class="btn btn-sm ${i===currentPage?'btn-primary':'btn-secondary'}" onclick="window.changeCustPage(${i})" style="min-width:30px;">${i}</button>`;
+                }
+                
+                pagHtml += `<button class="btn btn-secondary btn-sm" ${currentPage===totalPages?'disabled':''} onclick="window.changeCustPage(${currentPage+1})">»</button>`;
+            }
+            doc.getElementById('cust-pagination').innerHTML = pagHtml;
+        };
+
+        // Globálna funkcia pre stránkovanie
+        window.changeCustPage = (pageNum) => {
+            if (pageNum < 1) return;
+            currentPage = pageNum;
+            renderTable();
+        };
+
+        // Listenery
+        doc.getElementById('cust-search-text').addEventListener('input', () => { currentPage=1; renderTable(); });
+        doc.getElementById('cust-filter-pricelist').addEventListener('change', () => { currentPage=1; renderTable(); });
+        doc.getElementById('cust-filter-type').addEventListener('change', () => { currentPage=1; renderTable(); });
+        
+        doc.getElementById('cust-reset-filter').addEventListener('click', () => {
+            doc.getElementById('cust-search-text').value = '';
+            doc.getElementById('cust-filter-pricelist').value = '';
+            doc.getElementById('cust-filter-type').value = 'all';
+            currentPage = 1;
+            renderTable();
+        });
+
+        // Prvé spustenie
+        renderTable();
+
+    } catch(e) { 
+        console.error(e);
+        box.innerHTML = `<p class="error">Chyba pri načítaní: ${e.message}</p>`; 
+    }
 }
 
 // === Existujúce funkcie (pre istotu ich tu nechávam, ak by ste ich potrebovali v kontexte) ===
