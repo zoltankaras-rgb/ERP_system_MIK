@@ -368,94 +368,159 @@
         renderTable();
 
         // --- SKLADOVÁ KARTA (MODAL) ---
-        async function openStockCard(ean, name) {
-            const wrapper = document.getElementById('stock-card-modal-container');
-            
-            // Loader
-            const loadingHtml = `<div style="padding:40px; text-align:center;"><i class="fas fa-spinner fa-spin fa-2x"></i><br>Načítavam históriu pre ${escapeHtml(name)}...</div>`;
-            openModalCompat(`Skladová karta: ${escapeHtml(name)}`, { html: loadingHtml });
+async function openStockCard(ean, name) {
+    // 1. Zobrazíme modal s loaderom, ktorý má unikátne ID, aby sme ho vedeli nájsť
+    const loadingHtml = `
+        <div id="stock-card-dynamic-content" style="padding:40px; text-align:center;">
+            <i class="fas fa-spinner fa-spin fa-2x" style="color:#3b82f6;"></i>
+            <br><br>
+            <span style="color:#64748b;">Načítavam históriu pre <strong>${escapeHtml(name)}</strong>...</span>
+        </div>
+    `;
+    
+    // Otvoríme modal (používame funkciu, ktorá je dostupná v erp_admin.js)
+    openModalCompat(`Skladová karta: ${escapeHtml(name)}`, { html: loadingHtml });
 
-            try {
-                const res = await apiRequest('/api/kancelaria/getProductCard?ean=' + ean);
-                if (res.error) throw new Error(res.error);
+    try {
+        // 2. Voláme API
+        const res = await apiRequest('/api/kancelaria/getProductCard?ean=' + ean);
+        
+        if (res.error) throw new Error(res.error);
 
-                // Formátovanie čísel
-                const fmt = (n) => Number(n || 0).toFixed(2);
-                const dateFmt = (d) => {
-                    if (!d) return '-';
-                    try { return new Date(d).toLocaleDateString('sk-SK'); } catch(e) { return d; }
-                };
+        // --- Formátovacie funkcie ---
+        const fmt = (n) => Number(n || 0).toFixed(2);
+        const dateFmt = (d) => {
+            if (!d) return '-';
+            try { return new Date(d).toLocaleDateString('sk-SK'); } catch(e) { return d; }
+        };
 
-                // Výroba HTML
-                let prodHtml = '<p class="text-muted">Žiadne záznamy o výrobe.</p>';
-                if (res.production && res.production.length > 0) {
-                    prodHtml = `<table class="tbl" style="font-size:0.85rem;">
-                        <thead><tr><th>Dátum</th><th>Šarža</th><th style="text-align:right">Množstvo</th></tr></thead>
-                        <tbody>${res.production.map(r => `
-                            <tr><td>${dateFmt(r.date)}</td><td>${escapeHtml(r.batch)}</td><td style="text-align:right"><strong>${fmt(r.qty)} kg</strong></td></tr>
-                        `).join('')}</tbody></table>`;
-                }
+        // --- Generovanie HTML pre tabuľky ---
 
-                let b2bHtml = '<p class="text-muted">Žiadne B2B predaje.</p>';
-                if (res.b2b && res.b2b.length > 0) {
-                    b2bHtml = `<table class="tbl" style="font-size:0.85rem;">
-                        <thead><tr><th>Dátum</th><th>Zákazník</th><th style="text-align:right">Množstvo</th></tr></thead>
-                        <tbody>${res.b2b.map(r => `
-                            <tr><td>${dateFmt(r.date)}</td><td>${escapeHtml(r.customer)}</td><td style="text-align:right">${fmt(r.qty)} ${escapeHtml(r.mj)}</td></tr>
-                        `).join('')}</tbody></table>`;
-                }
+        // A) Výroba
+        let prodHtml = '<div class="text-muted" style="padding:10px; font-style:italic;">Žiadne záznamy o výrobe.</div>';
+        if (res.production && res.production.length > 0) {
+            prodHtml = `<table class="tbl" style="width:100%; font-size:0.85rem;">
+                <thead style="background:#f1f5f9;"><tr><th>Dátum</th><th>Šarža</th><th style="text-align:right">Množstvo</th></tr></thead>
+                <tbody>${res.production.map(r => `
+                    <tr>
+                        <td>${dateFmt(r.date)}</td>
+                        <td style="font-family:monospace;">${escapeHtml(r.batch)}</td>
+                        <td style="text-align:right; font-weight:bold; color:#166534;">+${fmt(r.qty)} kg</td>
+                    </tr>
+                `).join('')}</tbody></table>`;
+        }
 
-                let b2cHtml = '<p class="text-muted">Žiadne B2C predaje.</p>';
-                if (res.b2c && res.b2c.length > 0) {
-                    b2cHtml = `<table class="tbl" style="font-size:0.85rem;">
-                        <thead><tr><th>Dátum</th><th>Objednávka</th><th style="text-align:right">Množstvo</th></tr></thead>
-                        <tbody>${res.b2c.map(r => `
-                            <tr><td>${dateFmt(r.date)}</td><td>${escapeHtml(r.order_no)}</td><td style="text-align:right">${fmt(r.qty)} ${escapeHtml(r.mj)}</td></tr>
-                        `).join('')}</tbody></table>`;
-                }
+        // B) B2B Predaj
+        let b2bHtml = '<div class="text-muted" style="padding:10px; font-style:italic;">Žiadne B2B predaje.</div>';
+        if (res.b2b && res.b2b.length > 0) {
+            b2bHtml = `<table class="tbl" style="width:100%; font-size:0.85rem;">
+                <thead style="background:#f1f5f9;"><tr><th>Dátum</th><th>Zákazník</th><th style="text-align:right">Množstvo</th></tr></thead>
+                <tbody>${res.b2b.map(r => `
+                    <tr>
+                        <td>${dateFmt(r.date)}</td>
+                        <td>${escapeHtml(r.customer)}</td>
+                        <td style="text-align:right; color:#dc2626;">-${fmt(r.qty)} ${escapeHtml(r.mj)}</td>
+                    </tr>
+                `).join('')}</tbody></table>`;
+        }
 
-                const content = `
-                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px;">
-                        <div style="background:#eff6ff; padding:15px; border-radius:8px;">
-                            <h4 style="margin:0 0 10px 0; color:#1e40af;">📦 Aktuálny stav</h4>
-                            <div style="font-size:2rem; font-weight:bold; color:#1e3a8a;">
-                                ${fmt(res.product.stock)} ${escapeHtml(res.product.mj)}
-                            </div>
-                            <div style="font-size:0.9rem; color:#64748b;">EAN: ${escapeHtml(res.product.ean)}</div>
+        // C) B2C Predaj
+        let b2cHtml = '<div class="text-muted" style="padding:10px; font-style:italic;">Žiadne B2C predaje.</div>';
+        if (res.b2c && res.b2c.length > 0) {
+            b2cHtml = `<table class="tbl" style="width:100%; font-size:0.85rem;">
+                <thead style="background:#f1f5f9;"><tr><th>Dátum</th><th>Objednávka</th><th style="text-align:right">Množstvo</th></tr></thead>
+                <tbody>${res.b2c.map(r => `
+                    <tr>
+                        <td>${dateFmt(r.date)}</td>
+                        <td style="font-family:monospace;">${escapeHtml(r.order_no)}</td>
+                        <td style="text-align:right; color:#dc2626;">-${fmt(r.qty)} ${escapeHtml(r.mj)}</td>
+                    </tr>
+                `).join('')}</tbody></table>`;
+        }
+
+        // --- Finálne zloženie obsahu ---
+        const content = `
+            <div style="animation: fadeIn 0.3s;">
+                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px; margin-bottom:20px;">
+                    
+                    <div style="background:#eff6ff; padding:15px; border-radius:8px; border:1px solid #bfdbfe;">
+                        <h4 style="margin:0 0 10px 0; color:#1e40af; border-bottom:1px solid #dbeafe; padding-bottom:5px;">
+                            📦 Aktuálny stav
+                        </h4>
+                        <div style="font-size:2.2rem; font-weight:bold; color:#1e3a8a;">
+                            ${fmt(res.product.stock)} <span style="font-size:1rem; vertical-align:middle;">${escapeHtml(res.product.mj)}</span>
                         </div>
-                        <div>
-                             <h4 style="margin:0 0 10px 0;">🏭 Posledná výroba</h4>
-                             ${prodHtml}
+                        <div style="font-size:0.9rem; color:#64748b; margin-top:5px; line-height:1.5;">
+                            <div>EAN: <strong>${escapeHtml(res.product.ean)}</strong></div>
+                            <div>Typ: ${res.product.is_made ? '<span style="color:#059669; font-weight:bold;">Vlastná výroba</span>' : '<span style="color:#d97706; font-weight:bold;">Nakupovaný tovar</span>'}</div>
+                        </div>
+                    </div>
+
+                    <div style="border:1px solid #e2e8f0; border-radius:8px; overflow:hidden;">
+                         <h4 style="margin:0; padding:10px; background:#f8fafc; border-bottom:1px solid #e2e8f0; color:#334155;">
+                            🏭 Posledná výroba
+                         </h4>
+                         <div style="max-height:150px; overflow-y:auto;">
+                            ${prodHtml}
+                         </div>
+                    </div>
+                </div>
+                
+                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px;">
+                    <div style="border:1px solid #e2e8f0; border-radius:8px; overflow:hidden;">
+                        <h4 style="margin:0; padding:10px; background:#f8fafc; border-bottom:1px solid #e2e8f0; color:#334155;">
+                            🏢 Posledné B2B Predaje
+                        </h4>
+                        <div style="max-height:200px; overflow-y:auto;">
+                            ${b2bHtml}
                         </div>
                     </div>
                     
-                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px; margin-top:20px;">
-                        <div>
-                            <h4 style="margin:0 0 10px 0;">🏢 Posledné B2B Predaje</h4>
-                            ${b2bHtml}
-                        </div>
-                        <div>
-                            <h4 style="margin:0 0 10px 0;">🛒 Posledné B2C Predaje</h4>
+                    <div style="border:1px solid #e2e8f0; border-radius:8px; overflow:hidden;">
+                        <h4 style="margin:0; padding:10px; background:#f8fafc; border-bottom:1px solid #e2e8f0; color:#334155;">
+                            🛒 Posledné B2C Predaje
+                        </h4>
+                        <div style="max-height:200px; overflow-y:auto;">
                             ${b2cHtml}
                         </div>
                     </div>
-                    
-                    <div style="text-align:right; margin-top:20px;">
-                        <button class="btn-secondary" onclick="hideModalCompat()">Zavrieť</button>
-                    </div>
-                `;
+                </div>
                 
-                // Prekreslíme modal s obsahom
-                // (Keďže openModalCompat nemusí podporovať update, zavrieme a otvoríme, alebo ak máš vlastný modal container, prepíš innerHTML)
-                // Tu použijeme trik: nájdeme obsah modalu a prepíšeme ho
-                const mc = document.querySelector('.b2b-modal-content');
-                if (mc) mc.innerHTML = content;
-
-            } catch (e) {
-                alert("Chyba: " + e.message);
-                hideModalCompat();
-            }
+                <div style="text-align:right; margin-top:20px; padding-top:10px; border-top:1px solid #e2e8f0;">
+                    <button class="btn-secondary" onclick="hideModalCompat()">Zavrieť</button>
+                </div>
+            </div>
+        `;
+        
+        // 3. Aktualizácia DOM (Bezpečné nahradenie loadera)
+        const loader = document.getElementById('stock-card-dynamic-content');
+        if (loader) {
+            // Nahradíme loader novým obsahom
+            loader.outerHTML = content;
+        } else {
+            // Fallback, ak by sme loader nenašli (pre istotu)
+            const mc = document.querySelector('.b2b-modal-content') || document.querySelector('.modal-content');
+            if (mc) mc.innerHTML = content;
         }
+
+    } catch (e) {
+        console.error(e);
+        // V prípade chyby nahradíme loader chybovou hláškou
+        const loader = document.getElementById('stock-card-dynamic-content');
+        const errorHtml = `
+            <div style="padding:30px; text-align:center; color:#dc2626;">
+                <i class="fas fa-exclamation-triangle fa-2x"></i><br><br>
+                <strong>Chyba pri načítaní dát:</strong><br>
+                ${e.message}
+                <br><br>
+                <button class="btn-secondary" onclick="hideModalCompat()">Zavrieť</button>
+            </div>
+        `;
+        
+        if (loader) loader.outerHTML = errorHtml;
+        else alert("Chyba: " + e.message);
+    }
+}
 
 
         // --- MODAL: ADD / EDIT PRODUCT (Zachovaný z minula) ---

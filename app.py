@@ -2957,6 +2957,8 @@ def update_min_stock():
 def get_catalog_data():
     return handle_request(office_handler.get_catalog_management_data)
 
+
+
 @app.route('/api/kancelaria/getProductCard')
 @login_required(role='kancelaria')
 def get_product_card_api():
