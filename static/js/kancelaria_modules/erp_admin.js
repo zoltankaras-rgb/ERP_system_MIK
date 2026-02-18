@@ -121,37 +121,53 @@
     $('#erp-btn-catalog').click();
   }
 
+  
   // =================================================================
-  // === 1. SPRÁVA KATALÓGU (S KATEGÓRIAMI, SAVE&NEXT A DELETE) ======
+  // === 1. SPRÁVA KATALÓGU (S KATEGÓRIAMI, MODALOM A STRÁNKOVANÍM) ===
   // =================================================================
   async function viewCatalogManagement(){
     state.catalog = await apiRequest('/api/kancelaria/getCatalogManagementData?ts=' + Date.now()) || {};
     await ensureOfficeDataIsLoaded();
     
-    const products = Array.isArray(state.catalog.products) ? state.catalog.products : [];
+    // Načítanie dát
+    let products = Array.isArray(state.catalog.products) ? state.catalog.products : [];
     const itemTypes = state.catalog.item_types || ['VÝROBOK', 'TOVAR'];
     const dphRates = state.catalog.dph_rates || [20, 10, 0];
     const saleCats = state.catalog.sale_categories || [];
     const recipeCats = state.catalog.recipe_categories || [];
 
+    // Kategórie pre taby
     const distinctCats = new Set(saleCats);
     products.forEach(p => { if(p.predajna_kategoria) distinctCats.add(p.predajna_kategoria); });
     const categoriesList = Array.from(distinctCats).sort((a,b) => String(a).localeCompare(String(b), 'sk'));
 
+    // Nastavenie stránkovania
+    let currentPage = 1;
+    const itemsPerPage = 10;
+    
+    // === HTML LAYOUT ===
     const html = `
       <div class="stat-card" style="margin-bottom:1rem;">
-        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
-            <h3 style="margin:0;">Centrálny katalóg produktov</h3>
-            <div style="display:flex; gap:5px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:15px;">
+            <div style="display:flex; align-items:center; gap:10px;">
+                <h3 style="margin:0;">Centrálny katalóg produktov</h3>
+                <span class="badge" id="cat-count-badge" style="background:#e0f2fe; color:#0369a1; padding:2px 8px; border-radius:10px; font-size:0.8em;">0</span>
+            </div>
+            
+            <div style="display:flex; gap:10px;">
+                <button id="cat-btn-add" class="btn-success btn-sm">
+                    <i class="fas fa-plus"></i> Nový produkt
+                </button>
+                <div style="width:1px; background:#ccc; margin:0 5px;"></div>
                 <button id="cat-export-csv" class="btn-secondary btn-sm"><i class="fas fa-file-export"></i> Export</button>
                 <button id="cat-import-csv" class="btn-primary btn-sm"><i class="fas fa-file-import"></i> Import</button>
-                <button id="cat-download-template" class="btn-info btn-sm"><i class="fas fa-download"></i> Šablóna</button>
+                <button id="cat-download-template" class="btn-info btn-sm" title="Stiahnuť šablónu"><i class="fas fa-download"></i></button>
                 <input id="cat-import-file" type="file" accept=".csv,text/csv" style="display:none" />
             </div>
         </div>
 
-        <div class="form-group" style="margin-top:10px;">
-            <input type="text" id="cat-search" placeholder="Hľadať produkt (názov, EAN)..." style="width:100%; padding:10px; font-size:1.1em;">
+        <div class="form-group">
+            <input type="text" id="cat-search" placeholder="🔍 Hľadať produkt (názov, EAN)..." style="width:100%; padding:10px; font-size:1.1em; border:1px solid #cbd5e1; border-radius:6px;">
         </div>
 
         <div id="cat-tabs" class="inventory-tabs" style="display:flex; gap:5px; margin-top:10px; flex-wrap:wrap;">
@@ -161,41 +177,8 @@
         </div>
       </div>
 
-      <div id="cat-table-container" class="table-container" style="max-height:65vh;"></div>
-
-      <div style="margin-top:20px; text-align:right;">
-         <button class="btn-success" onclick="document.getElementById('catalog-add-form-wrap').style.display='block'; this.style.display='none';">
-            <i class="fas fa-plus"></i> Pridať nový produkt
-         </button>
-      </div>
-
-      <div id="catalog-add-form-wrap" class="stat-card" style="margin-top: 2rem; display:none; border:2px solid #16a34a;">
-        <h4>Pridať novú položku</h4>
-        <form id="catalog-add-form">
-            <div class="form-grid">
-              <div class="form-group">
-                <label>Typ položky</label>
-                <select id="cat-new-type" required>${itemTypes.map(t=>`<option value="${t}">${t}</option>`).join('')}</select>
-              </div>
-              <div class="form-group">
-                <label>Sadzba DPH</label>
-                <select id="cat-new-dph" required>${dphRates.map(r=>`<option value="${r}">${r}</option>`).join('')}</select>
-              </div>
-            </div>
-            <div class="form-group"><label>Názov položky</label><input type="text" id="cat-new-name" required></div>
-            <div class="form-group"><label>EAN kód</label><input type="text" id="cat-new-ean" required></div>
-            <div class="form-group"><label>Predajná kategória</label><select id="cat-new-sale-cat"><option value="">-- Vyberte --</option>${saleCats.map(c=>`<option value="${c}">${c}</option>`).join('')}</select></div>
-            
-            <div class="form-group" style="background:#f0fdf4; padding:10px; border-radius:5px; margin-top:10px;">
-                <label style="display:flex; align-items:center; gap:8px; font-weight:bold; cursor:pointer;">
-                    <input type="checkbox" id="cat-new-made" style="width:20px; height:20px;">
-                    JA VYRÁBAM (Výrobok)
-                </label>
-                <small class="text-muted">Zaškrtnutím sa typ automaticky nastaví na 'VÝROBOK'.</small>
-            </div>
-            <button type="submit" class="btn-success" style="width:100%;">Uložiť do katalógu</button>
-        </form>
-      </div>
+      <div id="cat-table-container" class="table-container" style="min-height:300px;"></div>
+      <div id="cat-pagination" style="display:flex; justify-content:center; gap:5px; margin-top:20px;"></div>
     `;
 
     const onReady = () => {
@@ -203,24 +186,16 @@
         let currentFilteredProducts = []; 
 
         const tableContainer = document.getElementById('cat-table-container');
+        const paginationContainer = document.getElementById('cat-pagination');
         const searchInput = document.getElementById('cat-search');
         const tabsContainer = document.getElementById('cat-tabs');
+        const countBadge = document.getElementById('cat-count-badge');
 
-        // ADD FORM logic
-        const newTypeSel = document.getElementById('cat-new-type');
-        const newMadeChk = document.getElementById('cat-new-made');
-        if(newMadeChk && newTypeSel) {
-            newMadeChk.onchange = () => { newTypeSel.value = newMadeChk.checked ? 'VÝROBOK' : 'TOVAR'; };
-            newTypeSel.onchange = () => {
-                const val = newTypeSel.value.toUpperCase();
-                newMadeChk.checked = (val.startsWith('VÝROBOK') || val === 'PRODUKT');
-            };
-        }
-
+        // --- RENDER TABLE with Pagination ---
         function renderTable() {
             const q = searchInput.value.trim().toLowerCase();
             
-            // 1. Filtrovanie produktov (pôvodná logika)
+            // 1. Filter
             currentFilteredProducts = products.filter(p => {
                 if (currentCat !== 'ALL') {
                     if (currentCat === 'NO_CAT') { if (p.predajna_kategoria) return false; }
@@ -233,14 +208,28 @@
                 return true;
             });
 
-            // 2. Ak nie sú produkty
-            if (currentFilteredProducts.length === 0) {
-                tableContainer.innerHTML = '<p class="text-muted" style="padding:20px; text-align:center;">Žiadne produkty.</p>';
+            // Update badge
+            if(countBadge) countBadge.textContent = currentFilteredProducts.length;
+
+            // 2. Sort (Name A-Z)
+            currentFilteredProducts.sort((a,b) => String(a.nazov_vyrobku).localeCompare(String(b.nazov_vyrobku), 'sk'));
+
+            // 3. Pagination Logic
+            const totalPages = Math.ceil(currentFilteredProducts.length / itemsPerPage);
+            if (currentPage > totalPages) currentPage = 1;
+            if (currentPage < 1) currentPage = 1;
+            
+            const start = (currentPage - 1) * itemsPerPage;
+            const end = start + itemsPerPage;
+            const pageItems = currentFilteredProducts.slice(start, end);
+
+            // 4. Render HTML
+            if (pageItems.length === 0) {
+                tableContainer.innerHTML = '<p class="text-muted" style="padding:40px; text-align:center;">Žiadne produkty nezodpovedajú filtru.</p>';
+                paginationContainer.innerHTML = '';
                 return;
             }
 
-            // 3. Generovanie hlavičky tabuľky
-            // (Zväčšil som šírku stĺpca Akcie na 220px, aby sa tam zmestili 3 tlačidlá)
             let html = `<table class="tbl">
                 <thead>
                     <tr>
@@ -249,76 +238,51 @@
                         <th>Typ</th>
                         <th>Kategória</th>
                         <th style="text-align:right;">DPH</th>
-                        <th style="width:220px;">Akcie</th>
+                        <th style="width:160px; text-align:right;">Akcie</th>
                     </tr>
                 </thead>
                 <tbody>`;
 
-            // 4. Generovanie riadkov
-            currentFilteredProducts.forEach(p => {
+            pageItems.forEach(p => {
                 html += `<tr data-ean="${escapeHtml(p.ean)}">
-                        <td style="font-family:monospace;">${escapeHtml(p.ean)}</td>
+                        <td style="font-family:monospace; color:#64748b;">${escapeHtml(p.ean)}</td>
                         <td><strong>${escapeHtml(p.nazov_vyrobku)}</strong></td>
-                        <td>${escapeHtml(p.typ_polozky)}</td>
+                        <td><span style="font-size:0.85em; background:#f1f5f9; padding:2px 6px; border-radius:4px;">${escapeHtml(p.typ_polozky)}</span></td>
                         <td>${escapeHtml(p.predajna_kategoria || '-')}</td>
                         <td style="text-align:right;">${Number(p.dph).toFixed(0)}%</td>
-                        <td style="display:flex; gap:5px;">
-                            <button class="btn-success btn-sm btn-add-pricelist" title="Pridať do cenníka">
-                                <i class="fas fa-plus"></i> Cenník
-                            </button>
-                            
-                            <button class="btn-secondary btn-sm btn-edit">Upraviť</button>
-                            <button class="btn-danger btn-sm btn-del">Zmazať</button>
+                        <td style="text-align:right;">
+                            <button class="btn-primary btn-sm btn-edit" title="Upraviť"><i class="fas fa-pencil-alt"></i></button>
+                            <button class="btn-danger btn-sm btn-del" title="Zmazať" style="margin-left:5px;"><i class="fas fa-trash"></i></button>
                         </td>
                     </tr>`;
             });
             html += `</tbody></table>`;
             tableContainer.innerHTML = html;
 
-            // =========================================================
-            // === 5. SPÁROVANIE TLAČIDIEL (Event Listeners) ===
-            // =========================================================
+            // 5. Render Pagination Controls
+            let pagHtml = '';
+            if (totalPages > 1) {
+                pagHtml += `<button class="btn-secondary btn-sm" onclick="document.getElementById('cat-search').dispatchEvent(new CustomEvent('page-change', {detail: ${currentPage - 1}}))" ${currentPage===1?'disabled':''}>«</button>`;
+                
+                let startPage = Math.max(1, currentPage - 2);
+                let endPage = Math.min(totalPages, currentPage + 2);
+                
+                for(let i=startPage; i<=endPage; i++) {
+                    pagHtml += `<button class="btn-sm ${i===currentPage?'btn-primary':'btn-secondary'}" onclick="document.getElementById('cat-search').dispatchEvent(new CustomEvent('page-change', {detail: ${i}}))">${i}</button>`;
+                }
+                
+                pagHtml += `<button class="btn-secondary btn-sm" onclick="document.getElementById('cat-search').dispatchEvent(new CustomEvent('page-change', {detail: ${currentPage + 1}}))" ${currentPage===totalPages?'disabled':''}>»</button>`;
+            }
+            paginationContainer.innerHTML = pagHtml;
 
-            // A: Tlačidlo PRIDAŤ DO CENNÍKA (Toto je nové)
-            tableContainer.querySelectorAll('.btn-add-pricelist').forEach(b => {
-                b.onclick = (e) => {
-                    const tr = e.target.closest('tr');
-                    const ean = tr.dataset.ean;
-                    const p = products.find(x => String(x.ean) === ean);
-                    
-                    if (p && typeof window.addToPricelist === 'function') {
-                        // Zavoláme funkciu z pricelist_manager.js
-                        window.addToPricelist(p); 
-                        
-                        // Vizuálny efekt (zmení farbu na chvíľu)
-                        const originalHTML = b.innerHTML;
-                        b.innerHTML = '<i class="fas fa-check"></i>';
-                        b.classList.remove('btn-success');
-                        b.classList.add('btn-secondary');
-                        
-                        setTimeout(() => {
-                            b.innerHTML = originalHTML;
-                            b.classList.add('btn-success');
-                            b.classList.remove('btn-secondary');
-                        }, 800);
-                    } else {
-                        alert("Chyba: Modul 'pricelist_manager.js' nie je načítaný alebo funkcia 'addToPricelist' chýba.");
-                    }
-                };
-            });
-
-            // B: Tlačidlo UPRAVIŤ (Pôvodné)
+            // 6. Bind Events (Edit/Delete)
             tableContainer.querySelectorAll('.btn-edit').forEach(b => {
                 b.onclick = (e) => {
                     const ean = e.target.closest('tr').dataset.ean;
-                    const idx = currentFilteredProducts.findIndex(x => String(x.ean) === ean);
-                    if (idx !== -1) {
-                        openEditModal(currentFilteredProducts[idx], currentFilteredProducts, idx);
-                    }
+                    const p = products.find(x => String(x.ean) === ean);
+                    if (p) openProductModal(p);
                 };
             });
-
-            // C: Tlačidlo ZMAZAŤ (Pôvodné - volá confirmDelete)
             tableContainer.querySelectorAll('.btn-del').forEach(b => {
                 b.onclick = (e) => {
                     const ean = e.target.closest('tr').dataset.ean;
@@ -328,39 +292,187 @@
             });
         }
 
-        // TABS
+        // --- Event Listeners ---
+        
+        // Search & Pagination Handler using Custom Event to avoid global scope issues
+        searchInput.addEventListener('page-change', (e) => {
+            currentPage = e.detail;
+            renderTable();
+        });
+
+        searchInput.oninput = () => { currentPage = 1; renderTable(); };
+
+        // Tabs
         tabsContainer.querySelectorAll('.btn-tab').forEach(btn => {
             btn.onclick = () => {
                 tabsContainer.querySelectorAll('.btn-tab').forEach(b => { b.classList.remove('btn-primary'); b.classList.add('btn-secondary'); });
                 btn.classList.remove('btn-secondary'); btn.classList.add('btn-primary');
                 currentCat = btn.dataset.cat;
+                currentPage = 1;
                 renderTable();
             };
         });
 
-        searchInput.oninput = () => renderTable();
+        // Add Button
+        document.getElementById('cat-btn-add').onclick = () => openProductModal(null);
+
+        // Initial Render
         renderTable();
 
-        // ADD SUBMIT
-        document.getElementById('catalog-add-form').onsubmit = async (e) => {
-            e.preventDefault();
-            const body = {
-                new_catalog_ean: document.getElementById('cat-new-ean').value,
-                new_catalog_name: document.getElementById('cat-new-name').value,
-                new_catalog_item_type: document.getElementById('cat-new-type').value,
-                new_catalog_dph: document.getElementById('cat-new-dph').value,
-                new_catalog_sale_category: document.getElementById('cat-new-sale-cat').value
-            };
-            try {
-                const res = await apiRequest('/api/kancelaria/addCatalogItem', { method: 'POST', body });
-                if(res.error) throw new Error(res.error);
-                showStatus('Položka pridaná.', false);
-                window.erpMount(viewCatalogManagement);
-            } catch (err) { alert(err.message); }
-        };
 
-        // --- IMPORT CSV ---
-        // (rovnaký kód ako predtým)
+        // --- MODAL: ADD / EDIT PRODUCT ---
+        function openProductModal(p) {
+            const isEdit = !!p;
+            const title = isEdit ? `Upraviť: ${p.nazov_vyrobku}` : 'Nový produkt';
+            const data = p || { ean:'', nazov_vyrobku:'', typ_polozky:'TOVAR', mj:'ks', vaha_balenia_g:'', dph:20, predajna_kategoria:'', kategoria_pre_recepty:'' };
+            
+            const isMade = String(data.typ_polozky).toUpperCase().startsWith('VÝROBOK');
+
+            let rcpCatOpts = recipeCats.map(c => `<option value="${c}" ${data.kategoria_pre_recepty === c ? 'selected' : ''}>${c}</option>`).join('');
+            
+            const html = `
+              <form id="prod-modal-form" style="max-width:600px">
+                <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 1rem;">
+                    <div class="form-group">
+                        <label>EAN (Unikátne)</label>
+                        <input id="ed-ean" type="text" required value="${escapeHtml(data.ean)}" ${isEdit ? 'disabled' : ''} style="font-weight:bold;">
+                    </div>
+                    <div class="form-group">
+                        <label>Typ položky</label>
+                        <select id="ed-type" required>${itemTypes.map(t => `<option value="${t}" ${data.typ_polozky === t ? 'selected' : ''}>${t}</option>`).join('')}</select>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label>Názov položky</label>
+                    <input id="ed-name" type="text" required value="${escapeHtml(data.nazov_vyrobku)}">
+                </div>
+
+                <div class="form-grid" style="grid-template-columns: 1fr 1fr 1fr; gap: 1rem;">
+                    <div class="form-group"><label>MJ</label>
+                        <select id="ed-mj">
+                            <option value="kg" ${data.mj === 'kg' ? 'selected' : ''}>kg</option>
+                            <option value="ks" ${data.mj === 'ks' ? 'selected' : ''}>ks</option>
+                        </select>
+                    </div>
+                    <div class="form-group"><label>Váha balenia (g)</label>
+                        <input id="ed-weight" type="number" step="1" value="${data.vaha_balenia_g || ''}" placeholder="napr. 1000">
+                    </div>
+                    <div class="form-group"><label>DPH %</label>
+                        <select id="ed-dph" required>${dphRates.map(r => `<option value="${r}" ${Number(data.dph) === r ? 'selected' : ''}>${r}</option>`).join('')}</select>
+                    </div>
+                </div>
+
+                <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 1rem;">
+                    <div class="form-group"><label>Predajná kategória</label>
+                        <select id="ed-sale">
+                            <option value="">-- Vyberte --</option>
+                            ${saleCats.map(c => `<option value="${c}" ${data.predajna_kategoria === c ? 'selected' : ''}>${c}</option>`).join('')}
+                        </select>
+                    </div>
+                    <div class="form-group"><label>Kategória pre recepty</label>
+                        <select id="ed-rcp-cat">
+                            <option value="">-- Žiadna --</option>
+                            ${rcpCatOpts}
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-group" style="background:#f0fdf4; padding:10px; border-radius:5px; margin-top:10px;">
+                    <label style="display:flex; align-items:center; gap:8px; font-weight:bold; cursor:pointer;">
+                        <input type="checkbox" id="ed-is-made" style="width:20px; height:20px;" ${isMade ? 'checked' : ''}>
+                        JA VYRÁBAM (Výrobok)
+                    </label>
+                </div>
+
+                <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:20px; border-top:1px solid #eee; padding-top:15px;">
+                    <button type="button" class="btn-secondary" onclick="hideModalCompat()">Zrušiť</button>
+                    <button type="submit" class="btn-primary"><i class="fas fa-save"></i> Uložiť</button>
+                </div>
+              </form>
+            `;
+
+            openModalCompat(title, {
+                html,
+                onReady() {
+                    const form = document.getElementById('prod-modal-form');
+                    const madeChk = document.getElementById('ed-is-made');
+                    const typeSel = document.getElementById('ed-type');
+
+                    madeChk.onchange = () => { typeSel.value = madeChk.checked ? 'VÝROBOK' : 'TOVAR'; };
+                    typeSel.onchange = () => { madeChk.checked = typeSel.value.toUpperCase().startsWith('VÝROBOK'); };
+
+                    form.onsubmit = async (e) => {
+                        e.preventDefault();
+                        const payload = {
+                            ean: document.getElementById('ed-ean').value.trim(),
+                            nazov_vyrobku: document.getElementById('ed-name').value.trim(),
+                            typ_polozky: typeSel.value,
+                            mj: document.getElementById('ed-mj').value,
+                            vaha_balenia_g: document.getElementById('ed-weight').value,
+                            dph: document.getElementById('ed-dph').value,
+                            predajna_kategoria: document.getElementById('ed-sale').value,
+                            kategoria_pre_recepty: document.getElementById('ed-rcp-cat').value
+                        };
+
+                        try {
+                            let res;
+                            if (isEdit) {
+                                payload.original_ean = data.ean;
+                                res = await apiRequest('/api/kancelaria/updateCatalogItem', { method:'POST', body: payload });
+                                // Update local array
+                                const idx = products.findIndex(x => x.ean === data.ean);
+                                if(idx > -1) products[idx] = { ...products[idx], ...payload };
+                            } else {
+                                // MAPPING PRE API addCatalogItem (očakáva prefix new_catalog_)
+                                const createBody = {
+                                    new_catalog_ean: payload.ean,
+                                    new_catalog_name: payload.nazov_vyrobku,
+                                    new_catalog_item_type: payload.typ_polozky,
+                                    new_catalog_dph: payload.dph,
+                                    new_catalog_sale_category: payload.predajna_kategoria
+                                };
+                                res = await apiRequest('/api/kancelaria/addCatalogItem', { method:'POST', body: createBody });
+                                // Add to local array
+                                products.push(payload);
+                            }
+
+                            if(res.error) throw new Error(res.error);
+                            
+                            showStatus('Uložené.', false);
+                            hideModalCompat();
+                            renderTable(); // Re-render table to show changes
+                        } catch(err) {
+                            alert("Chyba: " + err.message);
+                        }
+                    };
+                }
+            });
+        }
+
+        // --- DELETE LOGIC ---
+        async function confirmDelete(p) {
+             if (!confirm(`Naozaj zmazať ${p.nazov_vyrobku}?`)) return;
+             let res = await apiRequest('/api/kancelaria/deleteCatalogItem', { method: 'POST', body: { ean: p.ean } });
+
+             if (res.error) {
+                 if (res.raw && res.raw.used_in) {
+                     let msg = "POZOR: Produkt sa používa (recepty/sklad)!\n\nChcete VYNÚTIŤ ZMAZANIE?";
+                     if (confirm(msg)) {
+                         res = await apiRequest('/api/kancelaria/deleteCatalogItem', { method: 'POST', body: { ean: p.ean, force: true } });
+                         if (res.error) { alert("Chyba: " + res.error); return; }
+                     } else return;
+                 } else {
+                     alert("Chyba: " + res.error); return;
+                 }
+             }
+             showStatus('Položka zmazaná.', false);
+             const idx = products.findIndex(x => x.ean === p.ean);
+             if (idx > -1) products.splice(idx, 1);
+             renderTable();
+        }
+
+        // --- IMPORT CSV handlers ---
         document.getElementById('cat-import-csv').onclick = () => document.getElementById('cat-import-file').click();
         document.getElementById('cat-import-file').onchange = async (e) => {
              const file = e.target.files[0]; if (!file) return;
@@ -391,196 +503,6 @@
              };
              reader.readAsText(file, 'windows-1250'); 
         };
-
-        // --- OPRAVENÝ CONFIRM DELETE (FORCE) ---
-        async function confirmDelete(p) {
-             if (!confirm(`Naozaj zmazať ${p.nazov_vyrobku}?`)) return;
-
-             // 1. Skúsime zmazať normálne
-             let res = await apiRequest('/api/kancelaria/deleteCatalogItem', { 
-                 method: 'POST', 
-                 body: { ean: p.ean } 
-             });
-
-             // 2. Ak príde chyba (napr. že sa používa v receptee)
-             if (res.error) {
-                 // Ak backend poslal detaily (used_in), ponúkneme FORCE DELETE
-                 if (res.raw && res.raw.used_in) {
-                     let msg = "POZOR: Produkt sa používa a nedá sa bežne zmazať!\n\n";
-                     const u = res.raw.used_in;
-                     if (u.recept) msg += "- Je v receptoch\n";
-                     if (u.krajane) msg += "- Je zdrojom pre krájanie\n";
-                     if (u.fk_tables) msg += "- Je v iných záznamoch (objednávky/sklad)\n";
-                     
-                     msg += "\nChcete VYNÚTIŤ ZMAZANIE? (Zmaže sa z receptov aj histórie!)";
-
-                     if (confirm(msg)) {
-                         // 3. Druhý pokus s force: true
-                         res = await apiRequest('/api/kancelaria/deleteCatalogItem', { 
-                             method: 'POST', 
-                             body: { ean: p.ean, force: true } 
-                         });
-                         
-                         if (res.error) {
-                             alert("Ani vynútené zmazanie nešlo: " + res.error);
-                             return;
-                         }
-                     } else {
-                         return; // Zrušil to
-                     }
-                 } else {
-                     // Iná chyba
-                     alert("Chyba: " + res.error);
-                     return;
-                 }
-             }
-
-             // 3. Hotovo - aktualizujeme tabuľku
-             showStatus('Položka zmazaná.', false);
-             
-             // Vyhodíme z poľa pre rýchlosť
-             const idx = products.findIndex(x => x.ean === p.ean);
-             if (idx > -1) products.splice(idx, 1);
-             
-             renderTable();
-             hideModalCompat(); // Ak sme boli v modale, zavrieme ho
-        }
-
-        // --- MODAL EDIT ---
-        function openEditModal(p, productList, currentIndex) {
-            const isMade = String(p.typ_polozky||'').toUpperCase().startsWith('VÝROBOK');
-            
-            let rcpCatOpts = recipeCats.map(c => `<option value="${c}" ${p.kategoria_pre_recepty === c ? 'selected' : ''}>${c}</option>`).join('');
-            if (p.kategoria_pre_recepty && !recipeCats.includes(p.kategoria_pre_recepty)) {
-                rcpCatOpts += `<option value="${p.kategoria_pre_recepty}" selected>${p.kategoria_pre_recepty}</option>`;
-            }
-
-            const hasNext = currentIndex < productList.length - 1;
-
-            const html = `
-              <form id="cat-edit-form" style="max-width:600px">
-                <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 1rem;">
-                    <div class="form-group"><label>EAN</label><input id="edit-ean" type="text" required value="${escapeHtml(p.ean||'')}"></div>
-                    <div class="form-group"><label>Typ položky</label>
-                        <select id="edit-type" required>${itemTypes.map(t => `<option value="${t}" ${p.typ_polozky === t ? 'selected' : ''}>${t}</option>`).join('')}</select>
-                    </div>
-                </div>
-                
-                <div class="form-group"><label>Názov položky</label><input id="edit-name" type="text" required value="${escapeHtml(p.nazov_vyrobku||'')}"></div>
-
-                <div class="form-grid" style="grid-template-columns: 1fr 1fr 1fr; gap: 1rem;">
-                    <div class="form-group"><label>MJ</label>
-                        <select id="edit-mj">
-                            <option value="kg" ${p.mj === 'kg' ? 'selected' : ''}>kg</option>
-                            <option value="ks" ${p.mj === 'ks' ? 'selected' : ''}>ks</option>
-                        </select>
-                    </div>
-                    <div class="form-group"><label>Váha balenia (g)</label>
-                        <input id="edit-weight" type="number" step="1" value="${p.vaha_balenia_g || ''}" placeholder="napr. 1000">
-                    </div>
-                    <div class="form-group"><label>DPH %</label>
-                        <select id="edit-dph" required>${dphRates.map(r => `<option value="${r}" ${Number(p.dph) === r ? 'selected' : ''}>${r}</option>`).join('')}</select>
-                    </div>
-                </div>
-
-                <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 1rem;">
-                    <div class="form-group"><label>Predajná kategória</label>
-                        <select id="edit-sale">${saleCats.map(c => `<option value="${c}" ${p.predajna_kategoria === c ? 'selected' : ''}>${c}</option>`).join('')}</select>
-                    </div>
-                    <div class="form-group"><label>Kategória pre recepty</label>
-                        <select id="edit-rcp-cat">
-                            <option value="">-- Žiadna --</option>
-                            ${rcpCatOpts}
-                        </select>
-                    </div>
-                </div>
-
-                <div class="form-group" style="background:#f0fdf4; padding:10px; border-radius:5px; margin-top:10px;">
-                    <label style="display:flex; align-items:center; gap:8px; font-weight:bold; cursor:pointer;">
-                        <input type="checkbox" id="edit-is-made" style="width:20px; height:20px;" ${isMade ? 'checked' : ''}>
-                        JA VYRÁBAM (Výrobok)
-                    </label>
-                </div>
-
-                <div style="display:flex; justify-content: space-between; align-items: center; margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid #eee;">
-                  <div>
-                    <button type="button" id="btn-delete-item" class="btn-danger" style="background-color: #ef4444; color: white;">
-                        <i class="fas fa-trash"></i> Vymazať
-                    </button>
-                  </div>
-
-                  <div style="display:flex; gap: 10px; align-items: center;">
-                      <button type="button" class="btn-secondary" onclick="hideModalCompat()">Zrušiť</button>
-                      ${hasNext ? `<button type="button" id="btn-save-next" class="btn-info" style="background-color: #0ea5e9; color: white;">💾 Uložiť a ďalší ➡</button>` : ''}
-                      <button type="submit" class="btn-primary"><i class="fas fa-save"></i> Uložiť</button>
-                  </div>
-                </div>
-              </form>
-            `;
-
-            async function saveData(shouldGoNext) {
-                const editTypeSel = document.getElementById('edit-type');
-                const payload = {
-                    original_ean: String(p.ean||''),
-                    ean: document.getElementById('edit-ean').value.trim(),
-                    nazov_vyrobku: document.getElementById('edit-name').value.trim(),
-                    typ_polozky: editTypeSel.value,
-                    mj: document.getElementById('edit-mj').value,
-                    vaha_balenia_g: document.getElementById('edit-weight').value,
-                    dph: document.getElementById('edit-dph').value,
-                    predajna_kategoria: document.getElementById('edit-sale').value,
-                    kategoria_pre_recepty: document.getElementById('edit-rcp-cat').value
-                };
-
-                try {
-                    const res = await apiRequest('/api/kancelaria/updateCatalogItem', { method: 'POST', body: payload });
-                    if(res.error) throw new Error(res.error);
-                    
-                    Object.assign(p, payload);
-
-                    if (shouldGoNext && hasNext) {
-                        showStatus('Uložené. Prechádzam na ďalší...', false);
-                        openEditModal(productList[currentIndex + 1], productList, currentIndex + 1);
-                    } else {
-                        showStatus('Zmeny uložené.', false);
-                        hideModalCompat();
-                        renderTable(); 
-                    }
-                } catch (err) {
-                    alert("Chyba pri ukladaní: " + err.message);
-                }
-            }
-
-            openModalCompat(`Upraviť: ${escapeHtml(p.nazov_vyrobku)}`, {
-              html,
-              onReady() {
-                 const editTypeSel = document.getElementById('edit-type');
-                 const editMadeChk = document.getElementById('edit-is-made');
-                 
-                 editMadeChk.onchange = () => { editTypeSel.value = editMadeChk.checked ? 'VÝROBOK' : 'TOVAR'; };
-                 editTypeSel.onchange = () => {
-                     const val = editTypeSel.value.toUpperCase();
-                     editMadeChk.checked = (val.startsWith('VÝROBOK') || val === 'PRODUKT');
-                 };
-
-                 document.getElementById('cat-edit-form').onsubmit = (e) => {
-                    e.preventDefault();
-                    saveData(false);
-                 };
-
-                 const btnNext = document.getElementById('btn-save-next');
-                 if (btnNext) btnNext.onclick = () => saveData(true);
-
-                 // Tlačidlo Vymazať volá našu opravenú funkciu
-                 const btnDelete = document.getElementById('btn-delete-item');
-                 if (btnDelete) {
-                     btnDelete.onclick = () => {
-                         confirmDelete(p);
-                     };
-                 }
-              }
-            });
-        }
     };
     return { html, onReady };
   }
