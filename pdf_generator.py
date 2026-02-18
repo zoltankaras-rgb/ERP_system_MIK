@@ -509,31 +509,28 @@ def _make_pdf(order):
 def create_order_files(order_data: dict):
     """
     Vráti (pdf_bytes, csv_bytes, csv_filename).
-    Opravené: Mapovanie poznámok, jednotiek a množstva.
+    Opravené: Mapovanie poznámok, jednotiek a množstva tak, aby sa 'ks' nezamieňalo za 'kg'.
     """
+    # Základné údaje objednávky s využitím aliasov pre kompatibilitu
     order_no   = _pick(order_data, "orderNumber", "order_number", default="—")
     cust_name  = _pick(order_data, "customerName", "customer_name", default="")
     cust_addr  = _pick(order_data, "customerAddress", "customer_address", default="")
     deliv_date = _pick(order_data, "deliveryDate", "delivery_date", default="")
-    
-    # OPRAVA: Pridaný alias "poznamka" pre istotu
     note       = _pick(order_data, "note", "poznamka", default="")
-    
-    raw_items  = order_data.get("items", []) or []
     cust_code  = _pick(order_data, "customerCode", "customer_code", default="")
 
-    # Časové okno
+    # Spracovanie časového okna (vyzdvihnutie/dodanie)
     dw_raw     = _pick(order_data, "deliveryWindowPretty", "delivery_window", default="")
     delivery_window = _fmt_dw(dw_raw) if dw_raw else ""
     
-    # Odmeny
+    # Vernostné odmeny a darčeky
     points_reward_note = _pick(order_data, "uplatnena_odmena_poznamka", "points_reward_note", default="")
     rewards_list = []
     for r in (order_data.get("rewards") or []):
-        if not isinstance(r, dict):
-            continue
-        rewards_list.append({"label": r.get("label") or "Odmena", "qty": r.get("qty") or 1})
+        if isinstance(r, dict):
+            rewards_list.append({"label": r.get("label") or "Odmena", "qty": r.get("qty") or 1})
 
+    raw_items = order_data.get("items", []) or []
     items = []
     rates = set()
     total_net = 0.0
@@ -543,15 +540,16 @@ def create_order_files(order_data: dict):
         name = it.get("name") or it.get("nazov_vyrobku") or ""
         ean  = it.get("ean")  or it.get("ean_produktu") or ""
         
-        # OPRAVA: Prioritne berie unit/mj z objednávky, inak fallback 'ks'
+        # --- KRITICKÁ OPRAVA JEDNOTKY ---
+        # Prioritne berie 'unit' (zadanú zákazníkom), potom fallback na 'mj' z DB
         unit = it.get("unit") or it.get("mj") or "ks"
         
-        # OPRAVA: Zjednotenie kľúčov pre množstvo (quantity, qty, mnozstvo)
-        qty  = _to_float(it.get("quantity") or it.get("qty") or it.get("mnozstvo"))
+        # Zjednotenie kľúčov pre množstvo a cenu (podpora rôznych formátov payloadu)
+        qty   = _to_float(it.get("quantity") or it.get("qty") or it.get("mnozstvo"))
+        price = _to_float(it.get("price") or it.get("cena") or it.get("cena_bez_dph"))
+        dph   = abs(_to_float(it.get("dph") or it.get("vat") or it.get("dph_percent")))
         
-        price= _to_float(it.get("price") or it.get("cena") or it.get("cena_bez_dph"))
-        dph  = abs(_to_float(it.get("dph") or it.get("vat") or it.get("dph_percent")))
-        
+        # Výpočet riadkových súm, ak nie sú v payloadu predpočítané
         line_net   = _to_float(it.get("line_net"),   default=price * qty)
         line_vat   = _to_float(it.get("line_vat"),   default=line_net * (dph/100.0))
         line_gross = _to_float(it.get("line_gross"), default=line_net + line_vat)
@@ -560,28 +558,28 @@ def create_order_files(order_data: dict):
         total_vat += line_vat
         rates.add(dph)
         
-        # OPRAVA: Načítanie poznámky k položke
+        # Poznámka k položke (napr. gramáž balenia)
         item_note = it.get("item_note") or it.get("note") or ""
 
         items.append({
             "name": name, 
             "ean": ean, 
-            "unit": unit,
+            "unit": unit, # Tu sa prenesie 'ks' alebo 'kg' do PDF tabuľky
             "qty": qty, 
             "price": price, 
             "dph": dph,
             "line_net": line_net, 
             "line_vat": line_vat, 
-            "line_gross": line_net + line_vat,
-            "item_note": item_note, # Prenesie sa do PDF
+            "line_gross": line_gross,
+            "item_note": item_note,
         })
 
-    # Finálne sumy
+    # Finálne sumy objednávky
     final_total_gross = _to_float(order_data.get("totalWithVat"), total_net + total_vat)
     final_total_net   = _to_float(order_data.get("totalNet"), total_net)
     final_total_vat   = _to_float(order_data.get("totalVat"), total_vat)
 
-    # Rozpis DPH
+    # Rozpis podľa sadzieb DPH (pre tabuľku v PDF)
     canonical = [5.0, 10.0, 19.0, 23.0]
     base_by_rate = {r: 0.0 for r in canonical}
     vat_by_rate  = {r: 0.0 for r in canonical}
@@ -589,9 +587,10 @@ def create_order_files(order_data: dict):
         r = float(it["dph"])
         base_by_rate[r] = base_by_rate.get(r, 0.0) + it["line_net"]
         vat_by_rate[r]  = vat_by_rate.get(r, 0.0)  + it["line_vat"]
+    
     others = sorted([r for r in rates if r not in canonical])
 
-    # Zostavenie objektu objednávky
+    # Zostavenie finálneho objektu pre PDF generátor (_make_pdf) a CSV (_make_csv)
     order = {
         "order_no": order_no,
         "customer_name": cust_name,
@@ -600,7 +599,7 @@ def create_order_files(order_data: dict):
         "delivery_window": delivery_window,
         "points_reward_note": points_reward_note,
         "rewards": rewards_list,
-        "note": note, # Tu je celková poznámka
+        "note": note,
         "items": items,
         "total_net": final_total_net,
         "total_vat": final_total_vat,
@@ -613,15 +612,16 @@ def create_order_files(order_data: dict):
         "customer_code": cust_code,
     }
 
-    # 1. Generovanie obsahu
+    # 1. Generovanie binárneho obsahu súborov
     csv_bytes = _make_csv(order)
     pdf_bytes = _make_pdf(order)
 
-    # 2. Generovanie názvu súboru
+    # 2. Inteligentné generovanie názvu CSV súboru pre ERP import
     safe_order_no = str(order_no).strip()
     parts = safe_order_no.split('-')
 
     if len(parts) >= 3:
+        # Formát: ZAKAZNIK_TIMESTAMP.csv
         csv_filename = f"{parts[1]}_{parts[2]}.csv"
     else:
         safe_cust = str(cust_code).strip() if cust_code else "000000"

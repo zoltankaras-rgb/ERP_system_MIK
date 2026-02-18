@@ -560,33 +560,55 @@ window.submitOrder = submitOrder;
     return null;
   }
 
-  function onQty(e) {
-    const input = e.target, ean = input.dataset.ean;
-    const v = (input.value || '').replace(',', '.');
-    const q = parseFloat(v);
-    if (!isNaN(q) && q > 0) {
-      const p = findByEan(ean);
-      appState.order[ean] = {
-        ean,
-        name: p.nazov_vyrobku,
-        price: Number(p.cena || 0),
-        dph: Math.abs(Number(p.dph || 0)),
-        unit: p.mj,
-        quantity: q,
-        item_note: appState.order[ean]?.item_note || ''
-      };
-    } else {
-      delete appState.order[ean];
-    }
-    updateTotals();
-  }
+function onQty(e) {
+  const input = e.target;
+  const ean = input.dataset.ean;
+  const v = (input.value || '').replace(',', '.');
+  const q = parseFloat(v);
+  
+  if (!isNaN(q) && q > 0) {
+    const p = findByEan(ean);
+    
+    // NOVÉ: Zisťovanie jednotky podľa checkboxu "KS"
+    const isPieceChecked = document.getElementById(`isPiece_${ean}`)?.checked;
+    const finalUnit = isPieceChecked ? 'ks' : (p.mj || 'kg');
 
-  function togglePiece(chk) {
-    const ean = chk.id.replace('isPiece_', '');
-    const btn = document.getElementById(`noteBtn_${ean}`);
-    chk.checked ? btn?.classList.remove('hidden') : btn?.classList.add('hidden');
-    if (!chk.checked && appState.order[ean]) appState.order[ean].item_note = '';
+    appState.order[ean] = {
+      ean,
+      name: p.nazov_vyrobku,
+      price: Number(p.cena || 0),
+      dph: Math.abs(Number(p.dph || 0)),
+      unit: finalUnit, // <--- Uložíme dynamickú jednotku
+      quantity: q,
+      item_note: appState.order[ean]?.item_note || ''
+    };
+  } else {
+    delete appState.order[ean];
   }
+  updateTotals();
+}
+
+function togglePiece(chk) {
+  const ean = chk.id.replace('isPiece_', '');
+  const btn = document.getElementById(`noteBtn_${ean}`);
+  
+  if (chk.checked) {
+    btn?.classList.remove('hidden');
+    // Ak už je v objednávke, zmeníme jednotku na 'ks'
+    if (appState.order[ean]) {
+      appState.order[ean].unit = 'ks';
+    }
+  } else {
+    btn?.classList.add('hidden');
+    // Ak už je v objednávke, vrátime jednotku z pôvodného produktu
+    if (appState.order[ean]) {
+      const p = findByEan(ean);
+      appState.order[ean].unit = p.mj || 'kg';
+      appState.order[ean].item_note = '';
+    }
+  }
+  updateTotals();
+}
 
   function openItemNoteModal(ean) {
     const p = findByEan(ean);
