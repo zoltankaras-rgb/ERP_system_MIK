@@ -805,7 +805,10 @@ async function loadPricelistsForManagement() {
     } catch(e) { box.innerHTML = `<p class="error">${e.message}</p>`; }
 }
 
-// EDITOR V MODALE (Popup okno)
+// =================================================================
+// 2. EDITOR V MODALE (VEĽKÉ OKNO - FULLSCREEN)
+// =================================================================
+
 window.showPricelistEditor = function(plId) {
     const isEdit = !!plId;
     
@@ -821,53 +824,138 @@ window.showPricelistEditor = function(plId) {
         if (p.id != plId) copyOptions += `<option value="${p.id}">Kopírovať z: ${escapeHtml(p.nazov_cennika)}</option>`;
     });
 
-    // HTML pre Modal - ROZLOŽENIE GRID
+    // === HTML PRE MODAL (S CSS PRE VEĽKÉ OKNO) ===
     const modalHtml = `
-      <div style="display:flex; flex-direction:column; height:85vh;">
-          <h3 style="margin-top:0; color:#1e3a8a; border-bottom:1px solid #eee; padding-bottom:10px;">
-              ${isEdit ? '✏️ Úprava cenníka' : '➕ Vytvorenie nového cenníka'}
-          </h3>
+      <style>
+          /* Tieto štýly "prebijú" predvolené malé okno */
+          .b2b-modal-content {
+              width: 96vw !important;        /* 96% šírky obrazovky */
+              max-width: 1920px !important;  /* Povoliť až do Full HD */
+              height: 92vh !important;       /* 92% výšky obrazovky */
+              display: flex !important;
+              flex-direction: column !important;
+              padding: 0 !important;         /* Reset paddingu, nastavíme si vlastný */
+              border-radius: 8px !important;
+              overflow: hidden !important;   /* Žiadny scroll na hlavnom okne */
+          }
           
-          <div style="margin-bottom:15px; display:grid; grid-template-columns: 2fr 1fr; gap:15px;">
+          /* Hlavný layout editora */
+          .pl-editor-wrapper {
+              display: flex;
+              flex-direction: column;
+              height: 100%;
+              background: #f8fafc;
+          }
+
+          .pl-header {
+              padding: 15px 20px;
+              background: #fff;
+              border-bottom: 1px solid #e2e8f0;
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+          }
+
+          .pl-controls {
+              padding: 15px 20px;
+              background: #fff;
+              border-bottom: 1px solid #e2e8f0;
+              display: grid;
+              grid-template-columns: 2fr 1fr;
+              gap: 20px;
+          }
+
+          /* Grid pre tabuľky - roztiahne sa na zvyšok výšky */
+          .pl-tables-grid {
+              flex: 1;               /* Vyplní zvyšok miesta */
+              display: grid;
+              grid-template-columns: 1fr 1fr; /* Dva rovnaké stĺpce */
+              gap: 15px;
+              padding: 15px;
+              overflow: hidden;      /* Aby scrollovali len tabuľky, nie celá stránka */
+              min-height: 0;         /* Nutné pre flex/grid scrollovanie */
+          }
+
+          .pl-panel {
+              display: flex;
+              flex-direction: column;
+              background: #fff;
+              border: 1px solid #cbd5e1;
+              border-radius: 8px;
+              overflow: hidden;
+              box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+          }
+
+          .pl-panel-head {
+              padding: 10px 15px;
+              font-weight: bold;
+              border-bottom: 1px solid #e2e8f0;
+          }
+
+          .pl-scroll-area {
+              flex: 1;               /* Roztiahne sa */
+              overflow-y: auto;      /* Scrollovanie tu */
+              background: #fff;
+          }
+
+          .pl-footer {
+              padding: 15px 20px;
+              background: #fff;
+              border-top: 1px solid #e2e8f0;
+              text-align: right;
+          }
+          
+          /* Oprava tabuliek */
+          .pl-scroll-area table { width: 100%; border-collapse: collapse; }
+          .pl-scroll-area th { position: sticky; top: 0; z-index: 10; box-shadow: 0 1px 2px rgba(0,0,0,0.1); }
+      </style>
+
+      <div class="pl-editor-wrapper">
+          <div class="pl-header">
+              <h3 style="margin:0; color:#1e3a8a; display:flex; align-items:center; gap:10px;">
+                  ${isEdit ? '✏️ Úprava cenníka' : '➕ Nový cenník'}
+              </h3>
+              <button class="btn btn-secondary btn-sm" onclick="closeModal()">❌ Zavrieť</button>
+          </div>
+          
+          <div class="pl-controls">
               <div class="form-group">
-                  <label>Názov cenníka</label>
-                  <input type="text" id="pl-name" class="filter-input" style="width:100%; font-size:1.1rem; font-weight:bold; border: 2px solid #3b82f6;" placeholder="Napr. Veľkoobchod 2026">
+                  <label style="font-weight:bold;">Názov cenníka</label>
+                  <input type="text" id="pl-name" class="filter-input" style="width:100%; font-size:1.1rem; font-weight:bold; border: 2px solid #3b82f6;" placeholder="Napr. VIP Odberateľ 2026">
               </div>
               ${isEdit ? `
               <div class="form-group">
-                  <label>Kopírovať popisy z iného cenníka</label>
+                  <label>Kopírovať popisy/info z iného cenníka:</label>
                   <div style="display:flex; gap:5px;">
                       <select id="pl-source-copy" class="filter-input" style="flex:1;">${copyOptions}</select>
                       <button class="btn btn-secondary btn-sm" onclick="window.importInfoFromSelected()">Načítať</button>
                   </div>
               </div>` : ''}
+              
+              ${!isEdit ? `<div class="form-group"><label>Priradiť ihneď zákazníkom:</label><div class="cust-select-container" id="pl-new-cust-list" style="max-height:60px;">${customersHtml}</div></div>` : ''}
           </div>
 
-          ${!isEdit ? `<div class="form-group" style="margin-bottom:15px;"><label>Priradiť ihneď zákazníkom:</label><div class="cust-select-container" id="pl-new-cust-list" style="max-height:100px;">${customersHtml}</div></div>` : ''}
-          
           ${isEdit ? `
-          <div style="flex:1; display:grid; grid-template-columns: 1fr 1fr; gap:20px; overflow:hidden;">
-              <div style="display:flex; flex-direction:column; border:1px solid #e2e8f0; border-radius:6px; background:#fff;">
-                  <div style="background:#f1f5f9; padding:10px; font-weight:bold; border-bottom:1px solid #e2e8f0;">
-                      📦 Katalóg produktov (Zdroj)
+          <div class="pl-tables-grid">
+              <div class="pl-panel" style="border-color: #94a3b8;">
+                  <div class="pl-panel-head" style="background:#f1f5f9; display:flex; justify-content:space-between; align-items:center;">
+                      <span>📦 Katalóg produktov (Zdroj)</span>
+                      <input type="text" id="pl-prod-filter" class="filter-input" style="width:200px; padding:4px;" placeholder="🔍 Hľadať...">
                   </div>
-                  <div style="padding:5px;">
-                      <input type="text" id="pl-prod-filter" class="filter-input" style="width:100%;" placeholder="🔍 Hľadať produkt...">
-                  </div>
-                  <div id="pl-source-list" class="cust-select-container" style="flex:1; overflow-y:auto; border:none;"></div>
+                  <div id="pl-source-list" class="pl-scroll-area"></div>
               </div>
 
-              <div style="display:flex; flex-direction:column; border:1px solid #86efac; border-radius:6px; background:#fff;">
-                  <div style="background:#dcfce7; padding:10px; font-weight:bold; color:#14532d; border-bottom:1px solid #86efac;">
+              <div class="pl-panel" style="border-color: #22c55e;">
+                  <div class="pl-panel-head" style="background:#dcfce7; color:#14532d;">
                       ✅ Položky v tomto cenníku
                   </div>
-                  <div id="pl-target-list" class="cust-select-container" style="flex:1; overflow-y:auto; border:none; background:#f0fdf4;"></div>
+                  <div id="pl-target-list" class="pl-scroll-area" style="background:#f0fdf4;"></div>
               </div>
-          </div>` : ''}
+          </div>` : '<div style="flex:1; display:flex; align-items:center; justify-content:center; color:#666;">Najprv uložte názov cenníka, potom budete môcť pridávať produkty.</div>'}
           
-          <div style="margin-top:15px; padding-top:10px; border-top:1px solid #eee; text-align:right;">
+          <div class="pl-footer">
               <button class="btn btn-secondary" onclick="closeModal()" style="margin-right:10px;">Zrušiť</button>
-              <button id="pl-save-btn" class="btn btn-success" style="padding: 10px 30px; font-size:1.1rem;">💾 Uložiť cenník</button>
+              <button id="pl-save-btn" class="btn btn-success" style="padding: 10px 40px; font-size:1.1rem; font-weight:bold;">💾 Uložiť cenník</button>
           </div>
       </div>`;
     
@@ -878,6 +966,7 @@ window.showPricelistEditor = function(plId) {
         const pl = state.pricelists.find(p => p.id == plId);
         if(pl) doc.getElementById('pl-name').value = pl.nazov_cennika;
         
+        // Spustíme načítanie
         loadPricelistItemsForEdit(plId);
         
         doc.getElementById('pl-save-btn').onclick = async () => window.savePricelistItems(plId);
@@ -900,7 +989,6 @@ window.showPricelistEditor = function(plId) {
         };
     }
 };
-
 // Funkcia na uloženie (aktualizovaná pre Modal)
 window.savePricelistItems = async function(plId) {
     const newName = doc.getElementById('pl-name').value.trim();
