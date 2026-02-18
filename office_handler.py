@@ -184,10 +184,19 @@ def upload_b2c_image():
 # =================================================================
 # === DASHBOARD KANCELÁRIA =========================================
 # =================================================================
+# V súbore office_handler.py
+# Nahraďte celú funkciu get_kancelaria_dashboard_data týmto kódom:
 
 def get_kancelaria_dashboard_data():
-    """Dashboard: suroviny pod minimom, finálny tovar pod minimom, akcie, top produkty, timeseries výroby."""
-    # 1) suroviny pod minimom
+    """
+    Dashboard: 
+    1. Suroviny pod minimom
+    2. Tovar pod minimom
+    3. TOP produkty (výroba)
+    4. Best Sellers (predaj B2B + B2C) - NOVÉ
+    """
+    
+    # 1) SUROVINY pod minimom (Sklad 1)
     low_stock_raw = db_connector.execute_query("""
         SELECT nazov as name, mnozstvo as quantity, min_zasoba as minStock
         FROM sklad
@@ -195,7 +204,7 @@ def get_kancelaria_dashboard_data():
         ORDER BY nazov
     """) or []
 
-    # 2) finálny tovar pod minimom
+    # 2) FINÁLNY TOVAR pod minimom (Sklad 2)
     all_goods = db_connector.execute_query("""
         SELECT
             nazov_vyrobku, predajna_kategoria, aktualny_sklad_finalny_kg,
@@ -214,6 +223,7 @@ def get_kancelaria_dashboard_data():
 
         is_below_min = False
         if mj == 'ks':
+            # Prepočet kg -> ks ak treba
             current_stock_ks = math.floor((stock_kg * 1000) / weight_g) if weight_g > 0 else 0
             if min_stock_ks > 0 and current_stock_ks < min_stock_ks:
                 is_below_min = True
@@ -237,26 +247,32 @@ def get_kancelaria_dashboard_data():
     for item in low_stock_goods_list:
         low_stock_goods_categorized.setdefault(item['category'], []).append(item)
 
-    # 3) aktívne akcie
-    active_promos = db_connector.execute_query("""
-        SELECT promo.product_name, promo.sale_price_net, promo.end_date, chain.name as chain_name
-        FROM b2b_promotions promo
-        JOIN b2b_retail_chains chain ON promo.chain_id = chain.id
-        WHERE CURDATE() BETWEEN promo.start_date AND promo.end_date
-        ORDER BY chain.name, promo.product_name
-    """) or []
+    # 3) AKTÍVNE AKCIE (Promo)
+    active_promos = []
+    try:
+        active_promos = db_connector.execute_query("""
+            SELECT promo.product_name, promo.sale_price_net, promo.end_date, chain.name as chain_name
+            FROM b2b_promotions promo
+            JOIN b2b_retail_chains chain ON promo.chain_id = chain.id
+            WHERE CURDATE() BETWEEN promo.start_date AND promo.end_date
+            ORDER BY chain.name, promo.product_name
+        """) or []
+    except: pass
 
-    # 4) TOP produkty + timeseries (opravené GROUP BY)
+    # 4) VÝROBA (Grafy) - Opravené na 30 dní
+    # Poznámka: Aby sa tu niečo ukázalo, musí mať záznam v zaznamy_vyroba stav 'Ukončené' alebo 'Dokončené'
+    # a vyplnené 'realne_mnozstvo_kg'.
+    zv_col = _zv_name_col()
+    
     top_products = db_connector.execute_query(f"""
         SELECT
             p.nazov_vyrobku AS name,
-            SUM(COALESCE(zv.realne_mnozstvo_kg,0)) AS total
+            SUM(COALESCE(zv.realne_mnozstvo_kg, 0)) AS total
         FROM zaznamy_vyroba zv
-        JOIN produkty p
-          ON TRIM(zv.{_zv_name_col()}) = TRIM(p.nazov_vyrobku)
+        JOIN produkty p ON TRIM(zv.{zv_col}) = TRIM(p.nazov_vyrobku)
         WHERE zv.datum_ukoncenia >= CURDATE() - INTERVAL 30 DAY
           AND zv.stav IN ('Ukončené','Dokončené')
-          AND COALESCE(zv.realne_mnozstvo_kg,0) > 0
+          AND COALESCE(zv.realne_mnozstvo_kg, 0) > 0
         GROUP BY p.nazov_vyrobku
         ORDER BY total DESC
         LIMIT 5
@@ -264,7 +280,7 @@ def get_kancelaria_dashboard_data():
 
     production_timeseries = db_connector.execute_query("""
         SELECT DATE_FORMAT(datum_ukoncenia, '%Y-%m-%d') as production_date,
-               SUM(COALESCE(realne_mnozstvo_kg,0)) as total_kg
+               SUM(COALESCE(realne_mnozstvo_kg, 0)) as total_kg
         FROM zaznamy_vyroba
         WHERE datum_ukoncenia >= CURDATE() - INTERVAL 30 DAY
           AND stav IN ('Ukončené','Dokončené')
@@ -272,14 +288,92 @@ def get_kancelaria_dashboard_data():
         ORDER BY production_date ASC
     """) or []
 
+    # 5) BEST SELLERS (B2B + B2C) - NOVÉ
+    # Získame predaje za posledných 30 dní
+    best_sellers_map = {} # EAN -> {name, qty, revenue}
+
+    # B2B Predaje
+    try:
+        b2b_rows = db_connector.execute_query("""
+            SELECT 
+                op.ean_produktu, op.nazov_vyrobku, op.mnozstvo, op.cena_bez_dph
+            FROM b2b_objednavky_polozky op
+            JOIN b2b_objednavky o ON o.id = op.objednavka_id
+            WHERE o.datum_objednavky >= CURDATE() - INTERVAL 30 DAY
+              AND o.stav NOT IN ('Zrušená')
+        """) or []
+        for r in b2b_rows:
+            ean = r['ean_produktu']
+            if not ean: continue
+            if ean not in best_sellers_map:
+                best_sellers_map[ean] = {'name': r['nazov_vyrobku'], 'qty': 0.0, 'revenue': 0.0}
+            
+            qty = float(r['mnozstvo'] or 0)
+            price = float(r['cena_bez_dph'] or 0)
+            best_sellers_map[ean]['qty'] += qty
+            best_sellers_map[ean]['revenue'] += (qty * price)
+    except: pass
+
+    # B2C Predaje
+    try:
+        b2c_rows = db_connector.execute_query("""
+            SELECT 
+                op.ean_produktu, op.nazov_vyrobku, op.mnozstvo, op.cena_bez_dph
+            FROM b2c_objednavky_polozky op
+            JOIN b2c_objednavky o ON o.id = op.objednavka_id
+            WHERE o.datum_objednavky >= CURDATE() - INTERVAL 30 DAY
+              AND o.stav NOT IN ('Zrušená')
+        """) or []
+        for r in b2c_rows:
+            ean = r['ean_produktu']
+            if not ean: continue
+            if ean not in best_sellers_map:
+                best_sellers_map[ean] = {'name': r['nazov_vyrobku'], 'qty': 0.0, 'revenue': 0.0}
+            
+            qty = float(r['mnozstvo'] or 0)
+            price = float(r['cena_bez_dph'] or 0)
+            best_sellers_map[ean]['qty'] += qty
+            best_sellers_map[ean]['revenue'] += (qty * price)
+    except: pass
+
+    # Spracovanie výsledkov a doplnenie nákupných cien
+    best_sellers_list = []
+    
+    # Načítame nákupné ceny z produktov
+    product_costs = {}
+    try:
+        cost_rows = db_connector.execute_query("SELECT ean, nakupna_cena FROM produkty") or []
+        product_costs = {str(r['ean']): float(r['nakupna_cena'] or 0) for r in cost_rows}
+    except: pass
+
+    for ean, data in best_sellers_map.items():
+        qty = data['qty']
+        if qty <= 0: continue
+        
+        avg_sell_price = data['revenue'] / qty
+        buy_price = product_costs.get(str(ean), 0.0)
+        
+        best_sellers_list.append({
+            "name": data['name'],
+            "ean": ean,
+            "total_qty": qty,
+            "avg_sell_price": avg_sell_price,
+            "avg_buy_price": buy_price,
+            "margin_eur": (avg_sell_price - buy_price) * qty
+        })
+
+    # Zoradenie podľa množstva (top 10)
+    best_sellers_list.sort(key=lambda x: x['total_qty'], reverse=True)
+    best_sellers_list = best_sellers_list[:10]
+
     return {
         "lowStockRaw": low_stock_raw,
         "lowStockGoods": low_stock_goods_categorized,
         "activePromotions": active_promos,
         "topProducts": top_products,
-        "timeSeriesData": production_timeseries
+        "timeSeriesData": production_timeseries,
+        "bestSellers": best_sellers_list # <--- NOVÉ POLE
     }
-
 def get_kancelaria_base_data():
     products_list = db_connector.execute_query("""
         SELECT nazov_vyrobku
