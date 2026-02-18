@@ -1480,3 +1480,52 @@ window.saveB2BBranch = async function(parentId) {
   })(typeof window !== 'undefined' ? window : this);
 
 })(typeof window !== 'undefined' ? window : this, typeof document !== 'undefined' ? document : undefined);
+
+// =================================================================
+// KROK 4: SPRÍSTUPNENIE FUNKCIÍ PRE HTML TLAČIDLÁ
+// =================================================================
+
+// 1. Sprístupníme hlavný editor
+window.showPricelistEditor = showPricelistEditor;
+
+// 2. Obnovíme funkciu pre import informácií (ak by sa stratila pri kopírovaní)
+window.importInfoFromSelected = async () => {
+    const sourceId = document.getElementById('pl-source-copy').value;
+    if (!sourceId) return showStatus('Vyberte cenník zo zoznamu', true);
+    
+    if (!confirm("Týmto sa prepíšu poznámky/info pri produktoch, ktoré sa nachádzajú v oboch cenníkoch. Chcete pokračovať?")) return;
+
+    try {
+        // Použijeme existujúce API volanie
+        const data = await fetch('/api/kancelaria/b2b/getPricelistDetails', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({id: sourceId})
+        }).then(res => res.json());
+
+        const sourceItems = data.items || [];
+        let updatedCount = 0;
+        
+        // currentPlItems je globálna mapa definovaná v Kroku 3
+        if (typeof currentPlItems !== 'undefined' && currentPlItems.size > 0) {
+            sourceItems.forEach(srcItem => {
+                if (currentPlItems.has(srcItem.ean_produktu)) {
+                    const currentData = currentPlItems.get(srcItem.ean_produktu);
+                    if (srcItem.info || srcItem.poznamka) {
+                        currentData.info = srcItem.info || srcItem.poznamka;
+                        currentPlItems.set(srcItem.ean_produktu, currentData);
+                        updatedCount++;
+                    }
+                }
+            });
+            // Prekreslíme tabuľku (funkcia z Kroku 3)
+            if(typeof renderTargetProducts === 'function') renderTargetProducts();
+            showStatus(`Aktualizované info pri ${updatedCount} produktoch.`);
+        } else {
+            showStatus('Tento cenník zatiaľ nemá žiadne položky. Najprv pridajte produkty.', true);
+        }
+    } catch(e) {
+        console.error(e);
+        showStatus('Chyba pri importe: ' + e.message, true);
+    }
+};
