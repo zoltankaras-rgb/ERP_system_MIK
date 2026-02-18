@@ -734,77 +734,245 @@ window.saveB2BBranch = async function(parentId) {
 };
 
 // =================================================================
-// 5. CENNÍKY (MANAGEMENT)
+// 5. CENNÍKY (MANAGEMENT) - FILTER, STRÁNKOVANIE A PREHĽAD
 // =================================================================
 
 async function loadPricelistsForManagement() {
     const box = ensureContainer('b2b-pricelists-container');
-    box.innerHTML = '<p>Načítavam cenníky...</p>';
+    box.innerHTML = '<div style="text-align:center;padding:40px;color:#666;"><i class="fas fa-spinner fa-spin"></i> Načítavam zoznamy a priradenia...</div>';
+    
     try {
-        // Načítame dáta
-        const data = await callFirstOk([{ url: '/api/kancelaria/b2b/getPricelistsAndProducts' }]);
-        state.pricelists = data.pricelists || []; 
-        state.productsAll = data.products || [];
+        // 1. Načítame cenníky AJ zákazníkov (aby sme vedeli, komu čo patrí)
+        const [plData, custData] = await Promise.all([
+            callFirstOk([{ url: '/api/kancelaria/b2b/getPricelistsAndProducts' }]),
+            callFirstOk([{ url: '/api/kancelaria/b2b/getCustomersAndPricelists' }])
+        ]);
+
+        state.pricelists = plData.pricelists || []; 
+        state.productsAll = plData.products || [];
+        state.customers = custData.customers || [];
+        state.mapping = custData.mapping || {}; // Mapa: customer_id -> [pricelist_id]
+
+        // 2. Spracovanie dát: Inverzné mapovanie (Cenník -> Zoznam firiem)
+        const pricelistUsage = {}; // id_cennika -> ["Firma A", "Firma B"]
         
-        const cData = await callFirstOk([{ url: '/api/kancelaria/b2b/getCustomersAndPricelists' }]);
-        state.customers = cData.customers || [];
-        
+        // Inicializácia polí
+        state.pricelists.forEach(pl => pricelistUsage[pl.id] = []);
+
+        // Prejdenie zákazníkov a naplnenie použitia
+        state.customers.forEach(c => {
+            // Mapping môže byť podľa ID (int) alebo zakaznik_id (string), skúsime oboje
+            const assignedIds = state.mapping[c.zakaznik_id] || state.mapping[c.id] || [];
+            assignedIds.forEach(plId => {
+                const pid = parseInt(plId);
+                if (pricelistUsage[pid]) {
+                    pricelistUsage[pid].push(c.nazov_firmy);
+                }
+            });
+        });
+
+        // 3. Vykreslenie UI (Ovládací panel + Kontajner na tabuľku)
         let html = `
-            <div style="display:flex; justify-content:flex-end; margin-bottom:15px;">
-                 <button id="btn-create-pl" class="btn btn-success"><i class="fas fa-plus"></i> + Nový cenník</button>
+            <div style="background:#f8fafc; padding:15px; border-radius:8px; border:1px solid #e2e8f0; margin-bottom:20px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                    <h4 style="margin:0; color:#1e293b;">🗂️ Správa cenníkov</h4>
+                    <button id="btn-create-pl" class="btn btn-success" style="font-weight:bold;"><i class="fas fa-plus"></i> + Nový cenník</button>
+                </div>
+                
+                <div class="filter-bar" style="border:none; padding:0; margin:0; box-shadow:none; background:transparent; gap:15px;">
+                    <div class="filter-group">
+                        <label>Názov cenníka</label>
+                        <input type="text" id="pl-search-text" class="filter-input" placeholder="Hľadať..." style="width:200px;">
+                    </div>
+                    
+                    <div class="filter-group">
+                        <label>Stav priradenia</label>
+                        <select id="pl-filter-status" class="filter-input" style="width:160px;">
+                            <option value="all">Všetky</option>
+                            <option value="assigned">✅ Priradené (Aktívne)</option>
+                            <option value="unassigned">⚪ Nepriradené (Voľné)</option>
+                        </select>
+                    </div>
+
+                    <div class="filter-group">
+                        <label>Patrí zákazníkovi</label>
+                        <select id="pl-filter-customer" class="filter-input" style="width:250px;">
+                            <option value="">-- Ktorýkoľvek --</option>
+                            ${state.customers.map(c => `<option value="${escapeHtml(c.nazov_firmy)}">${escapeHtml(c.nazov_firmy)}</option>`).join('')}
+                        </select>
+                    </div>
+                    
+                    <div class="filter-group" style="justify-content:flex-end;">
+                         <label>&nbsp;</label>
+                         <button id="pl-reset-filter" class="btn btn-secondary">Reset</button>
+                    </div>
+                </div>
             </div>
-            <div class="stat-card">
+
+            <div id="pl-table-wrapper"></div>
+            <div id="pl-pagination" style="display:flex; justify-content:center; gap:5px; margin-top:20px;"></div>
+        `;
+        
+        box.innerHTML = html;
+
+        // 4. Logika renderovania tabuľky
+        let currentPage = 1;
+        const itemsPerPage = 10;
+
+        const renderTable = () => {
+            const searchText = doc.getElementById('pl-search-text').value.toLowerCase();
+            const statusFilter = doc.getElementById('pl-filter-status').value;
+            const custFilter = doc.getElementById('pl-filter-customer').value;
+
+            // Filtrovanie
+            const filtered = state.pricelists.filter(pl => {
+                const usage = pricelistUsage[pl.id] || [];
+                const isAssigned = usage.length > 0;
+
+                // A. Text filter
+                if (searchText && !pl.nazov_cennika.toLowerCase().includes(searchText)) return false;
+                
+                // B. Status filter
+                if (statusFilter === 'assigned' && !isAssigned) return false;
+                if (statusFilter === 'unassigned' && isAssigned) return false;
+
+                // C. Customer filter (ak je zvolený zákazník, cenník musí byť v jeho zozname)
+                if (custFilter && !usage.includes(custFilter)) return false;
+
+                return true;
+            });
+
+            // Zoradenie (A-Z)
+            filtered.sort((a,b) => a.nazov_cennika.localeCompare(b.nazov_cennika));
+
+            // Stránkovanie
+            const totalPages = Math.ceil(filtered.length / itemsPerPage);
+            if (currentPage > totalPages) currentPage = 1;
+            const start = (currentPage - 1) * itemsPerPage;
+            const paginated = filtered.slice(start, start + itemsPerPage);
+
+            // Generovanie HTML tabuľky
+            let tableHtml = `
+            <div class="stat-card" style="padding:0; overflow:hidden; border:1px solid #e2e8f0;">
                 <table class="table-refined">
                     <thead>
                         <tr>
-                            <th>Názov cenníka</th>
-                            <th style="width:320px;text-align:right;">Akcia</th>
+                            <th style="width:40%;">Názov cenníka</th>
+                            <th style="width:30%;">Použitie / Zákazníci</th>
+                            <th style="width:30%;text-align:right;">Akcia</th>
                         </tr>
                     </thead>
-                    <tbody>
-        `;
-        
-        if(!state.pricelists.length) {
-            html += `<tr><td colspan="2" style="text-align:center;padding:20px;">Zatiaľ žiadne cenníky.</td></tr>`;
-        } else {
-            state.pricelists.forEach(pl => {
-                html += `<tr>
-                    <td style="font-size:1.1rem; font-weight:500; vertical-align:middle;">${escapeHtml(pl.nazov_cennika)}</td>
-                    <td style="text-align:right;">
-                        <button class="btn btn-secondary btn-sm" onclick="window.printPricelistPreview(${pl.id})">🖨️ Tlač/Náhľad</button>
-                        <button class="btn btn-primary btn-sm" style="margin-left:5px;" onclick="window.showPricelistEditor(${pl.id})">✏️ Upraviť</button>
-                        <button class="btn btn-danger btn-sm" style="margin-left:5px;" data-del-pl="${pl.id}" data-name="${escapeHtml(pl.nazov_cennika)}">🗑️</button>
-                    </td>
-                </tr>`;
+                    <tbody>`;
+
+            if (paginated.length === 0) {
+                tableHtml += `<tr><td colspan="3" style="text-align:center;padding:40px;color:#94a3b8;">Žiadne cenníky nevyhovujú filtru.</td></tr>`;
+            } else {
+                paginated.forEach(pl => {
+                    const usage = pricelistUsage[pl.id] || [];
+                    let statusInfo = '';
+                    
+                    if (usage.length > 0) {
+                        const tooltip = usage.join('\n');
+                        const countLabel = usage.length === 1 ? usage[0] : `${usage.length} zákazníkov`;
+                        statusInfo = `<div style="display:flex; align-items:center; gap:5px;" title="${escapeHtml(tooltip)}">
+                            <span style="color:#166534; background:#dcfce7; padding:2px 8px; border-radius:99px; font-size:0.75rem; font-weight:bold;">✅ Aktívny</span>
+                            <span style="font-size:0.85rem; color:#475569; cursor:help; border-bottom:1px dotted #ccc;">${escapeHtml(countLabel)}</span>
+                        </div>`;
+                    } else {
+                        statusInfo = `<span style="color:#64748b; background:#f1f5f9; padding:2px 8px; border-radius:99px; font-size:0.75rem;">⚪ Nepriradený</span>`;
+                    }
+
+                    tableHtml += `<tr>
+                        <td style="font-size:1.05rem; font-weight:600; vertical-align:middle; color:#0f172a;">
+                            ${escapeHtml(pl.nazov_cennika)}
+                        </td>
+                        <td style="vertical-align:middle;">${statusInfo}</td>
+                        <td style="text-align:right;">
+                            <button class="btn btn-secondary btn-sm" onclick="window.printPricelistPreview(${pl.id})" title="Tlačiť náhľad">🖨️</button>
+                            <button class="btn btn-primary btn-sm" style="margin-left:5px;" onclick="window.showPricelistEditor(${pl.id})" title="Upraviť položky">✏️ Upraviť</button>
+                            <button class="btn btn-danger btn-sm" style="margin-left:5px;" data-del-pl="${pl.id}" data-name="${escapeHtml(pl.nazov_cennika)}" title="Zmazať">🗑️</button>
+                        </td>
+                    </tr>`;
+                });
+            }
+            tableHtml += `</tbody></table></div>`;
+            
+            // Pätička s info
+            tableHtml += `<div style="text-align:right; font-size:0.8rem; color:#64748b; margin-top:8px;">Zobrazené ${paginated.length} z ${filtered.length} (Celkovo ${state.pricelists.length})</div>`;
+
+            doc.getElementById('pl-table-wrapper').innerHTML = tableHtml;
+
+            // Renderovanie tlačidiel stránkovania
+            let pagHtml = '';
+            if (totalPages > 1) {
+                pagHtml += `<button class="btn btn-secondary btn-sm" ${currentPage===1?'disabled':''} onclick="window.changePlPage(${currentPage-1})">« Predchádzajúca</button>`;
+                
+                // Zjednodušené zobrazenie čísiel stránok
+                let startPage = Math.max(1, currentPage - 2);
+                let endPage = Math.min(totalPages, currentPage + 2);
+                
+                for(let i=startPage; i<=endPage; i++) {
+                    pagHtml += `<button class="btn btn-sm ${i===currentPage?'btn-primary':'btn-secondary'}" onclick="window.changePlPage(${i})" style="min-width:30px;">${i}</button>`;
+                }
+                
+                pagHtml += `<button class="btn btn-secondary btn-sm" ${currentPage===totalPages?'disabled':''} onclick="window.changePlPage(${currentPage+1})">Ďalšia »</button>`;
+            }
+            doc.getElementById('pl-pagination').innerHTML = pagHtml;
+
+            // Re-attach delete listeners (pretože sme prekreslili HTML)
+            attachDeleteListeners();
+        };
+
+        const attachDeleteListeners = () => {
+            box.querySelectorAll('button[data-del-pl]').forEach(b => {
+                b.onclick = async () => {
+                    const plName = b.dataset.name;
+                    const verification = prompt(`⚠️ POZOR: Chystáte sa vymazať cenník "${plName}".\n\nAk to naozaj chcete urobiť, napíšte veľkými písmenami slovo: ZMAZAT`);
+                    
+                    if (verification !== "ZMAZAT") {
+                        alert("Mazanie bolo zrušené.");
+                        return;
+                    }
+
+                    try {
+                        await callFirstOk([{ url: '/api/kancelaria/b2b/deletePricelist', opts: { method: 'POST', body: { id: b.dataset.delPl } } }]);
+                        showStatus('Cenník bol úspešne vymazaný.', false);
+                        loadPricelistsForManagement(); // Reload
+                    } catch(e) { showStatus(e.message || String(e), true); }
+                };
             });
-        }
-        html += `</tbody></table></div>`; 
-        box.innerHTML = html;
-    
-        // Tlačidlo Nový cenník
+        };
+
+        // Globálna funkcia pre stránkovanie
+        window.changePlPage = (pageNum) => {
+            if (pageNum < 1) return;
+            currentPage = pageNum;
+            renderTable();
+        };
+
+        // Event Listeners pre filtre
+        doc.getElementById('pl-search-text').addEventListener('input', () => { currentPage=1; renderTable(); });
+        doc.getElementById('pl-filter-status').addEventListener('change', () => { currentPage=1; renderTable(); });
+        doc.getElementById('pl-filter-customer').addEventListener('change', () => { currentPage=1; renderTable(); });
+        
+        doc.getElementById('pl-reset-filter').addEventListener('click', () => {
+            doc.getElementById('pl-search-text').value = '';
+            doc.getElementById('pl-filter-status').value = 'all';
+            doc.getElementById('pl-filter-customer').value = '';
+            currentPage = 1;
+            renderTable();
+        });
+        
         doc.getElementById('btn-create-pl').onclick = () => window.showPricelistEditor(null);
 
-        // LOGIKA MAZANIA S HESLOM "ZMAZAT"
-        box.querySelectorAll('button[data-del-pl]').forEach(b => {
-            b.onclick = async () => {
-                const plName = b.dataset.name;
-                const verification = prompt(`⚠️ POZOR: Chystáte sa vymazať cenník "${plName}".\n\nTáto akcia je nevratná.\nAk to naozaj chcete urobiť, napíšte veľkými písmenami slovo: ZMAZAT`);
-                
-                if (verification !== "ZMAZAT") {
-                    alert("Mazanie bolo zrušené (nesprávne heslo).");
-                    return;
-                }
+        // Prvé vykreslenie
+        renderTable();
 
-                try {
-                    await callFirstOk([{ url: '/api/kancelaria/b2b/deletePricelist', opts: { method: 'POST', body: { id: b.dataset.delPl } } }]);
-                    showStatus('Cenník bol úspešne vymazaný.', false);
-                    loadPricelistsForManagement();
-                } catch(e) { showStatus(e.message || String(e), true); }
-            };
-        });
-    } catch(e) { box.innerHTML = `<p class="error">${e.message}</p>`; }
+    } catch(e) { 
+        console.error(e);
+        box.innerHTML = `<p class="error">Chyba pri načítaní dát: ${e.message}</p>`; 
+    }
 }
-
 // =================================================================
 // 2. EDITOR V MODALE (VEĽKÉ OKNO - FULLSCREEN)
 // =================================================================
