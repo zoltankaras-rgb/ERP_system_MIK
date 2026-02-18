@@ -123,7 +123,7 @@
 
   
   // =================================================================
-  // === 1. SPRÁVA KATALÓGU (S KATEGÓRIAMI, MODALOM A STRÁNKOVANÍM) ===
+  // === 1. SPRÁVA KATALÓGU (RECEPTY + SKLADOVÁ KARTA) ===
   // =================================================================
   async function viewCatalogManagement(){
     state.catalog = await apiRequest('/api/kancelaria/getCatalogManagementData?ts=' + Date.now()) || {};
@@ -179,6 +179,8 @@
 
       <div id="cat-table-container" class="table-container" style="min-height:300px;"></div>
       <div id="cat-pagination" style="display:flex; justify-content:center; gap:5px; margin-top:20px;"></div>
+      
+      <div id="stock-card-modal-container"></div>
     `;
 
     const onReady = () => {
@@ -230,28 +232,52 @@
                 return;
             }
 
+            // Pridané stĺpce: Recept, Karta
             let html = `<table class="tbl">
                 <thead>
                     <tr>
-                        <th style="width:120px;">EAN</th>
+                        <th style="width:110px;">EAN</th>
                         <th>Názov</th>
-                        <th>Typ</th>
+                        <th style="width:100px;">Typ</th>
                         <th>Kategória</th>
-                        <th style="text-align:right;">DPH</th>
-                        <th style="width:160px; text-align:right;">Akcie</th>
+                        <th style="width:120px; text-align:center;">Receptúra</th>
+                        <th style="width:230px; text-align:right;">Akcie</th>
                     </tr>
                 </thead>
                 <tbody>`;
 
             pageItems.forEach(p => {
-                html += `<tr data-ean="${escapeHtml(p.ean)}">
+                // Logika pre Recept:
+                // Ak má recept -> Tlačidlo "Upraviť recept"
+                // Ak nemá recept a je VÝROBOK -> Tlačidlo "Vytvoriť recept"
+                // Inak (Tovar) -> Nič
+                
+                let recipeHtml = '';
+                const isVyrobok = String(p.typ_polozky).toUpperCase().startsWith('VÝROBOK') || String(p.typ_polozky).toUpperCase() === 'PRODUKT';
+                
+                if (p.has_recipe) {
+                    recipeHtml = `<button class="btn-info btn-sm btn-recipe-edit" title="Upraviť receptúru" style="background:#e0f2fe; color:#0284c7; border:1px solid #bae6fd;">
+                                    <i class="fas fa-scroll"></i> Upraviť
+                                  </button>`;
+                } else if (isVyrobok) {
+                     recipeHtml = `<button class="btn-success btn-sm btn-recipe-create" title="Vytvoriť novú receptúru" style="font-size:0.75rem; padding:2px 6px;">
+                                    <i class="fas fa-plus"></i> Vytvoriť
+                                  </button>`;
+                } else {
+                    recipeHtml = `<span class="text-muted" style="font-size:0.8em;">-</span>`;
+                }
+
+                html += `<tr data-ean="${escapeHtml(p.ean)}" data-name="${escapeHtml(p.nazov_vyrobku)}">
                         <td style="font-family:monospace; color:#64748b;">${escapeHtml(p.ean)}</td>
                         <td><strong>${escapeHtml(p.nazov_vyrobku)}</strong></td>
                         <td><span style="font-size:0.85em; background:#f1f5f9; padding:2px 6px; border-radius:4px;">${escapeHtml(p.typ_polozky)}</span></td>
                         <td>${escapeHtml(p.predajna_kategoria || '-')}</td>
-                        <td style="text-align:right;">${Number(p.dph).toFixed(0)}%</td>
+                        <td style="text-align:center;">${recipeHtml}</td>
                         <td style="text-align:right;">
-                            <button class="btn-primary btn-sm btn-edit" title="Upraviť"><i class="fas fa-pencil-alt"></i></button>
+                            <button class="btn-secondary btn-sm btn-stock-card" title="Skladová karta a história">
+                                <i class="fas fa-chart-bar"></i> 📊
+                            </button>
+                            <button class="btn-primary btn-sm btn-edit" title="Upraviť produkt" style="margin-left:5px;"><i class="fas fa-pencil-alt"></i></button>
                             <button class="btn-danger btn-sm btn-del" title="Zmazať" style="margin-left:5px;"><i class="fas fa-trash"></i></button>
                         </td>
                     </tr>`;
@@ -275,7 +301,39 @@
             }
             paginationContainer.innerHTML = pagHtml;
 
-            // 6. Bind Events (Edit/Delete)
+            // 6. Bind Events
+            
+            // SKLADOVÁ KARTA
+            tableContainer.querySelectorAll('.btn-stock-card').forEach(b => {
+                b.onclick = (e) => {
+                    const tr = e.target.closest('tr');
+                    openStockCard(tr.dataset.ean, tr.dataset.name);
+                };
+            });
+
+            // RECEPTY
+            tableContainer.querySelectorAll('.btn-recipe-edit').forEach(b => {
+                b.onclick = (e) => {
+                    const name = e.target.closest('tr').dataset.name;
+                    // Použijeme existujúcu funkciu z erp_admin.js
+                    if (typeof renderRecipeEditorInline === 'function') {
+                        window.erpMount(() => renderRecipeEditorInline(name));
+                    }
+                };
+            });
+
+            tableContainer.querySelectorAll('.btn-recipe-create').forEach(b => {
+                b.onclick = (e) => {
+                    // Prepneme sa na tab "Nový recept" (ktorý existuje v initializeErpAdminModule)
+                    // Alebo priamo zavoláme funkciu
+                    if (typeof viewCreateRecipeInline === 'function') {
+                         window.erpMount(viewCreateRecipeInline);
+                         // TODO: Predvyplniť select (to by vyžadovalo úpravu viewCreateRecipeInline, zatiaľ necháme takto)
+                    }
+                };
+            });
+
+            // EDIT/DELETE (pôvodné)
             tableContainer.querySelectorAll('.btn-edit').forEach(b => {
                 b.onclick = (e) => {
                     const ean = e.target.closest('tr').dataset.ean;
@@ -293,16 +351,9 @@
         }
 
         // --- Event Listeners ---
-        
-        // Search & Pagination Handler using Custom Event to avoid global scope issues
-        searchInput.addEventListener('page-change', (e) => {
-            currentPage = e.detail;
-            renderTable();
-        });
-
+        searchInput.addEventListener('page-change', (e) => { currentPage = e.detail; renderTable(); });
         searchInput.oninput = () => { currentPage = 1; renderTable(); };
 
-        // Tabs
         tabsContainer.querySelectorAll('.btn-tab').forEach(btn => {
             btn.onclick = () => {
                 tabsContainer.querySelectorAll('.btn-tab').forEach(b => { b.classList.remove('btn-primary'); b.classList.add('btn-secondary'); });
@@ -313,14 +364,101 @@
             };
         });
 
-        // Add Button
         document.getElementById('cat-btn-add').onclick = () => openProductModal(null);
-
-        // Initial Render
         renderTable();
 
+        // --- SKLADOVÁ KARTA (MODAL) ---
+        async function openStockCard(ean, name) {
+            const wrapper = document.getElementById('stock-card-modal-container');
+            
+            // Loader
+            const loadingHtml = `<div style="padding:40px; text-align:center;"><i class="fas fa-spinner fa-spin fa-2x"></i><br>Načítavam históriu pre ${escapeHtml(name)}...</div>`;
+            openModalCompat(`Skladová karta: ${escapeHtml(name)}`, { html: loadingHtml });
 
-        // --- MODAL: ADD / EDIT PRODUCT ---
+            try {
+                const res = await apiRequest('/api/kancelaria/getProductCard?ean=' + ean);
+                if (res.error) throw new Error(res.error);
+
+                // Formátovanie čísel
+                const fmt = (n) => Number(n || 0).toFixed(2);
+                const dateFmt = (d) => {
+                    if (!d) return '-';
+                    try { return new Date(d).toLocaleDateString('sk-SK'); } catch(e) { return d; }
+                };
+
+                // Výroba HTML
+                let prodHtml = '<p class="text-muted">Žiadne záznamy o výrobe.</p>';
+                if (res.production && res.production.length > 0) {
+                    prodHtml = `<table class="tbl" style="font-size:0.85rem;">
+                        <thead><tr><th>Dátum</th><th>Šarža</th><th style="text-align:right">Množstvo</th></tr></thead>
+                        <tbody>${res.production.map(r => `
+                            <tr><td>${dateFmt(r.date)}</td><td>${escapeHtml(r.batch)}</td><td style="text-align:right"><strong>${fmt(r.qty)} kg</strong></td></tr>
+                        `).join('')}</tbody></table>`;
+                }
+
+                let b2bHtml = '<p class="text-muted">Žiadne B2B predaje.</p>';
+                if (res.b2b && res.b2b.length > 0) {
+                    b2bHtml = `<table class="tbl" style="font-size:0.85rem;">
+                        <thead><tr><th>Dátum</th><th>Zákazník</th><th style="text-align:right">Množstvo</th></tr></thead>
+                        <tbody>${res.b2b.map(r => `
+                            <tr><td>${dateFmt(r.date)}</td><td>${escapeHtml(r.customer)}</td><td style="text-align:right">${fmt(r.qty)} ${escapeHtml(r.mj)}</td></tr>
+                        `).join('')}</tbody></table>`;
+                }
+
+                let b2cHtml = '<p class="text-muted">Žiadne B2C predaje.</p>';
+                if (res.b2c && res.b2c.length > 0) {
+                    b2cHtml = `<table class="tbl" style="font-size:0.85rem;">
+                        <thead><tr><th>Dátum</th><th>Objednávka</th><th style="text-align:right">Množstvo</th></tr></thead>
+                        <tbody>${res.b2c.map(r => `
+                            <tr><td>${dateFmt(r.date)}</td><td>${escapeHtml(r.order_no)}</td><td style="text-align:right">${fmt(r.qty)} ${escapeHtml(r.mj)}</td></tr>
+                        `).join('')}</tbody></table>`;
+                }
+
+                const content = `
+                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px;">
+                        <div style="background:#eff6ff; padding:15px; border-radius:8px;">
+                            <h4 style="margin:0 0 10px 0; color:#1e40af;">📦 Aktuálny stav</h4>
+                            <div style="font-size:2rem; font-weight:bold; color:#1e3a8a;">
+                                ${fmt(res.product.stock)} ${escapeHtml(res.product.mj)}
+                            </div>
+                            <div style="font-size:0.9rem; color:#64748b;">EAN: ${escapeHtml(res.product.ean)}</div>
+                        </div>
+                        <div>
+                             <h4 style="margin:0 0 10px 0;">🏭 Posledná výroba</h4>
+                             ${prodHtml}
+                        </div>
+                    </div>
+                    
+                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px; margin-top:20px;">
+                        <div>
+                            <h4 style="margin:0 0 10px 0;">🏢 Posledné B2B Predaje</h4>
+                            ${b2bHtml}
+                        </div>
+                        <div>
+                            <h4 style="margin:0 0 10px 0;">🛒 Posledné B2C Predaje</h4>
+                            ${b2cHtml}
+                        </div>
+                    </div>
+                    
+                    <div style="text-align:right; margin-top:20px;">
+                        <button class="btn-secondary" onclick="hideModalCompat()">Zavrieť</button>
+                    </div>
+                `;
+                
+                // Prekreslíme modal s obsahom
+                // (Keďže openModalCompat nemusí podporovať update, zavrieme a otvoríme, alebo ak máš vlastný modal container, prepíš innerHTML)
+                // Tu použijeme trik: nájdeme obsah modalu a prepíšeme ho
+                const mc = document.querySelector('.b2b-modal-content');
+                if (mc) mc.innerHTML = content;
+
+            } catch (e) {
+                alert("Chyba: " + e.message);
+                hideModalCompat();
+            }
+        }
+
+
+        // --- MODAL: ADD / EDIT PRODUCT (Zachovaný z minula) ---
         function openProductModal(p) {
             const isEdit = !!p;
             const title = isEdit ? `Upraviť: ${p.nazov_vyrobku}` : 'Nový produkt';
@@ -329,6 +467,9 @@
             const isMade = String(data.typ_polozky).toUpperCase().startsWith('VÝROBOK');
 
             let rcpCatOpts = recipeCats.map(c => `<option value="${c}" ${data.kategoria_pre_recepty === c ? 'selected' : ''}>${c}</option>`).join('');
+            if (data.kategoria_pre_recepty && !recipeCats.includes(data.kategoria_pre_recepty)) {
+                rcpCatOpts += `<option value="${data.kategoria_pre_recepty}" selected>${data.kategoria_pre_recepty}</option>`;
+            }
             
             const html = `
               <form id="prod-modal-form" style="max-width:600px">
@@ -506,7 +647,6 @@
     };
     return { html, onReady };
   }
-
   // ===================== MINIMÁLNE ZÁSOBY (EDITOR) =================
   async function viewMinStock(){
     const rows = await apiRequest('/api/kancelaria/getProductsForMinStock') || [];

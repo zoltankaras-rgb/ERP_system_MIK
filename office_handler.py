@@ -1494,24 +1494,122 @@ def delete_promotion(data: Dict[str, Any]):
 # =================================================================
 
 def get_catalog_management_data():
+    # ZMENA: Pridaný stĺpec 'has_recipe', ktorý vráti 1, ak recept existuje
     products = db_connector.execute_query("""
-        SELECT ean, nazov_vyrobku, typ_polozky, kategoria_pre_recepty, predajna_kategoria, dph
-        FROM produkty
-        ORDER BY typ_polozky, nazov_vyrobku
+        SELECT 
+            p.ean, 
+            p.nazov_vyrobku, 
+            p.typ_polozky, 
+            p.kategoria_pre_recepty, 
+            p.predajna_kategoria, 
+            p.dph,
+            (SELECT 1 FROM recepty r WHERE TRIM(r.nazov_vyrobku) = TRIM(p.nazov_vyrobku) LIMIT 1) as has_recipe
+        FROM produkty p
+        ORDER BY p.typ_polozky, p.nazov_vyrobku
     """) or []
+
     recipe_categories = [r['kategoria_pre_recepty'] for r in (db_connector.execute_query("""
         SELECT DISTINCT kategoria_pre_recepty
         FROM produkty
         WHERE kategoria_pre_recepty IS NOT NULL AND kategoria_pre_recepty != ''
         ORDER BY 1
     """) or [])]
+
     sale_categories = ['Výrobky','Bravčové mäso chladené','Bravčové mäso mrazené','Hovädzie mäso chladené',
                        'Hovädzie mäso mrazené','Hydinové mäso chladené','Hydinové mäso mrazené',
                        'Ryby mrazené','Zelenina','Tovar']
     item_types = ['VÝROBOK','VÝROBOK_KRAJANY','VÝROBOK_KUSOVY','TOVAR','TOVAR_KUSOVY']
     dph_rates = [5.00, 10.00, 19.00, 23.00]
+
     return {"products": products, "recipe_categories": recipe_categories,
             "sale_categories": sale_categories, "item_types": item_types, "dph_rates": dph_rates}
+
+def get_product_stock_card_data(data: dict):
+    """
+    Vráti dáta pre 'Skladovú kartu' (dashboard produktu):
+    - Stav na sklade
+    - Posledné výroby (ak je výrobok)
+    - Posledné B2B predaje
+    - Posledné B2C predaje
+    """
+    ean = (data.get('ean') or '').strip()
+    if not ean:
+        return {"error": "Chýba EAN."}
+
+    # 1. Základné info o produkte
+    product = db_connector.execute_query(
+        "SELECT nazov_vyrobku, aktualny_sklad_finalny_kg, mj, typ_polozky FROM produkty WHERE ean=%s LIMIT 1",
+        (ean,), fetch='one'
+    )
+    if not product:
+        return {"error": "Produkt nenájdený."}
+
+    name = product['nazov_vyrobku']
+    
+    # 2. História B2B predajov (posledných 10)
+    b2b_sales = db_connector.execute_query("""
+        SELECT 
+            o.datum_objednavky as date,
+            o.nazov_firmy as customer,
+            op.mnozstvo as qty,
+            op.mj
+        FROM b2b_objednavky_polozky op
+        JOIN b2b_objednavky o ON o.id = op.objednavka_id
+        WHERE op.ean_produktu = %s 
+          AND o.stav NOT IN ('Zrušená')
+        ORDER BY o.datum_objednavky DESC
+        LIMIT 10
+    """, (ean,)) or []
+
+    # 3. História B2C predajov (posledných 10)
+    b2c_sales = []
+    # Kontrola či existujú tabuľky B2C
+    try:
+        b2c_sales = db_connector.execute_query("""
+            SELECT 
+                o.datum_objednavky as date,
+                o.cislo_objednavky as order_no,
+                op.mnozstvo as qty,
+                op.mj
+            FROM b2c_objednavky_polozky op
+            JOIN b2c_objednavky o ON o.id = op.objednavka_id
+            WHERE op.ean_produktu = %s
+              AND o.stav NOT IN ('Zrušená')
+            ORDER BY o.datum_objednavky DESC
+            LIMIT 10
+        """, (ean,)) or []
+    except Exception:
+        pass # Tabuľky nemusia existovať
+
+    # 4. História výroby (posledných 5)
+    # Hľadáme podľa názvu produktu v zaznamy_vyroba
+    # Zistíme správny názov stĺpca pre názov výrobku (nazov_vyrobku vs nazov_vyrobu)
+    col_name = _zv_name_col()
+    
+    production = db_connector.execute_query(f"""
+        SELECT 
+            datum_ukoncenia as date,
+            id_davky as batch,
+            realne_mnozstvo_kg as qty
+        FROM zaznamy_vyroba
+        WHERE TRIM({col_name}) = TRIM(%s)
+          AND stav IN ('Ukončené', 'Dokončené')
+        ORDER BY datum_ukoncenia DESC
+        LIMIT 5
+    """, (name,)) or []
+
+    return {
+        "product": {
+            "name": name,
+            "ean": ean,
+            "stock": float(product.get('aktualny_sklad_finalny_kg') or 0),
+            "mj": product.get('mj') or 'kg',
+            "is_made": "VÝROBOK" in str(product.get('typ_polozky') or '').upper()
+        },
+        "b2b": b2b_sales,
+        "b2c": b2c_sales,
+        "production": production
+    }
 
 def add_catalog_item(data):
     ean  = (data.get('new_catalog_ean') or '').strip()
