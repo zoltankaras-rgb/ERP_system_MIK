@@ -1175,13 +1175,13 @@ def submit_b2b_order(data: dict):
 def create_b2b_branch(data: dict):
     """
     Vytvorí podúčet (pobočku) pre existujúceho zákazníka.
-    Bezpečne detekuje názvy stĺpcov (heslo_hash vs password_hash_hex).
+    Používa rovnaký e-mail ako rodič (vyžaduje odstránenie UNIQUE indexu v DB).
     """
     parent_id = data.get("parent_id")
     name      = (data.get("branch_name") or "").strip()
     code      = (data.get("branch_code") or "").strip() # ERP ID
     addr      = (data.get("branch_address") or "").strip()
-    del_addr  = data.get("branch_delivery_address") # Ak by prišlo z FE
+    del_addr  = data.get("branch_delivery_address")
     
     if not (parent_id and name and code):
         return {"error": "Chýbajú povinné údaje (Rodič, Názov, Kód)."}
@@ -1191,13 +1191,14 @@ def create_b2b_branch(data: dict):
     if not parent:
         return {"error": "Rodičovský účet neexistuje."}
 
-    # 2. Overíme unikátnosť kódu (loginu)
+    # 2. Overíme unikátnosť kódu (loginu) - Login musí byť stále unikátny
     exists = db_connector.execute_query("SELECT id FROM b2b_zakaznici WHERE zakaznik_id=%s", (code,), fetch="one")
     if exists:
         return {"error": f"Zákaznícke číslo {code} už existuje."}
 
-    # 3. Vytvoríme pobočku - Dynamické zistenie stĺpcov (FIX CHYBY)
-    # Pobočka nepotrebuje heslo na priame prihlásenie, ale DB ho vyžaduje (NOT NULL).
+    # 3. Príprava dát - E-mail preberáme priamo od rodiča
+    parent_email = parent.get("email") or ""
+    
     dummy_salt, dummy_hash = _hash_password(secrets.token_hex(16))
 
     cols_in_db = _existing_columns("b2b_zakaznici")
@@ -1209,24 +1210,22 @@ def create_b2b_branch(data: dict):
             cols.append(col)
             vals.append(val)
 
-    # Základné údaje
     add("zakaznik_id", code)
     add("nazov_firmy", name)
-    add("email", parent.get("email") or "")
+    add("email", parent_email) # <--- POUŽIJEME ORIGINÁL EMAIL RODIČA
     add("telefon", parent.get("telefon") or "")
-    add("adresa", parent.get("adresa") or "") # Fakturačná adresa od rodiča
-    add("adresa_dorucenia", addr if addr else (del_addr or "")) # Doručovacia pre pobočku
+    add("adresa", parent.get("adresa") or "")
+    add("adresa_dorucenia", addr if addr else (del_addr or ""))
     add("parent_id", parent_id)
     add("typ", "B2B")
     add("je_schvaleny", 1)
     
-    # Bezpečné vloženie hesla (skúsi všetky varianty názvov)
+    # Bezpečné vloženie hesla
     add("password_hash_hex", dummy_hash)
     add("password_salt_hex", dummy_salt)
     add("heslo_hash", dummy_hash)
     add("heslo_salt", dummy_salt)
 
-    # Zostavenie SQL
     if not cols:
         return {"error": "Nepodarilo sa detegovať stĺpce tabuľky."}
 
@@ -1261,6 +1260,7 @@ def create_b2b_branch(data: dict):
         try:
             cur.close(); conn.close()
         except: pass
+        
 def get_all_b2b_orders(filters=None):
     filters = filters or {}
     where: List[str] = []
