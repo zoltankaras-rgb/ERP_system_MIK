@@ -66,6 +66,9 @@
     pendingRegCount: 0
   };
 
+  // Pomocná globálna premenná pre editor cenníka
+  let currentPlItems = new Map();
+
   // =================================================================
   // INIT MODULE
   // =================================================================
@@ -555,8 +558,6 @@ async function loadCustomersAndPricelists() {
         
         let html = `<div class="table-container"><table class="table-refined"><thead><tr><th>ID</th><th>Firma</th><th>Kontakt</th><th>Priradené cenníky</th><th>Akcia</th></tr></thead><tbody>`;
         
-        // Zoradíme zákazníkov tak, aby boli rodičia a pod nimi ich pobočky (voliteľné, ale prehľadnejšie)
-        // Pre jednoduchosť zatiaľ necháme pôvodné poradie alebo zoradíme podľa názvu
         state.customers.sort((a,b) => a.nazov_firmy.localeCompare(b.nazov_firmy));
 
         state.customers.forEach(c => {
@@ -731,13 +732,16 @@ window.saveB2BBranch = async function(parentId) {
         alert("Chyba: " + e.message);
     }
 };
- // =================================================================
-  // 5. CENNÍKY (MANAGEMENT) - OPRAVENÉ + INFO FIELD
-  // =================================================================
-  async function loadPricelistsForManagement() {
+
+// =================================================================
+// 5. CENNÍKY (MANAGEMENT)
+// =================================================================
+
+async function loadPricelistsForManagement() {
     const box = ensureContainer('b2b-pricelists-container');
     box.innerHTML = '<p>Načítavam cenníky...</p>';
     try {
+        // Načítame dáta
         const data = await callFirstOk([{ url: '/api/kancelaria/b2b/getPricelistsAndProducts' }]);
         state.pricelists = data.pricelists || []; 
         state.productsAll = data.products || [];
@@ -768,285 +772,41 @@ window.saveB2BBranch = async function(parentId) {
                     <td style="font-size:1.1rem; font-weight:500; vertical-align:middle;">${escapeHtml(pl.nazov_cennika)}</td>
                     <td style="text-align:right;">
                         <button class="btn btn-secondary btn-sm" onclick="window.printPricelistPreview(${pl.id})">🖨️ Tlač/Náhľad</button>
-                        <button class="btn btn-primary btn-sm" style="margin-left:5px;" onclick="showPricelistEditor(${pl.id})">✏️ Upraviť</button>
-                        <button class="btn btn-danger btn-sm" style="margin-left:5px;" data-del-pl="${pl.id}">🗑️</button>
+                        <button class="btn btn-primary btn-sm" style="margin-left:5px;" onclick="window.showPricelistEditor(${pl.id})">✏️ Upraviť</button>
+                        <button class="btn btn-danger btn-sm" style="margin-left:5px;" data-del-pl="${pl.id}" data-name="${escapeHtml(pl.nazov_cennika)}">🗑️</button>
                     </td>
                 </tr>`;
             });
         }
-        html += `</tbody></table></div><div id="pl-editor-area"></div>`;
+        html += `</tbody></table></div>`; 
         box.innerHTML = html;
     
-        doc.getElementById('btn-create-pl').onclick = () => showPricelistEditor(null);
+        // Tlačidlo Nový cenník
+        doc.getElementById('btn-create-pl').onclick = () => window.showPricelistEditor(null);
 
+        // LOGIKA MAZANIA S HESLOM "ZMAZAT"
         box.querySelectorAll('button[data-del-pl]').forEach(b => {
             b.onclick = async () => {
-                if (!confirm("Naozaj chcete vymazať tento cenník?")) return;
+                const plName = b.dataset.name;
+                const verification = prompt(`⚠️ POZOR: Chystáte sa vymazať cenník "${plName}".\n\nTáto akcia je nevratná.\nAk to naozaj chcete urobiť, napíšte veľkými písmenami slovo: ZMAZAT`);
+                
+                if (verification !== "ZMAZAT") {
+                    alert("Mazanie bolo zrušené (nesprávne heslo).");
+                    return;
+                }
+
                 try {
                     await callFirstOk([{ url: '/api/kancelaria/b2b/deletePricelist', opts: { method: 'POST', body: { id: b.dataset.delPl } } }]);
-                    showStatus('Cenník bol vymazaný.', false);
+                    showStatus('Cenník bol úspešne vymazaný.', false);
                     loadPricelistsForManagement();
                 } catch(e) { showStatus(e.message || String(e), true); }
             };
         });
     } catch(e) { box.innerHTML = `<p class="error">${e.message}</p>`; }
 }
-  function showPricelistEditor(plId) {
-      const area = doc.getElementById('pl-editor-area');
-      if (!area) return; // Ochrana proti chybe
 
-      const isEdit = !!plId;
-      
-      // 1. Zoznam zákazníkov (pre nový cenník)
-      let customersHtml = '';
-      if (!isEdit) state.customers.forEach(c => { customersHtml += `<label class="cust-option"><input type="checkbox" value="${c.id}"><div><div style="font-weight:600;">${escapeHtml(c.nazov_firmy)}</div><small style="color:#666;">${escapeHtml(c.zakaznik_id || '')}</small></div></label>`; });
-
-      // 2. NOVÉ: Zoznam cenníkov na kopírovanie INFO
-      let copyOptions = '<option value="">-- Nevyplňovať (čisté popisy) --</option>';
-      state.pricelists.forEach(p => {
-          if (p.id != plId) {
-              copyOptions += `<option value="${p.id}">Kopírovať popisy z: ${escapeHtml(p.nazov_cennika)}</option>`;
-          }
-      });
-
-      area.innerHTML = `
-        <div class="stat-card" style="margin-top:20px; border:2px solid #e2e8f0;">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; border-bottom:1px solid #eee; padding-bottom:10px;">
-                <h3 style="margin:0;">${isEdit ? 'Úprava cenníka' : 'Nový cenník'}</h3>
-                <button class="btn btn-secondary btn-sm" onclick="document.getElementById('pl-editor-area').innerHTML=''">Zavrieť</button>
-            </div>
-            
-            <div class="form-group">
-                <label>Názov cenníka</label>
-                <input type="text" id="pl-name" class="filter-input" style="width:100%; font-size:1.1rem;">
-            </div>
-
-            ${isEdit ? `
-            <div class="form-group" style="background:#eff6ff; padding:10px; border-radius:6px; border:1px solid #bfdbfe;">
-                <label style="color:#1e40af; font-weight:bold;">📝 Správa informácií o produktoch</label>
-                <div style="display:flex; gap:10px; align-items:center;">
-                    <select id="pl-source-copy" class="filter-input" style="flex:1;">${copyOptions}</select>
-                    <button class="btn btn-primary btn-sm" onclick="window.importInfoFromSelected()">Načítať popisy</button>
-                </div>
-                <small style="color:#64748b;">Vyberte iný cenník, ak chcete pre produkty v tomto cenníku skopírovať už existujúce texty/info.</small>
-            </div>
-            ` : ''}
-
-            ${!isEdit ? `<div class="form-group"><label>Priradiť ihneď zákazníkom (voliteľné):</label><div class="cust-select-container" id="pl-new-cust-list">${customersHtml}</div></div>` : ''}
-            
-            ${isEdit ? `<div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px;">
-                <div>
-                    <label>Katalóg produktov (Filter)</label>
-                    <input type="text" id="pl-prod-filter" class="filter-input" style="width:100%; margin-bottom:5px;" placeholder="Hľadať...">
-                    <div id="pl-source-list" class="cust-select-container" style="height:400px;"></div>
-                </div>
-                <div>
-                    <label>Položky v cenníku</label>
-                    <div id="pl-target-list" class="cust-select-container" style="height:400px;"></div>
-                </div>
-            </div>` : ''}
-            
-            <div style="margin-top:15px; text-align:right;"><button id="pl-save-btn" class="btn btn-success">Uložiť ${isEdit ? 'zmeny' : 'cenník'}</button></div>
-        </div>`;
-      
-      area.scrollIntoView({behavior:'smooth'});
-
-      if (isEdit) {
-          const pl = state.pricelists.find(p => p.id == plId);
-          if(pl) doc.getElementById('pl-name').value = pl.nazov_cennika;
-          
-          loadPricelistItemsForEdit(plId);
-          
-          doc.getElementById('pl-save-btn').onclick = async () => savePricelistItems(plId);
-          const filterInput = doc.getElementById('pl-prod-filter');
-          if(filterInput) filterInput.addEventListener('input', (e) => renderSourceProducts(e.target.value));
-      } else {
-          doc.getElementById('pl-save-btn').onclick = async () => {
-              const name = doc.getElementById('pl-name').value.trim();
-              if(!name) return showStatus('Zadajte názov', true);
-              const selectedCusts = Array.from(doc.querySelectorAll('#pl-new-cust-list input:checked')).map(cb => cb.value);
-              try { 
-                  const res = await callFirstOk([{ url: '/api/kancelaria/b2b/createPricelist', opts: { method: 'POST', body: { name, customer_ids: selectedCusts } } }]); 
-                  showStatus('Cenník vytvorený'); 
-                  loadPricelistsForManagement(); 
-              } catch(e) { showStatus(e.message, true); }
-          };
-      }
-  }
-
-  async function loadPricelistItemsForEdit(plId) {
-      currentPlItems.clear();
-      try {
-          const data = await callFirstOk([{ url: '/api/kancelaria/b2b/getPricelistDetails', opts: { method:'POST', body:{id:plId} } }]);
-          // Načítame cenu aj info
-          (data.items || []).forEach(i => {
-              currentPlItems.set(i.ean_produktu, { 
-                  price: Number(i.cena), 
-                  info: i.info || i.poznamka || '' 
-              });
-          });
-          renderSourceProducts(''); 
-          renderTargetProducts();
-      } catch(e) { console.error(e); }
-  }
-
-  function renderSourceProducts(filter) {
-      const container = doc.getElementById('pl-source-list');
-      if (!container) return; // Ochrana proti chybe "innerHTML of null"
-
-      const f = filter.toLowerCase();
-      let html = ''; let count = 0;
-      state.productsAll.forEach(p => {
-          if (currentPlItems.has(p.ean)) return;
-          if (count > 100 && !f) return;
-          if (!f || p.nazov_vyrobku.toLowerCase().includes(f) || p.ean.includes(f)) {
-              html += `<div class="cust-option" style="justify-content:space-between;">
-                  <div><div style="font-size:0.9rem; font-weight:600;">${escapeHtml(p.nazov_vyrobku)}</div><small>${p.ean}</small></div>
-                  <div style="display:flex;gap:5px;">
-                      <input type="number" id="price-in-${p.ean}" placeholder="Cena" style="width:70px; padding:2px;" step="0.01">
-                      <button class="btn btn-primary btn-sm" onclick="window.plAdd('${p.ean}')">+</button>
-                  </div>
-              </div>`;
-              count++;
-          }
-      });
-      container.innerHTML = html || '<div style="padding:10px;color:#666;">Žiadne produkty (alebo zadajte filter).</div>';
-  }
-
-  window.plAdd = (ean) => {
-      const input = doc.getElementById(`price-in-${ean}`);
-      const price = parseFloat(input.value);
-      if (isNaN(price) || price < 0) return showStatus('Zadajte cenu', true);
-      
-      // Ukladáme objekt {price, info}
-      currentPlItems.set(ean, { price: price, info: '' });
-      
-      renderSourceProducts(doc.getElementById('pl-prod-filter').value);
-      renderTargetProducts();
-  };
-
-  function renderTargetProducts() {
-      const container = doc.getElementById('pl-target-list');
-      if (!container) return; // Ochrana proti chybe "innerHTML of null"
-
-      let html = '';
-      currentPlItems.forEach((data, ean) => {
-          const p = state.productsAll.find(x => x.ean === ean) || { nazov_vyrobku: 'Neznámy produkt' };
-          const priceVal = (typeof data === 'object') ? data.price : data; // Spätná kompatibilita
-          const infoVal = (typeof data === 'object') ? (data.info || '') : '';
-
-          html += `
-          <div class="cust-option pl-item-row" data-ean="${ean}" style="background:#f0fdf4; flex-direction:column; align-items:stretch; gap:5px; padding:10px;">
-              <div style="display:flex; justify-content:space-between; align-items:center;">
-                  <div>
-                      <div style="font-size:0.9rem; font-weight:600;">${escapeHtml(p.nazov_vyrobku)}</div>
-                      <small>${ean}</small>
-                  </div>
-                  <button class="btn btn-danger btn-sm" onclick="window.plRem('${ean}')">X</button>
-              </div>
-              
-              <div style="display:flex; gap:10px; align-items:center; margin-top:5px;">
-                  <div style="flex:1;">
-                      <input type="text" class="info-edit-input" value="${escapeHtml(infoVal)}" placeholder="Popis / Info pre zákazníka..." style="width:100%; padding:4px; border:1px solid #cbd5e1; border-radius:4px; font-size:0.85rem;">
-                  </div>
-                  <div style="width:100px; display:flex; align-items:center; gap:5px;">
-                      <label style="font-size:0.8rem;">Cena:</label>
-                      <input type="number" class="price-edit-input" value="${priceVal}" style="width:100%; padding:4px; border:1px solid #cbd5e1; border-radius:4px; font-weight:bold;" step="0.01">
-                  </div>
-              </div>
-          </div>`;
-      });
-      container.innerHTML = html || '<div style="padding:10px;color:#666;">Prázdny cenník.</div>';
-  }
-
-  window.plRem = (ean) => { 
-      currentPlItems.delete(ean); 
-      // Skontrolujeme, či element existuje, aby to nepadlo
-      const filterEl = doc.getElementById('pl-prod-filter');
-      renderSourceProducts(filterEl ? filterEl.value : ''); 
-      renderTargetProducts(); 
-  };
-
-  async function savePricelistItems(plId) {
-      // Prejdeme riadky v DOM a aktualizujeme mapu
-      const rows = doc.querySelectorAll('.pl-item-row');
-      rows.forEach(row => {
-          const ean = row.dataset.ean;
-          const priceInput = row.querySelector('.price-edit-input');
-          const infoInput = row.querySelector('.info-edit-input');
-          
-          if (ean && priceInput) {
-              currentPlItems.set(ean, {
-                  price: parseFloat(priceInput.value) || 0,
-                  info: infoInput ? infoInput.value.trim() : ''
-              });
-          }
-      });
-
-      const items = []; 
-      currentPlItems.forEach((data, ean) => items.push({ 
-          ean: ean, 
-          price: data.price,
-          info: data.info 
-      }));
-
-      try { 
-          await callFirstOk([{ 
-              url: '/api/kancelaria/b2b/updatePricelist', 
-              opts: { method: 'POST', body: { id: plId, items } } 
-          }]); 
-          showStatus('Cenník uložený'); 
-          loadPricelistsForManagement(); 
-          // Vyčistíme editor
-          const area = doc.getElementById('pl-editor-area');
-          if(area) area.innerHTML='';
-      } catch(e) { 
-          showStatus(e.message, true); 
-      }
-  }
-
-  // === NOVÁ FUNKCIA: Import info z iného cenníka ===
-  window.importInfoFromSelected = async () => {
-      const sourceId = doc.getElementById('pl-source-copy').value;
-      if (!sourceId) return showStatus('Vyberte cenník zo zoznamu', true);
-      
-      if (!confirm("Týmto sa prepíšu poznámky/info pri produktoch, ktoré sa nachádzajú v oboch cenníkoch. Chcete pokračovať?")) return;
-
-      try {
-          const data = await callFirstOk([{ url: '/api/kancelaria/b2b/getPricelistDetails', opts: { method:'POST', body:{id: sourceId} } }]);
-          const sourceItems = data.items || [];
-          
-          let updatedCount = 0;
-          if (currentPlItems.size > 0) {
-              sourceItems.forEach(srcItem => {
-                  if (currentPlItems.has(srcItem.ean_produktu)) {
-                      const currentData = currentPlItems.get(srcItem.ean_produktu);
-                      // Aktualizujeme iba info, ak v zdroji nejaké je
-                      if (srcItem.info || srcItem.poznamka) {
-                          currentData.info = srcItem.info || srcItem.poznamka;
-                          currentPlItems.set(srcItem.ean_produktu, currentData);
-                          updatedCount++;
-                      }
-                  }
-              });
-              renderTargetProducts();
-              showStatus(`Aktualizované info pri ${updatedCount} produktoch.`);
-          } else {
-              showStatus('Tento cenník zatiaľ nemá žiadne položky. Najprv pridajte produkty.', true);
-          }
-      } catch(e) {
-          console.error(e);
-          showStatus('Chyba pri importe: ' + e.message, true);
-      }
-  };
-// =================================================================
-// EDITOR CENNÍKOV (Vylepšený dizajn + Tlač)
-// =================================================================
-
-function showPricelistEditor(plId) {
-    const area = doc.getElementById('pl-editor-area');
-    if (!area) return;
-
+// EDITOR V MODALE (Popup okno)
+window.showPricelistEditor = function(plId) {
     const isEdit = !!plId;
     
     // Zoznam zákazníkov (pre nový cenník)
@@ -1061,54 +821,58 @@ function showPricelistEditor(plId) {
         if (p.id != plId) copyOptions += `<option value="${p.id}">Kopírovať z: ${escapeHtml(p.nazov_cennika)}</option>`;
     });
 
-    area.innerHTML = `
-      <div class="stat-card" style="margin-top:20px; border:2px solid #3b82f6; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; border-bottom:1px solid #eee; padding-bottom:10px;">
-              <h3 style="margin:0; color:#1e3a8a;">${isEdit ? 'Úprava cenníka' : 'Nový cenník'}</h3>
-              <button class="btn btn-secondary btn-sm" onclick="document.getElementById('pl-editor-area').innerHTML=''">Zavrieť</button>
-          </div>
+    // HTML pre Modal - ROZLOŽENIE GRID
+    const modalHtml = `
+      <div style="display:flex; flex-direction:column; height:85vh;">
+          <h3 style="margin-top:0; color:#1e3a8a; border-bottom:1px solid #eee; padding-bottom:10px;">
+              ${isEdit ? '✏️ Úprava cenníka' : '➕ Vytvorenie nového cenníka'}
+          </h3>
           
-          <div class="form-group">
-              <label>Názov cenníka</label>
-              <input type="text" id="pl-name" class="filter-input" style="width:100%; font-size:1.1rem; font-weight:bold; border: 2px solid #cbd5e1;" placeholder="Napr. VIP Cenník 2026">
-          </div>
-
-          ${isEdit ? `
-          <div class="form-group" style="background:#eff6ff; padding:10px; border-radius:6px; border:1px solid #bfdbfe; margin-bottom:20px;">
-              <div style="display:flex; gap:10px; align-items:center;">
-                  <span style="font-weight:bold; color:#1e40af;">Kopírovať popisy:</span>
-                  <select id="pl-source-copy" class="filter-input" style="flex:1;">${copyOptions}</select>
-                  <button class="btn btn-primary btn-sm" onclick="window.importInfoFromSelected()">Načítať</button>
+          <div style="margin-bottom:15px; display:grid; grid-template-columns: 2fr 1fr; gap:15px;">
+              <div class="form-group">
+                  <label>Názov cenníka</label>
+                  <input type="text" id="pl-name" class="filter-input" style="width:100%; font-size:1.1rem; font-weight:bold; border: 2px solid #3b82f6;" placeholder="Napr. Veľkoobchod 2026">
               </div>
+              ${isEdit ? `
+              <div class="form-group">
+                  <label>Kopírovať popisy z iného cenníka</label>
+                  <div style="display:flex; gap:5px;">
+                      <select id="pl-source-copy" class="filter-input" style="flex:1;">${copyOptions}</select>
+                      <button class="btn btn-secondary btn-sm" onclick="window.importInfoFromSelected()">Načítať</button>
+                  </div>
+              </div>` : ''}
           </div>
-          ` : ''}
 
-          ${!isEdit ? `<div class="form-group"><label>Priradiť ihneď zákazníkom:</label><div class="cust-select-container" id="pl-new-cust-list">${customersHtml}</div></div>` : ''}
+          ${!isEdit ? `<div class="form-group" style="margin-bottom:15px;"><label>Priradiť ihneď zákazníkom:</label><div class="cust-select-container" id="pl-new-cust-list" style="max-height:100px;">${customersHtml}</div></div>` : ''}
           
           ${isEdit ? `
-          <div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px;">
-              <div>
-                  <div style="background:#f1f5f9; padding:10px; border-radius:6px 6px 0 0; border:1px solid #e2e8f0; font-weight:bold;">
-                      1. Vyberte produkt z katalógu
+          <div style="flex:1; display:grid; grid-template-columns: 1fr 1fr; gap:20px; overflow:hidden;">
+              <div style="display:flex; flex-direction:column; border:1px solid #e2e8f0; border-radius:6px; background:#fff;">
+                  <div style="background:#f1f5f9; padding:10px; font-weight:bold; border-bottom:1px solid #e2e8f0;">
+                      📦 Katalóg produktov (Zdroj)
                   </div>
-                  <input type="text" id="pl-prod-filter" class="filter-input" style="width:100%; border-radius:0; border-left:1px solid #e2e8f0; border-right:1px solid #e2e8f0;" placeholder="🔍 Hľadať názov alebo EAN...">
-                  <div id="pl-source-list" class="cust-select-container" style="height:500px; border-radius:0 0 6px 6px;"></div>
+                  <div style="padding:5px;">
+                      <input type="text" id="pl-prod-filter" class="filter-input" style="width:100%;" placeholder="🔍 Hľadať produkt...">
+                  </div>
+                  <div id="pl-source-list" class="cust-select-container" style="flex:1; overflow-y:auto; border:none;"></div>
               </div>
 
-              <div>
-                  <div style="background:#dcfce7; padding:10px; border-radius:6px 6px 0 0; border:1px solid #86efac; font-weight:bold; color:#14532d;">
-                      2. Položky v cenníku
+              <div style="display:flex; flex-direction:column; border:1px solid #86efac; border-radius:6px; background:#fff;">
+                  <div style="background:#dcfce7; padding:10px; font-weight:bold; color:#14532d; border-bottom:1px solid #86efac;">
+                      ✅ Položky v tomto cenníku
                   </div>
-                  <div id="pl-target-list" class="cust-select-container" style="height:535px; border-radius:0 0 6px 6px; border-color:#86efac; background:#f0fdf4;"></div>
+                  <div id="pl-target-list" class="cust-select-container" style="flex:1; overflow-y:auto; border:none; background:#f0fdf4;"></div>
               </div>
           </div>` : ''}
           
-          <div style="margin-top:20px; text-align:right; border-top:1px solid #eee; padding-top:10px;">
-              <button id="pl-save-btn" class="btn btn-success" style="padding: 10px 30px; font-size:1.1rem;">💾 Uložiť zmeny</button>
+          <div style="margin-top:15px; padding-top:10px; border-top:1px solid #eee; text-align:right;">
+              <button class="btn btn-secondary" onclick="closeModal()" style="margin-right:10px;">Zrušiť</button>
+              <button id="pl-save-btn" class="btn btn-success" style="padding: 10px 30px; font-size:1.1rem;">💾 Uložiť cenník</button>
           </div>
       </div>`;
     
-    area.scrollIntoView({behavior:'smooth'});
+    // Otvoríme modal
+    openModal(modalHtml);
 
     if (isEdit) {
         const pl = state.pricelists.find(p => p.id == plId);
@@ -1116,9 +880,12 @@ function showPricelistEditor(plId) {
         
         loadPricelistItemsForEdit(plId);
         
-        doc.getElementById('pl-save-btn').onclick = async () => savePricelistItems(plId);
+        doc.getElementById('pl-save-btn').onclick = async () => window.savePricelistItems(plId);
         const filterInput = doc.getElementById('pl-prod-filter');
-        if(filterInput) filterInput.addEventListener('input', (e) => renderSourceProducts(e.target.value));
+        if(filterInput) {
+            filterInput.focus();
+            filterInput.addEventListener('input', (e) => renderSourceProducts(e.target.value));
+        }
     } else {
         doc.getElementById('pl-save-btn').onclick = async () => {
             const name = doc.getElementById('pl-name').value.trim();
@@ -1127,19 +894,58 @@ function showPricelistEditor(plId) {
             try { 
                 await callFirstOk([{ url: '/api/kancelaria/b2b/createPricelist', opts: { method: 'POST', body: { name, customer_ids: selectedCusts } } }]); 
                 showStatus('Cenník vytvorený'); 
+                closeModal(); 
                 loadPricelistsForManagement(); 
             } catch(e) { showStatus(e.message, true); }
         };
     }
-}
+};
 
-// Mapa teraz drží objekt { price: 10.5, info: "Text..." }
-let currentPlItems = new Map();
+// Funkcia na uloženie (aktualizovaná pre Modal)
+window.savePricelistItems = async function(plId) {
+    const newName = doc.getElementById('pl-name').value.trim();
+    if(!newName) return showStatus('Názov cenníka nemôže byť prázdny!', true);
+
+    // Aktualizujeme mapu z inputov
+    const rows = doc.querySelectorAll('.pl-item-row');
+    rows.forEach(row => {
+        const ean = row.dataset.ean;
+        const priceInput = row.querySelector('.price-edit-input');
+        const infoInput = row.querySelector('.info-edit-input');
+        
+        if (ean && priceInput) {
+            currentPlItems.set(ean, {
+                price: parseFloat(priceInput.value) || 0,
+                info: infoInput ? infoInput.value.trim() : ''
+            });
+        }
+    });
+
+    const items = []; 
+    currentPlItems.forEach((data, ean) => items.push({ 
+        ean: ean, 
+        price: data.price,
+        info: data.info 
+    }));
+
+    try { 
+        await callFirstOk([{ 
+            url: '/api/kancelaria/b2b/updatePricelist', 
+            opts: { method: 'POST', body: { id: plId, name: newName, items } } 
+        }]); 
+        showStatus('Cenník uložený.'); 
+        closeModal(); 
+        loadPricelistsForManagement(); 
+    } catch(e) { 
+        showStatus(e.message, true); 
+    }
+};
 
 async function loadPricelistItemsForEdit(plId) {
     currentPlItems.clear();
     try {
         const data = await callFirstOk([{ url: '/api/kancelaria/b2b/getPricelistDetails', opts: { method:'POST', body:{id:plId} } }]);
+        // Načítame cenu aj info
         (data.items || []).forEach(i => {
             currentPlItems.set(i.ean_produktu, { 
                 price: Number(i.cena), 
@@ -1153,7 +959,7 @@ async function loadPricelistItemsForEdit(plId) {
 
 function renderSourceProducts(filter) {
     const container = doc.getElementById('pl-source-list');
-    if (!container) return;
+    if (!container) return; 
 
     const f = filter.toLowerCase();
     
@@ -1204,10 +1010,9 @@ window.plAdd = (ean) => {
     
     currentPlItems.set(ean, { price: price, info: '' });
     
-    // Vyčistíme filter aby sa lepšie pridávalo ďalej, alebo ho necháme? Necháme ho.
     renderSourceProducts(doc.getElementById('pl-prod-filter').value);
     renderTargetProducts();
-    input.value = ''; // Vyčistenie inputu v zdroji (aj keď sa prekreslí)
+    input.value = ''; 
 };
 
 function renderTargetProducts() {
@@ -1258,65 +1063,52 @@ window.plRem = (ean) => {
     renderTargetProducts(); 
 };
 
-async function savePricelistItems(plId) {
-    // 1. Získame nový názov
-    const newName = doc.getElementById('pl-name').value.trim();
-    if(!newName) return showStatus('Názov cenníka nemôže byť prázdny!', true);
+// === NOVÁ FUNKCIA: Import info z iného cenníka ===
+window.importInfoFromSelected = async () => {
+    const sourceId = doc.getElementById('pl-source-copy').value;
+    if (!sourceId) return showStatus('Vyberte cenník zo zoznamu', true);
+    
+    if (!confirm("Týmto sa prepíšu poznámky/info pri produktoch, ktoré sa nachádzajú v oboch cenníkoch. Chcete pokračovať?")) return;
 
-    // 2. Aktualizujeme mapu z inputov (ak používateľ menil cenu priamo v tabuľke)
-    const rows = doc.querySelectorAll('.pl-item-row');
-    rows.forEach(row => {
-        const ean = row.dataset.ean;
-        const priceInput = row.querySelector('.price-edit-input');
-        const infoInput = row.querySelector('.info-edit-input');
+    try {
+        const data = await callFirstOk([{ url: '/api/kancelaria/b2b/getPricelistDetails', opts: { method:'POST', body:{id: sourceId} } }]);
+        const sourceItems = data.items || [];
         
-        if (ean && priceInput) {
-            currentPlItems.set(ean, {
-                price: parseFloat(priceInput.value) || 0,
-                info: infoInput ? infoInput.value.trim() : ''
+        let updatedCount = 0;
+        if (currentPlItems.size > 0) {
+            sourceItems.forEach(srcItem => {
+                if (currentPlItems.has(srcItem.ean_produktu)) {
+                    const currentData = currentPlItems.get(srcItem.ean_produktu);
+                    if (srcItem.info || srcItem.poznamka) {
+                        currentData.info = srcItem.info || srcItem.poznamka;
+                        currentPlItems.set(srcItem.ean_produktu, currentData);
+                        updatedCount++;
+                    }
+                }
             });
+            renderTargetProducts();
+            showStatus(`Aktualizované info pri ${updatedCount} produktoch.`);
+        } else {
+            showStatus('Tento cenník zatiaľ nemá žiadne položky. Najprv pridajte produkty.', true);
         }
-    });
-
-    const items = []; 
-    currentPlItems.forEach((data, ean) => items.push({ 
-        ean: ean, 
-        price: data.price,
-        info: data.info 
-    }));
-
-    try { 
-        // 3. Pošleme aj "name"
-        await callFirstOk([{ 
-            url: '/api/kancelaria/b2b/updatePricelist', 
-            opts: { method: 'POST', body: { id: plId, name: newName, items } } 
-        }]); 
-        showStatus('Cenník a názov boli úspešne uložené.'); 
-        loadPricelistsForManagement(); 
-        
-        const area = doc.getElementById('pl-editor-area');
-        if(area) area.innerHTML='';
-    } catch(e) { 
-        showStatus(e.message, true); 
+    } catch(e) {
+        console.error(e);
+        showStatus('Chyba pri importe: ' + e.message, true);
     }
-}
+};
 
-// TLAČOVÁ FUNKCIA
+// === TLAČOVÁ FUNKCIA (ktorá predtým chýbala) ===
 window.printPricelistPreview = async function(plId) {
     try {
-        // 1. Získame detail cenníka (ceny)
         const data = await callFirstOk([{ url: '/api/kancelaria/b2b/getPricelistDetails', opts: { method:'POST', body:{id:plId} } }]);
         const pl = data.pricelist;
-        const items = data.items || []; // obsahuje: ean_produktu, cena, info
+        const items = data.items || []; 
 
-        // 2. Musíme spárovať s productsAll, aby sme mali DPH
-        // Uistíme sa, že productsAll sú načítané
         if(!state.productsAll || state.productsAll.length === 0) {
              const pData = await callFirstOk([{ url: '/api/kancelaria/b2b/getPricelistsAndProducts' }]);
              state.productsAll = pData.products || [];
         }
 
-        // 3. Generujeme HTML
         let html = `
         <html>
         <head>
@@ -1350,7 +1142,7 @@ window.printPricelistPreview = async function(plId) {
         `;
 
         items.forEach((item, index) => {
-            const productInfo = state.productsAll.find(p => p.ean === item.ean_produktu) || { dph: 20 }; // Default 20 ak nenájde
+            const productInfo = state.productsAll.find(p => p.ean === item.ean_produktu) || { dph: 20 }; 
             const dphRate = Number(productInfo.dph);
             const priceNet = Number(item.cena);
             const vatAmount = priceNet * (dphRate / 100);
@@ -1377,7 +1169,6 @@ window.printPricelistPreview = async function(plId) {
         </html>
         `;
 
-        // 4. Otvoríme nové okno a vložíme HTML
         const win = window.open('', '_blank');
         win.document.write(html);
         win.document.close();
@@ -1386,6 +1177,7 @@ window.printPricelistPreview = async function(plId) {
         alert("Chyba pri generovaní tlače: " + e.message);
     }
 };
+
   // =================================================================
   // 6. REGISTRÁCIE & NASTAVENIA
   // =================================================================
@@ -1430,95 +1222,6 @@ window.printPricelistPreview = async function(plId) {
           doc.getElementById('save-ann-btn').onclick = async () => { await callFirstOk([{ url:'/api/kancelaria/b2b/saveAnnouncement', opts:{ method:'POST', body:{ announcement: doc.getElementById('b2b-ann-txt').value } } }]); showStatus('Oznam uložený'); };
       } catch(e) { box.innerHTML = `<p class="error">${e.message}</p>`; }
   }
-
-  // === EXTERNÉ FUNKCIE PRE HTML TLAČIDLÁ (Global Scope) ===
-
-  window.addB2BBranch = function(parentId, parentName) {
-      openModal(`
-          <h3>Pridať odberné miesto pre: ${parentName}</h3>
-          <p style="color:#666;font-size:0.9em;">Pobočka bude mať rovnaké cenníky ako rodič, ale vlastné zákaznícke číslo (ERP kód) a adresu doručenia.</p>
-          <div class="form-group">
-              <label>Názov pobočky (napr. Detské jasle)</label>
-              <input type="text" id="br-name" class="filter-input" style="width:100%;">
-          </div>
-          <div class="form-group">
-              <label>Nové Zákaznícke číslo (ERP ID)</label>
-              <input type="text" id="br-code" class="filter-input" style="width:100%; font-weight:bold;">
-          </div>
-          <div class="form-group">
-              <label>Adresa doručenia pobočky</label>
-              <input type="text" id="br-addr" class="filter-input" style="width:100%;">
-          </div>
-          <div style="margin-top:15px;text-align:right;">
-              <button class="btn btn-success" onclick="window.saveB2BBranch(${parentId})">Vytvoriť pobočku</button>
-          </div>
-      `);
-  };
-
-  window.saveB2BBranch = async function(parentId) {
-      const data = {
-          parent_id: parentId,
-          branch_name: document.getElementById('br-name').value,
-          branch_code: document.getElementById('br-code').value,
-          branch_address: document.getElementById('br-addr').value
-      };
-      if(!data.branch_name || !data.branch_code) return showStatus('Vyplňte názov a kód', true);
-      
-      try {
-          await callFirstOk([{ url: '/api/kancelaria/b2b/createBranch', opts: { method: 'POST', body: data } }]);
-          showStatus('Pobočka vytvorená');
-          closeModal();
-          loadCustomersAndPricelists();
-      } catch(e) {
-          alert(e.message);
-      }
-  };
-
-  // 1. Sprístupníme hlavný editor a pomocné funkcie
-  // (Predpokladá sa, že showPricelistEditor, printPricelistPreview, plAdd, plRem sú definované vyššie v súbore)
-  window.showPricelistEditor = showPricelistEditor;
-  if(typeof printPricelistPreview !== 'undefined') window.printPricelistPreview = printPricelistPreview;
-  if(typeof plAdd !== 'undefined') window.plAdd = plAdd;
-  if(typeof plRem !== 'undefined') window.plRem = plRem;
-
-  // 2. Definícia funkcie pre import priamo na window (aby sme sa vyhli ReferenceError)
-  window.importInfoFromSelected = async () => {
-      const sourceId = document.getElementById('pl-source-copy').value;
-      if (!sourceId) return showStatus('Vyberte cenník zo zoznamu', true);
-      
-      if (!confirm("Týmto sa prepíšu poznámky/info pri produktoch, ktoré sa nachádzajú v oboch cenníkoch. Chcete pokračovať?")) return;
-
-      try {
-          const data = await fetch('/api/kancelaria/b2b/getPricelistDetails', {
-              method: 'POST',
-              headers: {'Content-Type': 'application/json'},
-              body: JSON.stringify({id: sourceId})
-          }).then(res => res.json());
-
-          const sourceItems = data.items || [];
-          let updatedCount = 0;
-          
-          if (typeof currentPlItems !== 'undefined' && currentPlItems.size > 0) {
-              sourceItems.forEach(srcItem => {
-                  if (currentPlItems.has(srcItem.ean_produktu)) {
-                      const currentData = currentPlItems.get(srcItem.ean_produktu);
-                      if (srcItem.info || srcItem.poznamka) {
-                          currentData.info = srcItem.info || srcItem.poznamka;
-                          currentPlItems.set(srcItem.ean_produktu, currentData);
-                          updatedCount++;
-                      }
-                  }
-              });
-              if(typeof renderTargetProducts === 'function') renderTargetProducts();
-              showStatus(`Aktualizované info pri ${updatedCount} produktoch.`);
-          } else {
-              showStatus('Tento cenník zatiaľ nemá žiadne položky. Najprv pridajte produkty.', true);
-          }
-      } catch(e) {
-          console.error(e);
-          showStatus('Chyba pri importe: ' + e.message, true);
-      }
-  };
 
   // EXPORT MODULU
   (function (g) { 
