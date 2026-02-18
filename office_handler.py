@@ -1547,23 +1547,25 @@ def get_product_stock_card_data(data: dict):
     name = product['nazov_vyrobku']
     
     # 2. História B2B predajov (posledných 10)
-    b2b_sales = db_connector.execute_query("""
-        SELECT 
-            o.datum_objednavky as date,
-            o.nazov_firmy as customer,
-            op.mnozstvo as qty,
-            op.mj
-        FROM b2b_objednavky_polozky op
-        JOIN b2b_objednavky o ON o.id = op.objednavka_id
-        WHERE op.ean_produktu = %s 
-          AND o.stav NOT IN ('Zrušená')
-        ORDER BY o.datum_objednavky DESC
-        LIMIT 10
-    """, (ean,)) or []
+    b2b_sales = []
+    try:
+        b2b_sales = db_connector.execute_query("""
+            SELECT 
+                o.datum_objednavky as date,
+                o.nazov_firmy as customer,
+                op.mnozstvo as qty,
+                op.mj
+            FROM b2b_objednavky_polozky op
+            JOIN b2b_objednavky o ON o.id = op.objednavka_id
+            WHERE op.ean_produktu = %s 
+              AND o.stav NOT IN ('Zrušená')
+            ORDER BY o.datum_objednavky DESC
+            LIMIT 10
+        """, (ean,)) or []
+    except Exception: pass
 
     # 3. História B2C predajov (posledných 10)
     b2c_sales = []
-    # Kontrola či existujú tabuľky B2C
     try:
         b2c_sales = db_connector.execute_query("""
             SELECT 
@@ -1578,25 +1580,24 @@ def get_product_stock_card_data(data: dict):
             ORDER BY o.datum_objednavky DESC
             LIMIT 10
         """, (ean,)) or []
-    except Exception:
-        pass # Tabuľky nemusia existovať
+    except Exception: pass
 
     # 4. História výroby (posledných 5)
-    # Hľadáme podľa názvu produktu v zaznamy_vyroba
-    # Zistíme správny názov stĺpca pre názov výrobku (nazov_vyrobku vs nazov_vyrobu)
-    col_name = _zv_name_col()
-    
-    production = db_connector.execute_query(f"""
-        SELECT 
-            datum_ukoncenia as date,
-            id_davky as batch,
-            realne_mnozstvo_kg as qty
-        FROM zaznamy_vyroba
-        WHERE TRIM({col_name}) = TRIM(%s)
-          AND stav IN ('Ukončené', 'Dokončené')
-        ORDER BY datum_ukoncenia DESC
-        LIMIT 5
-    """, (name,)) or []
+    production = []
+    try:
+        col_name = _zv_name_col() # Použije helper definovaný v office_handler.py
+        production = db_connector.execute_query(f"""
+            SELECT 
+                datum_ukoncenia as date,
+                id_davky as batch,
+                realne_mnozstvo_kg as qty
+            FROM zaznamy_vyroba
+            WHERE TRIM({col_name}) = TRIM(%s)
+              AND stav IN ('Ukončené', 'Dokončené')
+            ORDER BY datum_ukoncenia DESC
+            LIMIT 5
+        """, (name,)) or []
+    except Exception: pass
 
     return {
         "product": {
