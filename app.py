@@ -3482,6 +3482,11 @@ def b2b_delete_route_template():
 # ----------------------------------------------------------------------------
 # 1) MASTER: Zákazníci + ich cenníky (ideálne používať túto jednu cestu)
 # ----------------------------------------------------------------------------
+@app.route('/api/kancelaria/b2b/createBranch', methods=['POST'])
+@login_required(role='kancelaria')
+def create_b2b_branch_route():
+    return handle_request(b2b_handler.create_b2b_branch, request.json)
+
 @app.get('/api/kancelaria/b2b/getCustomersAndPricelists')
 @login_required(role=('kancelaria','veduci','admin'))
 def b2b_get_customers_and_pricelists():

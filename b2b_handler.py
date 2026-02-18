@@ -283,8 +283,7 @@ def process_b2b_login(data: dict):
 
     cols_in_db = _existing_columns("b2b_zakaznici")
 
-    # dynamicky postavíme SELECT len zo stĺpcov, ktoré v DB sú
-    select_parts = ["id", "zakaznik_id", "nazov_firmy", "email"]
+    select_parts = ["id", "zakaznik_id", "nazov_firmy", "email", "adresa"] # Pridaná adresa
     if "je_schvaleny" in cols_in_db:
         select_parts.append("je_schvaleny")
     else:
@@ -294,7 +293,6 @@ def process_b2b_login(data: dict):
     else:
         select_parts.append("0 AS je_admin")
 
-    # heslové stĺpce – preferuj nové, fallback na staré
     if "password_salt_hex" in cols_in_db:
         select_parts.append("password_salt_hex AS password_salt_hex")
     elif "heslo_salt" in cols_in_db:
@@ -326,18 +324,38 @@ def process_b2b_login(data: dict):
     if (not user.get("je_admin")) and str(user.get("je_schvaleny")) in ("0", "False", "false"):
         return {"error": "Účet zatiaľ nebol schválený administrátorom."}
 
+    # === LOGIKA PRE POBOČKY (SUB-ACCOUNTS) ===
+    sub_accounts = []
+    try:
+        # Načítame všetky deti, ktoré patria tomuto rodičovi
+        # Dôležité: sub-account nemusí mať heslo, ale musí mať zakaznik_id (ERP kód)
+        children = db_connector.execute_query(
+            "SELECT id, zakaznik_id, nazov_firmy, adresa, adresa_dorucenia "
+            "FROM b2b_zakaznici WHERE parent_id=%s ORDER BY zakaznik_id",
+            (user['id'],),
+            fetch="all"
+        ) or []
+        sub_accounts = children
+    except Exception:
+        traceback.print_exc()
+    # ==========================================
+
     resp = {
         "id": user["id"],
         "zakaznik_id": user["zakaznik_id"],
         "nazov_firmy": user["nazov_firmy"],
         "email": user["email"],
+        "adresa": user.get("adresa", ""),
         "role": "admin" if str(user.get("je_admin")) not in ("0", "False", "false") else "zakaznik",
+        "sub_accounts": sub_accounts # Posielame na frontend
     }
+    
+    # Ak nemá sub-účty, pošleme cenníky pre neho. 
+    # Ak má sub-účty, cenníky sa načítajú až po výbere pobočky (frontend zavolá reload).
     if resp["role"] == "zakaznik":
         resp |= _portal_customer_payload(user["zakaznik_id"])
+        
     return {"message": "Prihlásenie úspešné.", "userData": resp}
-
-
 # ───────────────── Registrácia / Reset ─────────────────
 def process_b2b_registration(data: dict):
     req = data or {}
@@ -961,7 +979,8 @@ def _get_pricelist_price_map(login_id: str, eans: List[str]) -> Dict[str, float]
         return {}
 
 def submit_b2b_order(data: dict):
-    user_id        = (data or {}).get("userId")
+    user_id        = (data or {}).get("userId")          # ID prihláseného (Rodič)
+    target_cust_id = (data or {}).get("targetCustomerId") # ID pobočky (Dieťa) - VOLITEĽNÉ
     items_in       = (data or {}).get("items") or []
     note           = (data or {}).get("note")
     delivery_date  = (data or {}).get("deliveryDate")
@@ -970,16 +989,34 @@ def submit_b2b_order(data: dict):
     if not (user_id and items_in and delivery_date and customer_email):
         return {"error": "Chýbajú povinné údaje (zákazník, položky, dátum dodania, e-mail)."}
 
-    # 1. Načítanie zákazníka
+    # 1. Identifikácia cieľového zákazníka (na koho sa fakturuje/dodáva)
+    # Ak targetCustomerId nie je zadané, objednáva sám na seba.
+    final_id = target_cust_id if target_cust_id else user_id
+
+    # 2. Bezpečnostná kontrola vzťahu (aby si niekto neobjednal na cudzie ID)
+    if str(final_id) != str(user_id):
+        # Overíme, či final_id je naozaj dieťaťom user_id
+        check = db_connector.execute_query(
+            "SELECT id FROM b2b_zakaznici WHERE id=%s AND parent_id=%s LIMIT 1",
+            (final_id, user_id),
+            fetch="one"
+        )
+        if not check:
+            return {"error": "Neoprávnená objednávka na tento účet (neplatný vzťah)."}
+
+    # 3. Načítanie údajov CIEĽOVÉHO zákazníka
     cust = db_connector.execute_query(
-        "SELECT id, zakaznik_id, nazov_firmy, adresa FROM b2b_zakaznici WHERE id=%s",
-        (user_id,), fetch="one",
+        "SELECT id, zakaznik_id, nazov_firmy, adresa, adresa_dorucenia FROM b2b_zakaznici WHERE id=%s",
+        (final_id,), fetch="one",
     )
     if not cust:
-        return {"error": "Zákazník neexistuje."}
-    login_id = cust["zakaznik_id"]
+        return {"error": "Cieľový zákazník neexistuje."}
+    
+    login_id = cust["zakaznik_id"] # ERP kód pobočky
+    # Priorita: adresa doručenia -> fakturačná adresa
+    final_address = cust.get("adresa_dorucenia") if cust.get("adresa_dorucenia") else cust.get("adresa")
 
-    # 2. Načítanie produktov (DPH, MJ, názvy) z tabuľky 'produkty' pre validáciu a fallback
+    # 4. Načítanie produktov (DPH, MJ, názvy) z tabuľky 'produkty'
     eans = [str(it.get("ean")) for it in items_in if it.get("ean")]
     pmap: Dict[str, Any] = {}
     if eans:
@@ -990,36 +1027,26 @@ def submit_b2b_order(data: dict):
         ) or []
         pmap = {str(r["ean"]): r for r in rows}
 
-    # 3. Doplnenie cenníkových cien
+    # 5. Ceny podľa cenníka priradeného CIEĽOVÉMU ZÁKAZNÍKOVI (Pobočke)
     pricelist_price_by_ean = _get_pricelist_price_map(login_id, eans)
 
     pdf_items: List[Dict[str, Any]] = []
     total_net = 0.0
     total_vat = 0.0
 
-    # 4. Spracovanie položiek pre PDF a DB
     for it in items_in:
-        # Konverzia čísel
         qty   = _to_float(it.get("quantity"))
-        price = _to_float(it.get("price")) # cena bez DPH (z objednávky)
-        
-        # Dáta z DB (fallback)
+        price = _to_float(it.get("price")) 
         pm    = pmap.get(str(it.get("ean"))) or {}
         dph   = abs(_to_float(pm.get("dph", it.get("dph"))))
-        
-        # OPRAVA JEDNOTKY: Prioritu má jednotka z objednávky (napr. 'ks'), potom DB, potom default 'ks'
         unit = it.get("unit") or pm.get("mj") or "ks"
-        
-        # OPRAVA POZNÁMKY K POLOŽKE: Načítame note alebo item_note
         item_note = it.get("note") or it.get("item_note") or ""
 
-        # Výpočty cien
         line_net = price * qty
         line_vat = line_net * (dph / 100.0)
         total_net += line_net
         total_vat += line_vat
         
-        # Príprava objektu pre PDF generátor
         pdf_items.append({
             "ean": str(it.get("ean")),
             "name": it.get("name") or pm.get("nazov_vyrobku") or "",
@@ -1031,17 +1058,17 @@ def submit_b2b_order(data: dict):
             "line_vat": line_vat,
             "line_gross": line_net + line_vat,
             "pricelist_price": pricelist_price_by_ean.get(str(it.get("ean"))),
-            "item_note": item_note  # <--- Dôležité pre zobrazenie v PDF
+            "item_note": item_note 
         })
 
     total_gross = total_net + total_vat
 
     order_payload = {
-        "order_number": None,  # doplníme po INSERTe
-        "customerName": cust["nazov_firmy"],
-        "customerAddress": cust["adresa"],
+        "order_number": None, 
+        "customerName": cust["nazov_firmy"], # Meno pobočky
+        "customerAddress": final_address,    # Adresa pobočky
         "deliveryDate": delivery_date,
-        "note": note,  # Celková poznámka k objednávke
+        "note": note,
         "items": pdf_items,
         "totalNet": total_net,
         "totalVat": total_vat,
@@ -1049,23 +1076,21 @@ def submit_b2b_order(data: dict):
         "customerCode": login_id, 
     }
 
-    # 5. Uloženie do databázy
+    # 6. Uloženie do databázy pod ERP kódom pobočky
     order_number = f"B2B-{login_id}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
     conn = db_connector.get_connection()
     cur = conn.cursor()
     try:
-        # Insert hlavičky
         cur.execute(
             """
             INSERT INTO b2b_objednavky
               (cislo_objednavky, zakaznik_id, nazov_firmy, adresa, pozadovany_datum_dodania, poznamka, celkova_suma_s_dph)
             VALUES (%s,%s,%s,%s,%s,%s,%s)
             """,
-            (order_number, login_id, cust["nazov_firmy"], cust["adresa"], _normalize_date_to_str(delivery_date), note, total_gross)
+            (order_number, login_id, cust["nazov_firmy"], final_address, _normalize_date_to_str(delivery_date), note, total_gross)
         )
         oid = cur.lastrowid
 
-        # Insert položiek
         lines: List[Tuple[Any, ...]] = []
         for i in pdf_items:
             pm = pmap.get(str(i.get("ean"))) or {}
@@ -1074,7 +1099,7 @@ def submit_b2b_order(data: dict):
                 i.get("ean"),
                 i.get("name"),
                 i["quantity"],
-                i["unit"], # Uložíme jednotku použitú v objednávke
+                i["unit"], 
                 i["dph"],
                 pm.get("predajna_kategoria"),
                 pm.get("vaha_balenia_g"),
@@ -1098,27 +1123,23 @@ def submit_b2b_order(data: dict):
         except Exception:
             pass
 
-    # 6. Generovanie PDF + CSV a odoslanie e-mailov
+    # 7. Generovanie PDF/CSV (kód ostáva rovnaký, len order_number je aktualizovaný)
     order_payload["order_number"] = order_number
     try:
-        # Získame PDF, CSV a názov súboru (vyžaduje upravený pdf_generator.py)
         pdf_bytes, csv_bytes, csv_filename = pdf_generator.create_order_files(order_payload)
 
-        # Uloženie CSV na server pre import
         try:
             export_dir = os.getenv("B2B_CSV_EXPORT_DIR", "/var/app/data/b2bobjednavky")
             os.makedirs(export_dir, exist_ok=True)
-
             file_name = csv_filename or f"objednavka_{order_number}.csv"
             file_path = os.path.join(export_dir, file_name)
-
             if csv_bytes:
                 with open(file_path, "wb") as f:
                     f.write(csv_bytes)
         except Exception:
             traceback.print_exc()
         
-        # Odoslanie zákazníkovi (iba PDF)
+        # Email zákazníkovi (na prihlasovací mail rodiča, alebo na contact email z formy)
         try:
             notification_handler.send_order_confirmation_email(
                 to=customer_email, order_number=order_number, pdf_content=pdf_bytes, csv_content=None
@@ -1126,7 +1147,7 @@ def submit_b2b_order(data: dict):
         except Exception:
             traceback.print_exc()
         
-        # Odoslanie expedícii (PDF + CSV)
+        # Email expedícii
         try:
             notification_handler.send_order_confirmation_email(
                 to=EXPEDITION_EMAIL, 
@@ -1136,24 +1157,86 @@ def submit_b2b_order(data: dict):
                 csv_filename=csv_filename
             )
         except Exception:
-            traceback.print_exc()
-            # Fallback pre prípad, že notification_handler nepodporuje csv_filename
             try:
                 notification_handler.send_order_confirmation_email(
                     to=EXPEDITION_EMAIL, order_number=order_number, pdf_content=pdf_bytes, csv_content=csv_bytes
                 )
-            except:
-                pass
+            except: pass
 
     except Exception:
         traceback.print_exc()
 
     return {
         "status": "success",
-        "message": f"Objednávka {order_number} bola prijatá.",
+        "message": f"Objednávka {order_number} pre {cust['nazov_firmy']} bola prijatá.",
         "order_data": order_payload,
     }
 
+def create_b2b_branch(data: dict):
+    """
+    Vytvorí podúčet (pobočku) pre existujúceho zákazníka.
+    Kopíruje cenníky od rodiča.
+    """
+    parent_id = data.get("parent_id")
+    name      = (data.get("branch_name") or "").strip()
+    code      = (data.get("branch_code") or "").strip() # ERP ID
+    addr      = (data.get("branch_address") or "").strip()
+    
+    if not (parent_id and name and code):
+        return {"error": "Chýbajú povinné údaje (Rodič, Názov, Kód)."}
+
+    # 1. Načítame rodiča
+    parent = db_connector.execute_query("SELECT * FROM b2b_zakaznici WHERE id=%s", (parent_id,), fetch="one")
+    if not parent:
+        return {"error": "Rodičovský účet neexistuje."}
+
+    # 2. Overíme unikátnosť kódu (loginu)
+    exists = db_connector.execute_query("SELECT id FROM b2b_zakaznici WHERE zakaznik_id=%s", (code,), fetch="one")
+    if exists:
+        return {"error": f"Zákaznícke číslo {code} už existuje."}
+
+    # 3. Insert pobočky
+    # Pobočka nepotrebuje heslo na priame prihlásenie, ale DB ho môže vyžadovať NOT NULL.
+    # Dáme tam random string.
+    dummy_salt, dummy_hash = _hash_password(secrets.token_hex(16))
+
+    cols = ["zakaznik_id", "nazov_firmy", "email", "telefon", "adresa", "adresa_dorucenia", "parent_id", "typ", "je_schvaleny", "password_hash_hex", "password_salt_hex"]
+    # Email a telefón dedíme od rodiča, ale adresu doručenia nastavíme novú
+    vals = [code, name, parent["email"], parent["telefon"], parent["adresa"], addr, parent_id, "B2B", 1, dummy_hash, dummy_salt]
+
+    placeholders = ",".join(["%s"] * len(cols))
+    sql = f"INSERT INTO b2b_zakaznici ({','.join(cols)}) VALUES ({placeholders})"
+    
+    conn = db_connector.get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(sql, tuple(vals))
+        
+        # 4. Automatické kopírovanie cenníkov
+        # Zistíme, aké cenníky má rodič
+        parent_pls = db_connector.execute_query(
+            "SELECT cennik_id FROM b2b_zakaznik_cennik WHERE zakaznik_id=%s", 
+            (parent["zakaznik_id"],), 
+            fetch="all"
+        )
+        
+        if parent_pls:
+            # Vložíme väzby pre novú pobočku (code)
+            map_data = [(code, pl["cennik_id"]) for pl in parent_pls]
+            cur.executemany(
+                "INSERT INTO b2b_zakaznik_cennik (zakaznik_id, cennik_id) VALUES (%s, %s)",
+                map_data
+            )
+        
+        conn.commit()
+        return {"message": f"Pobočka '{name}' vytvorená. Cenníky boli skopírované."}
+    except Exception as e:
+        conn.rollback()
+        traceback.print_exc()
+        return {"error": f"Chyba DB: {str(e)}"}
+    finally:
+        cur.close(); conn.close()
+        
 def get_all_b2b_orders(filters=None):
     filters = filters or {}
     where: List[str] = []

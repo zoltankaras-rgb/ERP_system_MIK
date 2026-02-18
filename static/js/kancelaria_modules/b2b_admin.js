@@ -538,10 +538,11 @@
       };
   }
 
- // =================================================================
-  // 4. ZÁKAZNÍCI & CENNÍKY
-  // =================================================================
-  async function loadCustomersAndPricelists() {
+ // -----------------------------------------------------------------
+// 4. ZÁKAZNÍCI & CENNÍKY (Upravené pre správu pobočiek)
+// -----------------------------------------------------------------
+
+async function loadCustomersAndPricelists() {
     const box = ensureContainer('b2b-customers-container');
     box.innerHTML = '<p>Načítavam...</p>';
     try {
@@ -554,17 +555,34 @@
         
         let html = `<div class="table-container"><table class="table-refined"><thead><tr><th>ID</th><th>Firma</th><th>Kontakt</th><th>Priradené cenníky</th><th>Akcia</th></tr></thead><tbody>`;
         
+        // Zoradíme zákazníkov tak, aby boli rodičia a pod nimi ich pobočky (voliteľné, ale prehľadnejšie)
+        // Pre jednoduchosť zatiaľ necháme pôvodné poradie alebo zoradíme podľa názvu
+        state.customers.sort((a,b) => a.nazov_firmy.localeCompare(b.nazov_firmy));
+
         state.customers.forEach(c => {
             const assignedIds = state.mapping[c.zakaznik_id] || state.mapping[c.id] || [];
             const assignedNames = assignedIds.map(id => plMap.get(Number(id)) || 'ID '+id).join(', ');
             
-            html += `<tr>
+            // === NOVÉ: Detekcia pobočky ===
+            const isBranch = c.parent_id ? true : false;
+            const branchLabel = isBranch ? '<span style="color:#2563eb; font-size:0.8em; font-weight:bold; margin-left:5px;">(Pobočka)</span>' : '';
+            // Jemné odsadenie pre pobočky
+            const rowStyle = isBranch ? 'background-color: #f8fafc;' : '';
+            const nameStyle = isBranch ? 'padding-left: 20px; border-left: 3px solid #cbd5e1;' : '';
+
+            html += `<tr style="${rowStyle}">
                 <td>${escapeHtml(c.zakaznik_id)}</td>
-                <td><strong>${escapeHtml(c.nazov_firmy)}</strong></td>
+                <td style="${nameStyle}">
+                    <strong>${escapeHtml(c.nazov_firmy)}</strong> ${branchLabel}
+                    ${isBranch ? `<div style="font-size:0.75rem;color:#64748b;">Patrí pod ID: ${c.parent_id}</div>` : ''}
+                </td>
                 <td>${escapeHtml(c.email)}<br>${escapeHtml(c.telefon)}</td>
                 <td>${assignedNames || '<span class="muted">Žiadne</span>'}</td>
                 <td>
                     <button class="btn btn-primary btn-sm" onclick="window.editB2BCustomer(${c.id})">Upraviť</button>
+                    
+                    ${!isBranch ? `<button class="btn btn-warning btn-sm" style="margin-left:5px;" onclick="window.addB2BBranch(${c.id}, '${escapeHtml(c.nazov_firmy)}')">+ Pobočka</button>` : ''}
+                    
                     <button class="btn btn-danger btn-sm" style="margin-left:5px;" onclick="window.deleteB2BCustomer(${c.id})">Zmazať</button>
                 </td>
             </tr>`;
@@ -572,92 +590,147 @@
         html += `</tbody></table></div>`;
         box.innerHTML = html;
     } catch(e) { box.innerHTML = `<p class="error">${e.message}</p>`; }
-  }
+}
 
-  window.editB2BCustomer = function(id) {
-      const cust = state.customers.find(c => c.id === id);
-      if(!cust) return;
-      
-      const assignedIds = state.mapping[cust.zakaznik_id] || state.mapping[cust.id] || [];
-      let plHtml = '';
-      
-      state.pricelists.forEach(p => {
-          const checked = assignedIds.includes(p.id) ? 'checked' : '';
-          plHtml += `<label style="display:block; margin-bottom:5px; padding:5px; background:#f9fafb; border-radius:4px;"><input type="checkbox" class="pl-check" value="${p.id}" ${checked}> ${escapeHtml(p.nazov_cennika)}</label>`;
-      });
-      
-      openModal(`<div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px;">
-        <div>
-            <h4>Fakturačné údaje</h4>
-            <div class="form-group"><label>ID</label><input type="text" value="${escapeHtml(cust.zakaznik_id)}" disabled class="filter-input" style="width:100%; background:#eee;"></div>
-            <div class="form-group"><label>Firma</label><input type="text" id="ced-name" value="${escapeHtml(cust.nazov_firmy)}" class="filter-input" style="width:100%;"></div>
-            <div class="form-group"><label>Email</label><input type="text" id="ced-email" value="${escapeHtml(cust.email)}" class="filter-input" style="width:100%;"></div>
-            <div class="form-group"><label>Telefón</label><input type="text" id="ced-phone" value="${escapeHtml(cust.telefon)}" class="filter-input" style="width:100%;"></div>
-            <div class="form-group"><label>Adresa</label><textarea id="ced-addr" class="filter-input" style="width:100%;">${escapeHtml(cust.adresa)}</textarea></div>
-        </div>
-        <div>
-            <h4>Priradené cenníky</h4>
-            <div style="max-height:300px; overflow-y:auto; border:1px solid #ddd; padding:10px; border-radius:4px;">${plHtml}</div>
-            <h4 style="margin-top:20px;">Iné</h4>
-            <label><input type="checkbox" id="ced-active" ${cust.je_schvaleny ? 'checked' : ''}> Účet je aktívny</label>
-        </div>
+// === Existujúce funkcie (pre istotu ich tu nechávam, ak by ste ich potrebovali v kontexte) ===
+
+window.editB2BCustomer = function(id) {
+    const cust = state.customers.find(c => c.id === id);
+    if(!cust) return;
+    
+    const assignedIds = state.mapping[cust.zakaznik_id] || state.mapping[cust.id] || [];
+    let plHtml = '';
+    
+    state.pricelists.forEach(p => {
+        const checked = assignedIds.includes(p.id) ? 'checked' : '';
+        plHtml += `<label style="display:block; margin-bottom:5px; padding:5px; background:#f9fafb; border-radius:4px;"><input type="checkbox" class="pl-check" value="${p.id}" ${checked}> ${escapeHtml(p.nazov_cennika)}</label>`;
+    });
+    
+    openModal(`<div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px;">
+      <div>
+          <h4>Fakturačné údaje</h4>
+          <div class="form-group"><label>ID</label><input type="text" value="${escapeHtml(cust.zakaznik_id)}" disabled class="filter-input" style="width:100%; background:#eee;"></div>
+          <div class="form-group"><label>Firma</label><input type="text" id="ced-name" value="${escapeHtml(cust.nazov_firmy)}" class="filter-input" style="width:100%;"></div>
+          <div class="form-group"><label>Email</label><input type="text" id="ced-email" value="${escapeHtml(cust.email)}" class="filter-input" style="width:100%;"></div>
+          <div class="form-group"><label>Telefón</label><input type="text" id="ced-phone" value="${escapeHtml(cust.telefon)}" class="filter-input" style="width:100%;"></div>
+          <div class="form-group"><label>Adresa</label><textarea id="ced-addr" class="filter-input" style="width:100%;">${escapeHtml(cust.adresa)}</textarea></div>
+          <div class="form-group"><label>Adresa doručenia</label><textarea id="ced-del-addr" class="filter-input" style="width:100%;" placeholder="Ak je iná ako fakturačná">${escapeHtml(cust.adresa_dorucenia || '')}</textarea></div>
       </div>
-      <div style="margin-top:20px; text-align:right;"><button class="btn btn-success" onclick="window.saveB2BCustomer(${cust.id})">Uložiť zmeny</button></div>`);
-  };
+      <div>
+          <h4>Priradené cenníky</h4>
+          <div style="max-height:300px; overflow-y:auto; border:1px solid #ddd; padding:10px; border-radius:4px;">${plHtml}</div>
+          <h4 style="margin-top:20px;">Iné</h4>
+          <label><input type="checkbox" id="ced-active" ${cust.je_schvaleny ? 'checked' : ''}> Účet je aktívny</label>
+      </div>
+    </div>
+    <div style="margin-top:20px; text-align:right;"><button class="btn btn-success" onclick="window.saveB2BCustomer(${cust.id})">Uložiť zmeny</button></div>`);
+};
 
-  window.saveB2BCustomer = async function(id) {
-      const payload = {
-          id: id, 
-          nazov_firmy: doc.getElementById('ced-name').value, 
-          email: doc.getElementById('ced-email').value, 
-          telefon: doc.getElementById('ced-phone').value, 
-          adresa: doc.getElementById('ced-addr').value,
-          je_schvaleny: doc.getElementById('ced-active').checked ? 1 : 0, 
-          pricelist_ids: Array.from(doc.querySelectorAll('.pl-check:checked')).map(cb => cb.value)
-      };
-      try {
-          await callFirstOk([{ url: '/api/kancelaria/b2b/updateCustomer', opts: { method: 'POST', body: payload } }]);
-          showStatus('Zákazník uložený'); 
-          closeModal(); 
-          loadCustomersAndPricelists();
-      } catch(e) { alert(e.message); }
-  };
+window.saveB2BCustomer = async function(id) {
+    const payload = {
+        id: id, 
+        nazov_firmy: document.getElementById('ced-name').value, 
+        email: document.getElementById('ced-email').value, 
+        telefon: document.getElementById('ced-phone').value, 
+        adresa: document.getElementById('ced-addr').value,
+        adresa_dorucenia: document.getElementById('ced-del-addr').value, // Doplnené
+        je_schvaleny: document.getElementById('ced-active').checked ? 1 : 0, 
+        pricelist_ids: Array.from(document.querySelectorAll('.pl-check:checked')).map(cb => cb.value)
+    };
+    try {
+        await callFirstOk([{ url: '/api/kancelaria/b2b/updateCustomer', opts: { method: 'POST', body: payload } }]);
+        showStatus('Zákazník uložený'); 
+        closeModal(); 
+        loadCustomersAndPricelists();
+    } catch(e) { alert(e.message); }
+};
 
-  window.deleteB2BCustomer = async function(id) {
-      const cust = state.customers.find(c => c.id === id);
-      if(!cust) return;
+window.deleteB2BCustomer = async function(id) {
+    const cust = state.customers.find(c => c.id === id);
+    if(!cust) return;
 
-      // 1. Pred-kontrola na strane prehliadača (či nemá cenníky)
-      const assignedIds = state.mapping[cust.zakaznik_id] || state.mapping[cust.id] || [];
-      if (assignedIds.length > 0) {
-          alert(`Zákazník ${cust.nazov_firmy} má priradené cenníky.\nPred zmazaním mu ich musíte odobrať (kliknite na Upraviť a odškrtnite cenníky).`);
-          return;
-      }
+    const assignedIds = state.mapping[cust.zakaznik_id] || state.mapping[cust.id] || [];
+    if (assignedIds.length > 0) {
+        alert(`Zákazník ${cust.nazov_firmy} má priradené cenníky.\nPred zmazaním mu ich musíte odobrať.`);
+        return;
+    }
 
-      // 2. Dvojfázové overenie - vyžaduje prepísať slovo
-      const confirmWord = prompt(
-          `UPOZORNENIE: Chystáte sa natrvalo zmazať zákazníka:\n"${cust.nazov_firmy}"\n\nAk ste si istí a zákazník nemá rozpracované objednávky, napíšte slovo ZMAZAT do poľa nižšie:`
-      );
+    const confirmWord = prompt(
+        `UPOZORNENIE: Chystáte sa natrvalo zmazať zákazníka:\n"${cust.nazov_firmy}"\n\nAk ste si istí, napíšte slovo ZMAZAT:`
+    );
 
-      if (confirmWord !== "ZMAZAT") {
-          showStatus("Mazanie zrušené. Nebolo zadané potvrdzovacie slovo.", true);
-          return;
-      }
+    if (confirmWord !== "ZMAZAT") {
+        showStatus("Mazanie zrušené.", true);
+        return;
+    }
 
-      // 3. Odoslanie požiadavky na backend
-      try {
-          const res = await callFirstOk([{ 
-              url: '/api/kancelaria/b2b/deleteCustomer', 
-              opts: { method: 'POST', body: { id: id } } 
-          }]);
-          
-          showStatus(res.message || 'Zákazník bol úspešne zmazaný.');
-          loadCustomersAndPricelists(); // Obnoví tabuľku po zmazaní
-          
-      } catch(e) { 
-          alert("Chyba pri mazaní: " + e.message); 
-      }
-  };
+    try {
+        const res = await callFirstOk([{ 
+            url: '/api/kancelaria/b2b/deleteCustomer', 
+            opts: { method: 'POST', body: { id: id } } 
+        }]);
+        
+        showStatus(res.message || 'Zákazník bol zmazaný.');
+        loadCustomersAndPricelists();
+        
+    } catch(e) { 
+        alert("Chyba pri mazaní: " + e.message); 
+    }
+};
+
+// === NOVÉ FUNKCIE PRE POBOČKY (Step 4) ===
+
+window.addB2BBranch = function(parentId, parentName) {
+    openModal(`
+        <h3>Pridať odberné miesto pre: ${parentName}</h3>
+        <div style="background:#eff6ff; border:1px solid #bfdbfe; color:#1e40af; padding:10px; border-radius:6px; margin-bottom:15px; font-size:0.9rem;">
+            ℹ️ Pobočka bude automaticky dediť cenníky od rodiča. Prihlásenie prebieha cez hlavný účet rodiča.
+        </div>
+        <div class="form-group">
+            <label>Názov pobočky / prevádzky (napr. Detské jasle)</label>
+            <input type="text" id="br-name" class="filter-input" style="width:100%; font-size:1.1rem;">
+        </div>
+        <div class="form-group">
+            <label>Nové Zákaznícke číslo (ERP ID) <span style="color:red">*</span></label>
+            <input type="text" id="br-code" class="filter-input" style="width:100%; font-weight:bold;" placeholder="napr. 000005">
+            <small style="color:#666;">Musí byť unikátne.</small>
+        </div>
+        <div class="form-group">
+            <label>Adresa doručenia pobočky</label>
+            <input type="text" id="br-addr" class="filter-input" style="width:100%;" placeholder="Ulica, Mesto...">
+        </div>
+        <div style="margin-top:20px; text-align:right;">
+            <button class="btn btn-secondary" onclick="closeModal()" style="margin-right:10px;">Zrušiť</button>
+            <button class="btn btn-success" onclick="window.saveB2BBranch(${parentId})">Vytvoriť pobočku</button>
+        </div>
+    `);
+};
+
+window.saveB2BBranch = async function(parentId) {
+    const data = {
+        parent_id: parentId,
+        branch_name: document.getElementById('br-name').value,
+        branch_code: document.getElementById('br-code').value,
+        branch_address: document.getElementById('br-addr').value
+    };
+    
+    if(!data.branch_name || !data.branch_code) {
+        return showStatus('Vyplňte názov a zákaznícke číslo.', true);
+    }
+    
+    try {
+        await callFirstOk([{ 
+            url: '/api/kancelaria/b2b/createBranch', 
+            opts: { method: 'POST', body: data } 
+        }]);
+        
+        showStatus('Pobočka úspešne vytvorená.');
+        closeModal();
+        loadCustomersAndPricelists(); // Refresh tabuľky
+    } catch(e) {
+        alert("Chyba: " + e.message);
+    }
+};
  // =================================================================
   // 5. CENNÍKY (MANAGEMENT) - OPRAVENÉ + INFO FIELD
   // =================================================================
@@ -1016,6 +1089,47 @@
 
 // Vyhľadajte tento blok na konci súboru b2b_admin.js a doplňte riadok pre loadCommView
 // static/js/kancelaria_modules/b2b_admin.js
+window.addB2BBranch = function(parentId, parentName) {
+    openModal(`
+        <h3>Pridať odberné miesto pre: ${parentName}</h3>
+        <p style="color:#666;font-size:0.9em;">Pobočka bude mať rovnaké cenníky ako rodič, ale vlastné zákaznícke číslo (ERP kód) a adresu doručenia.</p>
+        <div class="form-group">
+            <label>Názov pobočky (napr. Detské jasle)</label>
+            <input type="text" id="br-name" class="filter-input" style="width:100%;">
+        </div>
+        <div class="form-group">
+            <label>Nové Zákaznícke číslo (ERP ID)</label>
+            <input type="text" id="br-code" class="filter-input" style="width:100%; font-weight:bold;">
+        </div>
+        <div class="form-group">
+            <label>Adresa doručenia pobočky</label>
+            <input type="text" id="br-addr" class="filter-input" style="width:100%;">
+        </div>
+        <div style="margin-top:15px;text-align:right;">
+            <button class="btn btn-success" onclick="window.saveB2BBranch(${parentId})">Vytvoriť pobočku</button>
+        </div>
+    `);
+};
+
+window.saveB2BBranch = async function(parentId) {
+    const data = {
+        parent_id: parentId,
+        branch_name: document.getElementById('br-name').value,
+        branch_code: document.getElementById('br-code').value,
+        branch_address: document.getElementById('br-addr').value
+    };
+    if(!data.branch_name || !data.branch_code) return showStatus('Vyplňte názov a kód', true);
+    
+    try {
+        await callFirstOk([{ url: '/api/kancelaria/b2b/createBranch', opts: { method: 'POST', body: data } }]);
+        showStatus('Pobočka vytvorená');
+        closeModal();
+        loadCustomersAndPricelists();
+    } catch(e) {
+        alert(e.message);
+    }
+};
+
   (function (g) { 
       g.initializeB2BAdminModule = initializeB2BAdminModule; 
       g.loadCommView = loadCommView; // <--- PRIDAJTE TENTO RIADOK

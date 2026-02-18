@@ -248,27 +248,130 @@ document.addEventListener('DOMContentLoaded', () => {
     showAuthView('view-auth');
   });
 
-  // =========================
-  // LOGIN SUCCESS → PORTÁL
-  // =========================
+  // =================================================================
+// 5. FRONTEND LOGIKA PRE B2B (Parent-Child / Pobočky)
+// =================================================================
 
-  function handleLoginSuccess(user) {
+// 1. Upravený handler po prihlásení
+function handleLoginSuccess(user) {
     appState.currentUser = user;
     sessionStorage.setItem('b2bUser', JSON.stringify(user));
+
+    // Ak je admin, končíme (presmerovanie rieši backend alebo iná logika)
     if (user.role === 'admin') {
-      showNotification('Admin prihlásenie úspešné.', 'success');
-      return;
+        showNotification('Admin prihlásenie úspešné.', 'success');
+        return;
     }
 
-    showMainView('customer');
-    document.getElementById('customer-name').textContent = user.nazov_firmy || '';
+    // === KĽÚČOVÁ ZMENA: Kontrola pobočiek ===
+    // Ak má používateľ podúčty (pobočky), musíme mu dať vybrať
+    if (user.sub_accounts && user.sub_accounts.length > 0) {
+        showBranchSelector(user);
+    } else {
+        // Ak nemá pobočky, pokračujeme štandardne (objednáva sám na seba)
+        initializeCustomerPortal(user, user.zakaznik_id, user.nazov_firmy, user.adresa);
+    }
+}
 
+// 2. Modálne okno na výber pobočky
+function showBranchSelector(user) {
+    // Skryjeme loader, ak beží
+    hideLoader();
+
+    const mc = document.getElementById('modal-container');
+    
+    // Tlačidlo pre "Hlavný účet" (matka)
+    let buttonsHtml = `
+        <button class="button secondary" style="width:100%; margin-bottom:10px; text-align:left; padding:15px; border:1px solid #ccc;" 
+            onclick="selectBranch('${user.zakaznik_id}', '${user.nazov_firmy.replace(/'/g, "\\'")}', '${(user.adresa || '').replace(/'/g, "\\'")}')">
+            <div style="font-weight:bold;">${user.nazov_firmy} (Centrála)</div>
+            <small style="color:#666;">ID: ${user.zakaznik_id} • ${user.adresa || ''}</small>
+        </button>
+    `;
+
+    // Tlačidlá pre každú pobočku (dieťa)
+    if (user.sub_accounts) {
+        user.sub_accounts.forEach(sub => {
+            // Ošetrenie úvodzoviek v názvoch
+            const safeName = sub.nazov_firmy.replace(/'/g, "\\'");
+            const safeAddr = (sub.adresa_dorucenia || sub.adresa || '').replace(/'/g, "\\'");
+            
+            buttonsHtml += `
+                <button class="button" style="width:100%; margin-bottom:10px; text-align:left; padding:15px;" 
+                    onclick="selectBranch('${sub.zakaznik_id}', '${safeName}', '${safeAddr}')">
+                    <div style="font-weight:bold;">${sub.nazov_firmy}</div>
+                    <small>ID: ${sub.zakaznik_id} • ${sub.adresa_dorucenia || sub.adresa || ''}</small>
+                </button>
+            `;
+        });
+    }
+
+    mc.innerHTML = `
+        <div class="modal-backdrop" style="background:rgba(0,0,0,0.8);"></div>
+        <div class="modal-content" style="max-width:500px; width:95%;">
+            <div class="modal-header">
+                <h3>Vyberte prevádzku</h3>
+            </div>
+            <div style="padding:15px;">
+                <p style="margin-bottom:15px;">Na ktorú prevádzku chcete vytvoriť objednávku?</p>
+                ${buttonsHtml}
+            </div>
+        </div>
+    `;
+    mc.style.display = 'flex';
+}
+
+// 3. Spracovanie výberu pobočky
+window.selectBranch = function(loginId, name, address) {
+    // Zatvoríme okno
+    const mc = document.getElementById('modal-container');
+    mc.style.display = 'none';
+    mc.innerHTML = '';
+
+    // Uložíme si aktívnu pobočku do stavu aplikácie
+    appState.activeBranch = {
+        loginId: loginId, // String (napr. "000005")
+        name: name,
+        address: address,
+        internalId: null // Doplníme nižšie
+    };
+
+    // Nájdeme interné DB ID pre API (pretože backend potrebuje ID z tabuľky pre kontrolu, nie len string)
+    if (loginId === appState.currentUser.zakaznik_id) {
+        appState.activeBranch.internalId = appState.currentUser.id;
+    } else {
+        const sub = appState.currentUser.sub_accounts.find(x => x.zakaznik_id === loginId);
+        appState.activeBranch.internalId = sub ? sub.id : null;
+    }
+
+    // Inicializujeme portál s údajmi vybranej pobočky
+    initializeCustomerPortal(appState.currentUser, loginId, name, address);
+};
+
+// 4. Inicializácia portálu (Pôvodná logika z handleLoginSuccess, teraz parametrizovaná)
+function initializeCustomerPortal(user, activeLoginId, activeName, activeAddress) {
+    showMainView('customer');
+
+    // Zobrazíme meno AKTÍVNEJ pobočky v hlavičke
+    const nameEl = document.getElementById('customer-name');
+    nameEl.innerHTML = `
+        <div style="line-height:1.2;">
+            ${activeName} 
+            <span style="font-size:0.8em; opacity:0.8; font-weight:normal;">(${activeLoginId})</span>
+        </div>
+        ${(user.sub_accounts && user.sub_accounts.length > 0) 
+            ? `<a href="#" onclick="location.reload()" style="font-size:0.75rem; color:#dbeafe; text-decoration:underline; display:block; margin-top:2px;">↻ Zmeniť prevádzku</a>` 
+            : ''}
+    `;
+
+    // Oznam
     const bar = document.getElementById('announcement-bar');
     if (user.announcement) {
-      bar.textContent = user.announcement;
-      bar.classList.remove('hidden');
+        bar.textContent = user.announcement;
+        bar.classList.remove('hidden');
     } else bar.classList.add('hidden');
 
+    // Reset UI prvkov
     const sel = document.getElementById('pricelist-select');
     const stepProducts = document.getElementById('step-products');
     const productsContainer = document.getElementById('products-container');
@@ -280,42 +383,105 @@ document.addEventListener('DOMContentLoaded', () => {
     appState.order = {};
     appState.products = {};
 
+    // Naplnenie cenníkov (zatiaľ používame cenníky rodiča, keďže sa dedia)
     sel.innerHTML = '<option value="">-- Vyberte cenník --</option>';
     (user.pricelists || []).forEach(p => {
-      const o = document.createElement('option');
-      o.value = p.id;
-      o.textContent = p.nazov_cennika;
-      sel.appendChild(o);
+        const o = document.createElement('option');
+        o.value = p.id;
+        o.textContent = p.nazov_cennika;
+        sel.appendChild(o);
     });
 
+    // Event listener na zmenu cenníka
     sel.onchange = async () => {
-      const id = sel.value;
-      if (!id) {
+        const id = sel.value;
+        if (!id) {
+            stepProducts.classList.add('hidden');
+            productsContainer.innerHTML = '';
+            details.classList.add('hidden');
+            appState.order = {};
+            appState.products = {};
+            return;
+        }
+        const res = await apiCall('/api/b2b/get-products', { pricelist_id: id });
+        if (!res) return;
+        appState.products = res.productsByCategory || {};
+        renderProducts(); // Táto funkcia ostáva nezmenená v b2b_app.js
+        stepProducts.classList.remove('hidden');
+    };
+
+    // Tlačidlo Späť
+    document.getElementById('btn-back-to-pricelist').onclick = () => {
+        sel.value = '';
         stepProducts.classList.add('hidden');
         productsContainer.innerHTML = '';
         details.classList.add('hidden');
         appState.order = {};
         appState.products = {};
-        return;
-      }
-      const res = await apiCall('/api/b2b/get-products', { pricelist_id: id });
-      if (!res) return;
-      appState.products = res.productsByCategory || {};
-      renderProducts();
-      stepProducts.classList.remove('hidden');
     };
 
-    document.getElementById('btn-back-to-pricelist').onclick = () => {
-      sel.value = '';
-      stepProducts.classList.add('hidden');
-      productsContainer.innerHTML = '';
-      details.classList.add('hidden');
-      appState.order = {};
-      appState.products = {};
-    };
-
+    // Tlačidlo Odoslať (pripájame našu novú submit funkciu)
     document.getElementById('btn-submit-order').onclick = submitOrder;
-  }
+}
+
+// 5. Upravené odoslanie objednávky (posiela targetCustomerId)
+async function submitOrder() {
+    const d = document.getElementById('delivery-date').value;
+    if (!d) return showNotification('Zadajte požadovaný dátum dodania.', 'error');
+    
+    const items = Object.values(appState.order);
+    if (!items.length) return showNotification('Nemáte v objednávke žiadne položky.', 'error');
+
+    // Zistíme ID cieľového zákazníka (pobočky)
+    // Ak sme vybrali pobočku cez selectBranch, máme ho v appState.activeBranch.internalId
+    // Ak nie, použijeme ID prihláseného používateľa
+    const targetId = (appState.activeBranch && appState.activeBranch.internalId) 
+        ? appState.activeBranch.internalId 
+        : appState.currentUser.id;
+
+    // Pre istotu pošleme aj názov (pre email/PDF), hoci backend si ho vie vytiahnuť z DB
+    const custName = (appState.activeBranch && appState.activeBranch.name)
+        ? appState.activeBranch.name
+        : appState.currentUser.nazov_firmy;
+
+    const out = await apiCall('/api/b2b/submit-order', {
+        userId: appState.currentUser.id,       // Kto je prihlásený (Rodič)
+        targetCustomerId: targetId,            // Pre koho objednávame (Pobočka/Rodič)
+        customerName: custName,
+        customerEmail: appState.currentUser.email,
+        items: items, 
+        deliveryDate: d,
+        note: document.getElementById('order-note').value
+    });
+
+    if (!out) return;
+
+    // Úspech - vyčistíme košík
+    appState.order = {};
+    document.querySelectorAll('.quantity-input').forEach(i => i.value = '');
+    document.getElementById('order-note').value = '';
+    document.getElementById('delivery-date').value = '';
+    updateTotals(); // Funkcia z pôvodného b2b_app.js
+
+    document.getElementById('products-container').innerHTML =
+        `<h3>Ďakujeme!</h3>
+         <p style="font-size:1.2rem;text-align:center;">Objednávka pre <strong>${custName}</strong> bola prijatá.</p>
+         <p style="text-align:center;">${out.message}</p>`;
+
+    // Reset UI po chvíli
+    setTimeout(() => {
+        const sel = document.getElementById('pricelist-select');
+        const stepProducts = document.getElementById('step-products');
+        sel.value = '';
+        stepProducts.classList.add('hidden');
+        document.getElementById('products-container').innerHTML = '';
+        document.getElementById('order-form-details').classList.add('hidden');
+    }, 3000);
+}
+
+// Export do window objektu, aby boli funkcie dostupné v HTML (ak treba)
+window.handleLoginSuccess = handleLoginSuccess;
+window.submitOrder = submitOrder;
 
   // =========================
   // PRODUKTY + OBJEDNÁVKA
@@ -488,31 +654,52 @@ document.addEventListener('DOMContentLoaded', () => {
     </div>`;
     details.classList.remove('hidden');
   }
-
-  async function submitOrder() {
+async function submitOrder() {
     const d = document.getElementById('delivery-date').value;
     if (!d) return showNotification('Zadajte požadovaný dátum dodania.', 'error');
+    
     const items = Object.values(appState.order);
     if (!items.length) return showNotification('Nemáte v objednávke žiadne položky.', 'error');
 
+    // === ZMENA: Zistíme ID cieľového zákazníka (pobočky) ===
+    // Ak sme vybrali pobočku cez selectBranch, máme ho v appState.activeBranch.internalId
+    // Ak nie (alebo sme vybrali "Centrála"), použijeme ID prihláseného používateľa
+    const targetId = (appState.activeBranch && appState.activeBranch.internalId) 
+        ? appState.activeBranch.internalId 
+        : appState.currentUser.id;
+
+    // Zistíme meno pre koho sa objednáva (pre zobrazenie v správe o úspechu)
+    const custName = (appState.activeBranch && appState.activeBranch.name)
+        ? appState.activeBranch.name
+        : appState.currentUser.nazov_firmy;
+
     const out = await apiCall('/api/b2b/submit-order', {
-      userId: appState.currentUser.id,
-      customerName: appState.currentUser.nazov_firmy,
+      userId: appState.currentUser.id,       // Kto je prihlásený (Rodič) - pre overenie
+      targetCustomerId: targetId,            // Pre koho objednávame (Pobočka/Rodič) - pre fakturáciu
+      customerName: custName,                // Meno prevádzky (pre PDF/Email)
       customerEmail: appState.currentUser.email,
-      items, deliveryDate: d,
+      items: items, 
+      deliveryDate: d,
       note: document.getElementById('order-note').value
     });
+
     if (!out) return;
 
+    // Úspech - vyčistíme košík a formuláre
     appState.order = {};
     document.querySelectorAll('.quantity-input').forEach(i => i.value = '');
     document.getElementById('order-note').value = '';
     document.getElementById('delivery-date').value = '';
     updateTotals();
 
+    // Zobrazíme potvrdenie s menom konkrétnej prevádzky
     document.getElementById('products-container').innerHTML =
-      `<h3>Ďakujeme!</h3><p style="font-size:1.5rem;text-align:center;">${out.message}</p><p style="text-align:center;">Na váš e-mail sme odoslali potvrdenie.</p>`;
+      `<h3>Ďakujeme!</h3>
+       <p style="font-size:1.2rem;text-align:center;">Objednávka pre <strong>${custName}</strong> bola prijatá.</p>
+       <p style="text-align:center;">${out.message}</p>
+       <p style="text-align:center; font-size:0.9rem; color:#666;">Potvrdenie bolo odoslané na e-mail centrály.</p>`;
 
+    // Reset UI po 3 sekundách
     setTimeout(() => {
       const sel = document.getElementById('pricelist-select');
       const stepProducts = document.getElementById('step-products');
@@ -520,11 +707,10 @@ document.addEventListener('DOMContentLoaded', () => {
       stepProducts.classList.add('hidden');
       document.getElementById('products-container').innerHTML = '';
       document.getElementById('order-form-details').classList.add('hidden');
-    }, 1500);
+    }, 3000);
   }
 
   window.submitOrder = submitOrder;
-
   // =========================
   // História objednávok – upravené UI
   // =========================
