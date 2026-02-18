@@ -1175,12 +1175,13 @@ def submit_b2b_order(data: dict):
 def create_b2b_branch(data: dict):
     """
     Vytvorí podúčet (pobočku) pre existujúceho zákazníka.
-    Kopíruje cenníky od rodiča.
+    Bezpečne detekuje názvy stĺpcov (heslo_hash vs password_hash_hex).
     """
     parent_id = data.get("parent_id")
     name      = (data.get("branch_name") or "").strip()
     code      = (data.get("branch_code") or "").strip() # ERP ID
     addr      = (data.get("branch_address") or "").strip()
+    del_addr  = data.get("branch_delivery_address") # Ak by prišlo z FE
     
     if not (parent_id and name and code):
         return {"error": "Chýbajú povinné údaje (Rodič, Názov, Kód)."}
@@ -1195,17 +1196,42 @@ def create_b2b_branch(data: dict):
     if exists:
         return {"error": f"Zákaznícke číslo {code} už existuje."}
 
-    # 3. Insert pobočky
-    # Pobočka nepotrebuje heslo na priame prihlásenie, ale DB ho môže vyžadovať NOT NULL.
-    # Dáme tam random string.
+    # 3. Vytvoríme pobočku - Dynamické zistenie stĺpcov (FIX CHYBY)
+    # Pobočka nepotrebuje heslo na priame prihlásenie, ale DB ho vyžaduje (NOT NULL).
     dummy_salt, dummy_hash = _hash_password(secrets.token_hex(16))
 
-    cols = ["zakaznik_id", "nazov_firmy", "email", "telefon", "adresa", "adresa_dorucenia", "parent_id", "typ", "je_schvaleny", "password_hash_hex", "password_salt_hex"]
-    # Email a telefón dedíme od rodiča, ale adresu doručenia nastavíme novú
-    vals = [code, name, parent["email"], parent["telefon"], parent["adresa"], addr, parent_id, "B2B", 1, dummy_hash, dummy_salt]
+    cols_in_db = _existing_columns("b2b_zakaznici")
+    cols = []
+    vals = []
+
+    def add(col, val):
+        if col in cols_in_db:
+            cols.append(col)
+            vals.append(val)
+
+    # Základné údaje
+    add("zakaznik_id", code)
+    add("nazov_firmy", name)
+    add("email", parent.get("email") or "")
+    add("telefon", parent.get("telefon") or "")
+    add("adresa", parent.get("adresa") or "") # Fakturačná adresa od rodiča
+    add("adresa_dorucenia", addr if addr else (del_addr or "")) # Doručovacia pre pobočku
+    add("parent_id", parent_id)
+    add("typ", "B2B")
+    add("je_schvaleny", 1)
+    
+    # Bezpečné vloženie hesla (skúsi všetky varianty názvov)
+    add("password_hash_hex", dummy_hash)
+    add("password_salt_hex", dummy_salt)
+    add("heslo_hash", dummy_hash)
+    add("heslo_salt", dummy_salt)
+
+    # Zostavenie SQL
+    if not cols:
+        return {"error": "Nepodarilo sa detegovať stĺpce tabuľky."}
 
     placeholders = ",".join(["%s"] * len(cols))
-    sql = f"INSERT INTO b2b_zakaznici ({','.join(cols)}) VALUES ({placeholders})"
+    sql = f"INSERT INTO b2b_zakaznici ({', '.join(cols)}) VALUES ({placeholders})"
     
     conn = db_connector.get_connection()
     cur = conn.cursor()
@@ -1213,15 +1239,12 @@ def create_b2b_branch(data: dict):
         cur.execute(sql, tuple(vals))
         
         # 4. Automatické kopírovanie cenníkov
-        # Zistíme, aké cenníky má rodič
         parent_pls = db_connector.execute_query(
             "SELECT cennik_id FROM b2b_zakaznik_cennik WHERE zakaznik_id=%s", 
             (parent["zakaznik_id"],), 
             fetch="all"
         )
-        
         if parent_pls:
-            # Vložíme väzby pre novú pobočku (code)
             map_data = [(code, pl["cennik_id"]) for pl in parent_pls]
             cur.executemany(
                 "INSERT INTO b2b_zakaznik_cennik (zakaznik_id, cennik_id) VALUES (%s, %s)",
@@ -1229,14 +1252,15 @@ def create_b2b_branch(data: dict):
             )
         
         conn.commit()
-        return {"message": f"Pobočka '{name}' vytvorená. Cenníky boli skopírované."}
+        return {"message": f"Pobočka '{name}' vytvorená."}
     except Exception as e:
         conn.rollback()
         traceback.print_exc()
         return {"error": f"Chyba DB: {str(e)}"}
     finally:
-        cur.close(); conn.close()
-        
+        try:
+            cur.close(); conn.close()
+        except: pass
 def get_all_b2b_orders(filters=None):
     filters = filters or {}
     where: List[str] = []
