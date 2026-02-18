@@ -1431,101 +1431,99 @@ window.printPricelistPreview = async function(plId) {
       } catch(e) { box.innerHTML = `<p class="error">${e.message}</p>`; }
   }
 
-// Vyhľadajte tento blok na konci súboru b2b_admin.js a doplňte riadok pre loadCommView
-// static/js/kancelaria_modules/b2b_admin.js
-window.addB2BBranch = function(parentId, parentName) {
-    openModal(`
-        <h3>Pridať odberné miesto pre: ${parentName}</h3>
-        <p style="color:#666;font-size:0.9em;">Pobočka bude mať rovnaké cenníky ako rodič, ale vlastné zákaznícke číslo (ERP kód) a adresu doručenia.</p>
-        <div class="form-group">
-            <label>Názov pobočky (napr. Detské jasle)</label>
-            <input type="text" id="br-name" class="filter-input" style="width:100%;">
-        </div>
-        <div class="form-group">
-            <label>Nové Zákaznícke číslo (ERP ID)</label>
-            <input type="text" id="br-code" class="filter-input" style="width:100%; font-weight:bold;">
-        </div>
-        <div class="form-group">
-            <label>Adresa doručenia pobočky</label>
-            <input type="text" id="br-addr" class="filter-input" style="width:100%;">
-        </div>
-        <div style="margin-top:15px;text-align:right;">
-            <button class="btn btn-success" onclick="window.saveB2BBranch(${parentId})">Vytvoriť pobočku</button>
-        </div>
-    `);
-};
+  // === EXTERNÉ FUNKCIE PRE HTML TLAČIDLÁ (Global Scope) ===
 
-window.saveB2BBranch = async function(parentId) {
-    const data = {
-        parent_id: parentId,
-        branch_name: document.getElementById('br-name').value,
-        branch_code: document.getElementById('br-code').value,
-        branch_address: document.getElementById('br-addr').value
-    };
-    if(!data.branch_name || !data.branch_code) return showStatus('Vyplňte názov a kód', true);
-    
-    try {
-        await callFirstOk([{ url: '/api/kancelaria/b2b/createBranch', opts: { method: 'POST', body: data } }]);
-        showStatus('Pobočka vytvorená');
-        closeModal();
-        loadCustomersAndPricelists();
-    } catch(e) {
-        alert(e.message);
-    }
-};
+  window.addB2BBranch = function(parentId, parentName) {
+      openModal(`
+          <h3>Pridať odberné miesto pre: ${parentName}</h3>
+          <p style="color:#666;font-size:0.9em;">Pobočka bude mať rovnaké cenníky ako rodič, ale vlastné zákaznícke číslo (ERP kód) a adresu doručenia.</p>
+          <div class="form-group">
+              <label>Názov pobočky (napr. Detské jasle)</label>
+              <input type="text" id="br-name" class="filter-input" style="width:100%;">
+          </div>
+          <div class="form-group">
+              <label>Nové Zákaznícke číslo (ERP ID)</label>
+              <input type="text" id="br-code" class="filter-input" style="width:100%; font-weight:bold;">
+          </div>
+          <div class="form-group">
+              <label>Adresa doručenia pobočky</label>
+              <input type="text" id="br-addr" class="filter-input" style="width:100%;">
+          </div>
+          <div style="margin-top:15px;text-align:right;">
+              <button class="btn btn-success" onclick="window.saveB2BBranch(${parentId})">Vytvoriť pobočku</button>
+          </div>
+      `);
+  };
 
+  window.saveB2BBranch = async function(parentId) {
+      const data = {
+          parent_id: parentId,
+          branch_name: document.getElementById('br-name').value,
+          branch_code: document.getElementById('br-code').value,
+          branch_address: document.getElementById('br-addr').value
+      };
+      if(!data.branch_name || !data.branch_code) return showStatus('Vyplňte názov a kód', true);
+      
+      try {
+          await callFirstOk([{ url: '/api/kancelaria/b2b/createBranch', opts: { method: 'POST', body: data } }]);
+          showStatus('Pobočka vytvorená');
+          closeModal();
+          loadCustomersAndPricelists();
+      } catch(e) {
+          alert(e.message);
+      }
+  };
+
+  // 1. Sprístupníme hlavný editor a pomocné funkcie
+  // (Predpokladá sa, že showPricelistEditor, printPricelistPreview, plAdd, plRem sú definované vyššie v súbore)
+  window.showPricelistEditor = showPricelistEditor;
+  if(typeof printPricelistPreview !== 'undefined') window.printPricelistPreview = printPricelistPreview;
+  if(typeof plAdd !== 'undefined') window.plAdd = plAdd;
+  if(typeof plRem !== 'undefined') window.plRem = plRem;
+
+  // 2. Definícia funkcie pre import priamo na window (aby sme sa vyhli ReferenceError)
+  window.importInfoFromSelected = async () => {
+      const sourceId = document.getElementById('pl-source-copy').value;
+      if (!sourceId) return showStatus('Vyberte cenník zo zoznamu', true);
+      
+      if (!confirm("Týmto sa prepíšu poznámky/info pri produktoch, ktoré sa nachádzajú v oboch cenníkoch. Chcete pokračovať?")) return;
+
+      try {
+          const data = await fetch('/api/kancelaria/b2b/getPricelistDetails', {
+              method: 'POST',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({id: sourceId})
+          }).then(res => res.json());
+
+          const sourceItems = data.items || [];
+          let updatedCount = 0;
+          
+          if (typeof currentPlItems !== 'undefined' && currentPlItems.size > 0) {
+              sourceItems.forEach(srcItem => {
+                  if (currentPlItems.has(srcItem.ean_produktu)) {
+                      const currentData = currentPlItems.get(srcItem.ean_produktu);
+                      if (srcItem.info || srcItem.poznamka) {
+                          currentData.info = srcItem.info || srcItem.poznamka;
+                          currentPlItems.set(srcItem.ean_produktu, currentData);
+                          updatedCount++;
+                      }
+                  }
+              });
+              if(typeof renderTargetProducts === 'function') renderTargetProducts();
+              showStatus(`Aktualizované info pri ${updatedCount} produktoch.`);
+          } else {
+              showStatus('Tento cenník zatiaľ nemá žiadne položky. Najprv pridajte produkty.', true);
+          }
+      } catch(e) {
+          console.error(e);
+          showStatus('Chyba pri importe: ' + e.message, true);
+      }
+  };
+
+  // EXPORT MODULU
   (function (g) { 
       g.initializeB2BAdminModule = initializeB2BAdminModule; 
-      g.loadCommView = loadCommView; // <--- PRIDAJTE TENTO RIADOK
+      g.loadCommView = loadCommView; 
   })(typeof window !== 'undefined' ? window : this);
 
 })(typeof window !== 'undefined' ? window : this, typeof document !== 'undefined' ? document : undefined);
-
-// =================================================================
-// KROK 4: SPRÍSTUPNENIE FUNKCIÍ PRE HTML TLAČIDLÁ
-// =================================================================
-
-// 1. Sprístupníme hlavný editor
-window.showPricelistEditor = showPricelistEditor;
-
-// 2. Obnovíme funkciu pre import informácií (ak by sa stratila pri kopírovaní)
-window.importInfoFromSelected = async () => {
-    const sourceId = document.getElementById('pl-source-copy').value;
-    if (!sourceId) return showStatus('Vyberte cenník zo zoznamu', true);
-    
-    if (!confirm("Týmto sa prepíšu poznámky/info pri produktoch, ktoré sa nachádzajú v oboch cenníkoch. Chcete pokračovať?")) return;
-
-    try {
-        // Použijeme existujúce API volanie
-        const data = await fetch('/api/kancelaria/b2b/getPricelistDetails', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({id: sourceId})
-        }).then(res => res.json());
-
-        const sourceItems = data.items || [];
-        let updatedCount = 0;
-        
-        // currentPlItems je globálna mapa definovaná v Kroku 3
-        if (typeof currentPlItems !== 'undefined' && currentPlItems.size > 0) {
-            sourceItems.forEach(srcItem => {
-                if (currentPlItems.has(srcItem.ean_produktu)) {
-                    const currentData = currentPlItems.get(srcItem.ean_produktu);
-                    if (srcItem.info || srcItem.poznamka) {
-                        currentData.info = srcItem.info || srcItem.poznamka;
-                        currentPlItems.set(srcItem.ean_produktu, currentData);
-                        updatedCount++;
-                    }
-                }
-            });
-            // Prekreslíme tabuľku (funkcia z Kroku 3)
-            if(typeof renderTargetProducts === 'function') renderTargetProducts();
-            showStatus(`Aktualizované info pri ${updatedCount} produktoch.`);
-        } else {
-            showStatus('Tento cenník zatiaľ nemá žiadne položky. Najprv pridajte produkty.', true);
-        }
-    } catch(e) {
-        console.error(e);
-        showStatus('Chyba pri importe: ' + e.message, true);
-    }
-};
