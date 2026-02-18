@@ -1103,52 +1103,121 @@ window.plAdd = (ean) => {
     input.value = ''; 
 };
 
+// =================================================================
+// INTELIGENTNÁ CENOTVORBA (Vložte do b2b_admin.js)
+// =================================================================
+
 function renderTargetProducts() {
     const container = doc.getElementById('pl-target-list');
     if (!container) return;
 
+    // Hlavička s novými stĺpcami pre Nákup a Zisk
     let html = `<table style="width:100%; border-collapse:collapse; font-size:0.85rem;">
-        <thead style="background:#dcfce7; position:sticky; top:0;">
+        <thead style="background:#dcfce7; position:sticky; top:0; z-index:20;">
             <tr>
-                <th style="text-align:left; padding:5px;">Produkt v cenníku</th>
-                <th style="width:80px;">Cena (€)</th>
+                <th style="text-align:left; padding:8px;">Produkt v cenníku</th>
+                <th style="width:80px; text-align:right; color:#64748b;">Nákup</th>
+                <th style="width:90px;">Predajná Cena</th>
+                <th style="width:100px; text-align:right;">Marža / Zisk</th>
                 <th style="width:30px;"></th>
             </tr>
         </thead>
         <tbody>`;
 
     currentPlItems.forEach((data, ean) => {
-        const p = state.productsAll.find(x => x.ean === ean) || { nazov_vyrobku: 'Neznámy produkt (vymazaný?)' };
+        // Nájdeme produkt a jeho nákupnú cenu
+        const p = state.productsAll.find(x => x.ean === ean) || { 
+            nazov_vyrobku: 'Neznámy produkt', 
+            nakupna_cena: 0 
+        };
+        
         const priceVal = (typeof data === 'object') ? data.price : data;
         const infoVal = (typeof data === 'object') ? (data.info || '') : '';
+        const buyPrice = parseFloat(p.nakupna_cena) || 0;
+
+        // Vypočítame počiatočné hodnoty
+        const profit = priceVal - buyPrice;
+        let marginPercent = 0;
+        if (priceVal > 0) marginPercent = (profit / priceVal) * 100;
+
+        // Farba podľa zisku: Červená (strata), Oranžová (nízka marža < 10%), Zelená (ok)
+        const profitClass = profit < 0 ? 'color:#dc2626;' : (marginPercent < 10 ? 'color:#d97706;' : 'color:#166534;');
+        const profitText = `${profit > 0 ? '+' : ''}${profit.toFixed(2)} €`;
+        const marginText = `${marginPercent.toFixed(1)}%`;
 
         html += `
-        <tr class="pl-item-row" data-ean="${ean}" style="border-bottom:1px solid #bbf7d0; background:#fff;">
+        <tr class="pl-item-row" data-ean="${ean}" data-buy="${buyPrice}" style="border-bottom:1px solid #bbf7d0; background:#fff;">
             <td style="padding:6px;">
-                <div style="font-weight:600;">${escapeHtml(p.nazov_vyrobku)}</div>
-                <div style="font-size:0.75em; color:#666;">${ean}</div>
-                <input type="text" class="info-edit-input" value="${escapeHtml(infoVal)}" placeholder="Poznámka / Info pre klienta..." style="width:100%; margin-top:4px; border:1px solid #ddd; padding:2px; font-size:0.8em; color:#444;">
+                <div style="font-weight:600; color:#1e293b;">${escapeHtml(p.nazov_vyrobku)}</div>
+                <div style="font-size:0.75em; color:#64748b;">EAN: ${ean}</div>
+                <input type="text" class="info-edit-input" value="${escapeHtml(infoVal)}" placeholder="Poznámka pre klienta..." style="width:100%; margin-top:4px; border:1px solid #e2e8f0; padding:2px 5px; font-size:0.8em; color:#444; border-radius:4px;">
             </td>
-            <td style="padding:6px; vertical-align:top;">
-                <input type="number" class="price-edit-input" value="${priceVal}" style="width:100%; padding:4px; border:1px solid #aaa; border-radius:4px; font-weight:bold;" step="0.01">
+            
+            <td style="padding:6px; text-align:right; vertical-align:middle; font-size:0.9rem; color:#64748b;">
+                ${buyPrice > 0 ? buyPrice.toFixed(4) + ' €' : '-'}
             </td>
-            <td style="padding:6px; text-align:center; vertical-align:top;">
-                <button class="btn btn-danger btn-sm" onclick="window.plRem('${ean}')" style="padding:2px 6px;">&times;</button>
+
+            <td style="padding:6px; vertical-align:middle;">
+                <input type="number" class="price-edit-input" value="${priceVal}" 
+                       oninput="window.recalcRow('${ean}')"
+                       id="input-price-${ean}"
+                       style="width:100%; padding:6px; border:2px solid #cbd5e1; border-radius:6px; font-weight:bold; text-align:center; color:#0f172a;" step="0.01">
+            </td>
+
+            <td style="padding:6px; text-align:right; vertical-align:middle;">
+                <div id="profit-wrap-${ean}" style="font-weight:bold; ${profitClass}">
+                    <div style="font-size:0.95rem;">${marginText}</div>
+                    <div style="font-size:0.75rem; opacity:0.8;">${profitText}</div>
+                </div>
+            </td>
+
+            <td style="padding:6px; text-align:center; vertical-align:middle;">
+                <button class="btn btn-danger btn-sm" onclick="window.plRem('${ean}')" style="padding:2px 8px; border-radius:4px;">&times;</button>
             </td>
         </tr>`;
     });
     html += '</tbody></table>';
     
-    if (currentPlItems.size === 0) html = '<div style="padding:20px; text-align:center; color:#15803d;">Cenník je zatiaľ prázdny.<br>Pridajte produkty zľava.</div>';
+    if (currentPlItems.size === 0) html = '<div style="padding:40px; text-align:center; color:#15803d; background:#f0fdf4;">Cenník je zatiaľ prázdny.<br>👈 Pridajte produkty z katalógu vľavo.</div>';
     
     container.innerHTML = html;
 }
 
-window.plRem = (ean) => { 
-    currentPlItems.delete(ean); 
-    const filterEl = doc.getElementById('pl-prod-filter');
-    renderSourceProducts(filterEl ? filterEl.value : ''); 
-    renderTargetProducts(); 
+// Funkcia na okamžitý prepočet pri písaní (bez sekania tabuľky)
+window.recalcRow = function(ean) {
+    const row = document.querySelector(`.pl-item-row[data-ean="${ean}"]`);
+    if (!row) return;
+
+    const input = document.getElementById(`input-price-${ean}`);
+    const wrap = document.getElementById(`profit-wrap-${ean}`);
+    
+    const sellPrice = parseFloat(input.value) || 0;
+    const buyPrice = parseFloat(row.dataset.buy) || 0;
+
+    const profit = sellPrice - buyPrice;
+    
+    // Výpočet Marže
+    let margin = 0;
+    if (sellPrice !== 0) {
+        margin = (profit / sellPrice) * 100;
+    }
+
+    // Formátovanie a farby
+    const color = profit < 0 ? '#dc2626' : (margin < 10 ? '#d97706' : '#166534');
+    wrap.style.color = color;
+    
+    // Zobrazíme: % hore, € dole
+    wrap.innerHTML = `
+        <div style="font-size:0.95rem;">${margin.toFixed(1)}%</div>
+        <div style="font-size:0.75rem; opacity:0.8;">${profit > 0 ? '+' : ''}${profit.toFixed(2)} €</div>
+    `;
+    
+    // Uloženie do pamäte (aby sa hodnota nestratila pri scrollovaní/filtrovaní)
+    if (currentPlItems.has(ean)) {
+        const item = currentPlItems.get(ean);
+        item.price = sellPrice;
+        currentPlItems.set(ean, item);
+    }
 };
 
 // === NOVÁ FUNKCIA: Import info z iného cenníka ===

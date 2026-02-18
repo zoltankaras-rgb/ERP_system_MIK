@@ -715,16 +715,28 @@ def get_pricelists_and_products():
 
     products = []
     try:
+        # PRIDANÉ: COALESCE(nakupna_cena, 0) as nakupna_cena
         products = db_connector.execute_query(
-            "SELECT ean, nazov_vyrobku, COALESCE(dph,0) dph, COALESCE(mj,'ks') mj, COALESCE(predajna_kategoria,'Nezaradené') predajna_kategoria FROM produkty ORDER BY nazov_vyrobku"
+            """
+            SELECT 
+                ean, 
+                nazov_vyrobku, 
+                COALESCE(dph,0) as dph, 
+                COALESCE(mj,'ks') as mj, 
+                COALESCE(predajna_kategoria,'Nezaradené') as predajna_kategoria,
+                COALESCE(nakupna_cena, 0) as nakupna_cena
+            FROM produkty 
+            ORDER BY nazov_vyrobku
+            """
         ) or []
     except Exception:
         products = []
 
+    # Fallback ak tabuľka produkty zlyhá alebo je prázdna (pre istotu)
     if not products:
         try:
             products = db_connector.execute_query(
-                "SELECT ean, nazov_produktu AS nazov_vyrobku, COALESCE(dph,0) dph, COALESCE(mj,'ks') mj, COALESCE(predajna_kategoria,'Nezaradené') predajna_kategoria FROM sklad2 ORDER BY nazov_produktu"
+                "SELECT ean, nazov_produktu AS nazov_vyrobku, COALESCE(dph,0) dph, COALESCE(mj,'ks') mj, 'Nezaradené' as predajna_kategoria, 0 as nakupna_cena FROM sklad2 ORDER BY nazov_produktu"
             ) or []
         except Exception:
             products = []
@@ -927,7 +939,7 @@ def update_pricelist(data: dict):
     finally:
         try: cur.close(); conn.close()
         except: pass
-        
+
 def get_announcement():
     _ensure_system_settings()
     row = db_connector.execute_query(
