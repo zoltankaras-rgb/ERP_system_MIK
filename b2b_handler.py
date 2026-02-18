@@ -854,7 +854,10 @@ def update_pricelist(data: dict):
     _ensure_pricelist_tables()
 
     pl_id = (data or {}).get("id")
+    # TUTO JE ZMENA: Načítame aj nový názov
+    new_name = (data or {}).get("name") 
     items = (data or {}).get("items") or []
+    
     if not pl_id:
         return {"error": "Chýba id cenníka."}
 
@@ -866,7 +869,6 @@ def update_pricelist(data: dict):
             continue
         ean = str(e_raw).strip()
         cena = _to_float(it.get("price") if "price" in it else it.get("cena"))
-        # Načítame info
         info = str(it.get("info") or "").strip()
         
         if not ean or cena is None or cena < 0:
@@ -876,31 +878,31 @@ def update_pricelist(data: dict):
     conn = db_connector.get_connection()
     cur = conn.cursor()
     try:
-        # 2) vymaž existujúce položky
+        # 2) Ak bol poslaný nový názov, aktualizujeme ho
+        if new_name:
+            cur.execute("UPDATE b2b_cenniky SET nazov_cennika=%s WHERE id=%s", (new_name, pl_id))
+
+        # 3) vymaž existujúce položky
         cur.execute("DELETE FROM b2b_cennik_polozky WHERE cennik_id=%s", (pl_id,))
 
         if not cleaned:
             conn.commit()
-            return {"message": "Cenník vyčistený.", "count": 0}
+            return {"message": "Cenník aktualizovaný (prázdny).", "count": 0}
 
-        # 3) ukladáme riadok po riadku
+        # 4) ukladáme riadok po riadku
         inserted = 0
         for ean, cena, info in cleaned:
-            # Overenie produktu
             cur.execute(
                 "SELECT ean, nazov_vyrobku, dph, mj, predajna_kategoria FROM produkty WHERE ean = %s",
                 (ean,),
             )
             row = cur.fetchone()
             if row is None:
-                conn.rollback()
-                return {"error": f"Produkt EAN {ean} neexistuje.", "missing_ean": ean}
+                # Ak produkt nenájde, preskočíme ho (aby nepadol celý cenník)
+                continue
 
             prod_ean, nazov_vyrobku, dph, mj, pred_kat = row
-            if dph is None: dph = 0.00
-            if not mj: mj = "kg"
-
-            # VLOŽENIE AJ S INFOM
+            
             try:
                 cur.execute(
                     """
@@ -910,15 +912,12 @@ def update_pricelist(data: dict):
                     """,
                     (pl_id, str(prod_ean), nazov_vyrobku, cena, info),
                 )
-            except Exception as e:
-                conn.rollback()
-                traceback.print_exc()
-                return {"error": f"Chyba pri EAN {ean}: {e}"}
-
-            inserted += 1
+                inserted += 1
+            except Exception:
+                pass
 
         conn.commit()
-        return {"message": "Cenník aktualizovaný.", "count": inserted}
+        return {"message": "Cenník a názov boli aktualizované.", "count": inserted}
 
     except Exception as e:
         try: conn.rollback() 
@@ -928,7 +927,7 @@ def update_pricelist(data: dict):
     finally:
         try: cur.close(); conn.close()
         except: pass
-
+        
 def get_announcement():
     _ensure_system_settings()
     row = db_connector.execute_query(
