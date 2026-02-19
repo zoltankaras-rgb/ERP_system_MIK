@@ -319,6 +319,7 @@ function escapeHtml(text) {
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#039;");
 }
+ 
 
 function apiRequest(url, opts={}) {
     // Používame globálny apiRequest z common.js ak existuje
