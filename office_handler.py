@@ -176,6 +176,7 @@ def upload_b2c_image():
 def get_kancelaria_dashboard_data():
     """
     Bezpečná verzia dashboardu bez nekonečnej rekurzie.
+    Obsahuje suroviny, tovar, produkciu a notifikácie pre B2B/B2C.
     """
     try:
         # 1) Suroviny pod minimom - Optimalizovaný dotaz
@@ -240,16 +241,7 @@ def get_kancelaria_dashboard_data():
         for item in low_stock_goods_list:
             low_stock_goods_categorized.setdefault(item['category'], []).append(item)
 
-        # 3) Aktívne akcie
-        active_promos = db_connector.execute_query("""
-            SELECT promo.product_name, promo.sale_price_net, promo.end_date, chain.name as chain_name
-            FROM b2b_promotions promo
-            JOIN b2b_retail_chains chain ON promo.chain_id = chain.id
-            WHERE CURDATE() BETWEEN promo.start_date AND promo.end_date
-            ORDER BY chain.name, promo.product_name
-        """) or []
-
-        # 4) TOP produkty a graf - nepoužívame vnútri funkcie žiadne volania handle_request
+        # 3) TOP produkty a graf 
         from expedition_handler import _zv_name_col
         zv_col = _zv_name_col()
         
@@ -276,17 +268,45 @@ def get_kancelaria_dashboard_data():
             ORDER BY production_date ASC
         """) or []
 
+        # =========================================================
+        # 4) B2B a B2C notifikácie (počty pre vrchné karty)
+        # =========================================================
+        
+        pending_b2b_count = 0
+        try:
+            b2b_row = db_connector.execute_query("""
+                SELECT COUNT(*) as c FROM b2b_zakaznici WHERE schvaleny = 0
+            """, fetch='one')
+            if b2b_row:
+                pending_b2b_count = b2b_row.get('c', 0)
+        except Exception as e:
+            print(f"[Dashboard Warning] B2B tabulka: {e}")
+
+        active_b2c_count = 0
+        try:
+            b2c_row = db_connector.execute_query("""
+                SELECT COUNT(*) as c FROM b2c_objednavky 
+                WHERE stav NOT IN ('Vybavená', 'Zrušená', 'Dokončená', 'Zrusena', 'Zrušena')
+            """, fetch='one')
+            if b2c_row:
+                active_b2c_count = b2c_row.get('c', 0)
+        except Exception as e:
+            print(f"[Dashboard Warning] B2C tabulka: {e}")
+
         return {
             "lowStockRaw": low_stock_raw,
             "lowStockGoods": low_stock_goods_categorized,
-            "activePromotions": active_promos,
             "topProducts": top_products,
-            "timeSeriesData": production_timeseries
+            "timeSeriesData": production_timeseries,
+            "pendingB2B": pending_b2b_count,
+            "activeB2COrders": active_b2c_count,
+            "bestSellers": [], 
+            "period": "30 dní"
         }
     except Exception as e:
         print(f"Chyba v dashboarde: {e}")
         return {"error": str(e)}
-
+    
 def get_kancelaria_base_data():
     """
     Opravená základná funkcia dát bez zacyklenia.
