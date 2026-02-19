@@ -445,7 +445,7 @@ def api_meat_suppliers():
 @app.route('/api/kancelaria/meat/calc/templates')
 @login_required(role='kancelaria')
 def api_meat_templates():
-    return handle_request(meat_calc_handler.get_templates)
+    return handle_request(meat_calc_handler.list_templates)
 # =================================================================
 # === INTERNÉ PRIHLASOVANIE A SESSION MANAGEMENT ===
 # =================================================================

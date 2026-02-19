@@ -277,15 +277,14 @@ def get_kancelaria_dashboard_data():
         """) or []
 
         return {
-            "low_stock_raw": low_stock_raw,
-            "low_stock_goods": low_stock_goods_categorized,
-            "active_promotions": active_promos,
-            "top_products": top_products,
-            "time_series_data": production_timeseries
+            "lowStockRaw": low_stock_raw,
+            "lowStockGoods": low_stock_goods_categorized,
+            "activePromotions": active_promos,
+            "topProducts": top_products,
+            "timeSeriesData": production_timeseries
         }
     except Exception as e:
-        # Logovanie chyby na serveri, aby sme vedeli čo presne zlyhalo
-        print(f"DASHBOARD ERROR: {str(e)}")
+        print(f"Chyba v dashboarde: {e}")
         return {"error": str(e)}
 
 def get_kancelaria_base_data():
