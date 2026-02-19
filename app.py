@@ -52,6 +52,7 @@ import temperature_handler
 import core_temp_handler
 from pdf_generator import create_pricelist_pdf
 import integration_handler
+import meat_calc_handler
 # ===================== ENTERPRISE KALENDÁR – KONŠTANTY =========================
 
 EVENT_STATUS_OPEN = 'OPEN'
@@ -422,7 +423,29 @@ def upload_file():
 
     saved_path = save_upload(f, folder=folder)
     return jsonify({"ok": True, "path": saved_path})
+# ==========================================
+# === MÄSOVÉ KALKULÁCIE (Meat Calc) ========
+# ==========================================
 
+@app.route('/api/kancelaria/meat/materials')
+@login_required(role='kancelaria')
+def api_meat_materials():
+    return handle_request(meat_calc_handler.get_materials)
+
+@app.route('/api/kancelaria/meat/products')
+@login_required(role='kancelaria')
+def api_meat_products():
+    return handle_request(meat_calc_handler.get_products)
+
+@app.route('/api/kancelaria/meat/suppliers')
+@login_required(role='kancelaria')
+def api_meat_suppliers():
+    return handle_request(meat_calc_handler.get_suppliers)
+
+@app.route('/api/kancelaria/meat/calc/templates')
+@login_required(role='kancelaria')
+def api_meat_templates():
+    return handle_request(meat_calc_handler.get_templates)
 # =================================================================
 # === INTERNÉ PRIHLASOVANIE A SESSION MANAGEMENT ===
 # =================================================================
@@ -4047,6 +4070,9 @@ def meat_estimate_api():
         date_to=data.get('date_to'),
         extra_costs=data.get('extras') or []
     )
+
+
+
 @app.route('/report/meat/summary')
 @login_required(role='kancelaria')  # alebo len @login_required, podľa toho ako to máš inde
 def meat_summary_report():

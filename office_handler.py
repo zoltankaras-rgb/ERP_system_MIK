@@ -1,15 +1,3 @@
-# office_handler.py
-# Kancelária – kompletný handler (zladený a rozšírený)
-# - Dashboardy, plánovanie, nákup surovín
-# - Prehľady zásob (výrobný sklad, Sklad 2)
-# - Katalóg produktov + recepty + krájané výrobky
-# - B2C cenník, odmeny, objednávky
-# - HACCP import/export + JSON úložisko (get_haccp_docs/get_haccp_doc_content/save_haccp_doc)
-# - Dodávatelia (CRUD)
-# - REPORT: Príjem z výroby (podľa dátumu PRÍJMU z Expedície) – bez uzávierky, smart fallback na cenu
-# - Centrálne priemerné ceny: výrobné (vážený priemer), nákupné Sklad 2 (best-effort)
-# - Stock helpers: create_production_item / update_production_item_qty / delete_production_item
-#
 # Bez ALTERov. Všade guardy a autodetekcia stĺpcov.
 
 import os
@@ -3489,7 +3477,7 @@ def _docx_to_html_best_effort(docx_path: str) -> str:
     """Konverzia .docx -> HTML (1) mammoth, (2) python-docx, (3) XML fallback)."""
     try:
         try:
-            import mammoth
+            import mammoth # pyright: ignore[reportMissingImports]
         except ImportError:
             mammoth = None
         
@@ -3503,7 +3491,7 @@ def _docx_to_html_best_effort(docx_path: str) -> str:
         pass
 
     try:
-        import docx as docx_lib
+        import docx as docx_lib # type: ignore
         doc = docx_lib.Document(docx_path)
         parts = []
         for p in doc.paragraphs:
@@ -3653,7 +3641,7 @@ def export_haccp_docx():
     out_path = os.path.join(tmp_dir, f"{doc_id}.docx")
 
     try:
-        import docx
+        import docx # type: ignore
         d = docx.Document()
         for line in (text.split("\n") if text else [""]):
             d.add_paragraph(line)
