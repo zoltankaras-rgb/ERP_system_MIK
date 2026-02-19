@@ -273,11 +273,31 @@
               let html = `<table class="table-refined"><thead><tr><th>Číslo</th><th>Zákazník</th><th>Vytvorená</th><th>Dodanie</th><th>Suma</th><th>Stav</th><th>Akcia</th></tr></thead><tbody>`;
               orders.forEach(o => {
                   const statusColor = o.stav === 'Prijatá' ? '#eab308' : (o.stav === 'Hotová' ? '#22c55e' : '#94a3b8');
+                  
+                  // Formátovanie dátumu dodania (Slovenský názov dňa, bez času)
+                  let formatDodania = o.pozadovany_datum_dodania || '-';
+                  if (formatDodania !== '-') {
+                      const d = new Date(formatDodania);
+                      if (!isNaN(d.getTime())) {
+                          const strDate = d.toLocaleDateString('sk-SK', { 
+                              weekday: 'long', 
+                              year: 'numeric', 
+                              month: '2-digit', 
+                              day: '2-digit' 
+                          });
+                          // Zabezpečenie veľkého začiatočného písmena pri názve dňa
+                          formatDodania = strDate.charAt(0).toUpperCase() + strDate.slice(1);
+                      }
+                  }
+
+                  // Formátovanie dátumu vytvorenia
+                  const formatVytvorenia = o.datum_objednavky ? new Date(o.datum_objednavky).toLocaleString('sk-SK') : '-';
+
                   html += `<tr>
                     <td>${o.cislo_objednavky}</td>
                     <td>${escapeHtml(o.nazov_firmy)}</td>
-                    <td>${new Date(o.datum_objednavky).toLocaleString()}</td>
-                    <td><strong>${o.pozadovany_datum_dodania || '-'}</strong></td>
+                    <td>${formatVytvorenia}</td>
+                    <td><strong>${formatDodania}</strong></td>
                     <td>${Number(o.celkova_suma_s_dph).toFixed(2)} €</td>
                     <td><span style="background:${statusColor};color:white;padding:2px 5px;border-radius:4px;font-size:0.8em;">${o.stav}</span></td>
                     <td><button class="btn btn-secondary btn-sm" onclick="window.open('/api/kancelaria/b2b/print_order_pdf/${o.id}','_blank')">PDF</button></td>
@@ -290,21 +310,6 @@
       doc.getElementById('ord-filter-btn').onclick = loadOrders;
       loadOrders();
   }
-
-  window.showDailySummary = async function() {
-      const tomorrow = new Date(new Date().getTime() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-      const date = prompt("Zadajte dátum dodania (RRRR-MM-DD):", tomorrow);
-      if(!date) return;
-      try {
-          const res = await callFirstOk([{ url: '/api/kancelaria/b2b/getDailySummary', opts: { method: 'POST', body: { date: date } } }]);
-          const items = res.items || [];
-          let html = `<h4>Sumarizácia tovaru na deň: ${date}</h4><table class="table-refined"><thead><tr><th>EAN</th><th>Názov</th><th>Množstvo</th></tr></thead><tbody>`;
-          items.forEach(i => html += `<tr><td>${i.ean}</td><td>${escapeHtml(i.name)}</td><td style="font-weight:bold;">${i.qty} ${i.unit}</td></tr>`);
-          html += `</tbody></table><div style="margin-top:15px;text-align:right;"><button class="btn btn-primary" onclick="window.print()">Tlačiť</button></div>`;
-          openModal(html);
-      } catch(e) { alert(e.message); }
-  };
-
   // =================================================================
   // 2. LOGISTIKA
   // =================================================================
