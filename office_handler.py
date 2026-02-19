@@ -186,40 +186,63 @@ def upload_b2c_image():
 # =================================================================
 
 def get_kancelaria_dashboard_data():
-    """Dashboard: suroviny pod minimom, finálny tovar pod minimom, akcie, top produkty, timeseries výroby."""
-    # 1) suroviny pod minimom
+    """
+    Dashboard: suroviny pod minimom (zo skladu výroby), 
+    finálny tovar pod minimom (z produktov), akcie, top produkty a graf výroby.
+    """
+    
+    # 1) SUROVINY POD MINIMOM
+    # Musíme spojiť tabuľku 'sklad' (definuje min_zasoba) a 'sklad_vyroba' (reálny stav kg)
+    # Používame COALESCE, aby sme v prípade neexistujúceho záznamu vo výrobe brali stav 0.
     low_stock_raw = db_connector.execute_query("""
-        SELECT nazov as name, mnozstvo as quantity, min_zasoba as minStock
-        FROM sklad
-        WHERE min_zasoba > 0 AND mnozstvo < min_zasoba
-        ORDER BY nazov
+        SELECT 
+            s.nazov AS name, 
+            COALESCE(sv.mnozstvo, 0) AS quantity, 
+            COALESCE(s.min_zasoba, s.min_mnozstvo, 0) AS minStock
+        FROM sklad s
+        LEFT JOIN sklad_vyroba sv ON s.nazov = sv.nazov
+        WHERE (COALESCE(s.min_zasoba, s.min_mnozstvo, 0) > 0)
+          AND (COALESCE(sv.mnozstvo, 0) < COALESCE(s.min_zasoba, s.min_mnozstvo, 0))
+        ORDER BY s.nazov
     """) or []
 
-    # 2) finálny tovar pod minimom
+    # 2) FINÁLNY TOVAR POD MINIMOM
+    # Čerpá z tabuľky produkty, kde sledujeme hotové výrobky a tovar
     all_goods = db_connector.execute_query("""
         SELECT
-            nazov_vyrobku, predajna_kategoria, aktualny_sklad_finalny_kg,
-            minimalna_zasoba_kg, minimalna_zasoba_ks, mj, vaha_balenia_g, typ_polozky
+            nazov_vyrobku, 
+            COALESCE(predajna_kategoria, 'Nezaradené') as predajna_kategoria, 
+            aktualny_sklad_finalny_kg,
+            minimalna_zasoba as minimalna_zasoba_kg, -- predpokladáme stĺpec minimalna_zasoba
+            mj, 
+            vaha_balenia_g, 
+            typ_polozky
         FROM produkty
-        WHERE typ_polozky = 'produkt' OR typ_polozky LIKE 'VÝROBOK%%' OR typ_polozky LIKE 'TOVAR%%'
+        WHERE (typ_polozky = 'TOVAR' OR typ_polozky LIKE 'VÝROBOK%%' OR typ_polozky = 'PRODUKT')
     """) or []
 
     low_stock_goods_list = []
     for p in all_goods:
         stock_kg = float(p.get('aktualny_sklad_finalny_kg') or 0.0)
         min_stock_kg = float(p.get('minimalna_zasoba_kg') or 0.0)
-        min_stock_ks = float(p.get('minimalna_zasoba_ks') or 0.0)
-        mj = p.get('mj')
+        mj = (p.get('mj') or 'kg').lower()
         weight_g = float(p.get('vaha_balenia_g') or 0.0)
 
         is_below_min = False
-        if mj == 'ks':
-            current_stock_ks = math.floor((stock_kg * 1000) / weight_g) if weight_g > 0 else 0
-            if min_stock_ks > 0 and current_stock_ks < min_stock_ks:
+        current_stock_display = ""
+        min_stock_display = ""
+
+        # Ak je jednotka 'ks', prepočítavame stav z kg na kusy podľa gramáže
+        if mj == 'ks' and weight_g > 0:
+            current_stock_ks = math.floor((stock_kg * 1000) / weight_g)
+            # Tu predpokladáme, že limit v DB je v kg, ak chceš ks, musíš mať stĺpec na to
+            # Pre jednoduchosť teraz kontrolujeme kg limit
+            if min_stock_kg > 0 and stock_kg < min_stock_kg:
                 is_below_min = True
             current_stock_display = f"{current_stock_ks} ks"
-            min_stock_display = f"{int(min_stock_ks)} ks"
+            min_stock_display = f"Min: {min_stock_kg} kg"
         else:
+            # Klasická kontrola na kg
             if min_stock_kg > 0 and stock_kg < min_stock_kg:
                 is_below_min = True
             current_stock_display = f"{stock_kg:.2f} kg"
@@ -228,16 +251,17 @@ def get_kancelaria_dashboard_data():
         if is_below_min:
             low_stock_goods_list.append({
                 "name": p['nazov_vyrobku'],
-                "category": p.get('predajna_kategoria') or 'Nezaradené',
+                "category": p['predajna_kategoria'],
                 "currentStock": current_stock_display,
                 "minStock": min_stock_display
             })
 
+    # Zoskupenie tovaru pod minimom podľa kategórií pre frontend
     low_stock_goods_categorized = {}
     for item in low_stock_goods_list:
         low_stock_goods_categorized.setdefault(item['category'], []).append(item)
 
-    # 3) aktívne akcie
+    # 3) AKTÍVNE AKCIE (B2B)
     active_promos = db_connector.execute_query("""
         SELECT promo.product_name, promo.sale_price_net, promo.end_date, chain.name as chain_name
         FROM b2b_promotions promo
@@ -246,29 +270,30 @@ def get_kancelaria_dashboard_data():
         ORDER BY chain.name, promo.product_name
     """) or []
 
-    # 4) TOP produkty + timeseries (opravené GROUP BY)
+    # 4) TOP PRODUKTY (posledných 30 dní)
+    # Vyžaduje stav 'Ukončené' (to je moment, kedy sa reálne zapísalo reálne_mnozstvo_kg)
+    zv_name = _zv_name_col()
     top_products = db_connector.execute_query(f"""
         SELECT
-            p.nazov_vyrobku AS name,
-            SUM(COALESCE(zv.realne_mnozstvo_kg,0)) AS total
+            TRIM(zv.{zv_name}) AS name,
+            SUM(COALESCE(zv.realne_mnozstvo_kg, 0)) AS total
         FROM zaznamy_vyroba zv
-        JOIN produkty p
-          ON TRIM(zv.{_zv_name_col()}) = TRIM(p.nazov_vyrobku)
-        WHERE zv.datum_ukoncenia >= CURDATE() - INTERVAL 30 DAY
-          AND zv.stav IN ('Ukončené','Dokončené')
-          AND COALESCE(zv.realne_mnozstvo_kg,0) > 0
-        GROUP BY p.nazov_vyrobku
+        WHERE zv.datum_ukoncenia >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+          AND zv.stav IN ('Ukončené', 'Dokončené')
+        GROUP BY TRIM(zv.{zv_name})
         ORDER BY total DESC
         LIMIT 5
     """) or []
 
+    # 5) GRAF VÝROBY (Timeseries)
     production_timeseries = db_connector.execute_query("""
-        SELECT DATE_FORMAT(datum_ukoncenia, '%Y-%m-%d') as production_date,
-               SUM(COALESCE(realne_mnozstvo_kg,0)) as total_kg
+        SELECT 
+            DATE_FORMAT(datum_ukoncenia, '%Y-%m-%d') as production_date,
+            SUM(COALESCE(realne_mnozstvo_kg, 0)) as total_kg
         FROM zaznamy_vyroba
-        WHERE datum_ukoncenia >= CURDATE() - INTERVAL 30 DAY
-          AND stav IN ('Ukončené','Dokončené')
-        GROUP BY production_date
+        WHERE datum_ukoncenia >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+          AND stav IN ('Ukončené', 'Dokončené')
+        GROUP BY DATE(datum_ukoncenia)
         ORDER BY production_date ASC
     """) or []
 
@@ -277,7 +302,8 @@ def get_kancelaria_dashboard_data():
         "lowStockGoods": low_stock_goods_categorized,
         "activePromotions": active_promos,
         "topProducts": top_products,
-        "timeSeriesData": production_timeseries
+        "timeSeriesData": production_timeseries,
+        "period": "Posledných 30 dní"
     }
 
 def get_kancelaria_base_data():
