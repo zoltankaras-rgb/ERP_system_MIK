@@ -175,147 +175,148 @@ def upload_b2c_image():
 
 def get_kancelaria_dashboard_data():
     """
-    Dashboard: suroviny pod minimom (zo skladu výroby), 
-    finálny tovar pod minimom (z produktov), akcie, top produkty a graf výroby.
+    Bezpečná verzia dashboardu bez nekonečnej rekurzie.
     """
-    
-    # 1) SUROVINY POD MINIMOM
-    # Musíme spojiť tabuľku 'sklad' (definuje min_zasoba) a 'sklad_vyroba' (reálny stav kg)
-    # Používame COALESCE, aby sme v prípade neexistujúceho záznamu vo výrobe brali stav 0.
-    low_stock_raw = db_connector.execute_query("""
-        SELECT 
-            s.nazov AS name, 
-            COALESCE(sv.mnozstvo, 0) AS quantity, 
-            COALESCE(s.min_zasoba, s.min_mnozstvo, 0) AS minStock
-        FROM sklad s
-        LEFT JOIN sklad_vyroba sv ON s.nazov = sv.nazov
-        WHERE (COALESCE(s.min_zasoba, s.min_mnozstvo, 0) > 0)
-          AND (COALESCE(sv.mnozstvo, 0) < COALESCE(s.min_zasoba, s.min_mnozstvo, 0))
-        ORDER BY s.nazov
-    """) or []
+    try:
+        # 1) Suroviny pod minimom - Optimalizovaný dotaz
+        low_stock_raw = db_connector.execute_query("""
+            SELECT 
+                s.nazov AS name, 
+                COALESCE(sv.mnozstvo, 0) AS quantity, 
+                COALESCE(s.min_zasoba, s.min_mnozstvo, 0) AS minStock
+            FROM sklad s
+            LEFT JOIN sklad_vyroba sv ON s.nazov = sv.nazov
+            WHERE (COALESCE(s.min_zasoba, s.min_mnozstvo, 0) > 0)
+              AND (COALESCE(sv.mnozstvo, 0) < COALESCE(s.min_zasoba, s.min_mnozstvo, 0))
+            ORDER BY s.nazov
+        """) or []
 
-    # 2) FINÁLNY TOVAR POD MINIMOM
-    # Čerpá z tabuľky produkty, kde sledujeme hotové výrobky a tovar
-    all_goods = db_connector.execute_query("""
-        SELECT
-            nazov_vyrobku, 
-            COALESCE(predajna_kategoria, 'Nezaradené') as predajna_kategoria, 
-            aktualny_sklad_finalny_kg,
-            minimalna_zasoba as minimalna_zasoba_kg, -- predpokladáme stĺpec minimalna_zasoba
-            mj, 
-            vaha_balenia_g, 
-            typ_polozky
-        FROM produkty
-        WHERE (typ_polozky = 'TOVAR' OR typ_polozky LIKE 'VÝROBOK%%' OR typ_polozky = 'PRODUKT')
-    """) or []
+        # 2) Finálny tovar pod minimom
+        all_goods = db_connector.execute_query("""
+            SELECT
+                nazov_vyrobku, 
+                COALESCE(predajna_kategoria, 'Nezaradené') as predajna_kategoria, 
+                aktualny_sklad_finalny_kg,
+                minimalna_zasoba as minimalna_zasoba_kg,
+                mj, 
+                vaha_balenia_g, 
+                typ_polozky
+            FROM produkty
+            WHERE typ_polozky IN ('TOVAR', 'PRODUKT') OR typ_polozky LIKE 'VÝROBOK%'
+        """) or []
 
-    low_stock_goods_list = []
-    for p in all_goods:
-        stock_kg = float(p.get('aktualny_sklad_finalny_kg') or 0.0)
-        min_stock_kg = float(p.get('minimalna_zasoba_kg') or 0.0)
-        mj = (p.get('mj') or 'kg').lower()
-        weight_g = float(p.get('vaha_balenia_g') or 0.0)
+        low_stock_goods_list = []
+        for p in all_goods:
+            stock_kg = float(p.get('aktualny_sklad_finalny_kg') or 0.0)
+            min_stock_kg = float(p.get('minimalna_zasoba_kg') or 0.0)
+            mj = (p.get('mj') or 'kg').lower()
+            weight_g = float(p.get('vaha_balenia_g') or 0.0)
 
-        is_below_min = False
-        current_stock_display = ""
-        min_stock_display = ""
+            is_below_min = False
+            current_stock_display = ""
+            min_stock_display = ""
 
-        # Ak je jednotka 'ks', prepočítavame stav z kg na kusy podľa gramáže
-        if mj == 'ks' and weight_g > 0:
-            current_stock_ks = math.floor((stock_kg * 1000) / weight_g)
-            # Tu predpokladáme, že limit v DB je v kg, ak chceš ks, musíš mať stĺpec na to
-            # Pre jednoduchosť teraz kontrolujeme kg limit
-            if min_stock_kg > 0 and stock_kg < min_stock_kg:
-                is_below_min = True
-            current_stock_display = f"{current_stock_ks} ks"
-            min_stock_display = f"Min: {min_stock_kg} kg"
-        else:
-            # Klasická kontrola na kg
-            if min_stock_kg > 0 and stock_kg < min_stock_kg:
-                is_below_min = True
-            current_stock_display = f"{stock_kg:.2f} kg"
-            min_stock_display = f"{min_stock_kg:.2f} kg"
+            if mj == 'ks' and weight_g > 0:
+                current_stock_ks = math.floor((stock_kg * 1000) / weight_g)
+                if min_stock_kg > 0 and stock_kg < min_stock_kg:
+                    is_below_min = True
+                current_stock_display = f"{current_stock_ks} ks"
+                min_stock_display = f"Min: {min_stock_kg} kg"
+            else:
+                if min_stock_kg > 0 and stock_kg < min_stock_kg:
+                    is_below_min = True
+                current_stock_display = f"{stock_kg:.2f} kg"
+                min_stock_display = f"{min_stock_kg:.2f} kg"
 
-        if is_below_min:
-            low_stock_goods_list.append({
-                "name": p['nazov_vyrobku'],
-                "category": p['predajna_kategoria'],
-                "currentStock": current_stock_display,
-                "minStock": min_stock_display
-            })
+            if is_below_min:
+                low_stock_goods_list.append({
+                    "name": p['nazov_vyrobku'],
+                    "category": p['predajna_kategoria'],
+                    "currentStock": current_stock_display,
+                    "minStock": min_stock_display
+                })
 
-    # Zoskupenie tovaru pod minimom podľa kategórií pre frontend
-    low_stock_goods_categorized = {}
-    for item in low_stock_goods_list:
-        low_stock_goods_categorized.setdefault(item['category'], []).append(item)
+        low_stock_goods_categorized = {}
+        for item in low_stock_goods_list:
+            low_stock_goods_categorized.setdefault(item['category'], []).append(item)
 
-    # 3) AKTÍVNE AKCIE (B2B)
-    active_promos = db_connector.execute_query("""
-        SELECT promo.product_name, promo.sale_price_net, promo.end_date, chain.name as chain_name
-        FROM b2b_promotions promo
-        JOIN b2b_retail_chains chain ON promo.chain_id = chain.id
-        WHERE CURDATE() BETWEEN promo.start_date AND promo.end_date
-        ORDER BY chain.name, promo.product_name
-    """) or []
+        # 3) Aktívne akcie
+        active_promos = db_connector.execute_query("""
+            SELECT promo.product_name, promo.sale_price_net, promo.end_date, chain.name as chain_name
+            FROM b2b_promotions promo
+            JOIN b2b_retail_chains chain ON promo.chain_id = chain.id
+            WHERE CURDATE() BETWEEN promo.start_date AND promo.end_date
+            ORDER BY chain.name, promo.product_name
+        """) or []
 
-    # 4) TOP PRODUKTY (posledných 30 dní)
-    # Vyžaduje stav 'Ukončené' (to je moment, kedy sa reálne zapísalo reálne_mnozstvo_kg)
-    zv_name = _zv_name_col()
-    top_products = db_connector.execute_query(f"""
-        SELECT
-            TRIM(zv.{zv_name}) AS name,
-            SUM(COALESCE(zv.realne_mnozstvo_kg, 0)) AS total
-        FROM zaznamy_vyroba zv
-        WHERE zv.datum_ukoncenia >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
-          AND zv.stav IN ('Ukončené', 'Dokončené')
-        GROUP BY TRIM(zv.{zv_name})
-        ORDER BY total DESC
-        LIMIT 5
-    """) or []
+        # 4) TOP produkty a graf - nepoužívame vnútri funkcie žiadne volania handle_request
+        from expedition_handler import _zv_name_col
+        zv_col = _zv_name_col()
+        
+        top_products = db_connector.execute_query(f"""
+            SELECT
+                TRIM(zv.{zv_col}) AS name,
+                SUM(COALESCE(zv.realne_mnozstvo_kg, 0)) AS total
+            FROM zaznamy_vyroba zv
+            WHERE zv.datum_ukoncenia >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+              AND zv.stav IN ('Ukončené', 'Dokončené')
+            GROUP BY TRIM(zv.{zv_col})
+            ORDER BY total DESC
+            LIMIT 5
+        """) or []
 
-    # 5) GRAF VÝROBY (Timeseries)
-    production_timeseries = db_connector.execute_query("""
-        SELECT 
-            DATE_FORMAT(datum_ukoncenia, '%Y-%m-%d') as production_date,
-            SUM(COALESCE(realne_mnozstvo_kg, 0)) as total_kg
-        FROM zaznamy_vyroba
-        WHERE datum_ukoncenia >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
-          AND stav IN ('Ukončené', 'Dokončené')
-        GROUP BY DATE(datum_ukoncenia)
-        ORDER BY production_date ASC
-    """) or []
+        production_timeseries = db_connector.execute_query("""
+            SELECT 
+                DATE_FORMAT(datum_ukoncenia, '%Y-%m-%d') as production_date,
+                SUM(COALESCE(realne_mnozstvo_kg, 0)) as total_kg
+            FROM zaznamy_vyroba
+            WHERE datum_ukoncenia >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+              AND stav IN ('Ukončené', 'Dokončené')
+            GROUP BY DATE(datum_ukoncenia)
+            ORDER BY production_date ASC
+        """) or []
 
-    return {
-        "lowStockRaw": low_stock_raw,
-        "lowStockGoods": low_stock_goods_categorized,
-        "activePromotions": active_promos,
-        "topProducts": top_products,
-        "timeSeriesData": production_timeseries,
-        "period": "Posledných 30 dní"
-    }
+        return {
+            "low_stock_raw": low_stock_raw,
+            "low_stock_goods": low_stock_goods_categorized,
+            "active_promotions": active_promos,
+            "top_products": top_products,
+            "time_series_data": production_timeseries
+        }
+    except Exception as e:
+        # Logovanie chyby na serveri, aby sme vedeli čo presne zlyhalo
+        print(f"DASHBOARD ERROR: {str(e)}")
+        return {"error": str(e)}
 
 def get_kancelaria_base_data():
-    products_list = db_connector.execute_query("""
-        SELECT nazov_vyrobku
-        FROM produkty
-        WHERE (typ_polozky = 'produkt' OR TRIM(UPPER(typ_polozky)) LIKE 'VÝROBOK%%')
-          AND nazov_vyrobku NOT IN (SELECT DISTINCT nazov_vyrobku FROM recepty)
-        ORDER BY nazov_vyrobku
-    """) or []
-    categories_list = db_connector.execute_query("""
-        SELECT DISTINCT kategoria_pre_recepty
-        FROM produkty
-        WHERE kategoria_pre_recepty IS NOT NULL AND kategoria_pre_recepty != ''
-        ORDER BY kategoria_pre_recepty
-    """) or []
-    return {
-        'warehouse': production_handler.get_warehouse_state(),
-        'itemTypes': ['Mäso', 'Koreniny', 'Obaly - Črevá', 'Pomocný materiál'],
-        'productsWithoutRecipe': [p['nazov_vyrobku'] for p in products_list],
-        'recipeCategories': [c['kategoria_pre_recepty'] for c in categories_list]
-    }
-
-
+    """
+    Opravená základná funkcia dát bez zacyklenia.
+    """
+    try:
+        products_list = db_connector.execute_query("""
+            SELECT nazov_vyrobku
+            FROM produkty
+            WHERE (typ_polozky = 'produkt' OR TRIM(UPPER(typ_polozky)) LIKE 'VÝROBOK%')
+              AND nazov_vyrobku NOT IN (SELECT DISTINCT nazov_vyrobku FROM recepty)
+            ORDER BY nazov_vyrobku
+        """) or []
+        
+        categories_list = db_connector.execute_query("""
+            SELECT DISTINCT kategoria_pre_recepty
+            FROM produkty
+            WHERE kategoria_pre_recepty IS NOT NULL AND kategoria_pre_recepty != ''
+            ORDER BY kategoria_pre_recepty
+        """) or []
+        
+        return {
+            'warehouse': production_handler.get_warehouse_state(),
+            'item_types': ['Mäso', 'Koreniny', 'Obaly - Črevá', 'Pomocný materiál'],
+            'products_without_recipe': [p['nazov_vyrobku'] for p in products_list],
+            'recipe_categories': [c['kategoria_pre_recepty'] for c in categories_list]
+        }
+    except Exception as e:
+        print(f"BASE DATA ERROR: {str(e)}")
+        return {"error": str(e)}
 # =================================================================
 # === EXPEDIČNÝ PLÁN / FORECAST ====================================
 # =================================================================
