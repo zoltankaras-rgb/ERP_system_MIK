@@ -3133,16 +3133,27 @@ def get_b2b_order_details_route(order_id):
 @app.route('/api/kancelaria/b2b/print_order_pdf/<int:order_id>')
 @login_required(role=('kancelaria','veduci','admin'))
 def print_b2b_order_pdf_route(order_id):
-    order_data = b2b_handler.get_b2b_order_details({'id': order_id})
-    if not order_data or 'error' in order_data:
-        return make_response(f"<h1>Chyba: Objednávka s ID {order_id} nebola nájdená.</h1>", 404)
+    # KĽÚČOVÁ ZMENA: Namiesto surových dát (get_b2b_order_details) použijeme 
+    # formátovač, ktorý pripraví dáta PRESNE ako pre e-mail pre zákazníka
+    order_payload = b2b_handler.build_order_pdf_payload_admin(order_id)
     
-    # ZMENA: Opäť prijmeme 3 hodnoty a CSV ignorujeme, lebo tu chceme len PDF
-    pdf_content, _, _ = pdf_generator.create_order_files(order_data)
+    if not order_payload or 'error' in order_payload:
+        err_msg = order_payload.get('error', 'Neznáma chyba') if order_payload else 'Objednávka neexistuje.'
+        return make_response(f"<h1>Chyba: {err_msg}</h1>", 404)
+    
+    # Generovanie PDF na základe správneho payloadu
+    try:
+        pdf_content, csv_content, csv_filename = pdf_generator.create_order_files(order_payload)
+    except Exception as e:
+        return make_response(f"<h1>Chyba pri generovaní PDF: {str(e)}</h1>", 500)
     
     response = make_response(pdf_content)
     response.headers['Content-Type'] = 'application/pdf'
-    response.headers['Content-Disposition'] = f"inline; filename=objednavka_{order_data.get('order_number', order_id)}.pdf"
+    
+    # Získanie čísla objednávky pre správny názov súboru
+    order_number = order_payload.get('order_number', order_id)
+    response.headers['Content-Disposition'] = f"inline; filename=objednavka_{order_number}.pdf"
+    
     return response
 
 # ---- B2B KOMUNIKÁCIA (KANCELÁRIA)
