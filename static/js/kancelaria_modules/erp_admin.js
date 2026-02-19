@@ -32,24 +32,24 @@
   
   function $(sel, root){ return (root||document).querySelector(sel); }
   
-  const apiRequest = window.apiRequest || (async (url, opts={})=>{
+  const apiRequest = async (url, opts={})=>{
     const res = await fetch(url, {
-      method: opts.method||'GET',
-      headers: {'Content-Type':'application/json'},
-      body: opts.body ? JSON.stringify(opts.body) : undefined,
-      credentials:'same-origin'
+        method: opts.method||'GET',
+        headers: {'Content-Type':'application/json', ...(opts.headers || {})},
+        body: opts.body ? JSON.stringify(opts.body) : undefined,
+        credentials:'same-origin'
     });
     if (!res.ok){
-      let t=''; try{ t=await res.text(); }catch(_){}
-      const errObj = tryParseJSON(t);
-      const msg = (errObj && errObj.error) ? errObj.error : t.slice(0,200);
-      
-      // Vrátime chybu ako objekt, aby ju volajúci mohol spracovať
-      return { error: msg, status: res.status, raw: errObj };
+        let t=''; try{ t=await res.text(); }catch(_){}
+        const errObj = tryParseJSON(t);
+        const msg = (errObj && errObj.error) ? errObj.error : t.slice(0,200);
+        
+        // Vrátime chybu ako objekt, aby ju volajúci mohol spracovať
+        return { error: msg, status: res.status, raw: errObj };
     }
     const ct=(res.headers.get('content-type')||'').toLowerCase();
     return ct.includes('application/json') ? res.json() : {};
-  });
+};
 
   function tryParseJSON(str) {
       try { return JSON.parse(str); } catch(e) { return null; }
