@@ -175,11 +175,10 @@ def upload_b2c_image():
 
 def get_kancelaria_dashboard_data():
     """
-    Bezpečná verzia dashboardu bez nekonečnej rekurzie.
-    Obsahuje suroviny, tovar, produkciu a notifikácie pre B2B/B2C.
+    Dashboard s predajnými a ziskovými štatistikami (B2B + B2C).
     """
     try:
-        # 1) Suroviny pod minimom - Optimalizovaný dotaz
+        # 1) Suroviny pod minimom
         low_stock_raw = db_connector.execute_query("""
             SELECT 
                 s.nazov AS name, 
@@ -241,22 +240,16 @@ def get_kancelaria_dashboard_data():
         for item in low_stock_goods_list:
             low_stock_goods_categorized.setdefault(item['category'], []).append(item)
 
-        # 3) TOP produkty a graf 
-        from expedition_handler import _zv_name_col
-        zv_col = _zv_name_col()
-        
-        top_products = db_connector.execute_query(f"""
-            SELECT
-                TRIM(zv.{zv_col}) AS name,
-                SUM(COALESCE(zv.realne_mnozstvo_kg, 0)) AS total
-            FROM zaznamy_vyroba zv
-            WHERE zv.datum_ukoncenia >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
-              AND zv.stav IN ('Ukončené', 'Dokončené')
-            GROUP BY TRIM(zv.{zv_col})
-            ORDER BY total DESC
-            LIMIT 5
+        # 3) Aktívne akcie
+        active_promos = db_connector.execute_query("""
+            SELECT promo.product_name, promo.sale_price_net, promo.end_date, chain.name as chain_name
+            FROM b2b_promotions promo
+            JOIN b2b_retail_chains chain ON promo.chain_id = chain.id
+            WHERE CURDATE() BETWEEN promo.start_date AND promo.end_date
+            ORDER BY chain.name, promo.product_name
         """) or []
 
+        # 4) Graf výroby
         production_timeseries = db_connector.execute_query("""
             SELECT 
                 DATE_FORMAT(datum_ukoncenia, '%Y-%m-%d') as production_date,
@@ -268,6 +261,104 @@ def get_kancelaria_dashboard_data():
             ORDER BY production_date ASC
         """) or []
 
+        # 5) B2B a B2C notifikácie
+        pending_b2b_count = 0
+        try:
+            b2b_row = db_connector.execute_query("SELECT COUNT(*) as c FROM b2b_zakaznici WHERE schvaleny = 0", fetch='one')
+            if b2b_row: pending_b2b_count = b2b_row.get('c', 0)
+        except Exception: pass
+
+        active_b2c_count = 0
+        try:
+            b2c_row = db_connector.execute_query("SELECT COUNT(*) as c FROM b2c_objednavky WHERE stav NOT IN ('Vybavená', 'Zrušená', 'Dokončená', 'Zrusena', 'Zrušena')", fetch='one')
+            if b2c_row: active_b2c_count = b2c_row.get('c', 0)
+        except Exception: pass
+
+        # 6) TOP 5 Predaj a Zisk (B2B + B2C zjednotené)
+        sales_data = {}
+        
+        # B2B
+        try:
+            b2b_sales = db_connector.execute_query("""
+                SELECT pol.nazov_vyrobku as name, pol.mnozstvo as qty, pol.cena_bez_dph as price
+                FROM b2b_objednavky_polozky pol
+                JOIN b2b_objednavky o ON o.id = pol.objednavka_id
+                WHERE o.stav NOT IN ('Zrušená', 'Zrusena', 'Stornovaná')
+                  AND COALESCE(o.created_at, o.datum_vytvorenia) >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+            """) or []
+            for r in b2b_sales:
+                nm = str(r.get('name') or '').strip()
+                if not nm: continue
+                qty = float(r.get('qty') or 0.0)
+                prc = float(r.get('price') or 0.0)
+                if nm not in sales_data: sales_data[nm] = {'qty': 0.0, 'rev': 0.0}
+                sales_data[nm]['qty'] += qty
+                sales_data[nm]['rev'] += (qty * prc)
+        except Exception: pass
+
+        # B2C
+        try:
+            b2c_sales = db_connector.execute_query("""
+                SELECT 
+                    COALESCE(pol.nazov_produktu, pol.nazov_vyrobku, pol.nazov, '') as name, 
+                    COALESCE(pol.mnozstvo_kg, pol.mnozstvo, pol.mnozstvo_ks, 0) as qty, 
+                    COALESCE(pol.cena_bez_dph, pol.cena, 0) as price
+                FROM b2c_objednavky_polozky pol
+                JOIN b2c_objednavky o ON o.id = pol.objednavka_id
+                WHERE o.stav NOT IN ('Zrušená', 'Zrusena', 'Stornovaná')
+                  AND COALESCE(o.created_at, o.datum_vytvorenia, o.datum_objednavky) >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+            """) or []
+            for r in b2c_sales:
+                nm = str(r.get('name') or '').strip()
+                if not nm: continue
+                qty = float(r.get('qty') or 0.0)
+                prc = float(r.get('price') or 0.0)
+                if nm not in sales_data: sales_data[nm] = {'qty': 0.0, 'rev': 0.0}
+                sales_data[nm]['qty'] += qty
+                sales_data[nm]['rev'] += (qty * prc)
+        except Exception: pass
+
+        # Mapovanie nákupných/výrobných cien z produktov
+        cost_map = {}
+        try:
+            costs = db_connector.execute_query("SELECT nazov_vyrobku, COALESCE(nakupna_cena, 0) as cost FROM produkty") or []
+            for c in costs:
+                cost_map[str(c.get('nazov_vyrobku') or '').strip()] = float(c.get('cost') or 0.0)
+        except Exception: pass
+
+        results = []
+        for nm, metrics in sales_data.items():
+            q = metrics['qty']
+            r = metrics['rev']
+            if q <= 0: continue
+            
+            avg_p = r / q
+            cst = cost_map.get(nm, 0.0)
+            prof = (avg_p - cst) * q
+            
+            results.append({
+                "name": nm,
+                "qty": round(q, 2),
+                "profit": round(prof, 2)
+            })
+
+        top_sold = sorted(results, key=lambda x: x['qty'], reverse=True)[:5]
+        top_profitable = sorted(results, key=lambda x: x['profit'], reverse=True)[:5]
+
+        return {
+            "lowStockRaw": low_stock_raw,
+            "lowStockGoods": low_stock_goods_categorized,
+            "activePromotions": active_promos,
+            "timeSeriesData": production_timeseries,
+            "pendingB2B": pending_b2b_count,
+            "activeB2COrders": active_b2c_count,
+            "topSold": top_sold,
+            "topProfitable": top_profitable,
+            "period": "Posledných 30 dní"
+        }
+    except Exception as e:
+        print(f"Chyba v dashboarde: {e}")
+        return {"error": str(e)}
         # =========================================================
         # 4) B2B a B2C notifikácie (počty pre vrchné karty)
         # =========================================================
