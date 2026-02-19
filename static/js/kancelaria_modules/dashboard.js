@@ -321,12 +321,23 @@ function escapeHtml(text) {
 }
  
 
-function apiRequest(url, opts={}) {
-    // Používame globálny apiRequest z common.js ak existuje
-    if (typeof window.apiRequest === 'function') {
-        return window.apiRequest(url, opts);
+async function apiRequest(url, opts = {}) {
+    // 1. Skús použiť centrálnu funkciu z common.js, ak existuje a NIE JE to táto istá funkcia
+    if (window.apiRequest && window.apiRequest !== apiRequest) {
+        return await window.apiRequest(url, opts);
     }
-    return fetch(url, opts).then(r => r.json());
+
+    // 2. Fallback na priame volanie fetch, ak neexistuje centrálna funkcia
+    try {
+        const response = await fetch(url, opts);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return await response.json();
+    } catch (e) {
+        console.error("API Request failed:", e);
+        throw e;
+    }
 }
 
 // Export pre kancelaria.js
