@@ -701,12 +701,11 @@ async function loadCustomersAndPricelists() {
                         </td>
                         <td>${plBadges}</td>
                         <td style="text-align:right;">
-                            <button class="btn btn-primary btn-sm" onclick="window.editB2BCustomer(${c.id})" title="Upraviť údaje a cenníky">✏️ Upraviť</button>
-                            
-                            ${!isBranch ? `<button class="btn btn-warning btn-sm" style="margin-left:5px;" onclick="window.addB2BBranch(${c.id}, '${escapeHtml(c.nazov_firmy)}')" title="Pridať pobočku">+ Pobočka</button>` : ''}
-                            
-                            <button class="btn btn-danger btn-sm" style="margin-left:5px;" onclick="window.deleteB2BCustomer(${c.id})" title="Zmazať účet">🗑️</button>
-                        </td>
+    <button class="btn btn-secondary btn-sm" style="background:#0ea5e9; color:white; border:none;" onclick="window.showCustomer360(${c.id})" title="Karta zákazníka (Štatistiky nákupov)">📊 Karta</button>
+    <button class="btn btn-primary btn-sm" style="margin-left:5px;" onclick="window.editB2BCustomer(${c.id})" title="Upraviť údaje a cenníky">✏️ Upraviť</button>
+    ${!isBranch ? `<button class="btn btn-warning btn-sm" style="margin-left:5px;" onclick="window.addB2BBranch(${c.id}, '${escapeHtml(c.nazov_firmy)}')" title="Pridať pobočku">+ Pobočka</button>` : ''}
+    <button class="btn btn-danger btn-sm" style="margin-left:5px;" onclick="window.deleteB2BCustomer(${c.id})" title="Zmazať účet">🗑️</button>
+</td>
                     </tr>`;
                 });
             }
@@ -1717,7 +1716,129 @@ window.printPricelistPreview = async function(plId) {
           doc.getElementById('save-ann-btn').onclick = async () => { await callFirstOk([{ url:'/api/kancelaria/b2b/saveAnnouncement', opts:{ method:'POST', body:{ announcement: doc.getElementById('b2b-ann-txt').value } } }]); showStatus('Oznam uložený'); };
       } catch(e) { box.innerHTML = `<p class="error">${e.message}</p>`; }
   }
+// =================================================================
+// 360° KARTA ZÁKAZNÍKA
+// =================================================================
 
+window.showCustomer360 = async function(id) {
+    openModal('<div style="padding:40px; text-align:center; color:#666;"><i class="fas fa-spinner fa-spin fa-2x"></i><br>Načítavam štatistiky a nákupy zákazníka...</div>');
+    
+    try {
+        const res = await callFirstOk([{ url: '/api/kancelaria/b2b/customer_360', opts: { method: 'POST', body: { id: id } } }]);
+        const c = res.customer;
+        const s = res.summary;
+        const products = res.products || [];
+
+        // Globálne si uložíme dáta pre filter
+        window.currentC360Products = products;
+
+        // Farby pre celkovú maržu
+        const sumMarginColor = s.margin_pct < 10 ? '#dc2626' : (s.margin_pct >= 20 ? '#16a34a' : '#d97706');
+
+        let html = `
+        <div style="width: 100%; max-width: 1200px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #e2e8f0; padding-bottom:15px; margin-bottom:20px;">
+                <h2 style="margin:0; color:#1e293b;">🏢 ${escapeHtml(c.nazov_firmy)} <span style="font-size:0.8em; color:#64748b;">(ID: ${c.zakaznik_id})</span></h2>
+                <button class="btn btn-secondary btn-sm" onclick="closeModal()">Zavrieť</button>
+            </div>
+
+            <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:15px; margin-bottom:25px;">
+                <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:15px; text-align:center;">
+                    <div style="font-size:0.8rem; color:#64748b; font-weight:600; text-transform:uppercase;">Počet objednávok</div>
+                    <div style="font-size:1.8rem; font-weight:bold; color:#0f172a; margin-top:5px;">${s.total_orders}</div>
+                </div>
+                <div style="background:#eff6ff; border:1px solid #bfdbfe; border-radius:8px; padding:15px; text-align:center;">
+                    <div style="font-size:0.8rem; color:#1e40af; font-weight:600; text-transform:uppercase;">Celková tržba (bez DPH)</div>
+                    <div style="font-size:1.8rem; font-weight:bold; color:#1d4ed8; margin-top:5px;">${s.total_revenue.toFixed(2)} €</div>
+                </div>
+                <div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:8px; padding:15px; text-align:center;">
+                    <div style="font-size:0.8rem; color:#166534; font-weight:600; text-transform:uppercase;">Celkový zisk</div>
+                    <div style="font-size:1.8rem; font-weight:bold; color:#15803d; margin-top:5px;">${s.total_profit.toFixed(2)} €</div>
+                </div>
+                <div style="background:#fff; border:1px solid ${sumMarginColor}; border-radius:8px; padding:15px; text-align:center;">
+                    <div style="font-size:0.8rem; color:${sumMarginColor}; font-weight:600; text-transform:uppercase;">Celková marža</div>
+                    <div style="font-size:1.8rem; font-weight:bold; color:${sumMarginColor}; margin-top:5px;">${s.margin_pct.toFixed(1)} %</div>
+                </div>
+            </div>
+
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                <h4 style="margin:0;">Najčastejšie odoberané produkty</h4>
+                <input type="text" id="c360-search" class="filter-input" placeholder="Hľadať produkt (názov/EAN)..." style="width:250px;" oninput="window.filterC360Table()">
+            </div>
+            
+            <div style="max-height: 450px; overflow-y: auto; border: 1px solid #cbd5e1; border-radius: 8px;">
+                <table class="table-refined" style="width:100%;">
+                    <thead style="position: sticky; top: 0; background: #f8fafc; z-index: 10;">
+                        <tr>
+                            <th>Názov produktu</th>
+                            <th style="text-align:right;">Odobraté</th>
+                            <th style="text-align:right;">Nákup/Výroba (€/MJ)</th>
+                            <th style="text-align:right;">Priem. Predajná (€/MJ)</th>
+                            <th style="text-align:right;">Tržba (€)</th>
+                            <th style="text-align:right;">Zisk (€)</th>
+                            <th style="text-align:right;">Marža</th>
+                        </tr>
+                    </thead>
+                    <tbody id="c360-table-body">
+                        </tbody>
+                </table>
+            </div>
+        </div>
+        `;
+
+        // Modálne okno musíme spraviť širšie pre tento konkrétny pohľad
+        openModal(html);
+        const modalContent = document.querySelector('.b2b-modal-content');
+        if (modalContent) {
+            modalContent.style.maxWidth = '1100px';
+            modalContent.style.width = '95%';
+        }
+        
+        window.filterC360Table(); // prvotné naplnenie tabuľky
+
+    } catch(e) {
+        openModal(`<div style="padding:20px; color:red; text-align:center;"><h2>Chyba</h2>${e.message}</div>`);
+    }
+};
+
+window.filterC360Table = function() {
+    const searchVal = (document.getElementById('c360-search').value || '').toLowerCase();
+    const tbody = document.getElementById('c360-table-body');
+    if (!tbody || !window.currentC360Products) return;
+
+    let html = '';
+    let count = 0;
+
+    window.currentC360Products.forEach(p => {
+        if (searchVal && !p.name.toLowerCase().includes(searchVal) && !p.ean.includes(searchVal)) return;
+
+        // Formátovanie farieb podľa marže (červená pod 10%, zelená nad 20%)
+        let marginColor = '#475569';
+        if (p.margin < 10) marginColor = '#dc2626'; // strata alebo nízka marža
+        else if (p.margin > 20) marginColor = '#16a34a'; // skvelá marža
+
+        html += `
+        <tr>
+            <td>
+                <div style="font-weight:600; color:#1e293b;">${escapeHtml(p.name)}</div>
+                <div style="font-size:0.75rem; color:#64748b;">EAN: ${p.ean}</div>
+            </td>
+            <td style="text-align:right; font-weight:bold;">${p.qty} ${p.unit}</td>
+            <td style="text-align:right; color:#64748b;">${p.unit_cost.toFixed(2)} €</td>
+            <td style="text-align:right; color:#1d4ed8;">${p.avg_price.toFixed(2)} €</td>
+            <td style="text-align:right;">${p.revenue.toFixed(2)} €</td>
+            <td style="text-align:right; font-weight:bold; color:${p.profit < 0 ? '#dc2626' : '#15803d'};">${p.profit > 0 ? '+' : ''}${p.profit.toFixed(2)} €</td>
+            <td style="text-align:right; font-weight:bold; color:${marginColor};">${p.margin.toFixed(1)} %</td>
+        </tr>`;
+        count++;
+    });
+
+    if (count === 0) {
+        html = `<tr><td colspan="7" style="text-align:center; padding:20px; color:#64748b;">Nenašli sa žiadne produkty vyhovujúce filtru.</td></tr>`;
+    }
+
+    tbody.innerHTML = html;
+};
   // EXPORT MODULU
   (function (g) { 
       g.initializeB2BAdminModule = initializeB2BAdminModule; 

@@ -1871,3 +1871,92 @@ def delete_b2b_customer(data: dict):
     except Exception as e:
         traceback.print_exc()
         return {"error": f"Chyba pri mazaní: {str(e)}"}
+
+def get_customer_360_view(data: dict):
+    cid = data.get("id")
+    if not cid:
+        return {"error": "Chýba ID zákazníka."}
+
+    # 1. Získame základné údaje o zákazníkovi
+    cust = db_connector.execute_query(
+        "SELECT id, zakaznik_id, nazov_firmy, email, telefon FROM b2b_zakaznici WHERE id=%s", 
+        (cid,), fetch="one"
+    )
+    if not cust:
+        return {"error": "Zákazník neexistuje."}
+
+    login = cust["zakaznik_id"]
+
+    # 2. Celkové štatistiky (vynecháme zrušené objednávky)
+    stats_sql = """
+        SELECT 
+            COUNT(DISTINCT o.id) as total_orders,
+            COALESCE(SUM(op.mnozstvo * op.cena_bez_dph), 0) as total_revenue
+        FROM b2b_objednavky o
+        JOIN b2b_objednavky_polozky op ON o.id = op.objednavka_id
+        WHERE o.zakaznik_id = %s AND o.stav NOT IN ('Zrušená', 'Zrusena', 'Stornovaná')
+    """
+    stats = db_connector.execute_query(stats_sql, (login,), fetch="one") or {}
+    
+    # 3. Detailná agregácia nákupov po produktoch
+    products_sql = """
+        SELECT 
+            op.ean_produktu as ean,
+            op.nazov_vyrobku as name,
+            op.mj as unit,
+            SUM(op.mnozstvo) as total_qty,
+            COALESCE(SUM(op.mnozstvo * op.cena_bez_dph), 0) as revenue,
+            MAX(COALESCE(p.nakupna_cena, 0)) as current_unit_cost
+        FROM b2b_objednavky o
+        JOIN b2b_objednavky_polozky op ON o.id = op.objednavka_id
+        LEFT JOIN produkty p ON p.ean = op.ean_produktu
+        WHERE o.zakaznik_id = %s AND o.stav NOT IN ('Zrušená', 'Zrusena', 'Stornovaná')
+        GROUP BY op.ean_produktu, op.nazov_vyrobku, op.mj
+        ORDER BY total_qty DESC
+    """
+    products = db_connector.execute_query(products_sql, (login,), fetch="all") or []
+
+    # 4. Prepočty pre každý produkt a celkový zisk
+    prod_list = []
+    total_cost = 0.0
+
+    for r in products:
+        qty = float(r["total_qty"] or 0)
+        rev = float(r["revenue"] or 0)
+        unit_cost = float(r["current_unit_cost"] or 0)
+        
+        # Nákladová cena pre toto nakúpené množstvo
+        cost = qty * unit_cost
+        total_cost += cost
+        
+        avg_price = (rev / qty) if qty > 0 else 0
+        prof = rev - cost
+        marg = (prof / rev * 100) if rev > 0 else 0
+        
+        prod_list.append({
+            "ean": r["ean"] or "",
+            "name": r["name"] or "Neznámy produkt",
+            "unit": r["unit"] or "ks",
+            "qty": round(qty, 2),
+            "avg_price": round(avg_price, 4),
+            "unit_cost": round(unit_cost, 4),
+            "revenue": round(rev, 2),
+            "profit": round(prof, 2),
+            "margin": round(marg, 1)
+        })
+
+    # Dopočítanie celkového zisku
+    total_rev = float(stats.get("total_revenue") or 0.0)
+    total_profit = total_rev - total_cost
+    total_margin = (total_profit / total_rev * 100) if total_rev > 0 else 0
+
+    return {
+        "customer": cust,
+        "summary": {
+            "total_orders": stats.get("total_orders", 0),
+            "total_revenue": round(total_rev, 2),
+            "total_profit": round(total_profit, 2),
+            "margin_pct": round(total_margin, 1)
+        },
+        "products": prod_list
+    }

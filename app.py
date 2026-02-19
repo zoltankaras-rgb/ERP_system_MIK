@@ -3155,6 +3155,10 @@ def print_b2b_order_pdf_route(order_id):
     response.headers['Content-Disposition'] = f"inline; filename=objednavka_{order_number}.pdf"
     
     return response
+@app.route('/api/kancelaria/b2b/customer_360', methods=['POST'])
+@login_required(role=('kancelaria','veduci','admin'))
+def b2b_customer_360():
+    return handle_request(b2b_handler.get_customer_360_view, request.json)
 
 # ---- B2B KOMUNIKÁCIA (KANCELÁRIA)
 @app.get('/api/kancelaria/b2b/messages')
