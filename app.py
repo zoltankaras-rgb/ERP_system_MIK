@@ -430,22 +430,22 @@ def upload_file():
 @app.route('/api/kancelaria/meat/materials')
 @login_required(role='kancelaria')
 def api_meat_materials():
-    return handle_request(meat_calc_handler.get_materials)
+    return handle_request(meat_calc_handler.list_materials) # Opravené
 
 @app.route('/api/kancelaria/meat/products')
 @login_required(role='kancelaria')
 def api_meat_products():
-    return handle_request(meat_calc_handler.get_products)
+    return handle_request(meat_calc_handler.list_products) # Opravené
 
 @app.route('/api/kancelaria/meat/suppliers')
 @login_required(role='kancelaria')
 def api_meat_suppliers():
-    return handle_request(meat_calc_handler.get_suppliers)
+    return handle_request(meat_calc_handler.list_suppliers) # Opravené
 
 @app.route('/api/kancelaria/meat/calc/templates')
 @login_required(role='kancelaria')
 def api_meat_templates():
-    return handle_request(meat_calc_handler.list_templates)
+    return handle_request(meat_calc_handler.list_templates) # Opravené
 # =================================================================
 # === INTERNÉ PRIHLASOVANIE A SESSION MANAGEMENT ===
 # =================================================================
