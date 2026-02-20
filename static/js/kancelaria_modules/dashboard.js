@@ -285,7 +285,18 @@ function escapeHtml(str) {
 function safeToFixed(v, d=2){ const n=Number(v); return isFinite(n)? n.toFixed(d): '0.00'; }
 
 async function apiRequest(url, opts = {}) {
+    // Ak existuje iná globálna funkcia s týmto názvom, použije ju (zamedzenie konfliktov)
     if (window.apiRequest && window.apiRequest !== apiRequest) return await window.apiRequest(url, opts);
+    
+    // --- GLOBÁLNA OPRAVA PRE CHYBU 415 (Pre všetky moduly) ---
+    // Ak posielame dáta (POST/PUT), ktoré sú objekt a nie sú FormData (napr. súbor)
+    if (opts.body && typeof opts.body === 'object' && !(opts.body instanceof FormData)) {
+        opts.headers = opts.headers || {};
+        opts.headers['Content-Type'] = 'application/json';
+        opts.body = JSON.stringify(opts.body);
+    }
+    // ---------------------------------------------------------
+
     const response = await fetch(url, opts);
     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
     return await response.json();
