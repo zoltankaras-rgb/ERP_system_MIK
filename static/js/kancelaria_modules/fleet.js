@@ -809,7 +809,9 @@ function openEditLogModal(dateISO, existing) {
         // Auto-fetch tachometra
         if (!isEdit && (!startInput.value || startInput.value == 0)) {
             apiRequest('/api/kancelaria/fleet/getPrevOdo', {
-                method: 'POST', body: { vehicle_id: currentVehicleId, date: dateISO }
+                method: 'POST', 
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ vehicle_id: currentVehicleId, date: dateISO })
             }).then(function(res) {
                 if (res && res.value) startInput.value = res.value;
             }).catch(function(e) {
@@ -827,18 +829,19 @@ function openEditLogModal(dateISO, existing) {
           if (s!=null && e_odo!=null && e_odo < s) { alert('Konečný stav tachometra je menší ako začiatočný!'); return; }
           data.km_driven = (s!=null && e_odo!=null) ? (e_odo - s) : 0;
 
-          apiRequest('/api/kancelaria/fleet/saveLog', { method: 'POST', body: { logs: [data] } })
+         apiRequest('/api/kancelaria/fleet/saveLog', { 
+              method: 'POST', 
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ logs: [data] }) 
+          })
             .then(function() {
                 document.getElementById('modal-container').style.display = 'none';
                 loadAndRenderFleetData(); 
             })
-            .catch(function(err) {
-                alert(err.message);
-            });
         }
       }
     };
-  });
+  })
 }
   
 // =================== TANKOVANIE ===================
