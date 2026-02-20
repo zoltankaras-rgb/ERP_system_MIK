@@ -739,17 +739,24 @@ def get_report_html_content(vehicle_id, year, month, report_type='all'):
         "report_type": report_type or 'all'
     }
     return make_response(render_template('fleet_report_template.html', **ctx))
+
 def get_previous_odometer_value(vehicle_id, date_str):
     """
-    Nájde konečný stav tachometra z posledného záznamu PRED zadaným dátumom.
-    Ak záznam neexistuje, vráti initial_odometer vozidla.
+    Nájde konečný stav tachometra z absolútne posledného záznamu PRED zadaným dátumom
+    alebo V zadaný dátum. Rieši problém viacerých jázd v jeden deň.
     """
-    # 1. Hľadáme v logoch (najnovší záznam, ktorý je starší ako date_str)
+    # 1. Hľadáme v logoch (najnovší záznam pre dané auto)
+    # ZMENA: log_date <= %s (aby bralo aj dnešné jazdy)
+    # ZMENA: ORDER BY log_date DESC, id DESC (aby chytilo poslednú pridanú jazdu z dňa)
+    # ZMENA: Pridaná poistka, aby to nebralo nevyplnené stavy
     sql_log = """
         SELECT end_odometer 
         FROM fleet_logs 
-        WHERE vehicle_id = %s AND log_date < %s 
-        ORDER BY log_date DESC 
+        WHERE vehicle_id = %s 
+          AND log_date <= %s 
+          AND end_odometer IS NOT NULL 
+          AND end_odometer > 0
+        ORDER BY log_date DESC, id DESC 
         LIMIT 1
     """
     row = db_connector.execute_query(sql_log, (vehicle_id, date_str), fetch="one")
