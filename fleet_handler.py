@@ -746,9 +746,9 @@ def get_previous_odometer_value(vehicle_id, date_str):
     alebo V zadaný dátum. Rieši problém viacerých jázd v jeden deň.
     """
     # 1. Hľadáme v logoch (najnovší záznam pre dané auto)
-    # ZMENA: log_date <= %s (aby bralo aj dnešné jazdy)
-    # ZMENA: ORDER BY log_date DESC, id DESC (aby chytilo poslednú pridanú jazdu z dňa)
-    # ZMENA: Pridaná poistka, aby to nebralo nevyplnené stavy
+    # ZMENA 1: log_date <= %s (aby bralo aj dnešné už ukončené jazdy)
+    # ZMENA 2: ORDER BY log_date DESC, id DESC (aby vždy vybralo absolútne poslednú pridanú jazdu v daný deň)
+    # ZMENA 3: Poistka end_odometer > 0 (aby to neťahalo nevyplnené nuly)
     sql_log = """
         SELECT end_odometer 
         FROM fleet_logs 
