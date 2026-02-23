@@ -424,25 +424,22 @@ function initializeCustomerPortal(user, activeLoginId, activeName, activeAddress
     document.getElementById('btn-submit-order').onclick = submitOrder;
 }
 
-// 5. Upravené odoslanie objednávky (posiela targetCustomerId)
-async function submitOrder() {
+window.submitOrder = async function() {
     const d = document.getElementById('delivery-date').value;
     if (!d) return showNotification('Zadajte požadovaný dátum dodania.', 'error');
     
     const items = Object.values(appState.order);
     if (!items.length) return showNotification('Nemáte v objednávke žiadne položky.', 'error');
 
-    // === ZMENA: Zistíme ID cieľového zákazníka (pobočky) ===
     const targetId = (appState.activeBranch && appState.activeBranch.internalId) 
         ? appState.activeBranch.internalId 
         : appState.currentUser.id;
 
-    // Zistíme meno pre koho sa objednáva
     const custName = (appState.activeBranch && appState.activeBranch.name)
         ? appState.activeBranch.name
         : appState.currentUser.nazov_firmy;
 
-    // --- NOVÉ: Načítanie kópií e-mailov ---
+    // Načítanie kópií e-mailov
     const ccEmailsInput = document.getElementById('cc-emails');
     const ccEmails = ccEmailsInput ? ccEmailsInput.value : '';
 
@@ -451,7 +448,7 @@ async function submitOrder() {
       targetCustomerId: targetId,
       customerName: custName,
       customerEmail: appState.currentUser.email,
-      ccEmails: ccEmails, // <--- PRIDANÝ PARAMETER
+      ccEmails: ccEmails, // Odoslanie parametra na backend
       items: items, 
       deliveryDate: d,
       note: document.getElementById('order-note').value
@@ -459,22 +456,19 @@ async function submitOrder() {
 
     if (!out) return;
 
-    // Úspech - vyčistíme košík a formuláre
     appState.order = {};
     document.querySelectorAll('.quantity-input').forEach(i => i.value = '');
     document.getElementById('order-note').value = '';
     document.getElementById('delivery-date').value = '';
-    if (ccEmailsInput) ccEmailsInput.value = ''; // <--- VYČISTENIE POĽA
+    if (ccEmailsInput) ccEmailsInput.value = ''; // Vymazanie poľa po odoslaní
     updateTotals();
 
-    // Zobrazíme potvrdenie s menom konkrétnej prevádzky
     document.getElementById('products-container').innerHTML =
       `<h3>Ďakujeme!</h3>
        <p style="font-size:1.2rem;text-align:center;">Objednávka pre <strong>${custName}</strong> bola prijatá.</p>
        <p style="text-align:center;">${out.message}</p>
-       <p style="text-align:center; font-size:0.9rem; color:#666;">Potvrdenie bolo odoslané na e-mail centrály${ccEmails ? ' a na zadané kópie' : ''}.</p>`;
+       <p style="text-align:center; font-size:0.9rem; color:#666;">Potvrdenie bolo odoslané na e-mail centrály${ccEmails ? ' a na zadané kópie.' : '.'}</p>`;
 
-    // Reset UI po 3 sekundách
     setTimeout(() => {
       const sel = document.getElementById('pricelist-select');
       const stepProducts = document.getElementById('step-products');
@@ -483,8 +477,7 @@ async function submitOrder() {
       document.getElementById('products-container').innerHTML = '';
       document.getElementById('order-form-details').classList.add('hidden');
     }, 3000);
-  }
-
+};
 // Export do window objektu, aby boli funkcie dostupné v HTML (ak treba)
 window.handleLoginSuccess = handleLoginSuccess;
 window.submitOrder = submitOrder;

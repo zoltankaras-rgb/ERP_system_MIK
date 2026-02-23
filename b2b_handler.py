@@ -996,7 +996,7 @@ def submit_b2b_order(data: dict):
     note           = (data or {}).get("note")
     delivery_date  = (data or {}).get("deliveryDate")
     customer_email = (data or {}).get("customerEmail")
-    cc_emails_raw  = (data or {}).get("ccEmails") or "" # <--- NOVÉ: Načítanie CC e-mailov
+    cc_emails_raw  = (data or {}).get("ccEmails") or ""  # Extrakcia kópií e-mailov
 
     if not (user_id and items_in and delivery_date and customer_email):
         return {"error": "Chýbajú povinné údaje (zákazník, položky, dátum dodania, e-mail)."}
@@ -1048,11 +1048,7 @@ def submit_b2b_order(data: dict):
         price = _to_float(it.get("price")) 
         pm    = pmap.get(str(it.get("ean"))) or {}
         
-        # --- KRITICKÁ OPRAVA: Priorita pre unit z frontendu ---
-        # Ak frontend pošle 'unit' (napr. "ks"), použije sa ten. 
-        # Ak nie, použije sa 'mj' z DB. Fallback je "ks".
         unit = it.get("unit") or pm.get("mj") or "ks"
-        
         dph   = abs(_to_float(pm.get("dph", it.get("dph"))))
         item_note = it.get("note") or it.get("item_note") or ""
 
@@ -1113,7 +1109,7 @@ def submit_b2b_order(data: dict):
                 i.get("ean"),
                 i.get("name"),
                 i["quantity"],
-                i["unit"], # Ukladá sa správna jednotka (ks/kg)
+                i["unit"], 
                 i["dph"],
                 pm.get("predajna_kategoria"),
                 pm.get("vaha_balenia_g"),
@@ -1153,29 +1149,27 @@ def submit_b2b_order(data: dict):
         except Exception:
             traceback.print_exc()
         
-        # Email zákazníkovi
+        # A) Hlavný e-mail zákazníkovi (Rodič)
         try:
             notification_handler.send_order_confirmation_email(
                 to=customer_email, order_number=order_number, pdf_content=pdf_bytes, csv_content=None
             )
         except Exception:
             traceback.print_exc()
-            
-        # --- NOVÉ: Odoslanie CC kópií ---
+
+        # B) KÓPIE podľa poľa z frontendu
         if cc_emails_raw:
-            # Podpora pre čiarku aj bodkočiarku ako oddeľovač
             cc_list = [e.strip() for e in cc_emails_raw.replace(';', ',').split(',') if e.strip()]
             for cc_mail in cc_list:
-                if '@' in cc_mail:  # Základná validácia
+                if '@' in cc_mail:
                     try:
                         notification_handler.send_order_confirmation_email(
                             to=cc_mail, order_number=order_number, pdf_content=pdf_bytes, csv_content=None
                         )
                     except Exception as e:
                         print(f"Nepodarilo sa odoslať kópiu na {cc_mail}: {e}")
-        # -------------------------------
         
-        # Email expedícii
+        # C) Email expedícii
         try:
             notification_handler.send_order_confirmation_email(
                 to=EXPEDITION_EMAIL, 
