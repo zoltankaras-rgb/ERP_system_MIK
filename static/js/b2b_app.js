@@ -432,52 +432,58 @@ async function submitOrder() {
     const items = Object.values(appState.order);
     if (!items.length) return showNotification('Nemáte v objednávke žiadne položky.', 'error');
 
-    // Zistíme ID cieľového zákazníka (pobočky)
-    // Ak sme vybrali pobočku cez selectBranch, máme ho v appState.activeBranch.internalId
-    // Ak nie, použijeme ID prihláseného používateľa
+    // === ZMENA: Zistíme ID cieľového zákazníka (pobočky) ===
     const targetId = (appState.activeBranch && appState.activeBranch.internalId) 
         ? appState.activeBranch.internalId 
         : appState.currentUser.id;
 
-    // Pre istotu pošleme aj názov (pre email/PDF), hoci backend si ho vie vytiahnuť z DB
+    // Zistíme meno pre koho sa objednáva
     const custName = (appState.activeBranch && appState.activeBranch.name)
         ? appState.activeBranch.name
         : appState.currentUser.nazov_firmy;
 
+    // --- NOVÉ: Načítanie kópií e-mailov ---
+    const ccEmailsInput = document.getElementById('cc-emails');
+    const ccEmails = ccEmailsInput ? ccEmailsInput.value : '';
+
     const out = await apiCall('/api/b2b/submit-order', {
-        userId: appState.currentUser.id,       // Kto je prihlásený (Rodič)
-        targetCustomerId: targetId,            // Pre koho objednávame (Pobočka/Rodič)
-        customerName: custName,
-        customerEmail: appState.currentUser.email,
-        items: items, 
-        deliveryDate: d,
-        note: document.getElementById('order-note').value
+      userId: appState.currentUser.id,
+      targetCustomerId: targetId,
+      customerName: custName,
+      customerEmail: appState.currentUser.email,
+      ccEmails: ccEmails, // <--- PRIDANÝ PARAMETER
+      items: items, 
+      deliveryDate: d,
+      note: document.getElementById('order-note').value
     });
 
     if (!out) return;
 
-    // Úspech - vyčistíme košík
+    // Úspech - vyčistíme košík a formuláre
     appState.order = {};
     document.querySelectorAll('.quantity-input').forEach(i => i.value = '');
     document.getElementById('order-note').value = '';
     document.getElementById('delivery-date').value = '';
-    updateTotals(); // Funkcia z pôvodného b2b_app.js
+    if (ccEmailsInput) ccEmailsInput.value = ''; // <--- VYČISTENIE POĽA
+    updateTotals();
 
+    // Zobrazíme potvrdenie s menom konkrétnej prevádzky
     document.getElementById('products-container').innerHTML =
-        `<h3>Ďakujeme!</h3>
-         <p style="font-size:1.2rem;text-align:center;">Objednávka pre <strong>${custName}</strong> bola prijatá.</p>
-         <p style="text-align:center;">${out.message}</p>`;
+      `<h3>Ďakujeme!</h3>
+       <p style="font-size:1.2rem;text-align:center;">Objednávka pre <strong>${custName}</strong> bola prijatá.</p>
+       <p style="text-align:center;">${out.message}</p>
+       <p style="text-align:center; font-size:0.9rem; color:#666;">Potvrdenie bolo odoslané na e-mail centrály${ccEmails ? ' a na zadané kópie' : ''}.</p>`;
 
-    // Reset UI po chvíli
+    // Reset UI po 3 sekundách
     setTimeout(() => {
-        const sel = document.getElementById('pricelist-select');
-        const stepProducts = document.getElementById('step-products');
-        sel.value = '';
-        stepProducts.classList.add('hidden');
-        document.getElementById('products-container').innerHTML = '';
-        document.getElementById('order-form-details').classList.add('hidden');
+      const sel = document.getElementById('pricelist-select');
+      const stepProducts = document.getElementById('step-products');
+      sel.value = '';
+      stepProducts.classList.add('hidden');
+      document.getElementById('products-container').innerHTML = '';
+      document.getElementById('order-form-details').classList.add('hidden');
     }, 3000);
-}
+  }
 
 // Export do window objektu, aby boli funkcie dostupné v HTML (ak treba)
 window.handleLoginSuccess = handleLoginSuccess;

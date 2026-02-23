@@ -996,6 +996,7 @@ def submit_b2b_order(data: dict):
     note           = (data or {}).get("note")
     delivery_date  = (data or {}).get("deliveryDate")
     customer_email = (data or {}).get("customerEmail")
+    cc_emails_raw  = (data or {}).get("ccEmails") or "" # <--- NOVÉ: Načítanie CC e-mailov
 
     if not (user_id and items_in and delivery_date and customer_email):
         return {"error": "Chýbajú povinné údaje (zákazník, položky, dátum dodania, e-mail)."}
@@ -1159,6 +1160,20 @@ def submit_b2b_order(data: dict):
             )
         except Exception:
             traceback.print_exc()
+            
+        # --- NOVÉ: Odoslanie CC kópií ---
+        if cc_emails_raw:
+            # Podpora pre čiarku aj bodkočiarku ako oddeľovač
+            cc_list = [e.strip() for e in cc_emails_raw.replace(';', ',').split(',') if e.strip()]
+            for cc_mail in cc_list:
+                if '@' in cc_mail:  # Základná validácia
+                    try:
+                        notification_handler.send_order_confirmation_email(
+                            to=cc_mail, order_number=order_number, pdf_content=pdf_bytes, csv_content=None
+                        )
+                    except Exception as e:
+                        print(f"Nepodarilo sa odoslať kópiu na {cc_mail}: {e}")
+        # -------------------------------
         
         # Email expedícii
         try:
