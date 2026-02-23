@@ -1317,3 +1317,28 @@ def claim_reward(user_id: int, reward_id: int) -> Dict[str, Any]:
             if cursor:
                 cursor.close()
             conn.close()
+
+
+def delete_b2c_customer(customer_id: int) -> Dict[str, Any]:
+    """Úplne vymaže B2C zákazníka z databázy."""
+    if not customer_id:
+        return {"error": "Chýba ID zákazníka."}
+    
+    try:
+        # Kontrola, či ide o B2C zákazníka (bezpečnostná poistka)
+        check = db_connector.execute_query(
+            "SELECT id FROM b2b_zakaznici WHERE id = %s AND typ = 'B2C'",
+            (customer_id,), fetch="one"
+        )
+        if not check:
+            return {"error": "Zákazník nebol nájdený alebo nie je typu B2C."}
+
+        # Samotné vymazanie
+        db_connector.execute_query(
+            "DELETE FROM b2b_zakaznici WHERE id = %s",
+            (customer_id,), fetch="none"
+        )
+        
+        return {"ok": True, "message": "Zákazník bol úspešne vymazaný z databázy."}
+    except Exception as e:
+        return {"error": f"Chyba pri mazaní: {str(e)}"}

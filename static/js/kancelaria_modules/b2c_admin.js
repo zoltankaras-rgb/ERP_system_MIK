@@ -582,6 +582,7 @@
           : '<span class="muted">—</span>';
         const ordersInfo = `${Number(r.orders_count||0)}${r.last_order_date ? `<br><small>${new Date(r.last_order_date).toLocaleDateString('sk-SK')}</small>` : ''}`
           + (r.final_paid_sum ? `<br><small>spolu finálne: ${Number(r.final_paid_sum).toFixed(2)} €</small>` : '');
+        
         return `<tr data-id="${r.id}" data-email="${escapeHtml(r.email||'')}">
           <td><input type="checkbox" class="sel-row" ${checked}></td>
           <td>${escapeHtml(r.zakaznik_id||'')}</td>
@@ -595,11 +596,12 @@
           <td>${bday}</td>
           <td>${bonus}</td>
           <td>
-            <div class="btn-grid" style="grid-template-columns:auto auto;gap:.25rem;">
+            <div class="btn-grid" style="grid-template-columns:auto auto auto;gap:.25rem;">
               <button class="btn btn-secondary btn-sm" onclick="window.__B2C_openCustomer('${r.id}')">Profil</button>
               <button class="btn btn-info btn-sm" onclick="window.__B2C_showCustOrders('${r.id}')">Objednávky</button>
+              <button class="btn btn-danger btn-sm" onclick="window.__B2C_deleteCustomer('${r.id}', '${escapeHtml(r.nazov_firmy||'')}')">Vymazať</button>
             </div>
-          </td>
+            </td>
         </tr>`;
       }).join('');
 
@@ -620,38 +622,6 @@
       el.querySelector('#pg-prev').onclick = ()=>{ if (state.page>1){ state.page--; reload(); } };
       el.querySelector('#pg-next').onclick = ()=>{ if (state.page<totalPages){ state.page++; reload(); } };
     }
-
-    el.querySelector('#flt-q').oninput       = (e)=>{ state.q = e.target.value||''; state.page=1; reload(); };
-    el.querySelector('#flt-month-bday').onchange = (e)=>{ state.monthBday = !!e.target.checked; state.page=1; reload(); };
-    el.querySelector('#flt-has-orders').onchange = (e)=>{ state.hasOrders = !!e.target.checked; state.page=1; reload(); };
-    el.querySelector('#flt-mkt-email').onchange  = (e)=>{ state.mEmail = !!e.target.checked; state.page=1; reload(); };
-    el.querySelector('#flt-mkt-sms').onchange    = (e)=>{ state.mSms   = !!e.target.checked; state.page=1; reload(); };
-    el.querySelector('#flt-mkt-news').onchange   = (e)=>{ state.mNews  = !!e.target.checked; state.page=1; reload(); };
-    el.querySelector('#flt-min-points').oninput  = (e)=>{ state.minPoints = Number(e.target.value||0); state.page=1; reload(); };
-    el.querySelector('#flt-clear').onclick = ()=>{
-      el.querySelector('#flt-q').value=''; state.q='';
-      ['flt-month-bday','flt-has-orders','flt-mkt-email','flt-mkt-sms','flt-mkt-news'].forEach(id=> el.querySelector('#'+id).checked=false);
-      el.querySelector('#flt-min-points').value=''; state.monthBday=state.hasOrders=state.mEmail=state.mSms=state.mNews=false; state.minPoints=0;
-      state.page=1; reload();
-    };
-
-    el.querySelector('#btn-export').onclick = ()=>{
-      const headers = ['ID','Meno','Email','Telefon','Adresa_F','Adresa_D','Objednavky','Finálky_spolu','Body','MKT_email','MKT_sms','MKT_news','DOB_mes','DOB_rok_je','Bonus_mes'];
-      const rows = state.rows.map(r=>[
-        r.zakaznik_id||'', r.nazov_firmy||'', r.email||'', r.telefon||'',
-        (r.adresa||'').replace(/\s+/g,' '), (r.adresa_dorucenia||'').replace(/\s+/g,' '),
-        Number(r.orders_count||0), Number(r.final_paid_sum||0).toFixed(2),
-        Number(r.vernostne_body||0),
-        r.marketing_email?1:0, r.marketing_sms?1:0, r.marketing_newsletter?1:0,
-        r.dob_month||'', r.dob_year_known?1:0, Number(r.birthday_points_this_month||0)
-      ]);
-      const csv = [headers.join(';')].concat(rows.map(a=> a.map(v=> String(v).replace(/;/g, ',')).join(';'))).join('\n');
-      const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'}); const url = URL.createObjectURL(blob);
-      const a = doc.createElement('a'); a.href = url; a.download = `b2c_zakaznici_${todayISO()}.csv`; a.click(); URL.revokeObjectURL(url);
-    };
-
-    el.querySelector('#bulk-points-plus').onclick = ()=> bulkAdjustPoints(+1);
-    el.querySelector('#bulk-points-minus').onclick= ()=> bulkAdjustPoints(-1);
 
     async function bulkAdjustPoints(sign){
       const ids = Array.from(state.selected); if (!ids.length){ showStatus('Vyber aspoň jedného zákazníka.', true); return; }
@@ -842,7 +812,34 @@
 
     reload();
   }
+root.__B2C_deleteCustomer = async function(id, name) {
+  // 1. Prvé overenie
+  if (!confirm(`Naozaj chcete úplne vymazať zákazníka "${name}"? Táto akcia je nevratná.`)) return;
+  
+  // 2. Druhé overenie (dobrovoľné, ale odporúčané pri mazaní dát)
+  const finalCheck = prompt(`Pre potvrdenie vymazania napíšte slovo "VYMAZAŤ" (zákazník: ${name}):`);
+  if (finalCheck !== 'VYMAZAŤ') {
+    showStatus('Mazanie zrušené (nesprávne potvrdenie).', true);
+    return;
+  }
 
+  try {
+    const res = await apiRequest('/api/kancelaria/b2c/customer/delete', {
+      method: 'POST',
+      body: { customer_id: id }
+    });
+    
+    if (res.ok) {
+      showStatus('Zákazník bol vymazaný.', false);
+      // Zavolá reload definovaný v renderCustomersPro
+      reload(); 
+    } else {
+      showStatus(res.error || 'Chyba pri mazaní.', true);
+    }
+  } catch (e) {
+    showStatus(e.message || String(e), true);
+  }
+};
   // =================================================================
   //                    CENNÍK (loader + FULL editor) – JEDINÝ BLOK
   // =================================================================
