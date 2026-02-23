@@ -1869,6 +1869,119 @@ window.filterC360Table = function() {
 
     tbody.innerHTML = html;
 };
+// =================================================================
+// DENNÝ SUMÁR PRODUKTOV (NA EXPEDÍCIU)
+// =================================================================
+window.showDailySummary = function() {
+    // Predvolene predvyplníme zajtrajší dátum
+    const tomorrow = new Date(new Date().getTime() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    
+    // Ak užívateľ má vo filtri nastavené "Do", vezmeme ten dátum
+    const filterTo = document.getElementById('ord-to');
+    const selectedDate = filterTo && filterTo.value ? filterTo.value : tomorrow;
+    
+    // HTML pre modálne okno
+    const html = `
+        <div style="padding: 5px;">
+            <h3 style="margin-top:0; color:#1e293b; border-bottom:1px solid #e2e8f0; padding-bottom:10px;">
+                📋 Sumár produktov na expedíciu
+            </h3>
+            <div style="display:flex; gap:10px; margin-bottom:15px; align-items:center;">
+                <label><strong>Deň dodania:</strong></label>
+                <input type="date" id="summary-date" class="filter-input" value="${selectedDate}">
+                <button class="btn btn-primary" onclick="window.fetchDailySummary()">Načítať dátum</button>
+                <button class="btn btn-secondary" onclick="window.printDailySummary()" style="margin-left:auto;">🖨️ Tlačiť list</button>
+            </div>
+            <div id="summary-results" style="max-height: 60vh; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 6px;">
+                <div style="padding: 20px; text-align: center; color: #64748b;">Kliknite na "Načítať" pre zobrazenie sumáru.</div>
+            </div>
+        </div>
+    `;
+    
+    openModal(html);
+    
+    // Okamžite načítame dáta pre predvolený dátum
+    window.fetchDailySummary();
+};
+
+window.fetchDailySummary = async function() {
+    const dateVal = document.getElementById('summary-date').value;
+    const resContainer = document.getElementById('summary-results');
+    
+    resContainer.innerHTML = '<div style="padding:30px; text-align:center; color:#64748b;"><i class="fas fa-spinner fa-spin fa-2x"></i><br><br>Pripravujem sumár...</div>';
+    
+    try {
+        const data = await callFirstOk([{ 
+            url: '/api/kancelaria/b2b/getDailySummary', 
+            opts: { method: 'POST', body: { date: dateVal } } 
+        }]);
+        
+        const items = data.items || [];
+        if (!items.length) {
+            resContainer.innerHTML = `<div style="padding:20px; text-align:center; color:#dc2626; font-weight:bold;">Na deň ${dateVal.split('-').reverse().join('.')} nie sú objednané žiadne produkty.</div>`;
+            return;
+        }
+        
+        let table = `<table class="table-refined" style="width:100%;">
+            <thead style="position:sticky; top:0; background:#f8fafc; box-shadow:0 1px 2px rgba(0,0,0,0.1);">
+                <tr>
+                    <th style="width:60%;">Názov produktu</th>
+                    <th style="text-align:right; width:20%;">Množstvo</th>
+                    <th style="width:20%;">Jednotka</th>
+                </tr>
+            </thead>
+            <tbody>`;
+            
+        items.forEach(it => {
+            table += `<tr>
+                <td>
+                    <div style="font-weight:600; color:#0f172a;">${escapeHtml(it.name)}</div>
+                    <div style="font-size:0.75rem; color:#64748b;">EAN: ${escapeHtml(it.ean)}</div>
+                </td>
+                <td style="text-align:right; font-size:1.1rem; font-weight:bold; color:#1d4ed8;">${it.qty}</td>
+                <td style="color:#475569;">${escapeHtml(it.unit)}</td>
+            </tr>`;
+        });
+        table += `</tbody></table>`;
+        resContainer.innerHTML = table;
+        
+    } catch (e) {
+        resContainer.innerHTML = `<div style="padding:20px; color:#dc2626; font-weight:bold;">Chyba: ${escapeHtml(e.message)}</div>`;
+    }
+};
+
+window.printDailySummary = function() {
+    const dateVal = document.getElementById('summary-date').value;
+    const content = document.getElementById('summary-results').innerHTML;
+    
+    const formattedDate = dateVal.split('-').reverse().join('.');
+    
+    const win = window.open('', '_blank');
+    win.document.write(`
+        <html>
+        <head>
+            <title>Sumár expedície B2B - ${formattedDate}</title>
+            <style>
+                body { font-family: Arial, sans-serif; padding: 20px; font-size: 14px; }
+                h2 { text-align: center; margin-bottom: 5px; }
+                p.subtitle { text-align: center; color: #555; margin-top: 0; margin-bottom: 20px; }
+                table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+                th, td { border: 1px solid #000; padding: 8px 12px; text-align: left; }
+                th { background-color: #f4f4f4; }
+                td[style*="text-align:right"] { text-align: right; font-weight: bold; }
+            </style>
+        </head>
+        <body>
+            <h2>Sumár produktov na B2B expedíciu</h2>
+            <p class="subtitle"><strong>Dátum dodania:</strong> ${formattedDate} | <strong>Vytlačené:</strong> ${new Date().toLocaleString('sk-SK')}</p>
+            ${content}
+            <script>window.print();</script>
+        </body>
+        </html>
+    `);
+    win.document.close();
+};
+
   // EXPORT MODULU
   (function (g) { 
       g.initializeB2BAdminModule = initializeB2BAdminModule; 
