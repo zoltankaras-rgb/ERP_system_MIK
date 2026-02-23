@@ -1385,7 +1385,7 @@ async function openStockCard(ean, name) {
     const categories = data && typeof data === 'object' ? data : {};
     let html = `<div class="stat-card">
       <h3 style="margin-top:0;">Upraviť recept</h3>
-      <div class="form-group"><input id="re-fq" placeholder="Filtrovať podľa názvu…" /></div>
+      <div class="form-group"><input id="re-fq" placeholder="Filtrovať podľa názvu alebo EAN…" /></div>
       <div class="re-list">`;
 
     const catNames = Object.keys(categories).sort((a,b)=> String(a||'').localeCompare(String(b||''),'sk'));
@@ -1394,9 +1394,16 @@ async function openStockCard(ean, name) {
         const items = categories[cat] || [];
         if (!items.length) continue;
         html += `<h4>${escapeHtml(cat || 'Nezaradené')}</h4><div class="re-cat-block">`;
-        html += items.map(name => 
-          `<button type="button" class="btn-secondary rcp-open" data-name="${escapeHtml(name)}" style="margin:.25rem .25rem 0 0;">${escapeHtml(name)}</button>`
-        ).join('');
+        
+        // ZMENA: iterujeme cez objekty {name, ean}, nie iba stringy
+        html += items.map(rcp => {
+          const name = rcp.name || rcp; // Fallback, ak by backend z nejakého dôvodu poslal starý formát
+          const ean = rcp.ean ? `[${rcp.ean}] ` : '';
+          const label = ean + name;
+          
+          return `<button type="button" class="btn-secondary rcp-open" data-name="${escapeHtml(name)}" data-label="${escapeHtml(label)}" style="margin:.25rem .25rem 0 0;">${escapeHtml(label)}</button>`;
+        }).join('');
+        
         html += '</div>';
       }
     }
@@ -1409,7 +1416,8 @@ async function openStockCard(ean, name) {
         document.querySelectorAll('.re-cat-block').forEach(block => {
           let anyVisible = false;
           block.querySelectorAll('.rcp-open').forEach(btn => {
-            const nm = (btn.textContent || '').toLowerCase();
+            // Hľadáme buď podľa name, alebo podľa celého labelu (kde je aj EAN)
+            const nm = (btn.dataset.label || btn.textContent || '').toLowerCase();
             const show = !f || nm.includes(f);
             btn.style.display = show ? '' : 'none';
             if (show) anyVisible = true;
@@ -1418,6 +1426,7 @@ async function openStockCard(ean, name) {
         });
       }
       if (filterInput) filterInput.addEventListener('input', applyFilter);
+      
       document.querySelectorAll('.rcp-open').forEach(btn => {
         btn.addEventListener('click', () => {
           const name = btn.dataset.name || btn.textContent;
