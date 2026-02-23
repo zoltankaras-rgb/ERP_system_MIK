@@ -223,7 +223,7 @@
     setInterval(check, 30000);
   }
 
-  // =================================================================
+ // =================================================================
   // 1. OBJEDNÁVKY
   // =================================================================
   async function loadB2BOrdersView() {
@@ -241,7 +241,14 @@
 
       box.innerHTML = `
       <div class="filter-bar" style="justify-content:space-between;">
-        <div style="display:flex; gap:10px; align-items:flex-end;">
+        <div style="display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap;">
+            <div class="filter-group">
+                <label>Filtrovať podľa</label>
+                <select id="ord-date-type" class="filter-input" style="font-weight:bold; color:#0f172a;">
+                    <option value="created">Dátumu prijatia</option>
+                    <option value="delivery" selected>Dátumu dodania (Expedícia)</option>
+                </select>
+            </div>
             <div class="filter-group"><label>Od</label><input type="date" id="ord-from" class="filter-input" value="${today}"></div>
             <div class="filter-group"><label>Do</label><input type="date" id="ord-to" class="filter-input" value="${tomorrow}"></div>
             <div class="filter-group"><label>Zákazník</label>
@@ -260,44 +267,42 @@
       const loadOrders = async () => {
           const area = doc.getElementById('orders-list-area');
           area.innerHTML = '<p>Hľadám...</p>';
+          
+          const typeVal = doc.getElementById('ord-date-type').value;
           const fDate = doc.getElementById('ord-from').value;
           let tDate = doc.getElementById('ord-to').value;
+          
+          // Posunieme dátum do o jeden deň kvôli hľadaniu "do konca dňa"
           const dObj = new Date(tDate); dObj.setDate(dObj.getDate() + 1);
           const tDateSent = dObj.toISOString().slice(0,10);
           
           try {
-              const res = await callFirstOk([{ url: '/api/kancelaria/b2b/getAllOrders', opts: { method: 'POST', body: { from_date: fDate, to_date: tDateSent, customer: doc.getElementById('ord-cust').value } } }]);
+              const res = await callFirstOk([{ 
+                  url: '/api/kancelaria/b2b/getAllOrders', 
+                  opts: { 
+                      method: 'POST', 
+                      body: { 
+                          from_date: fDate, 
+                          to_date: tDateSent, 
+                          customer: doc.getElementById('ord-cust').value,
+                          date_type: typeVal  // <--- TOTO POSIELAME NA BACKEND
+                      } 
+                  } 
+              }]);
+              
               const orders = res.orders || [];
               if(!orders.length) { area.innerHTML = '<p>Žiadne objednávky.</p>'; return; }
-              
-              // --- PRIDANÉ TRIEDENIE PODĽA DÁTUMU DODANIA ---
-              orders.sort((a, b) => {
-                  const dateA = a.pozadovany_datum_dodania ? new Date(a.pozadovany_datum_dodania).getTime() : 0;
-                  const dateB = b.pozadovany_datum_dodania ? new Date(b.pozadovany_datum_dodania).getTime() : 0;
-                  
-                  // Radenie vzostupne (od najbližších termínov dodania po najneskoršie)
-                  return dateA - dateB; 
-                  
-                  // (Poznámka: Ak chcete radenie zostupne od najneskoršieho po najbližšie, použite: return dateB - dateA;)
-              });
-              // ----------------------------------------------
               
               let html = `<table class="table-refined"><thead><tr><th>Číslo</th><th>Zákazník</th><th>Vytvorená</th><th>Dodanie</th><th>Suma</th><th>Stav</th><th>Akcia</th></tr></thead><tbody>`;
               orders.forEach(o => {
                   const statusColor = o.stav === 'Prijatá' ? '#eab308' : (o.stav === 'Hotová' ? '#22c55e' : '#94a3b8');
                   
-                  // Formátovanie dátumu dodania (Slovenský názov dňa, bez času)
+                  // Formátovanie dátumu dodania
                   let formatDodania = o.pozadovany_datum_dodania || '-';
                   if (formatDodania !== '-') {
                       const d = new Date(formatDodania);
                       if (!isNaN(d.getTime())) {
-                          const strDate = d.toLocaleDateString('sk-SK', { 
-                              weekday: 'long', 
-                              year: 'numeric', 
-                              month: '2-digit', 
-                              day: '2-digit' 
-                          });
-                          // Zabezpečenie veľkého začiatočného písmena pri názve dňa
+                          const strDate = d.toLocaleDateString('sk-SK', { weekday: 'long', year: 'numeric', month: '2-digit', day: '2-digit' });
                           formatDodania = strDate.charAt(0).toUpperCase() + strDate.slice(1);
                       }
                   }
@@ -319,7 +324,11 @@
               area.innerHTML = html;
           } catch(e) { area.innerHTML = e.message; }
       };
+      
+      // Spustiť okamžite vyhľadávanie aj pri zmene typu filtra
       doc.getElementById('ord-filter-btn').onclick = loadOrders;
+      doc.getElementById('ord-date-type').onchange = loadOrders; 
+      
       loadOrders();
   }
   // =================================================================
