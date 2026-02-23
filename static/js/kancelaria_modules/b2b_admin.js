@@ -270,6 +270,18 @@
               const orders = res.orders || [];
               if(!orders.length) { area.innerHTML = '<p>Žiadne objednávky.</p>'; return; }
               
+              // --- PRIDANÉ TRIEDENIE PODĽA DÁTUMU DODANIA ---
+              orders.sort((a, b) => {
+                  const dateA = a.pozadovany_datum_dodania ? new Date(a.pozadovany_datum_dodania).getTime() : 0;
+                  const dateB = b.pozadovany_datum_dodania ? new Date(b.pozadovany_datum_dodania).getTime() : 0;
+                  
+                  // Radenie vzostupne (od najbližších termínov dodania po najneskoršie)
+                  return dateA - dateB; 
+                  
+                  // (Poznámka: Ak chcete radenie zostupne od najneskoršieho po najbližšie, použite: return dateB - dateA;)
+              });
+              // ----------------------------------------------
+              
               let html = `<table class="table-refined"><thead><tr><th>Číslo</th><th>Zákazník</th><th>Vytvorená</th><th>Dodanie</th><th>Suma</th><th>Stav</th><th>Akcia</th></tr></thead><tbody>`;
               orders.forEach(o => {
                   const statusColor = o.stav === 'Prijatá' ? '#eab308' : (o.stav === 'Hotová' ? '#22c55e' : '#94a3b8');
