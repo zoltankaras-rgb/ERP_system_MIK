@@ -2270,20 +2270,26 @@ def update_recipe(recipe_data):
 
 
 def get_all_recipes_for_editing():
+    # Pridané p.ean do SELECT príkazu
     rows = db_connector.execute_query("""
-      SELECT p.nazov_vyrobku, p.kategoria_pre_recepty
+      SELECT p.nazov_vyrobku, p.kategoria_pre_recepty, p.ean
         FROM produkty p
         JOIN (SELECT DISTINCT TRIM(nazov_vyrobku) AS nazov_vyrobku FROM recepty) r
           ON TRIM(p.nazov_vyrobku)=r.nazov_vyrobku
        WHERE p.typ_polozky LIKE 'VÝROBOK%%'
        ORDER BY p.kategoria_pre_recepty, p.nazov_vyrobku
     """) or []
-    out: Dict[str, List[str]] = {}
+    
+    # Zmena: ukladáme objekty (slovníky) namiesto čistých textov
+    out: Dict[str, List[Dict[str, str]]] = {}
     for r in rows:
         cat = r.get('kategoria_pre_recepty') or 'Nezaradené'
-        out.setdefault(cat, []).append(r['nazov_vyrobku'])
+        out.setdefault(cat, []).append({
+            "name": r['nazov_vyrobku'],
+            "ean": r.get('ean') or ""
+        })
+        
     return out
-
 def get_recipe_details(product_name: str):
     if not product_name: return {"error": "Chýba názov produktu."}
     prod = db_connector.execute_query(

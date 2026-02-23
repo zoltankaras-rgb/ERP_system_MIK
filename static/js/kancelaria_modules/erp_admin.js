@@ -869,7 +869,15 @@ async function openStockCard(ean, name) {
     await ensureWarehouseCache(true);
     const base = getOfficeData();
 
-    const productOpts = (base.productsWithoutRecipe || []).map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
+    // ZMENA: Spracovanie objektov {name, ean} namiesto stringov, plus fallback na starý systém
+    const productOpts = (base.productsWithoutRecipe || []).map(prod => {
+  if (typeof prod === 'object' && prod !== null) {
+    const label = prod.ean ? `[${prod.ean}] ${prod.name}` : prod.name;
+    return `<option value="${escapeHtml(prod.name)}">${escapeHtml(label)}</option>`;
+  }
+  return `<option value="${escapeHtml(prod)}">${escapeHtml(prod)}</option>`;
+}).join('');
+
     const catOpts = (base.recipeCategories || []).map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
 
     const html = `
@@ -934,7 +942,7 @@ async function openStockCard(ean, name) {
               <div class="form-group"><label>Alergény (čiarkou oddelené)</label><input id="pm-allergens" placeholder="lepok, mlieko, ..."></div>
             </div>
             <div class="form-group"><label>Postup výroby</label><textarea id="pm-steps" rows="6" placeholder="Krok 1…"></textarea></div>
-            <div class="form-group"><label>CCP body (kritické kontrolné body)</label><textarea id="pm-ccp" rows="4" placeholder="CCP1: ...&#10;CCP2: ..."></textarea></div>
+            <div class="form-group"><label>CCP body (kritické kontrolné body)</label><textarea id="pm-ccp" rows="4" placeholder="CCP1: ...\nCCP2: ..."></textarea></div>
           </div>
 
           <div style="display:flex; gap:.75rem; justify-content:flex-end; margin-top:.75rem;">
@@ -993,6 +1001,7 @@ async function openStockCard(ean, name) {
         const costEl = document.getElementById('rcp-cost');
         if (costEl) costEl.textContent = sum ? `Odhad ceny dávky: ${sum.toFixed(2)} €` : 'Odhad ceny dávky: —';
       }
+      
 
       function addToTable(key) {
         if (!tbody) return;

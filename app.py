@@ -1669,7 +1669,7 @@ def base_data_alias():
             return default
 
     products_rows = safe_query("""
-        SELECT p.nazov_vyrobku
+        SELECT p.nazov_vyrobku, p.ean
         FROM produkty p
         WHERE p.typ_polozky LIKE 'VÝROBOK%%'
           AND NOT EXISTS (
@@ -1679,7 +1679,9 @@ def base_data_alias():
           )
         ORDER BY p.nazov_vyrobku
     """, default=[], label='products')
-    products_without_recipe = [r['nazov_vyrobku'] for r in (products_rows or [])]
+    
+    # ZMENA: Posielame objekt s názvom aj ean kódom
+    products_without_recipe = [{"name": r['nazov_vyrobku'], "ean": r.get('ean') or ""} for r in (products_rows or [])]
 
     cats_rows = safe_query("""
         SELECT DISTINCT kategoria_pre_recepty AS cat
