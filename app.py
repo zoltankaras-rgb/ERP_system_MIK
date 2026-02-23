@@ -3389,7 +3389,7 @@ def b2c_cancel_order():
     return jsonify({'message': 'Objednávka zrušená.', 'order_id': order_id})
 
 @app.route('/api/kancelaria/b2c/customer/delete', methods=['POST'])
-@login_required(role='kancelaria')
+@login_required(role=('kancelaria', 'veduci', 'admin'))
 def api_b2c_customer_delete():
     data = request.get_json(silent=True) or {}
     return handle_request(b2c_handler.delete_b2c_customer, data.get('customer_id'))

@@ -1320,25 +1320,65 @@ def claim_reward(user_id: int, reward_id: int) -> Dict[str, Any]:
 
 
 def delete_b2c_customer(customer_id: int) -> Dict[str, Any]:
-    """Úplne vymaže B2C zákazníka z databázy."""
-    if not customer_id:
-        return {"error": "Chýba ID zákazníka."}
+    """Úplne vymaže B2C zákazníka z databázy vrátane jeho histórie (objednávky, odmeny)."""
+    try:
+        c_id = int(customer_id)
+    except (TypeError, ValueError):
+        return {"error": "Neplatné alebo chýbajúce ID zákazníka."}
     
     try:
-        # Kontrola, či ide o B2C zákazníka (bezpečnostná poistka)
-        check = db_connector.execute_query(
-            "SELECT id FROM b2b_zakaznici WHERE id = %s AND typ = 'B2C'",
-            (customer_id,), fetch="one"
+        # 1. Kontrola zákazníka a získanie jeho interného zakaznik_id
+        cust = db_connector.execute_query(
+            "SELECT id, zakaznik_id FROM b2b_zakaznici WHERE id = %s AND typ = 'B2C'",
+            (c_id,), fetch="one"
         )
-        if not check:
+        if not cust:
             return {"error": "Zákazník nebol nájdený alebo nie je typu B2C."}
 
-        # Samotné vymazanie
+        z_id = cust.get("zakaznik_id")
+        
+        # Zákazník môže byť v iných tabuľkách uložený pod 'id' (int) alebo 'zakaznik_id' (string)
+        search_vals = (c_id, str(z_id) if z_id else str(c_id))
+
+        # 2. Vymazanie histórie z uplatnených odmien (dynamicky zistí názov stĺpca)
+        fk_odmeny = _first_existing_col("b2c_uplatnene_odmeny", ["zakaznik_id", "customer_id", "user_id"])
+        if fk_odmeny:
+            db_connector.execute_query(
+                f"DELETE FROM b2c_uplatnene_odmeny WHERE {fk_odmeny} IN (%s, %s)", 
+                search_vals, fetch="none"
+            )
+
+        # 3. Vymazanie objednávok a ich položiek (zabraňuje Foreign Key chybám)
+        fk_objednavky = _first_existing_col("b2c_objednavky", ["zakaznik_id", "customer_id", "user_id"])
+        if fk_objednavky:
+            orders = db_connector.execute_query(
+                f"SELECT id FROM b2c_objednavky WHERE {fk_objednavky} IN (%s, %s)", 
+                search_vals, fetch="all"
+            ) or []
+            
+            for order in orders:
+                o_id = order["id"]
+                # Najprv vymažeme položky vnútri objednávky
+                db_connector.execute_query(
+                    "DELETE FROM b2c_objednavky_polozky WHERE objednavka_id = %s", 
+                    (o_id,), fetch="none"
+                )
+            
+            # Následne vymažeme samotné hlavičky objednávok
+            db_connector.execute_query(
+                f"DELETE FROM b2c_objednavky WHERE {fk_objednavky} IN (%s, %s)", 
+                search_vals, fetch="none"
+            )
+
+        # 4. Nakoniec bezpečne vymažeme samotného zákazníka
         db_connector.execute_query(
             "DELETE FROM b2b_zakaznici WHERE id = %s",
-            (customer_id,), fetch="none"
+            (c_id,), fetch="none"
         )
         
-        return {"ok": True, "message": "Zákazník bol úspešne vymazaný z databázy."}
+        return {"ok": True, "message": "Zákazník a celá jeho história boli úspešne vymazané."}
+    
     except Exception as e:
-        return {"error": f"Chyba pri mazaní: {str(e)}"}
+        import traceback
+        traceback.print_exc() # Vypíše presnú chybu do konzoly terminálu pre lepšie ladenie
+        return {"error": f"Chyba databázy pri mazaní: {str(e)}"}
