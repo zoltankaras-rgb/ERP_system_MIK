@@ -1461,6 +1461,15 @@ window.plAdd = (ean) => {
     input.value = ''; 
 };
 
+// Sem vložíte novú funkciu:
+window.plRem = function(ean) {
+    if (currentPlItems.has(ean)) {
+        currentPlItems.delete(ean);
+        const filterInput = document.getElementById('pl-prod-filter');
+        renderSourceProducts(filterInput ? filterInput.value : '');
+        renderTargetProducts();
+    }
+};
 // =================================================================
 // INTELIGENTNÁ CENOTVORBA (Vložte do b2b_admin.js)
 // =================================================================
