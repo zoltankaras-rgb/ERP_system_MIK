@@ -2034,6 +2034,7 @@ def get_customer_360_view(data: dict):
         },
         "products": prod_list
     }
+
 def get_logistics_routes_data(target_date: str):
     if not target_date:
         return {"error": "Chýba parameter dátumu."}
@@ -2128,7 +2129,6 @@ def get_logistics_routes_data(target_date: str):
                     "pocet_objednavok": len(obj_list),
                     "cisla_objednavok": obj_list
                 })
-            # Utriedime podľa poradia
             zastavky_list.sort(key=lambda x: x["poradie"])
 
             sumar_list = []
@@ -2150,8 +2150,8 @@ def get_logistics_routes_data(target_date: str):
 
         final_routes.sort(key=lambda x: x["nazov"])
         
-        # --- TOTO JE TEN KĽÚČOVÝ KUS KÓDU PRE AUTÁ ---
-        vehicles = execute_query("SELECT id, license_plate, name FROM fleet_vehicles WHERE is_active=1 ORDER BY name", fetch='all') or []
+        # === NATVRDO NAČÍTANIE VŠETKÝCH VOZIDIEL (odstránený is_active filter) ===
+        vehicles = execute_query("SELECT id, license_plate, name FROM fleet_vehicles ORDER BY name", fetch='all') or []
         
         return {"trasy": final_routes, "vehicles": vehicles}
         
@@ -2160,17 +2160,6 @@ def get_logistics_routes_data(target_date: str):
         traceback.print_exc()
         return {"error": str(e)}
     
-    
-def update_customer_route_order(data: dict):
-    cid = data.get("zakaznik_id")
-    poradie = data.get("poradie")
-    if not cid or poradie is None:
-        return {"error": "Chýba ID zákazníka alebo poradie."}
-    db_connector.execute_query(
-        "UPDATE b2b_zakaznici SET trasa_poradie=%s WHERE id=%s",
-        (int(poradie), cid), fetch='none'
-    )
-    return {"message": "Poradie bolo úspešne uložené."}
 def get_routes_list():
     try:
         from db_connector import execute_query
