@@ -640,12 +640,13 @@ def reject_b2b_registration(data: dict):
 def get_customers_and_pricelists():
     import db_connector
     
-    # 1. Zákazníci - PRIDANÉ STĹPCE trasa_id a trasa_poradie DO SQL DOTAZU
+    # 1. Zákazníci - VRÁTENÁ STRIKTNÁ PODMIENKA: WHERE typ='B2B'
     customers = db_connector.execute_query(
         """
         SELECT id, parent_id, zakaznik_id, nazov_firmy, email, telefon, 
                adresa, adresa_dorucenia, je_schvaleny, trasa_id, trasa_poradie
         FROM b2b_zakaznici 
+        WHERE typ='B2B'
         ORDER BY nazov_firmy
         """
     ) or []
@@ -664,7 +665,6 @@ def get_customers_and_pricelists():
 
     by_customer = {}
     for m in mapping_rows:
-        # Uložíme pod stringovým aj intovým ID pre istotu
         by_customer.setdefault(str(m['zakaznik_id']), []).append(m['cennik_id'])
         
     return {"customers": customers, "pricelists": pricelists, "routes": routes, "mapping": by_customer}
