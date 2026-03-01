@@ -3848,6 +3848,73 @@ def api_fleet_active_vehicles():
     except Exception as e:
         from flask import jsonify
         return jsonify({"error": str(e)}), 500
+
+@app.route("/api/kancelaria/b2b/updateCustomer", methods=["POST"])
+def api_kancelaria_b2b_update_customer_force():
+    try:
+        from flask import request, jsonify
+        import db_connector
+        
+        data = request.get_json()
+        cid = data.get("id")
+        if not cid:
+            return jsonify({"error": "Chýba id zákazníka."}), 400
+            
+        # Získanie dát z Frontendu (Podporuje oba formáty pre istotu)
+        fields = data.get("fields", data)
+        nazov = fields.get('nazov_firmy')
+        email = fields.get('email')
+        telefon = fields.get('telefon')
+        adresa = fields.get('adresa')
+        adresa_dorucenia = fields.get('adresa_dorucenia')
+        je_schvaleny = fields.get('je_schvaleny', 1)
+        
+        trasa_id = fields.get('trasa_id')
+        trasa_poradie = fields.get('trasa_poradie')
+        
+        # NEPRIESTRELNÉ OŠETRENIE TRASY A PORADIA
+        if not trasa_id or str(trasa_id) == "null":
+            trasa_id = None
+        else:
+            trasa_id = int(trasa_id)
+            
+        if not trasa_poradie or str(trasa_poradie) == "null":
+            trasa_poradie = 999
+        else:
+            trasa_poradie = int(trasa_poradie)
+            
+        # UPDATE NATVRDO DO DATABÁZY
+        db_connector.execute_query("""
+            UPDATE b2b_zakaznici 
+            SET nazov_firmy=%s, email=%s, telefon=%s, adresa=%s, 
+                adresa_dorucenia=%s, je_schvaleny=%s, trasa_id=%s, trasa_poradie=%s
+            WHERE id=%s
+        """, (nazov, email, telefon, adresa, adresa_dorucenia, je_schvaleny, trasa_id, trasa_poradie, cid), fetch="none")
+        
+        # Ošetrenie cenníkov
+        pricelist_ids = fields.get("pricelist_ids") or []
+        row = db_connector.execute_query("SELECT zakaznik_id FROM b2b_zakaznici WHERE id=%s", (cid,), fetch="one")
+        if row and row["zakaznik_id"]:
+            login = row["zakaznik_id"]
+            db_connector.execute_query("DELETE FROM b2b_zakaznik_cennik WHERE zakaznik_id = %s", (login,), fetch="none")
+            if pricelist_ids:
+                conn = db_connector.get_connection()
+                cur = conn.cursor()
+                try:
+                    cur.executemany(
+                        "INSERT INTO b2b_zakaznik_cennik (zakaznik_id, cennik_id) VALUES (%s, %s)",
+                        [(login, int(pid)) for pid in pricelist_ids]
+                    )
+                    conn.commit()
+                finally:
+                    cur.close()
+                    conn.close()
+                    
+        return jsonify({"message": "Zákazník a trasa úspešne uložené natvrdo!"})
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
 # =========================== KANCELÁRIA – rozrábka =============================
 # --- KANCELÁRIA / SKLAD / ROZRÁBKA ---
 
