@@ -384,8 +384,8 @@
       win.document.close();
   };
 
-  // =================================================================
-  // 2. NOVÁ LOGISTIKA & TRASY (ROZVOZY)
+// =================================================================
+  // 2. LOGISTIKA & TRASY (S PREPOJENÍM NA FLEET)
   // =================================================================
   async function loadLogisticsView() {
     const box = ensureContainer('b2b-logistics-container');
@@ -415,6 +415,7 @@
         try {
             const res = await callFirstOk([{ url: `/api/leader/logistics/routes-data?date=${date}` }]);
             const trasy = res.trasy || [];
+            const vehicles = res.vehicles || []; // Autá z Fleet modulu
 
             if (trasy.length === 0) {
                 content.innerHTML = '<div style="padding:20px;text-align:center;font-weight:bold;color:#dc2626;">Na tento deň nie sú naplánované žiadne objednávky pre rozvoz.</div>';
@@ -428,11 +429,12 @@
                     <div class="card-header" style="background:#f1f5f9; display:flex; justify-content:space-between; align-items:center; border-bottom: 2px solid #0284c7;">
                         <h3 style="margin:0; color:#0f172a;">🚛 ${escapeHtml(t.nazov)}</h3>
                         <div style="display:flex; gap:10px;">
-                            <button class="btn btn-warning btn-sm" style="color:#000; font-weight:bold;" onclick='window.printChecklist(${JSON.stringify(t).replace(/'/g, "&apos;")}, "${date}")'>📝 Nakládkový list (Checklist)</button>
-                            <button class="btn btn-secondary btn-sm" style="background:#1e293b; color:#fff; border:none;" onclick='window.printSummary(${JSON.stringify(t).replace(/'/g, "&apos;")}, "${date}")'>📦 Slepý list (Súhrn do auta)</button>
+                            <button class="btn btn-warning btn-sm" style="color:#000; font-weight:bold;" onclick='window.printChecklist(${JSON.stringify(t).replace(/'/g, "&apos;")}, "${date}")'>📝 Nakládkový list</button>
+                            <button class="btn btn-secondary btn-sm" style="background:#1e293b; color:#fff; border:none;" onclick='window.printSummary(${JSON.stringify(t).replace(/'/g, "&apos;")}, "${date}")'>📦 Súhrn do auta</button>
                         </div>
                     </div>
                     <div class="card-body" style="display:flex; gap:20px; flex-wrap:wrap;">
+                        
                         <div style="flex:1; min-width:400px;">
                             <h5 style="border-bottom:1px solid #e2e8f0; padding-bottom:8px; margin-top:0; color:#475569;">Poradie zastávok (Vykládka)</h5>
                             <table class="table-refined" style="font-size:0.85rem;">
@@ -445,7 +447,7 @@
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    ${t.zastavky.map((z) => `
+                                    ${t.zastavky.map((z, idx) => `
                                         <tr>
                                             <td style="text-align:center;">
                                                 <input type="number" value="${z.poradie}" class="filter-input" style="width:60px; text-align:center; font-weight:bold;" id="poradie_${z.zakaznik_id}">
@@ -465,11 +467,20 @@
                                     `).join('')}
                                 </tbody>
                             </table>
-                            <p style="font-size:0.75rem; color:#94a3b8; margin-top:10px;">* Ak zmeníte poradie, nezabudnite kliknúť na tlačidlo 💾 Uložiť.</p>
+                            
+                            <div style="margin-top: 15px; padding: 15px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; display:flex; gap:10px; align-items:center;">
+                                <label style="font-weight:bold; color:#166534; margin:0;"><i class="fas fa-car"></i> Založiť knihu jázd:</label>
+                                <select id="veh_${t.trasa_id}" class="filter-input" style="flex:1;">
+                                    <option value="">-- Vyberte auto z Fleet modulu --</option>
+                                    ${vehicles.map(v => `<option value="${v.id}">${escapeHtml(v.name)} (${escapeHtml(v.license_plate)})</option>`).join('')}
+                                </select>
+                                <button class="btn btn-success btn-sm" onclick="window.assignVehicleToFleet('${escapeHtml(t.nazov)}', '${t.trasa_id}')">Založiť jazdu šoférovi</button>
+                            </div>
+
                         </div>
                         
                         <div style="width:350px; background:#f8fafc; padding:15px; border-radius:8px; border:1px solid #e2e8f0;">
-                            <h5 style="border-bottom:1px solid #cbd5e1; padding-bottom:8px; margin-top:0; color:#475569;">Čo naložiť do auta (Sumár kategórií)</h5>
+                            <h5 style="border-bottom:1px solid #cbd5e1; padding-bottom:8px; margin-top:0; color:#475569;">Čo naložiť do auta</h5>
                             ${t.sumar.map(s => `
                                 <div style="margin-bottom:12px;">
                                     <strong style="color:#0369a1; display:block; border-bottom:1px dashed #cbd5e1; padding-bottom:3px;">${escapeHtml(s.kategoria)}</strong>
@@ -497,6 +508,23 @@
     document.getElementById('logistics-load-btn').click();
   }
 
+  // Funkcia na prepojenie s FLEET Modulom
+  window.assignVehicleToFleet = async function(routeName, routeId) {
+      const date = document.getElementById('logistics-date').value;
+      const vehicleId = document.getElementById(`veh_${routeId}`).value;
+
+      if(!vehicleId) return showStatus("Najprv vyberte auto z rolovacieho zoznamu.", true);
+
+      try {
+          const res = await callFirstOk([{
+              url: '/api/leader/logistics/assign-vehicle',
+              opts: { method: 'POST', body: { date: date, route_name: routeName, vehicle_id: vehicleId } }
+          }]);
+          showStatus(res.message);
+      } catch(e) {
+          alert("Chyba: " + e.message);
+      }
+  };
   // Tlač - Nakládkový List (Checklist)
   window.printChecklist = function(routeObj, dateStr) {
       const dateFormatted = dateStr.split('-').reverse().join('.');

@@ -2147,6 +2147,7 @@ def get_logistics_routes_data(target_date: str):
             })
 
         final_routes.sort(key=lambda x: x["nazov"])
+        vehicles = db_connector.execute_query("SELECT id, license_plate, name FROM fleet_vehicles WHERE is_active=1 ORDER BY name", fetch='all') or []
         return {"trasy": final_routes}
     except Exception as e:
         import traceback
@@ -2198,3 +2199,48 @@ def delete_route(data: dict):
         return {"message": "Trasa bola vymazaná."}
     except Exception as e:
         return {"error": str(e)}
+
+def assign_vehicle_to_route_and_fleet(data: dict):
+    date_str = data.get("date")
+    route_name = data.get("route_name")
+    vehicle_id = data.get("vehicle_id")
+
+    if not all([date_str, route_name, vehicle_id]):
+        return {"error": "Chýbajú údaje (dátum, trasa, auto)."}
+
+    conn = db_connector.get_connection()
+    try:
+        cur = conn.cursor(dictionary=True)
+        
+        # 1. Zistíme defaultného šoféra k autu
+        cur.execute("SELECT default_driver, name FROM fleet_vehicles WHERE id=%s", (vehicle_id,))
+        veh = cur.fetchone()
+        if not veh:
+            return {"error": "Vozidlo neexistuje."}
+        driver = veh.get("default_driver") or ""
+
+        # 2. Skontrolujeme, či sme to už náhodou nezaložili (aby sme predišli duplikátom pri dvojkliku)
+        cur.execute(
+            "SELECT id FROM fleet_logs WHERE vehicle_id=%s AND log_date=%s AND location_end=%s",
+            (vehicle_id, date_str, route_name)
+        )
+        if cur.fetchone():
+            return {"message": "Toto auto už má na tento deň a trasu vytvorený záznam v module Fleet."}
+
+        # 3. Založenie prázdneho draftu vo Fleet module
+        cur.execute("""
+            INSERT INTO fleet_logs 
+            (vehicle_id, log_date, driver, location_end, purpose) 
+            VALUES (%s, %s, %s, %s, %s)
+        """, (vehicle_id, date_str, driver, route_name, "Rozvoz tovaru"))
+
+        conn.commit()
+        return {"message": f"Vozidlo '{veh['name']}' úspešne priradené. Záznam bol založený vo Vozovom parku."}
+    except Exception as e:
+        if conn: conn.rollback()
+        import traceback
+        traceback.print_exc()
+        return {"error": f"Chyba DB: {str(e)}"}
+    finally:
+        if conn and conn.is_connected():
+            conn.close()

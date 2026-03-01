@@ -3832,6 +3832,11 @@ def api_create_route():
 def api_delete_route():
     import b2b_handler
     return jsonify(b2b_handler.delete_route(request.get_json()))
+
+@app.route("/api/leader/logistics/assign-vehicle", methods=["POST"])
+def api_logistics_assign_vehicle():
+    import b2b_handler
+    return jsonify(b2b_handler.assign_vehicle_to_route_and_fleet(request.get_json()))
 # =========================== KANCELÁRIA – rozrábka =============================
 # --- KANCELÁRIA / SKLAD / ROZRÁBKA ---
 
