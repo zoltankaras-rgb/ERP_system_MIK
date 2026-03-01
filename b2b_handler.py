@@ -2036,13 +2036,14 @@ def get_customer_360_view(data: dict):
     }
 
 def get_logistics_routes_data(target_date: str):
+    import db_connector
+    import traceback
+
     if not target_date:
         return {"error": "Chýba parameter dátumu."}
 
     try:
-        from db_connector import execute_query
-        
-        trasy_db = execute_query("SELECT id, nazov FROM logistika_trasy WHERE is_active=1 ORDER BY nazov", fetch='all') or []
+        trasy_db = db_connector.execute_query("SELECT id, nazov FROM logistika_trasy WHERE is_active=1 ORDER BY nazov", fetch='all') or []
         trasy_map = {str(t['id']): t['nazov'] for t in trasy_db}
         trasy_map['unassigned'] = 'Zatiaľ nepriradená trasa (Zákazníci bez trasy)'
 
@@ -2069,7 +2070,7 @@ def get_logistics_routes_data(target_date: str):
           AND DATE(o.pozadovany_datum_dodania) = %s
         """
         
-        polozky = execute_query(sql, (target_date,), fetch='all') or []
+        polozky = db_connector.execute_query(sql, (target_date,), fetch='all') or []
 
         routes_data = {}
 
@@ -2092,7 +2093,6 @@ def get_logistics_routes_data(target_date: str):
                     "sumar": {}
                 }
 
-            # 1. Zlučovanie do zastávok
             if odberatel not in routes_data[tid]["zastavky"]:
                 routes_data[tid]["zastavky"][odberatel] = {
                     "zakaznik_id": zid,
@@ -2103,7 +2103,6 @@ def get_logistics_routes_data(target_date: str):
                 }
             routes_data[tid]["zastavky"][odberatel]["objednavky_set"].add(obj_cislo)
 
-            # 2. Sumár kategórií na auto
             if kategoria not in routes_data[tid]["sumar"]:
                 routes_data[tid]["sumar"][kategoria] = {}
             
@@ -2150,13 +2149,13 @@ def get_logistics_routes_data(target_date: str):
 
         final_routes.sort(key=lambda x: x["nazov"])
         
-        # === NATVRDO NAČÍTANIE VŠETKÝCH VOZIDIEL (odstránený is_active filter) ===
-        vehicles = execute_query("SELECT id, license_plate, name FROM fleet_vehicles ORDER BY name", fetch='all') or []
+        # --- KĽÚČOVÁ ČASŤ - NAČÍTANIE ÁUT ---
+        vehicles = db_connector.execute_query("SELECT id, license_plate, name FROM fleet_vehicles WHERE is_active=1 ORDER BY name", fetch='all') or []
         
+        # --- KĽÚČOVÝ NÁVRAT OBOCH POLÍ NA FRONTEND ---
         return {"trasy": final_routes, "vehicles": vehicles}
         
     except Exception as e:
-        import traceback
         traceback.print_exc()
         return {"error": str(e)}
     
