@@ -682,24 +682,36 @@ def update_customer_details(data: dict):
         if k in fields:
             sets.append(f"{k}=%s")
             val = fields[k]
-            if k == 'trasa_id' and not val:
+            
+            # Bezpečné spracovanie prázdnych hodnôt pre trasy
+            if k == 'trasa_id' and (val == '' or val is None):
                 val = None
-            if k == 'trasa_poradie' and not val:
+            if k == 'trasa_poradie' and (val == '' or val is None):
                 val = 999
+                
             params.append(val)
+            
     if sets:
-        db_connector.execute_query(
+        from db_connector import execute_query
+        execute_query(
             "UPDATE b2b_zakaznici SET " + ", ".join(sets) + " WHERE id=%s",
             tuple(params + [cid]),
             fetch="none",
         )
 
-    row = db_connector.execute_query("SELECT zakaznik_id FROM b2b_zakaznici WHERE id=%s", (cid,), fetch="one")
+    # Obnova cenníkov
+    from db_connector import execute_query
+    row = execute_query("SELECT zakaznik_id FROM b2b_zakaznici WHERE id=%s", (cid,), fetch="one")
     if row and row["zakaznik_id"]:
         login = row["zakaznik_id"]
-        _ensure_mapping_table()
-        db_connector.execute_query("DELETE FROM b2b_zakaznik_cennik WHERE zakaznik_id = %s", (login,), fetch="none")
+        try:
+            execute_query("SELECT zakaznik_id, cennik_id FROM b2b_zakaznik_cennik LIMIT 1", fetch="none")
+        except:
+            pass # fallback, ak tabulka neexistuje
+            
+        execute_query("DELETE FROM b2b_zakaznik_cennik WHERE zakaznik_id = %s", (login,), fetch="none")
         if pricelist_ids:
+            import db_connector
             conn = db_connector.get_connection()
             cur = conn.cursor()
             try:
@@ -2203,18 +2215,20 @@ def assign_vehicle_to_route_and_fleet(data: dict):
     if not all([date_str, route_name, vehicle_id]):
         return {"error": "Chýbajú údaje (dátum, trasa, auto)."}
 
+    import db_connector
     conn = db_connector.get_connection()
     try:
         cur = conn.cursor(dictionary=True)
         
-        # 1. Zistíme defaultného šoféra k autu
-        cur.execute("SELECT default_driver, name FROM fleet_vehicles WHERE id=%s", (vehicle_id,))
+        # 1. Zistíme defaultného šoféra a počiatočné km auta
+        cur.execute("SELECT default_driver, name, initial_odometer FROM fleet_vehicles WHERE id=%s", (vehicle_id,))
         veh = cur.fetchone()
         if not veh:
             return {"error": "Vozidlo neexistuje."}
         driver = veh.get("default_driver") or ""
+        initial_km = veh.get("initial_odometer") or 0
 
-        # 2. Skontrolujeme, či sme to už náhodou nezaložili (aby sme predišli duplikátom pri dvojkliku)
+        # 2. Skontrolujeme duplicity
         cur.execute(
             "SELECT id FROM fleet_logs WHERE vehicle_id=%s AND log_date=%s AND location_end=%s",
             (vehicle_id, date_str, route_name)
@@ -2222,15 +2236,29 @@ def assign_vehicle_to_route_and_fleet(data: dict):
         if cur.fetchone():
             return {"message": "Toto auto už má na tento deň a trasu vytvorený záznam v module Fleet."}
 
-        # 3. Založenie prázdneho draftu vo Fleet module
+        # 3. Zistíme POSLEDNÝ stav tachometra (koniec km minulej jazdy)
+        cur.execute("""
+            SELECT end_odometer 
+            FROM fleet_logs 
+            WHERE vehicle_id=%s 
+              AND end_odometer IS NOT NULL 
+              AND end_odometer > 0
+            ORDER BY log_date DESC, id DESC 
+            LIMIT 1
+        """, (vehicle_id,))
+        last_log = cur.fetchone()
+        
+        start_km = last_log["end_odometer"] if last_log else initial_km
+
+        # 4. Založenie draftu s korektnými kilometrami
         cur.execute("""
             INSERT INTO fleet_logs 
-            (vehicle_id, log_date, driver, location_end, purpose) 
-            VALUES (%s, %s, %s, %s, %s)
-        """, (vehicle_id, date_str, driver, route_name, "Rozvoz tovaru"))
+            (vehicle_id, log_date, driver, location_end, purpose, start_odometer, end_odometer) 
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+        """, (vehicle_id, date_str, driver, route_name, "Rozvoz tovaru", start_km, start_km))
 
         conn.commit()
-        return {"message": f"Vozidlo '{veh['name']}' úspešne priradené. Záznam bol založený vo Vozovom parku."}
+        return {"message": f"Vozidlo '{veh['name']}' priradené. Počiatočný stav ({start_km} km) bol predvyplnený."}
     except Exception as e:
         if conn: conn.rollback()
         import traceback

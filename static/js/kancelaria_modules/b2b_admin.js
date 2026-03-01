@@ -969,6 +969,12 @@ window.editB2BCustomer = function(id) {
 };
 
 window.saveB2BCustomer = async function(id) {
+    const trasaEl = document.getElementById('ced-trasa');
+    const poradieEl = document.getElementById('ced-poradie');
+    
+    const trasaVal = trasaEl && trasaEl.value ? parseInt(trasaEl.value) : null;
+    const poradieVal = poradieEl && poradieEl.value ? parseInt(poradieEl.value) : 999;
+
     const payload = {
         id: id, 
         nazov_firmy: document.getElementById('ced-name').value, 
@@ -977,10 +983,11 @@ window.saveB2BCustomer = async function(id) {
         adresa: document.getElementById('ced-addr').value,
         adresa_dorucenia: document.getElementById('ced-del-addr').value,
         je_schvaleny: document.getElementById('ced-active').checked ? 1 : 0, 
-        trasa_id: document.getElementById('ced-trasa').value,
-        trasa_poradie: document.getElementById('ced-poradie').value,
+        trasa_id: trasaVal,
+        trasa_poradie: poradieVal,
         pricelist_ids: Array.from(document.querySelectorAll('.pl-check:checked')).map(cb => cb.value)
     };
+    
     try {
         await callFirstOk([{ url: '/api/kancelaria/b2b/updateCustomer', opts: { method: 'POST', body: payload } }]);
         showStatus('Zákazník uložený'); 
