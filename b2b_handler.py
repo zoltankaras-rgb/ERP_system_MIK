@@ -2049,7 +2049,9 @@ def get_logistics_routes_data(target_date: str):
             p.predajna_kategoria
         FROM b2b_objednavky o
         JOIN b2b_objednavky_polozky pol ON o.id = pol.objednavka_id
-        LEFT JOIN b2b_zakaznici z ON CAST(z.id AS CHAR) = CAST(o.zakaznik_id AS CHAR)
+        LEFT JOIN b2b_zakaznici z ON 
+            CAST(z.id AS CHAR) = CAST(o.zakaznik_id AS CHAR) 
+            OR z.zakaznik_id = CAST(o.zakaznik_id AS CHAR)
         LEFT JOIN produkty p ON (
              (p.ean IS NOT NULL AND pol.ean_produktu IS NOT NULL AND CONVERT(p.ean USING utf8mb4) = CONVERT(pol.ean_produktu USING utf8mb4))
           OR (CONVERT(p.nazov_vyrobku USING utf8mb4) = CONVERT(pol.nazov_vyrobku USING utf8mb4))
