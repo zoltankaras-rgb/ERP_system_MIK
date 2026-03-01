@@ -962,12 +962,15 @@ def kanc_haccp_delete():
 # === API ENDPOINTY PRE MODUL: EXPEDÍCIA ===
 # =================================================================
 @app.route("/api/leader/plan/hydina", methods=["GET"])
-# @login_required  # Odkomentuj/uprav podľa toho, aký dekorátor na overenie prístupu v app.py používaš
+# @login_required  # Odkomentuj/uprav podľa toho, aký dekorátor v app.py používaš
 def api_leader_poultry_breakdown():
     target_date = request.args.get("date")
     if not target_date:
+        from flask import jsonify
         return jsonify({"error": "Chýba parameter dátumu."}), 400
 
+    # Pridaný LEFT JOIN na tabuľku produkty a filter podľa predajna_kategoria
+    # Používame CONVERT(... USING utf8mb4), aby sme predišli chybám s koláciou v MySQL
     sql = """
     WITH hydina AS (
         -- B2B Zákazníci
@@ -978,11 +981,13 @@ def api_leader_poultry_breakdown():
             pol.mj
         FROM b2b_objednavky_polozky pol
         JOIN b2b_objednavky o ON o.id = pol.objednavka_id
+        LEFT JOIN produkty p ON (
+             (p.ean IS NOT NULL AND pol.ean_produktu IS NOT NULL AND CONVERT(p.ean USING utf8mb4) = CONVERT(pol.ean_produktu USING utf8mb4))
+          OR (CONVERT(p.nazov_vyrobku USING utf8mb4) = CONVERT(pol.nazov_vyrobku USING utf8mb4))
+        )
         WHERE o.stav NOT IN ('Hotová', 'Zrušená', 'Expedovaná')
           AND DATE(o.pozadovany_datum_dodania) = %s
-          AND (LOWER(pol.nazov_vyrobku) LIKE '%kura%' 
-               OR LOWER(pol.nazov_vyrobku) LIKE '%morč%' 
-               OR LOWER(pol.nazov_vyrobku) LIKE '%hydin%')
+          AND LOWER(CONVERT(p.predajna_kategoria USING utf8mb4)) LIKE '%hydinové mäso chladené%'
         
         UNION ALL
         
@@ -995,11 +1000,13 @@ def api_leader_poultry_breakdown():
         FROM b2c_objednavky_polozky pol
         JOIN b2c_objednavky o ON o.id = pol.objednavka_id
         LEFT JOIN b2b_zakaznici z ON CAST(z.id AS CHAR) = CAST(o.zakaznik_id AS CHAR)
+        LEFT JOIN produkty p ON (
+             (p.ean IS NOT NULL AND pol.ean_produktu IS NOT NULL AND CONVERT(p.ean USING utf8mb4) = CONVERT(pol.ean_produktu USING utf8mb4))
+          OR (CONVERT(p.nazov_vyrobku USING utf8mb4) = CONVERT(pol.nazov_vyrobku USING utf8mb4))
+        )
         WHERE o.stav NOT IN ('Hotová', 'Zrušená', 'Expedovaná')
           AND DATE(o.pozadovany_datum_dodania) = %s
-          AND (LOWER(pol.nazov_vyrobku) LIKE '%kura%' 
-               OR LOWER(pol.nazov_vyrobku) LIKE '%morč%' 
-               OR LOWER(pol.nazov_vyrobku) LIKE '%hydin%')
+          AND LOWER(CONVERT(p.predajna_kategoria USING utf8mb4)) LIKE '%hydinové mäso chladené%'
     )
     SELECT odberatel, produkt, SUM(mnozstvo) as mnozstvo, mj
     FROM hydina
@@ -1009,12 +1016,14 @@ def api_leader_poultry_breakdown():
     
     try:
         from db_connector import execute_query
+        from flask import jsonify
         rows = execute_query(sql, (target_date, target_date), fetch='all') or []
         return jsonify({"items": rows})
     except Exception as e:
+        from flask import jsonify
         return jsonify({"error": str(e)}), 500
-    
-from auth_handler import module_required
+
+        
 @app.get('/leaderexpedicia')
 @login_required(role=('veduci','admin'))
 def leader_page():
