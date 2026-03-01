@@ -413,9 +413,10 @@
         content.innerHTML = '<div style="padding:40px;text-align:center;color:#64748b;"><i class="fas fa-spinner fa-spin fa-2x"></i><br>Sťahujem objednávky a zoskupujem trasy...</div>';
 
         try {
+            // TOTO JE TEN KĽÚČOVÝ REQUEST
             const res = await callFirstOk([{ url: `/api/leader/logistics/routes-data?date=${date}` }]);
             const trasy = res.trasy || [];
-            const vehicles = res.vehicles || []; // Autá z Fleet modulu
+            const vehicles = res.vehicles || []; // TU SA NAČÍTAJÚ AUTÁ
 
             if (trasy.length === 0) {
                 content.innerHTML = '<div style="padding:20px;text-align:center;font-weight:bold;color:#dc2626;">Na tento deň nie sú naplánované žiadne objednávky pre rozvoz.</div>';
@@ -429,7 +430,7 @@
                     <div class="card-header" style="background:#f1f5f9; display:flex; justify-content:space-between; align-items:center; border-bottom: 2px solid #0284c7;">
                         <h3 style="margin:0; color:#0f172a;">🚛 ${escapeHtml(t.nazov)}</h3>
                         <div style="display:flex; gap:10px;">
-                            <button class="btn btn-warning btn-sm" style="color:#000; font-weight:bold;" onclick='window.printChecklist(${JSON.stringify(t).replace(/'/g, "&apos;")}, "${date}")'>📝 Nakládkový list</button>
+                            <button class="btn btn-warning btn-sm" style="color:#000; font-weight:bold;" onclick='window.printChecklist(${JSON.stringify(t).replace(/'/g, "&apos;")}, "${date}")'>📝 Nakládkový list (Checklist)</button>
                             <button class="btn btn-secondary btn-sm" style="background:#1e293b; color:#fff; border:none;" onclick='window.printSummary(${JSON.stringify(t).replace(/'/g, "&apos;")}, "${date}")'>📦 Súhrn do auta</button>
                         </div>
                     </div>
@@ -507,6 +508,24 @@
     
     document.getElementById('logistics-load-btn').click();
   }
+
+  // Funkcia na prepojenie s FLEET Modulom
+  window.assignVehicleToFleet = async function(routeName, routeId) {
+      const date = document.getElementById('logistics-date').value;
+      const vehicleId = document.getElementById(`veh_${routeId}`).value;
+
+      if(!vehicleId) return showStatus("Najprv vyberte auto z rolovacieho zoznamu.", true);
+
+      try {
+          const res = await callFirstOk([{
+              url: '/api/leader/logistics/assign-vehicle',
+              opts: { method: 'POST', body: { date: date, route_name: routeName, vehicle_id: vehicleId } }
+          }]);
+          showStatus(res.message);
+      } catch(e) {
+          alert("Chyba: " + e.message);
+      }
+  };
 
   // Funkcia na prepojenie s FLEET Modulom
   window.assignVehicleToFleet = async function(routeName, routeId) {
