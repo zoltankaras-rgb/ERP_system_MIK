@@ -3837,6 +3837,17 @@ def api_delete_route():
 def api_logistics_assign_vehicle():
     import b2b_handler
     return jsonify(b2b_handler.assign_vehicle_to_route_and_fleet(request.get_json()))
+
+@app.route("/api/fleet/active-vehicles", methods=["GET"])
+def api_fleet_active_vehicles():
+    try:
+        from db_connector import execute_query
+        from flask import jsonify
+        v = execute_query("SELECT id, name, license_plate FROM fleet_vehicles WHERE is_active=1 ORDER BY name", fetch='all') or []
+        return jsonify({"vehicles": v})
+    except Exception as e:
+        from flask import jsonify
+        return jsonify({"error": str(e)}), 500
 # =========================== KANCELÁRIA – rozrábka =============================
 # --- KANCELÁRIA / SKLAD / ROZRÁBKA ---
 
