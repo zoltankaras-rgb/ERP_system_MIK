@@ -961,7 +961,59 @@ def kanc_haccp_delete():
 # =================================================================
 # === API ENDPOINTY PRE MODUL: EXPEDÍCIA ===
 # =================================================================
+@app.route("/api/leader/plan/hydina", methods=["GET"])
+# @login_required  # Odkomentuj/uprav podľa toho, aký dekorátor na overenie prístupu v app.py používaš
+def api_leader_poultry_breakdown():
+    target_date = request.args.get("date")
+    if not target_date:
+        return jsonify({"error": "Chýba parameter dátumu."}), 400
 
+    sql = """
+    WITH hydina AS (
+        -- B2B Zákazníci
+        SELECT 
+            o.nazov_firmy AS odberatel,
+            pol.nazov_vyrobku AS produkt,
+            pol.mnozstvo,
+            pol.mj
+        FROM b2b_objednavky_polozky pol
+        JOIN b2b_objednavky o ON o.id = pol.objednavka_id
+        WHERE o.stav NOT IN ('Hotová', 'Zrušená', 'Expedovaná')
+          AND DATE(o.pozadovany_datum_dodania) = %s
+          AND (LOWER(pol.nazov_vyrobku) LIKE '%kura%' 
+               OR LOWER(pol.nazov_vyrobku) LIKE '%morč%' 
+               OR LOWER(pol.nazov_vyrobku) LIKE '%hydin%')
+        
+        UNION ALL
+        
+        -- B2C Zákazníci
+        SELECT 
+            COALESCE(z.nazov_firmy, z.email, 'B2C Zákazník') AS odberatel,
+            pol.nazov_vyrobku AS produkt,
+            pol.mnozstvo,
+            pol.mj
+        FROM b2c_objednavky_polozky pol
+        JOIN b2c_objednavky o ON o.id = pol.objednavka_id
+        LEFT JOIN b2b_zakaznici z ON CAST(z.id AS CHAR) = CAST(o.zakaznik_id AS CHAR)
+        WHERE o.stav NOT IN ('Hotová', 'Zrušená', 'Expedovaná')
+          AND DATE(o.pozadovany_datum_dodania) = %s
+          AND (LOWER(pol.nazov_vyrobku) LIKE '%kura%' 
+               OR LOWER(pol.nazov_vyrobku) LIKE '%morč%' 
+               OR LOWER(pol.nazov_vyrobku) LIKE '%hydin%')
+    )
+    SELECT odberatel, produkt, SUM(mnozstvo) as mnozstvo, mj
+    FROM hydina
+    GROUP BY odberatel, produkt, mj
+    ORDER BY odberatel ASC, produkt ASC
+    """
+    
+    try:
+        from db_connector import execute_query
+        rows = execute_query(sql, (target_date, target_date), fetch='all') or []
+        return jsonify({"items": rows})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    
 from auth_handler import module_required
 @app.get('/leaderexpedicia')
 @login_required(role=('veduci','admin'))

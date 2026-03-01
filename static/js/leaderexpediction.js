@@ -1637,3 +1637,147 @@ function boot(){
 
 boot();
 })(window, document);
+
+// --- ROZPIS HYDINY PRE ODBERATEĽOV ---
+let currentPoultryData = {}; 
+
+async function loadPoultryBreakdown() {
+    const dateInput = document.getElementById('planDate') || document.querySelector('input[type="date"]');
+    const selectedDate = dateInput ? dateInput.value : new Date().toISOString().split('T')[0];
+
+    if (!selectedDate) {
+        alert("Chyba: Nie je vybraný platný dátum.");
+        return;
+    }
+
+    const container = document.getElementById('poultry-breakdown-container');
+    const printBtn = document.getElementById('btn-print-poultry');
+    
+    container.innerHTML = '<div class="text-center py-3"><div class="spinner-border text-info" role="status"></div><p class="mt-2">Načítavam dáta...</p></div>';
+    printBtn.classList.add('d-none');
+
+    try {
+        const response = await fetch(`/api/leader/plan/hydina?date=${selectedDate}`);
+        const data = await response.json();
+
+        if (data.error) {
+            container.innerHTML = `<div class="alert alert-danger mb-0">${data.error}</div>`;
+            return;
+        }
+
+        const items = data.items || [];
+        if (items.length === 0) {
+            container.innerHTML = `<div class="alert alert-secondary mb-0">Na tento deň (${selectedDate}) nie je evidovaná žiadna objednaná hydina.</div>`;
+            currentPoultryData = {};
+            return;
+        }
+
+        const grouped = items.reduce((acc, curr) => {
+            if (!acc[curr.odberatel]) {
+                acc[curr.odberatel] = [];
+            }
+            acc[curr.odberatel].push(curr);
+            return acc;
+        }, {});
+
+        currentPoultryData = { date: selectedDate, grouped: grouped };
+
+        let html = '<div class="accordion" id="poultryAccordion">';
+        let i = 0;
+        for (const [odberatel, produkty] of Object.entries(grouped)) {
+            html += `
+                <div class="accordion-item">
+                    <h2 class="accordion-header" id="headingPoultry${i}">
+                        <button class="accordion-button ${i === 0 ? '' : 'collapsed'} fw-bold" type="button" data-bs-toggle="collapse" data-bs-target="#collapsePoultry${i}">
+                            ${odberatel}
+                        </button>
+                    </h2>
+                    <div id="collapsePoultry${i}" class="accordion-collapse collapse ${i === 0 ? 'show' : ''}" data-bs-parent="#poultryAccordion">
+                        <div class="accordion-body p-0">
+                            <ul class="list-group list-group-flush">
+                                ${produkty.map(p => `
+                                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                                        <span>${p.produkt}</span>
+                                        <span class="badge bg-primary rounded-pill px-3 text-dark border border-primary">${parseFloat(p.mnozstvo).toFixed(2)} ${p.mj}</span>
+                                    </li>
+                                `).join('')}
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            `;
+            i++;
+        }
+        html += '</div>';
+        
+        container.innerHTML = html;
+        printBtn.classList.remove('d-none');
+
+    } catch (err) {
+        console.error("Chyba API fetch:", err);
+        container.innerHTML = `<div class="alert alert-danger mb-0">Kritická chyba pripojenia na server pri sťahovaní rozpisu.</div>`;
+    }
+}
+
+function printPoultryBreakdown() {
+    if (!currentPoultryData.grouped || Object.keys(currentPoultryData.grouped).length === 0) return;
+
+    const dateParts = currentPoultryData.date.split('-');
+    const dateStr = `${dateParts[2]}.${dateParts[1]}.${dateParts[0]}`;
+    
+    let printContent = `
+        <!DOCTYPE html>
+        <html lang="sk">
+        <head>
+            <meta charset="UTF-8">
+            <title>Rozpis hydiny - ${dateStr}</title>
+            <style>
+                body { font-family: 'Arial', sans-serif; font-size: 14px; margin: 25px; color: #000; }
+                h2 { text-align: center; border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 25px; text-transform: uppercase; font-size: 18px; }
+                .date-info { font-size: 14px; font-weight: normal; display: block; margin-top: 5px; text-transform: none; }
+                .customer-block { margin-bottom: 15px; page-break-inside: avoid; border: 1px solid #000; padding: 0; }
+                .customer-name { font-size: 14px; font-weight: bold; background-color: #e9ecef; padding: 6px 10px; border-bottom: 1px solid #000; }
+                table { width: 100%; border-collapse: collapse; }
+                td { padding: 6px 10px; border-bottom: 1px solid #ccc; }
+                tr:last-child td { border-bottom: none; }
+                .qty { text-align: right; font-weight: bold; white-space: nowrap; width: 120px; }
+                @media print {
+                    body { margin: 0; }
+                }
+            </style>
+        </head>
+        <body>
+            <h2>Expedičný rozpis hydiny <span class="date-info">Dátum expedície: <b>${dateStr}</b></span></h2>
+    `;
+
+    for (const [odberatel, produkty] of Object.entries(currentPoultryData.grouped)) {
+        printContent += `<div class="customer-block">`;
+        printContent += `<div class="customer-name">${odberatel}</div>`;
+        printContent += `<table>`;
+        produkty.forEach(p => {
+            const val = parseFloat(p.mnozstvo);
+            const displayVal = Number.isInteger(val) ? val : val.toFixed(2);
+            printContent += `<tr>
+                <td>${p.produkt}</td>
+                <td class="qty">${displayVal} ${p.mj}</td>
+            </tr>`;
+        });
+        printContent += `</table></div>`;
+    }
+
+    printContent += `
+            <script>
+                window.onload = function() {
+                    window.print();
+                    setTimeout(function() { window.close(); }, 500);
+                }
+            </script>
+        </body>
+        </html>
+    `;
+
+    const printWindow = window.open('', '_blank', 'width=800,height=900');
+    printWindow.document.open();
+    printWindow.document.write(printContent);
+    printWindow.document.close();
+}
