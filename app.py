@@ -961,18 +961,34 @@ def kanc_haccp_delete():
 # =================================================================
 # === API ENDPOINTY PRE MODUL: EXPEDÍCIA ===
 # =================================================================
-@app.route("/api/leader/plan/hydina", methods=["GET"])
-# @login_required  # Odkomentuj/uprav podľa toho, aký dekorátor v app.py používaš
-def api_leader_poultry_breakdown():
+@app.route("/api/leader/plan/rozpis", methods=["GET"])
+# @login_required  # Odkomentuj, ak v app.py používaš overenie
+def api_leader_category_breakdown():
     target_date = request.args.get("date")
+    category = request.args.get("category", "all")
+    
     if not target_date:
         from flask import jsonify
         return jsonify({"error": "Chýba parameter dátumu."}), 400
 
-    # Pridaný LEFT JOIN na tabuľku produkty a filter podľa predajna_kategoria
-    # Používame CONVERT(... USING utf8mb4), aby sme predišli chybám s koláciou v MySQL
-    sql = """
-    WITH hydina AS (
+    # Príprava dynamických podmienok a parametrov
+    cat_filter_b2b = ""
+    cat_filter_b2c = ""
+    params = [target_date]
+    
+    if category != "all":
+        # Ak nie je zvolené "všetko", pridáme filter na kategóriu. Používame LIKE pre flexibilnú zhodu.
+        cat_filter_b2b = " AND LOWER(CONVERT(p.predajna_kategoria USING utf8mb4)) LIKE CONCAT('%%', LOWER(%s), '%%') "
+        cat_filter_b2c = " AND LOWER(CONVERT(p.predajna_kategoria USING utf8mb4)) LIKE CONCAT('%%', LOWER(%s), '%%') "
+        params.append(category)
+        
+    params.append(target_date)
+    
+    if category != "all":
+        params.append(category)
+
+    sql = f"""
+    WITH objednavky AS (
         -- B2B Zákazníci
         SELECT 
             o.nazov_firmy AS odberatel,
@@ -987,7 +1003,7 @@ def api_leader_poultry_breakdown():
         )
         WHERE o.stav NOT IN ('Hotová', 'Zrušená', 'Expedovaná')
           AND DATE(o.pozadovany_datum_dodania) = %s
-          AND LOWER(CONVERT(p.predajna_kategoria USING utf8mb4)) LIKE '%hydinové mäso chladené%'
+          {cat_filter_b2b}
         
         UNION ALL
         
@@ -1006,10 +1022,10 @@ def api_leader_poultry_breakdown():
         )
         WHERE o.stav NOT IN ('Hotová', 'Zrušená', 'Expedovaná')
           AND DATE(o.pozadovany_datum_dodania) = %s
-          AND LOWER(CONVERT(p.predajna_kategoria USING utf8mb4)) LIKE '%hydinové mäso chladené%'
+          {cat_filter_b2c}
     )
     SELECT odberatel, produkt, SUM(mnozstvo) as mnozstvo, mj
-    FROM hydina
+    FROM objednavky
     GROUP BY odberatel, produkt, mj
     ORDER BY odberatel ASC, produkt ASC
     """
@@ -1017,13 +1033,12 @@ def api_leader_poultry_breakdown():
     try:
         from db_connector import execute_query
         from flask import jsonify
-        rows = execute_query(sql, (target_date, target_date), fetch='all') or []
+        rows = execute_query(sql, tuple(params), fetch='all') or []
         return jsonify({"items": rows})
     except Exception as e:
         from flask import jsonify
         return jsonify({"error": str(e)}), 500
 
-        
 @app.get('/leaderexpedicia')
 @login_required(role=('veduci','admin'))
 def leader_page():

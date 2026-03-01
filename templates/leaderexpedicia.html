@@ -68,7 +68,7 @@
       .cust-row:hover { background: #f8fafc; }
       .cust-row input { margin-right: 12px; transform: scale(1.2); cursor: pointer; }
 
-      /* === ŠTÝLY PRE ACCORDION (Rozpis hydiny) === */
+      /* === ŠTÝLY PRE ACCORDION (Rozpis expedície) === */
       .accordion { border: 1px solid #e5e7eb; border-radius: 6px; overflow: hidden; }
       .accordion-item { border-bottom: 1px solid #e5e7eb; }
       .accordion-item:last-child { border-bottom: none; }
@@ -145,17 +145,28 @@
 
           <div class="card" style="margin-top:16px; border: 1px solid #bae6fd;">
             <div class="card-header" style="background-color: #f0f9ff; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap: 10px; padding: 12px 16px;">
-              <strong style="color: #0369a1; font-size: 1.1rem;"><i class="fas fa-drumstick-bite"></i> Rozpis hydiny (podľa odberateľov)</strong>
-              <div style="display:flex; gap: 8px; align-items:center;">
-                <label style="margin:0; font-weight:600; color:#0369a1; font-size: 0.9rem;">Dátum dodania:</label>
-                <input type="date" id="poultry-date" style="padding: 4px; border: 1px solid #bae6fd; border-radius: 4px;">
-                <button class="btn btn-primary btn-sm" onclick="loadPoultryBreakdown()"><i class="fas fa-sync"></i> Načítať z objednávok</button>
-                <button class="btn btn-warning btn-sm" id="btn-print-poultry" style="display:none; color: #000; font-weight: bold;" onclick="printPoultryBreakdown()"><i class="fas fa-print"></i> Tlačiť sumár</button>
+              <strong style="color: #0369a1; font-size: 1.1rem;"><i class="fas fa-boxes-stacked"></i> Expedičný rozpis z objednávok</strong>
+              <div style="display:flex; gap: 8px; align-items:center; flex-wrap:wrap;">
+                <label style="margin:0; font-weight:600; color:#0369a1; font-size: 0.9rem;">Dátum:</label>
+                <input type="date" id="breakdown-date" style="padding: 4px; border: 1px solid #bae6fd; border-radius: 4px;">
+                
+                <label style="margin:0 0 0 10px; font-weight:600; color:#0369a1; font-size: 0.9rem;">Filter:</label>
+                <select id="breakdown-category" style="padding: 4px; border: 1px solid #bae6fd; border-radius: 4px; min-width: 180px;">
+                  <option value="all">Celá objednávka (Všetko)</option>
+                  <option value="hydinové mäso chladené">Hydinové mäso chladené</option>
+                  <option value="bravčové mäso chladené">Bravčové mäso chladené</option>
+                  <option value="hovädzie mäso chladené">Hovädzie mäso chladené</option>
+                  <option value="mrazené">Mrazený tovar</option>
+                  <option value="výrobky">Výrobky</option>
+                </select>
+
+                <button class="btn btn-primary btn-sm" onclick="loadExpeditionBreakdown()"><i class="fas fa-sync"></i> Načítať</button>
+                <button class="btn btn-warning btn-sm" id="btn-print-breakdown" style="display:none; color: #000; font-weight: bold;" onclick="printExpeditionBreakdown()"><i class="fas fa-print"></i> Tlačiť sumár</button>
               </div>
             </div>
             <div class="card-body">
-              <div id="poultry-breakdown-container">
-                <p class="muted" style="margin:0;">Zvoľte dátum dodania a kliknite na "Načítať z objednávok".</p>
+              <div id="breakdown-container">
+                <p class="muted" style="margin:0;">Zvoľte dátum, kategóriu tovaru a kliknite na "Načítať".</p>
               </div>
             </div>
           </div>
@@ -370,7 +381,7 @@
   <script src="{{ url_for('static', filename='js/kancelaria_modules/b2b_admin.js') }}"></script>
   <script src="{{ url_for('static', filename='js/kancelaria_modules/planning.js') }}"></script>
   <script src="{{ url_for('static', filename='js/kancelaria_modules/calendar_planner.js') }}"></script>
-  <script src="{{ url_for('static', filename='js/leaderexpediction.js') }}?v=1000"></script>
+  <script src="{{ url_for('static', filename='js/leaderexpediction.js') }}?v=1001"></script>
   
   <script>
     function closeModal() {

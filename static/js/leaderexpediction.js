@@ -1642,28 +1642,25 @@ boot();
 // INICIALIZÁCIA A OPRAVA NAVIGÁCIE
 // =========================================================
 document.addEventListener('DOMContentLoaded', () => {
-    // 1. Nastavenie aktuálneho dátumu pre rozpis hydiny
-    const poultryDateInput = document.getElementById('poultry-date');
-    if (poultryDateInput) {
-        poultryDateInput.value = new Date().toISOString().split('T')[0];
+    // 1. Nastavenie aktuálneho dátumu
+    const breakdownDateInput = document.getElementById('breakdown-date');
+    if (breakdownDateInput) {
+        breakdownDateInput.value = new Date().toISOString().split('T')[0];
     }
 
-    // 2. Tvrdá oprava navigácie - prepisuje akékoľvek zlyhané eventy
+    // 2. Tvrdá oprava navigácie - prepisuje zlyhané eventy
     document.querySelectorAll('.sidebar-link').forEach(link => {
         link.addEventListener('click', function(e) {
             e.preventDefault();
             const targetId = this.getAttribute('data-section');
             if (!targetId) return;
 
-            // Zruš aktívny stav v menu
             document.querySelectorAll('.sidebar-link').forEach(l => l.classList.remove('active'));
-            // Tvrdé skrytie všetkých sekcií pomocou inline štýlu aj triedy
             document.querySelectorAll('.content-section').forEach(s => {
                 s.classList.remove('active');
                 s.style.setProperty('display', 'none', 'important');
             });
 
-            // Aktivuj vybrané
             this.classList.add('active');
             const targetSection = document.getElementById(targetId);
             if (targetSection) {
@@ -1690,27 +1687,31 @@ document.addEventListener('click', function(e) {
 
 
 // =========================================================
-// FUNKCIE PRE HYDINU (NAČÍTANIE A TLAČ)
+// FUNKCIE PRE EXPEDIČNÝ ROZPIS PODĽA KATEGÓRIE
 // =========================================================
-let currentPoultryData = {}; 
+var currentBreakdownData = {}; 
 
-async function loadPoultryBreakdown() {
-    const dateInput = document.getElementById('poultry-date');
+async function loadExpeditionBreakdown() {
+    const dateInput = document.getElementById('breakdown-date');
+    const categorySelect = document.getElementById('breakdown-category');
+    
     const selectedDate = dateInput ? dateInput.value : '';
+    const selectedCategory = categorySelect ? categorySelect.value : 'all';
+    const categoryName = categorySelect.options[categorySelect.selectedIndex].text;
 
     if (!selectedDate) {
-        alert("Chyba: Prosím, zvoľte dátum dodania pre rozpis hydiny.");
+        alert("Chyba: Prosím, zvoľte dátum dodania.");
         return;
     }
 
-    const container = document.getElementById('poultry-breakdown-container');
-    const printBtn = document.getElementById('btn-print-poultry');
+    const container = document.getElementById('breakdown-container');
+    const printBtn = document.getElementById('btn-print-breakdown');
     
-    container.innerHTML = '<div class="text-center py-3"><div class="spinner-border text-info" role="status"></div><p class="mt-2">Načítavam dáta...</p></div>';
+    container.innerHTML = '<div class="text-center py-3"><div class="spinner-border text-info" role="status"></div><p class="mt-2">Načítavam dáta z objednávok...</p></div>';
     printBtn.style.display = 'none';
 
     try {
-        const response = await fetch(`/api/leader/plan/hydina?date=${selectedDate}`);
+        const response = await fetch(`/api/leader/plan/rozpis?date=${selectedDate}&category=${encodeURIComponent(selectedCategory)}`);
         const data = await response.json();
 
         if (data.error) {
@@ -1720,8 +1721,8 @@ async function loadPoultryBreakdown() {
 
         const items = data.items || [];
         if (items.length === 0) {
-            container.innerHTML = `<div class="alert alert-secondary mb-0">Na tento deň (${selectedDate}) nie je evidovaná žiadna objednaná hydina.</div>`;
-            currentPoultryData = {};
+            container.innerHTML = `<div class="alert alert-secondary mb-0">Na tento deň (${selectedDate}) pre kategóriu "${categoryName}" nie je nič objednané.</div>`;
+            currentBreakdownData = {};
             return;
         }
 
@@ -1733,19 +1734,19 @@ async function loadPoultryBreakdown() {
             return acc;
         }, {});
 
-        currentPoultryData = { date: selectedDate, grouped: grouped };
+        currentBreakdownData = { date: selectedDate, categoryName: categoryName, grouped: grouped };
 
-        let html = '<div class="accordion" id="poultryAccordion">';
+        let html = '<div class="accordion" id="breakdownAccordion">';
         let i = 0;
         for (const [odberatel, produkty] of Object.entries(grouped)) {
             html += `
                 <div class="accordion-item">
-                    <h2 class="accordion-header" id="headingPoultry${i}">
-                        <button class="accordion-button ${i === 0 ? '' : 'collapsed'} fw-bold" type="button" data-bs-toggle="collapse" data-bs-target="#collapsePoultry${i}">
+                    <h2 class="accordion-header" id="headingBreakdown${i}">
+                        <button class="accordion-button ${i === 0 ? '' : 'collapsed'} fw-bold" type="button" data-bs-toggle="collapse" data-bs-target="#collapseBreakdown${i}">
                             ${odberatel}
                         </button>
                     </h2>
-                    <div id="collapsePoultry${i}" class="accordion-collapse collapse ${i === 0 ? 'show' : ''}" data-bs-parent="#poultryAccordion">
+                    <div id="collapseBreakdown${i}" class="accordion-collapse collapse ${i === 0 ? 'show' : ''}" data-bs-parent="#breakdownAccordion">
                         <div class="accordion-body p-0">
                             <ul class="list-group list-group-flush">
                                 ${produkty.map(p => `
@@ -1772,18 +1773,19 @@ async function loadPoultryBreakdown() {
     }
 }
 
-function printPoultryBreakdown() {
-    if (!currentPoultryData.grouped || Object.keys(currentPoultryData.grouped).length === 0) return;
+function printExpeditionBreakdown() {
+    if (!currentBreakdownData.grouped || Object.keys(currentBreakdownData.grouped).length === 0) return;
 
-    const dateParts = currentPoultryData.date.split('-');
+    const dateParts = currentBreakdownData.date.split('-');
     const dateStr = `${dateParts[2]}.${dateParts[1]}.${dateParts[0]}`;
+    const catName = currentBreakdownData.categoryName;
     
     let printContent = `
         <!DOCTYPE html>
         <html lang="sk">
         <head>
             <meta charset="UTF-8">
-            <title>Rozpis hydiny - ${dateStr}</title>
+            <title>Expedičný rozpis - ${dateStr}</title>
             <style>
                 body { font-family: 'Arial', sans-serif; font-size: 14px; margin: 25px; color: #000; }
                 h2 { text-align: center; border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 25px; text-transform: uppercase; font-size: 18px; }
@@ -1800,10 +1802,10 @@ function printPoultryBreakdown() {
             </style>
         </head>
         <body>
-            <h2>Expedičný rozpis hydiny <span class="date-info">Dátum dodania: <b>${dateStr}</b></span></h2>
+            <h2>Expedičný rozpis <span class="date-info">Dátum dodania: <b>${dateStr}</b> | Kategória: <b>${catName}</b></span></h2>
     `;
 
-    for (const [odberatel, produkty] of Object.entries(currentPoultryData.grouped)) {
+    for (const [odberatel, produkty] of Object.entries(currentBreakdownData.grouped)) {
         printContent += `<div class="customer-block">`;
         printContent += `<div class="customer-name">${odberatel}</div>`;
         printContent += `<table>`;
