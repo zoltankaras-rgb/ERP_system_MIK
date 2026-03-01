@@ -81,7 +81,6 @@
       .list-group { list-style: none; padding: 0; margin: 0; }
       .list-group-item { padding: 8px 0; border-bottom: 1px solid #f1f5f9; display: flex; justify-content: space-between; }
       .list-group-item:last-child { border-bottom: none; }
-      .poultry-badge { background: #0369a1; color: white; padding: 4px 10px; border-radius: 12px; font-size: 0.85em; font-weight: bold; }
   </style>
 </head>
 <body>
@@ -143,14 +142,16 @@
           <div class="card" style="margin-top:16px; border: 1px solid #bae6fd;">
             <div class="card-header" style="background-color: #f0f9ff; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap: 10px; padding: 12px 16px;">
               <strong style="color: #0369a1; font-size: 1.1rem;"><i class="fas fa-drumstick-bite"></i> Rozpis hydiny (podľa odberateľov)</strong>
-              <div style="display:flex; gap: 8px;">
+              <div style="display:flex; gap: 8px; align-items:center;">
+                <label style="margin:0; font-weight:600; color:#0369a1; font-size: 0.9rem;">Dátum dodania:</label>
+                <input type="date" id="poultry-date" style="padding: 4px; border: 1px solid #bae6fd; border-radius: 4px;">
                 <button class="btn btn-primary btn-sm" onclick="loadPoultryBreakdown()"><i class="fas fa-sync"></i> Načítať z objednávok</button>
                 <button class="btn btn-warning btn-sm" id="btn-print-poultry" style="display:none; color: #000; font-weight: bold;" onclick="printPoultryBreakdown()"><i class="fas fa-print"></i> Tlačiť sumár</button>
               </div>
             </div>
             <div class="card-body">
               <div id="poultry-breakdown-container">
-                <p class="muted" style="margin:0;">Kliknite na "Načítať z objednávok" pre zobrazenie objednanej hydiny na dátum aktuálne vybraný vyššie v Prehľade dňa.</p>
+                <p class="muted" style="margin:0;">Zvoľte dátum dodania a kliknite na "Načítať z objednávok".</p>
               </div>
             </div>
           </div>
@@ -374,6 +375,14 @@
     }
     window.closeModal = closeModal;
 
+    // Inicializácia aktuálneho dátumu pri načítaní stránky
+    document.addEventListener('DOMContentLoaded', () => {
+        const poultryDateInput = document.getElementById('poultry-date');
+        if (poultryDateInput) {
+            poultryDateInput.value = new Date().toISOString().split('T')[0];
+        }
+    });
+
     // Globálny listener pre rozbaľovanie odberateľov (Accordion efekt pre hydinu)
     document.addEventListener('click', function(e) {
         if (e.target && e.target.classList.contains('accordion-button')) {
@@ -387,6 +396,150 @@
             }
         }
     });
+
+    // --- ROZPIS HYDINY PRE ODBERATEĽOV ---
+    let currentPoultryData = {}; 
+
+    async function loadPoultryBreakdown() {
+        const dateInput = document.getElementById('poultry-date');
+        const selectedDate = dateInput ? dateInput.value : '';
+
+        if (!selectedDate) {
+            alert("Chyba: Prosím, zvoľte dátum dodania pre rozpis hydiny.");
+            return;
+        }
+
+        const container = document.getElementById('poultry-breakdown-container');
+        const printBtn = document.getElementById('btn-print-poultry');
+        
+        container.innerHTML = '<div class="text-center py-3"><div class="spinner-border text-info" role="status"></div><p class="mt-2">Načítavam dáta...</p></div>';
+        printBtn.style.display = 'none';
+
+        try {
+            const response = await fetch(`/api/leader/plan/hydina?date=${selectedDate}`);
+            const data = await response.json();
+
+            if (data.error) {
+                container.innerHTML = `<div class="alert alert-danger mb-0">${data.error}</div>`;
+                return;
+            }
+
+            const items = data.items || [];
+            if (items.length === 0) {
+                container.innerHTML = `<div class="alert alert-secondary mb-0">Na tento deň (${selectedDate}) nie je evidovaná žiadna objednaná hydina.</div>`;
+                currentPoultryData = {};
+                return;
+            }
+
+            const grouped = items.reduce((acc, curr) => {
+                if (!acc[curr.odberatel]) {
+                    acc[curr.odberatel] = [];
+                }
+                acc[curr.odberatel].push(curr);
+                return acc;
+            }, {});
+
+            currentPoultryData = { date: selectedDate, grouped: grouped };
+
+            let html = '<div class="accordion" id="poultryAccordion">';
+            let i = 0;
+            for (const [odberatel, produkty] of Object.entries(grouped)) {
+                html += `
+                    <div class="accordion-item">
+                        <h2 class="accordion-header" id="headingPoultry${i}">
+                            <button class="accordion-button ${i === 0 ? '' : 'collapsed'} fw-bold" type="button" data-bs-toggle="collapse" data-bs-target="#collapsePoultry${i}">
+                                ${odberatel}
+                            </button>
+                        </h2>
+                        <div id="collapsePoultry${i}" class="accordion-collapse collapse ${i === 0 ? 'show' : ''}" data-bs-parent="#poultryAccordion">
+                            <div class="accordion-body p-0">
+                                <ul class="list-group list-group-flush">
+                                    ${produkty.map(p => `
+                                        <li class="list-group-item d-flex justify-content-between align-items-center" style="padding: 8px 15px;">
+                                            <span>${p.produkt}</span>
+                                            <span class="badge bg-primary rounded-pill px-3 text-dark border border-primary">${parseFloat(p.mnozstvo).toFixed(2)} ${p.mj}</span>
+                                        </li>
+                                    `).join('')}
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                i++;
+            }
+            html += '</div>';
+            
+            container.innerHTML = html;
+            printBtn.style.display = 'inline-block';
+
+        } catch (err) {
+            console.error("Chyba API fetch:", err);
+            container.innerHTML = `<div class="alert alert-danger mb-0">Kritická chyba pripojenia na server pri sťahovaní rozpisu.</div>`;
+        }
+    }
+
+    function printPoultryBreakdown() {
+        if (!currentPoultryData.grouped || Object.keys(currentPoultryData.grouped).length === 0) return;
+
+        const dateParts = currentPoultryData.date.split('-');
+        const dateStr = `${dateParts[2]}.${dateParts[1]}.${dateParts[0]}`;
+        
+        let printContent = `
+            <!DOCTYPE html>
+            <html lang="sk">
+            <head>
+                <meta charset="UTF-8">
+                <title>Rozpis hydiny - ${dateStr}</title>
+                <style>
+                    body { font-family: 'Arial', sans-serif; font-size: 14px; margin: 25px; color: #000; }
+                    h2 { text-align: center; border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 25px; text-transform: uppercase; font-size: 18px; }
+                    .date-info { font-size: 14px; font-weight: normal; display: block; margin-top: 5px; text-transform: none; }
+                    .customer-block { margin-bottom: 15px; page-break-inside: avoid; border: 1px solid #000; padding: 0; }
+                    .customer-name { font-size: 14px; font-weight: bold; background-color: #e9ecef; padding: 6px 10px; border-bottom: 1px solid #000; }
+                    table { width: 100%; border-collapse: collapse; }
+                    td { padding: 6px 10px; border-bottom: 1px solid #ccc; }
+                    tr:last-child td { border-bottom: none; }
+                    .qty { text-align: right; font-weight: bold; white-space: nowrap; width: 120px; }
+                    @media print {
+                        body { margin: 0; }
+                    }
+                </style>
+            </head>
+            <body>
+                <h2>Expedičný rozpis hydiny <span class="date-info">Dátum dodania: <b>${dateStr}</b></span></h2>
+        `;
+
+        for (const [odberatel, produkty] of Object.entries(currentPoultryData.grouped)) {
+            printContent += `<div class="customer-block">`;
+            printContent += `<div class="customer-name">${odberatel}</div>`;
+            printContent += `<table>`;
+            produkty.forEach(p => {
+                const val = parseFloat(p.mnozstvo);
+                const displayVal = Number.isInteger(val) ? val : val.toFixed(2);
+                printContent += `<tr>
+                    <td>${p.produkt}</td>
+                    <td class="qty">${displayVal} ${p.mj}</td>
+                </tr>`;
+            });
+            printContent += `</table></div>`;
+        }
+
+        printContent += `
+            <script>
+                window.onload = function() {
+                    window.print();
+                    setTimeout(function() { window.close(); }, 500);
+                }
+            <\/script>
+            </body>
+            </html>
+        `;
+
+        const printWindow = window.open('', '_blank', 'width=800,height=900');
+        printWindow.document.open();
+        printWindow.document.write(printContent);
+        printWindow.document.close();
+    }
   </script>
 
 </body>
