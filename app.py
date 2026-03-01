@@ -1039,6 +1039,134 @@ def api_leader_category_breakdown():
         from flask import jsonify
         return jsonify({"error": str(e)}), 500
 
+@app.route("/api/leader/logistics/routes-data", methods=["GET"])
+def api_logistics_routes_data():
+    target_date = request.args.get("date")
+    if not target_date:
+        return jsonify({"error": "Chýba parameter dátumu."}), 400
+
+    try:
+        from db_connector import execute_query
+        
+        # 1. Načítanie všetkých dostupných trás
+        trasy_db = execute_query("SELECT id, nazov FROM logistika_trasy WHERE is_active=1 ORDER BY nazov", fetch='all') or []
+        trasy_map = {str(t['id']): t['nazov'] for t in trasy_db}
+        trasy_map['unassigned'] = 'Nepriradená trasa'
+
+        # 2. Načítanie B2B objednávok + priradená trasa od zákazníka
+        sql = """
+        SELECT 
+            o.cislo_objednavky,
+            o.nazov_firmy AS odberatel,
+            z.id AS zakaznik_id,
+            COALESCE(z.trasa_id, 'unassigned') AS trasa_id,
+            COALESCE(z.trasa_poradie, 999) AS poradie,
+            pol.nazov_vyrobku AS produkt,
+            pol.mnozstvo,
+            pol.mj,
+            p.predajna_kategoria
+        FROM b2b_objednavky o
+        JOIN b2b_objednavky_polozky pol ON o.id = pol.objednavka_id
+        LEFT JOIN b2b_zakaznici z ON o.zakaznik_id = z.id
+        LEFT JOIN produkty p ON (
+             (p.ean IS NOT NULL AND pol.ean_produktu IS NOT NULL AND CONVERT(p.ean USING utf8mb4) = CONVERT(pol.ean_produktu USING utf8mb4))
+          OR (CONVERT(p.nazov_vyrobku USING utf8mb4) = CONVERT(pol.nazov_vyrobku USING utf8mb4))
+        )
+        WHERE o.stav NOT IN ('Hotová', 'Zrušená', 'Expedovaná')
+          AND DATE(o.pozadovany_datum_dodania) = %s
+        """
+        
+        polozky = execute_query(sql, (target_date,), fetch='all') or []
+
+        # 3. Zoskupenie dát do štruktúry pre Frontend
+        # Štruktúra: routes -> trasa_id -> { nazov, stops: {}, summary: {} }
+        routes_data = {}
+
+        for p in polozky:
+            tid = str(p['trasa_id'])
+            odberatel = p['odberatel']
+            obj_cislo = p['cislo_objednavky']
+            kategoria = str(p['predajna_kategoria'] or 'Nezaradené').strip()
+            produkt = p['produkt']
+            mnozstvo = float(p['mnozstvo'] or 0)
+            mj = p['mj']
+
+            # Inicializácia trasy ak neexistuje
+            if tid not in routes_data:
+                routes_data[tid] = {
+                    "id": tid,
+                    "nazov": trasy_map.get(tid, 'Nepriradená trasa'),
+                    "zastavky": {},   # Pre nakládkový list (checklist)
+                    "sumar": {}       # Pre sumár na auto
+                }
+
+            # --- A. ZOSKUPOVANIE ZASTÁVOK (Viac objednávok = 1 zastávka) ---
+            if odberatel not in routes_data[tid]["zastavky"]:
+                routes_data[tid]["zastavky"][odberatel] = {
+                    "odberatel": odberatel,
+                    "poradie": p['poradie'],
+                    "objednavky_set": set()
+                }
+            routes_data[tid]["zastavky"][odberatel]["objednavky_set"].add(obj_cislo)
+
+            # --- B. ZOSKUPOVANIE SUMÁRU NA AUTO (Podľa kategórií) ---
+            if kategoria not in routes_data[tid]["sumar"]:
+                routes_data[tid]["sumar"][kategoria] = {}
+            
+            # Kľúč je produkt + merná jednotka
+            prod_key = f"{produkt}|{mj}"
+            if prod_key not in routes_data[tid]["sumar"][kategoria]:
+                routes_data[tid]["sumar"][kategoria][prod_key] = {
+                    "produkt": produkt,
+                    "mnozstvo": 0,
+                    "mj": mj
+                }
+            routes_data[tid]["sumar"][kategoria][prod_key]["mnozstvo"] += mnozstvo
+
+        # 4. Formátovanie dát na čistý JSON zoznam (Set neprejde cez JSON)
+        final_routes = []
+        for tid, data in routes_data.items():
+            # Formátovanie zastávok
+            zastavky_list = []
+            for odb, zdata in data["zastavky"].items():
+                obj_list = list(zdata["objednavky_set"])
+                zastavky_list.append({
+                    "odberatel": odb,
+                    "poradie": zdata["poradie"],
+                    "pocet_objednavok": len(obj_list),
+                    "cisla_objednavok": obj_list
+                })
+            # Zoradenie zastávok podľa poradia
+            zastavky_list.sort(key=lambda x: x["poradie"])
+
+            # Formátovanie sumáru
+            sumar_list = []
+            for kat, produkty in data["sumar"].items():
+                prod_list = list(produkty.values())
+                prod_list.sort(key=lambda x: x["produkt"])
+                sumar_list.append({
+                    "kategoria": kat,
+                    "polozky": prod_list
+                })
+            sumar_list.sort(key=lambda x: x["kategoria"])
+
+            final_routes.append({
+                "trasa_id": tid,
+                "nazov": data["nazov"],
+                "zastavky": zastavky_list,
+                "sumar": sumar_list
+            })
+
+        # Zoradíme trasy podľa názvu
+        final_routes.sort(key=lambda x: x["nazov"])
+
+        return jsonify({"trasy": final_routes})
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
 @app.get('/leaderexpedicia')
 @login_required(role=('veduci','admin'))
 def leader_page():
@@ -3685,6 +3813,16 @@ def b2b_order_pdf_alias():
 
     return jsonify({'error':'Objednávku sa nepodarilo nájsť.'}), 404
 
+@app.route("/api/leader/logistics/routes-data", methods=["GET"])
+def api_logistics_routes_data():
+    import b2b_handler
+    date = request.args.get("date")
+    return jsonify(b2b_handler.get_logistics_routes_data(date))
+
+@app.route("/api/kancelaria/b2b/updateCustomerRouteOrder", methods=["POST"])
+def api_update_route_order():
+    import b2b_handler
+    return jsonify(b2b_handler.update_customer_route_order(request.get_json()))
 # =========================== KANCELÁRIA – rozrábka =============================
 # --- KANCELÁRIA / SKLAD / ROZRÁBKA ---
 

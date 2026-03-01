@@ -61,7 +61,8 @@
     customers: [],
     pricelists: [],
     mapping: {},
-    routeTemplates: [],
+    routes: [], // NOVÉ: Dynamické trasy pre logistiku
+    routeTemplates: [], // Ponechané pre istotu, ak by si to niekedy potreboval
     productsAll: [],
     pendingRegCount: 0
   };
@@ -224,11 +225,10 @@
   }
 
  // =================================================================
-  // 1. OBJEDNÁVKY
+  // 1. OBJEDNÁVKY + DENNÝ SUMÁR
   // =================================================================
   async function loadB2BOrdersView() {
       const box = ensureContainer('b2b-orders-container');
-      // Preload customers
       if (state.customers.length === 0) {
          try {
             const cData = await callFirstOk([{ url: '/api/kancelaria/b2b/getCustomersAndPricelists' }]);
@@ -272,7 +272,6 @@
           const fDate = doc.getElementById('ord-from').value;
           let tDate = doc.getElementById('ord-to').value;
           
-          // Posunieme dátum do o jeden deň kvôli hľadaniu "do konca dňa"
           const dObj = new Date(tDate); dObj.setDate(dObj.getDate() + 1);
           const tDateSent = dObj.toISOString().slice(0,10);
           
@@ -285,7 +284,7 @@
                           from_date: fDate, 
                           to_date: tDateSent, 
                           customer: doc.getElementById('ord-cust').value,
-                          date_type: typeVal  // <--- TOTO POSIELAME NA BACKEND
+                          date_type: typeVal
                       } 
                   } 
               }]);
@@ -297,7 +296,6 @@
               orders.forEach(o => {
                   const statusColor = o.stav === 'Prijatá' ? '#eab308' : (o.stav === 'Hotová' ? '#22c55e' : '#94a3b8');
                   
-                  // Formátovanie dátumu dodania
                   let formatDodania = o.pozadovany_datum_dodania || '-';
                   if (formatDodania !== '-') {
                       const d = new Date(formatDodania);
@@ -307,7 +305,6 @@
                       }
                   }
 
-                  // Formátovanie dátumu vytvorenia
                   const formatVytvorenia = o.datum_objednavky ? new Date(o.datum_objednavky).toLocaleString('sk-SK') : '-';
 
                   html += `<tr>
@@ -325,169 +322,297 @@
           } catch(e) { area.innerHTML = e.message; }
       };
       
-      // Spustiť okamžite vyhľadávanie aj pri zmene typu filtra
       doc.getElementById('ord-filter-btn').onclick = loadOrders;
       doc.getElementById('ord-date-type').onchange = loadOrders; 
       
       loadOrders();
   }
+
+  window.showDailySummary = function() {
+      const tomorrow = new Date(new Date().getTime() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const filterTo = document.getElementById('ord-to');
+      const selectedDate = filterTo && filterTo.value ? filterTo.value : tomorrow;
+      
+      const html = `
+          <div style="padding: 5px;">
+              <h3 style="margin-top:0; color:#1e293b; border-bottom:1px solid #e2e8f0; padding-bottom:10px;">
+                  📋 Sumár produktov na expedíciu
+              </h3>
+              <div style="display:flex; gap:10px; margin-bottom:15px; align-items:center;">
+                  <label><strong>Deň dodania:</strong></label>
+                  <input type="date" id="summary-date" class="filter-input" value="${selectedDate}">
+                  <button class="btn btn-primary" onclick="window.fetchDailySummary()">Načítať dátum</button>
+                  <button class="btn btn-secondary" onclick="window.printDailySummary()" style="margin-left:auto;">🖨️ Tlačiť list</button>
+              </div>
+              <div id="summary-results" style="max-height: 60vh; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 6px;">
+                  <div style="padding: 20px; text-align: center; color: #64748b;">Kliknite na "Načítať" pre zobrazenie sumáru.</div>
+              </div>
+          </div>
+      `;
+      openModal(html);
+      window.fetchDailySummary();
+  };
+
+  window.fetchDailySummary = async function() {
+      const dateVal = document.getElementById('summary-date').value;
+      const resContainer = document.getElementById('summary-results');
+      resContainer.innerHTML = '<div style="padding:30px; text-align:center; color:#64748b;"><i class="fas fa-spinner fa-spin fa-2x"></i><br><br>Pripravujem sumár...</div>';
+      try {
+          const data = await callFirstOk([{ url: '/api/kancelaria/b2b/getDailySummary', opts: { method: 'POST', body: { date: dateVal } } }]);
+          const items = data.items || [];
+          if (!items.length) {
+              resContainer.innerHTML = `<div style="padding:20px; text-align:center; color:#dc2626; font-weight:bold;">Na deň ${dateVal.split('-').reverse().join('.')} nie sú objednané žiadne produkty.</div>`;
+              return;
+          }
+          let table = `<table class="table-refined" style="width:100%;"><thead style="position:sticky; top:0; background:#f8fafc; box-shadow:0 1px 2px rgba(0,0,0,0.1);"><tr><th style="width:60%;">Názov produktu</th><th style="text-align:right; width:20%;">Množstvo</th><th style="width:20%;">Jednotka</th></tr></thead><tbody>`;
+          items.forEach(it => {
+              table += `<tr><td><div style="font-weight:600; color:#0f172a;">${escapeHtml(it.name)}</div><div style="font-size:0.75rem; color:#64748b;">EAN: ${escapeHtml(it.ean)}</div></td><td style="text-align:right; font-size:1.1rem; font-weight:bold; color:#1d4ed8;">${it.qty}</td><td style="color:#475569;">${escapeHtml(it.unit)}</td></tr>`;
+          });
+          table += `</tbody></table>`;
+          resContainer.innerHTML = table;
+      } catch (e) {
+          resContainer.innerHTML = `<div style="padding:20px; color:#dc2626; font-weight:bold;">Chyba: ${escapeHtml(e.message)}</div>`;
+      }
+  };
+
+  window.printDailySummary = function() {
+      const dateVal = document.getElementById('summary-date').value;
+      const content = document.getElementById('summary-results').innerHTML;
+      const formattedDate = dateVal.split('-').reverse().join('.');
+      const win = window.open('', '_blank');
+      win.document.write(`<html><head><title>Sumár expedície B2B - ${formattedDate}</title><style>body { font-family: Arial, sans-serif; padding: 20px; font-size: 14px; } h2 { text-align: center; margin-bottom: 5px; } p.subtitle { text-align: center; color: #555; margin-top: 0; margin-bottom: 20px; } table { width: 100%; border-collapse: collapse; margin-top: 10px; } th, td { border: 1px solid #000; padding: 8px 12px; text-align: left; } th { background-color: #f4f4f4; } td[style*="text-align:right"] { text-align: right; font-weight: bold; }</style></head><body><h2>Sumár produktov na B2B expedíciu</h2><p class="subtitle"><strong>Dátum dodania:</strong> ${formattedDate} | <strong>Vytlačené:</strong> ${new Date().toLocaleString('sk-SK')}</p>${content}<script>window.print();</script></body></html>`);
+      win.document.close();
+  };
+
   // =================================================================
-  // 2. LOGISTIKA
+  // 2. NOVÁ LOGISTIKA & TRASY (ROZVOZY)
   // =================================================================
   async function loadLogisticsView() {
-      const box = ensureContainer('b2b-logistics-container');
-      try {
-          if (state.customers.length === 0) {
-             const cData = await callFirstOk([{ url: '/api/kancelaria/b2b/getCustomersAndPricelists' }]);
-             state.customers = cData.customers || [];
-          }
-          const tData = await callFirstOk([{ url: '/api/kancelaria/b2b/getRouteTemplates' }]);
-          state.routeTemplates = tData || [];
-      } catch(e) {}
-
-      let custHtml = '';
-      state.customers.sort((a,b) => a.nazov_firmy.localeCompare(b.nazov_firmy));
-      state.customers.forEach(c => {
-          custHtml += `
-            <label class="cust-row">
-                <input type="checkbox" class="logistics-check" value="${c.id}" data-name="${escapeHtml(c.nazov_firmy)}" data-addr="${escapeHtml(c.adresa_dorucenia || c.adresa)}">
-                <div><strong>${escapeHtml(c.nazov_firmy)}</strong><br><span style="font-size:0.8em;color:#666;">${escapeHtml(c.adresa_dorucenia || c.adresa)}</span></div>
-            </label>`;
-      });
-
-      let tplOptions = '<option value="">-- Vyberte uloženú trasu --</option>';
-      state.routeTemplates.forEach(t => tplOptions += `<option value="${t.id}">${escapeHtml(t.name)}</option>`);
-
-      box.innerHTML = `
-        <div class="logistics-grid">
-            <div>
-                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-                    <h4 style="margin:0;">1. Výber zákazníkov</h4>
-                    <select id="route-select" class="filter-input" style="width:200px;">${tplOptions}</select>
-                </div>
-                <div class="filter-group" style="margin-bottom:10px;">
-                    <input type="text" id="log-search" class="filter-input" placeholder="Hľadať v zozname..." style="width:100%;">
-                </div>
-                <div class="cust-check-list" id="log-cust-list">${custHtml}</div>
-                <div style="margin-top:10px; display:flex; gap:10px;">
-                     <button id="btn-save-route" class="btn btn-secondary btn-sm">Uložiť výber ako šablónu</button>
-                     <button id="btn-del-route" class="btn btn-danger btn-sm" style="display:none;">Zmazať šablónu</button>
-                </div>
-            </div>
-            <div>
-                <h4>2. Manuálne zastávky</h4>
-                <div style="background:#f9fafb; padding:15px; border-radius:6px; border:1px solid #eee;">
-                    <input type="text" id="log-man-name" class="filter-input" placeholder="Názov miesta" style="width:100%;margin-bottom:5px;">
-                    <input type="text" id="log-man-addr" class="filter-input" placeholder="Adresa / Poznámka" style="width:100%;margin-bottom:5px;">
-                    <button id="log-add-manual" class="btn btn-secondary btn-sm">Pridať do zoznamu</button>
-                </div>
-                <h4 style="margin-top:20px;">3. Náhľad nákladkového listu</h4>
-                <ul id="log-print-preview" style="min-height:100px; border:1px dashed #ccc; padding:10px; list-style:none;">
-                    <li style="color:#999;">Vyberte zákazníkov vľavo...</li>
-                </ul>
-                <div style="margin-top:20px;">
-                    <label>Dátum rozvozu:</label>
-                    <input type="date" id="log-date" value="${new Date().toISOString().slice(0,10)}" class="filter-input">
-                    <button class="btn btn-primary" style="width:100%; margin-top:10px; padding:12px;" onclick="window.printLogisticsSheet()">🖨️ Vytlačiť list</button>
+    const box = ensureContainer('b2b-logistics-container');
+    const today = new Date().toISOString().slice(0, 10);
+    
+    box.innerHTML = `
+        <div style="background:#f8fafc; padding:15px; border-radius:8px; border:1px solid #e2e8f0; margin-bottom:20px;">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <h4 style="margin:0; color:#1e293b;">🚛 Plánovanie rozvozu</h4>
+                <div style="display:flex; gap:10px; align-items:center;">
+                    <label style="font-weight:bold;">Deň rozvozu (Dodania):</label>
+                    <input type="date" id="logistics-date" class="filter-input" value="${today}">
+                    <button id="logistics-load-btn" class="btn btn-primary"><i class="fas fa-sync"></i> Načítať trasy</button>
                 </div>
             </div>
         </div>
-      `;
+        <div id="logistics-content">
+            <p class="muted">Kliknite na "Načítať trasy" pre zobrazenie zoznamu.</p>
+        </div>
+    `;
 
-      doc.getElementById('log-search').addEventListener('input', (e) => {
-          const val = e.target.value.toLowerCase();
-          doc.querySelectorAll('.cust-row').forEach(row => {
-              row.style.display = row.innerText.toLowerCase().includes(val) ? 'flex' : 'none';
-          });
-      });
+    document.getElementById('logistics-load-btn').onclick = async () => {
+        const date = document.getElementById('logistics-date').value;
+        const content = document.getElementById('logistics-content');
+        content.innerHTML = '<div style="padding:40px;text-align:center;color:#64748b;"><i class="fas fa-spinner fa-spin fa-2x"></i><br>Sťahujem objednávky a zoskupujem trasy...</div>';
 
-      const routeSelect = doc.getElementById('route-select');
-      routeSelect.addEventListener('change', () => {
-          const tid = routeSelect.value;
-          const delBtn = doc.getElementById('btn-del-route');
-          doc.querySelectorAll('.logistics-check').forEach(cb => cb.checked = false);
-          if (tid) {
-              delBtn.style.display = 'inline-block';
-              const t = state.routeTemplates.find(x => x.id == tid);
-              if (t && t.customer_ids) {
-                  const ids = JSON.parse(t.customer_ids);
-                  ids.forEach(id => {
-                      const cb = doc.querySelector(`.logistics-check[value="${id}"]`);
-                      if(cb) cb.checked = true;
-                  });
-              }
-          } else { delBtn.style.display = 'none'; }
-          updatePreview();
-      });
+        try {
+            const res = await callFirstOk([{ url: `/api/leader/logistics/routes-data?date=${date}` }]);
+            const trasy = res.trasy || [];
 
-      doc.getElementById('btn-save-route').onclick = async () => {
-          const selected = Array.from(doc.querySelectorAll('.logistics-check:checked')).map(cb => parseInt(cb.value));
-          if(!selected.length) return showStatus('Vyberte aspoň jedného zákazníka', true);
-          const name = prompt("Zadajte názov pre túto trasu (napr. Pondelok - Smer Nitra):");
-          if(!name) return;
-          try {
-              await callFirstOk([{ url: '/api/kancelaria/b2b/saveRouteTemplate', opts: { method: 'POST', body: { name, ids: selected } } }]);
-              showStatus('Trasa uložená'); loadLogisticsView();
-          } catch(e) { alert(e.message); }
-      };
-      
-      doc.getElementById('btn-del-route').onclick = async () => {
-           const tid = routeSelect.value;
-           if(!tid || !confirm("Naozaj zmazať túto šablónu?")) return;
-           try {
-               await callFirstOk([{ url: '/api/kancelaria/b2b/deleteRouteTemplate', opts: { method: 'POST', body: { id: tid } } }]);
-               showStatus('Trasa zmazaná'); loadLogisticsView();
-           } catch(e) { alert(e.message); }
-      };
+            if (trasy.length === 0) {
+                content.innerHTML = '<div style="padding:20px;text-align:center;font-weight:bold;color:#dc2626;">Na tento deň nie sú naplánované žiadne objednávky pre rozvoz.</div>';
+                return;
+            }
 
-      const manualList = [];
-      const updatePreview = () => {
-          const selected = [];
-          doc.querySelectorAll('.logistics-check:checked').forEach(cb => {
-              selected.push({ name: cb.dataset.name, addr: cb.dataset.addr, type: 'system' });
-          });
-          const final = [...selected, ...manualList];
-          const list = doc.getElementById('log-print-preview');
-          if(final.length===0) { list.innerHTML = '<li style="color:#999;">Prázdne...</li>'; return; }
-          list.innerHTML = final.map((i, idx) => `
-            <li style="padding:5px; border-bottom:1px solid #eee; display:flex; justify-content:space-between;">
-                <span>${idx+1}. <b>${i.name}</b> <span style="font-size:0.8em;color:#666;">(${i.addr})</span></span>
-                ${i.type === 'manual' ? `<button onclick="window.removeManualLog(${idx - selected.length})" style="color:red;border:none;cursor:pointer;">&times;</button>` : ''}
-            </li>`).join('');
-      };
-
-      doc.querySelectorAll('.logistics-check').forEach(cb => cb.addEventListener('change', updatePreview));
-
-      doc.getElementById('log-add-manual').onclick = () => {
-          const name = doc.getElementById('log-man-name').value;
-          const addr = doc.getElementById('log-man-addr').value;
-          if (name) {
-              manualList.push({ name, addr, type: 'manual' });
-              doc.getElementById('log-man-name').value = '';
-              doc.getElementById('log-man-addr').value = '';
-              updatePreview();
-          }
-      };
-
-      window.removeManualLog = (idx) => { manualList.splice(idx, 1); updatePreview(); };
-      window.printLogisticsSheet = () => {
-          const date = doc.getElementById('log-date').value;
-          const selected = [];
-          doc.querySelectorAll('.logistics-check:checked').forEach(cb => selected.push({ name: cb.dataset.name, addr: cb.dataset.addr }));
-          const all = [...selected, ...manualList];
-          if (!all.length) return alert("Zoznam je prázdny.");
-          const w = window.open('', '_blank');
-          w.document.write(`<html><head><title>Nákladkový list</title><style>body { font-family: Arial; padding: 20px; } table { width: 100%; border-collapse: collapse; margin-top: 20px; } th, td { border: 1px solid #000; padding: 10px; text-align: left; } th { background: #eee; }</style></head><body><h1 style="text-align:center;">Nákladkový list / Rozvoz</h1><p><strong>Dátum:</strong> ${date} &nbsp;&nbsp;&nbsp; <strong>Vodič:</strong> _________________</p><table><thead><tr><th style="width:40px;">#</th><th>Odberateľ / Miesto</th><th>Adresa / Poznámka</th><th style="width:100px;">Podpis</th></tr></thead><tbody>${all.map((item, i) => `<tr><td>${i+1}</td><td><b>${item.name}</b></td><td>${item.addr}</td><td></td></tr>`).join('')}</tbody></table><script>window.print();</script></body></html>`);
-          w.document.close();
-      };
+            let html = '';
+            trasy.forEach(t => {
+                html += `
+                <div class="card" style="margin-bottom: 25px; border: 1px solid #cbd5e1; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);">
+                    <div class="card-header" style="background:#f1f5f9; display:flex; justify-content:space-between; align-items:center; border-bottom: 2px solid #0284c7;">
+                        <h3 style="margin:0; color:#0f172a;">🚛 ${escapeHtml(t.nazov)}</h3>
+                        <div style="display:flex; gap:10px;">
+                            <button class="btn btn-warning btn-sm" style="color:#000; font-weight:bold;" onclick='window.printChecklist(${JSON.stringify(t).replace(/'/g, "&apos;")}, "${date}")'>📝 Nakládkový list (Checklist)</button>
+                            <button class="btn btn-secondary btn-sm" style="background:#1e293b; color:#fff; border:none;" onclick='window.printSummary(${JSON.stringify(t).replace(/'/g, "&apos;")}, "${date}")'>📦 Slepý list (Súhrn do auta)</button>
+                        </div>
+                    </div>
+                    <div class="card-body" style="display:flex; gap:20px; flex-wrap:wrap;">
+                        <div style="flex:1; min-width:400px;">
+                            <h5 style="border-bottom:1px solid #e2e8f0; padding-bottom:8px; margin-top:0; color:#475569;">Poradie zastávok (Vykládka)</h5>
+                            <table class="table-refined" style="font-size:0.85rem;">
+                                <thead>
+                                    <tr>
+                                        <th style="width:60px; text-align:center;">Poradie</th>
+                                        <th>Odberateľ a Adresa</th>
+                                        <th>Objednávky</th>
+                                        <th style="text-align:center;">Uložiť</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${t.zastavky.map((z) => `
+                                        <tr>
+                                            <td style="text-align:center;">
+                                                <input type="number" value="${z.poradie}" class="filter-input" style="width:60px; text-align:center; font-weight:bold;" id="poradie_${z.zakaznik_id}">
+                                            </td>
+                                            <td>
+                                                <strong style="font-size:1rem; color:#0f172a;">${escapeHtml(z.odberatel)}</strong><br>
+                                                <small style="color:#64748b;">${escapeHtml(z.adresa)}</small>
+                                            </td>
+                                            <td>
+                                                <span style="background:#e0f2fe; color:#0369a1; padding:2px 6px; border-radius:4px; font-weight:bold;">${z.pocet_objednavok} obj.</span><br>
+                                                <small style="color:#94a3b8;">${z.cisla_objednavok.join(', ')}</small>
+                                            </td>
+                                            <td style="text-align:center;">
+                                                <button class="btn btn-primary btn-sm" onclick="window.saveRouteOrder(${z.zakaznik_id})">💾</button>
+                                            </td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                            <p style="font-size:0.75rem; color:#94a3b8; margin-top:10px;">* Ak zmeníte poradie, nezabudnite kliknúť na tlačidlo 💾 Uložiť.</p>
+                        </div>
+                        
+                        <div style="width:350px; background:#f8fafc; padding:15px; border-radius:8px; border:1px solid #e2e8f0;">
+                            <h5 style="border-bottom:1px solid #cbd5e1; padding-bottom:8px; margin-top:0; color:#475569;">Čo naložiť do auta (Sumár kategórií)</h5>
+                            ${t.sumar.map(s => `
+                                <div style="margin-bottom:12px;">
+                                    <strong style="color:#0369a1; display:block; border-bottom:1px dashed #cbd5e1; padding-bottom:3px;">${escapeHtml(s.kategoria)}</strong>
+                                    <ul style="margin:5px 0 0 0; padding-left:0; list-style:none; font-size:0.85rem;">
+                                        ${s.polozky.map(p => `
+                                            <li style="display:flex; justify-content:space-between; padding:3px 0;">
+                                                <span>${escapeHtml(p.produkt)}</span>
+                                                <b style="color:#1e293b;">${p.mnozstvo} ${p.mj}</b>
+                                            </li>
+                                        `).join('')}
+                                    </ul>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                </div>
+                `;
+            });
+            content.innerHTML = html;
+        } catch (e) {
+            content.innerHTML = `<div class="alert alert-danger" style="padding:20px; font-weight:bold;">Kritická chyba: ${e.message}</div>`;
+        }
+    };
+    
+    document.getElementById('logistics-load-btn').click();
   }
+
+  // Tlač - Nakládkový List (Checklist)
+  window.printChecklist = function(routeObj, dateStr) {
+      const dateFormatted = dateStr.split('-').reverse().join('.');
+      let html = `
+      <html><head><title>Nakládkový list - ${routeObj.nazov}</title>
+      <style>
+          body { font-family: Arial, sans-serif; padding: 20px; font-size: 14px; }
+          h1 { text-align: center; margin-bottom: 5px; text-transform: uppercase; }
+          h3 { text-align: center; margin-top: 0; color: #555; }
+          table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+          th, td { border: 1px solid #000; padding: 12px 10px; text-align: left; vertical-align: middle; }
+          th { background-color: #f1f5f9; font-size: 13px; }
+          .checkbox-col { width: 80px; text-align: center; }
+          .box { display: inline-block; width: 20px; height: 20px; border: 2px solid #000; }
+          @media print { body { margin: 0; padding: 10px; } }
+      </style>
+      </head><body>
+          <h1>Nakládkový list / Itinerár</h1>
+          <h3>TRASA: ${escapeHtml(routeObj.nazov)} | DÁTUM: ${dateFormatted} | ŠOFÉR: __________________</h3>
+          <table>
+              <thead>
+                  <tr>
+                      <th style="width:40px;">Por.</th>
+                      <th>Odberateľ a Adresa dodania</th>
+                      <th>Detail objednávok</th>
+                      <th class="checkbox-col">Pripravil do skladu</th>
+                      <th class="checkbox-col">Naložil do auta</th>
+                  </tr>
+              </thead>
+              <tbody>
+      `;
+      routeObj.zastavky.forEach((z, idx) => {
+          html += `
+              <tr>
+                  <td style="text-align:center; font-size:16px;"><strong>${idx + 1}.</strong></td>
+                  <td><strong style="font-size:16px;">${escapeHtml(z.odberatel)}</strong><br><span style="color:#555; font-size:12px;">${escapeHtml(z.adresa)}</span></td>
+                  <td style="font-size:12px;">
+                      <strong>${z.pocet_objednavok} obj.</strong><br>
+                      ${z.cisla_objednavok.join('<br>')}
+                  </td>
+                  <td class="checkbox-col"><div class="box"></div></td>
+                  <td class="checkbox-col"><div class="box"></div></td>
+              </tr>
+          `;
+      });
+      html += `</tbody></table>
+      <div style="margin-top: 30px; display: flex; justify-content: space-between;">
+          <div>Podpis pripravil: _______________________</div>
+          <div>Podpis šoféra (Prebral): _______________________</div>
+      </div>
+      <script>window.onload=function(){window.print(); setTimeout(function(){window.close();},500);}</script></body></html>`;
+      const win = window.open('', '_blank');
+      win.document.write(html);
+      win.document.close();
+  };
+
+  // Tlač - Slepý list (Sumár)
+  window.printSummary = function(routeObj, dateStr) {
+      const dateFormatted = dateStr.split('-').reverse().join('.');
+      let html = `
+      <html><head><title>Slepý list - ${routeObj.nazov}</title>
+      <style>
+          body { font-family: Arial, sans-serif; padding: 20px; font-size: 14px; }
+          h1 { text-align: center; margin-bottom: 5px; text-transform: uppercase; }
+          h3 { text-align: center; margin-top: 0; color: #555; }
+          .category-title { background: #e2e8f0; padding: 8px 12px; margin-top: 20px; font-weight: bold; border: 1px solid #000; border-bottom: none; font-size:16px;}
+          table { width: 100%; border-collapse: collapse; }
+          th, td { border: 1px solid #000; padding: 8px 12px; text-align: left; }
+          td.num { text-align: right; font-weight: bold; width: 120px; font-size:16px;}
+          @media print { body { margin: 0; padding: 10px; } }
+      </style>
+      </head><body>
+          <h1>Slepý list (Súhrn na naloženie)</h1>
+          <h3>TRASA: ${escapeHtml(routeObj.nazov)} | DÁTUM: ${dateFormatted}</h3>
+      `;
+      routeObj.sumar.forEach(s => {
+          html += `<div class="category-title">${escapeHtml(s.kategoria)}</div>`;
+          html += `<table><tbody>`;
+          s.polozky.forEach(p => {
+              const val = parseFloat(p.mnozstvo);
+              const displayVal = Number.isInteger(val) ? val : val.toFixed(2);
+              html += `<tr>
+                  <td>${escapeHtml(p.produkt)}</td>
+                  <td class="num">${displayVal} ${p.mj}</td>
+              </tr>`;
+          });
+          html += `</tbody></table>`;
+      });
+      html += `<script>window.onload=function(){window.print(); setTimeout(function(){window.close();},500);}</script></body></html>`;
+      const win = window.open('', '_blank');
+      win.document.write(html);
+      win.document.close();
+  };
+
+  // Uloženie poradia zastávky
+  window.saveRouteOrder = async function(custId) {
+      const poradie = document.getElementById(`poradie_${custId}`).value;
+      try {
+          await callFirstOk([{ 
+              url: '/api/kancelaria/b2b/updateCustomerRouteOrder', 
+              opts: { method: 'POST', body: { zakaznik_id: custId, poradie: poradie } } 
+          }]);
+          showStatus('Poradie bolo úspešne uložené.');
+          document.getElementById('logistics-load-btn').click();
+      } catch(e) {
+          alert('Chyba: ' + e.message);
+      }
+  };
+
 
   // =================================================================
   // 3. KOMUNIKÁCIA
   // =================================================================
   async function loadCommView() {
       const box = ensureContainer('b2b-comm-container');
-      box.innerHTML = 'Načítavam...';
+      box.innerHTML = '<div style="padding:40px;text-align:center;"><i class="fas fa-spinner fa-spin fa-2x"></i></div>';
       try {
           const [cData, msgData] = await Promise.all([
               callFirstOk([{ url: '/api/kancelaria/b2b/getCustomersAndPricelists' }]),
@@ -576,22 +701,19 @@ async function loadCustomersAndPricelists() {
     box.innerHTML = '<div style="text-align:center;padding:40px;color:#666;"><i class="fas fa-spinner fa-spin"></i> Načítavam databázu zákazníkov...</div>';
     
     try {
-        // 1. Načítanie dát
         const data = await callFirstOk([{url:'/api/kancelaria/b2b/getCustomersAndPricelists'}]);
         state.customers = data.customers || []; 
         state.pricelists = data.pricelists || []; 
+        state.routes = data.routes || []; // Dynamické trasy
         state.mapping = data.mapping || {};
         
-        // Mapa pre rýchle hľadanie názvov cenníkov
         const plMap = new Map(state.pricelists.map(p=>[p.id, p.nazov_cennika]));
 
-        // 2. HTML Layout (Filter + Tabuľka)
         let html = `
             <div style="background:#f8fafc; padding:15px; border-radius:8px; border:1px solid #e2e8f0; margin-bottom:20px;">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
                     <h4 style="margin:0; color:#1e293b;">👥 Databáza B2B zákazníkov</h4>
-                    </div>
-                
+                </div>
                 <div class="filter-bar" style="border:none; padding:0; margin:0; box-shadow:none; background:transparent; gap:15px;">
                     <div class="filter-group">
                         <label>Hľadať (Názov, ID, Email)</label>
@@ -627,7 +749,6 @@ async function loadCustomersAndPricelists() {
         `;
         box.innerHTML = html;
 
-        // 3. Logika renderovania
         let currentPage = 1;
         const itemsPerPage = 10;
 
@@ -636,23 +757,18 @@ async function loadCustomersAndPricelists() {
             const plFilter = doc.getElementById('cust-filter-pricelist').value;
             const typeFilter = doc.getElementById('cust-filter-type').value;
 
-            // Filtrovanie
             const filtered = state.customers.filter(c => {
-                // A. Text filter
                 const textMatch = 
                     c.nazov_firmy.toLowerCase().includes(searchText) || 
                     (c.zakaznik_id || '').toLowerCase().includes(searchText) ||
                     (c.email || '').toLowerCase().includes(searchText);
                 if (searchText && !textMatch) return false;
 
-                // B. Pricelist filter
                 if (plFilter) {
                     const assignedIds = state.mapping[c.zakaznik_id] || state.mapping[c.id] || [];
-                    // assignedIds sú stringy alebo čísla, porovnávame s plFilter (string)
                     if (!assignedIds.map(String).includes(String(plFilter))) return false;
                 }
 
-                // C. Type filter
                 const isBranch = !!c.parent_id;
                 if (typeFilter === 'main' && isBranch) return false;
                 if (typeFilter === 'branch' && !isBranch) return false;
@@ -660,16 +776,13 @@ async function loadCustomersAndPricelists() {
                 return true;
             });
 
-            // Zoradenie (A-Z)
             filtered.sort((a,b) => a.nazov_firmy.localeCompare(b.nazov_firmy));
 
-            // Stránkovanie
             const totalPages = Math.ceil(filtered.length / itemsPerPage);
             if (currentPage > totalPages) currentPage = 1;
             const start = (currentPage - 1) * itemsPerPage;
             const paginated = filtered.slice(start, start + itemsPerPage);
 
-            // HTML Tabuľky
             let tableHtml = `
             <div class="stat-card" style="padding:0; overflow:hidden; border:1px solid #e2e8f0;">
                 <table class="table-refined">
@@ -678,7 +791,7 @@ async function loadCustomersAndPricelists() {
                             <th style="width:100px;">ERP ID</th>
                             <th>Firma / Pobočka</th>
                             <th>Kontakt & Adresa</th>
-                            <th>Priradené cenníky</th>
+                            <th>Trasa / Cenníky</th>
                             <th style="width:260px; text-align:right;">Akcia</th>
                         </tr>
                     </thead>
@@ -690,7 +803,6 @@ async function loadCustomersAndPricelists() {
                 paginated.forEach(c => {
                     const assignedIds = state.mapping[c.zakaznik_id] || state.mapping[c.id] || [];
                     
-                    // Názvy cenníkov
                     let plBadges = '';
                     if (assignedIds.length > 0) {
                         plBadges = assignedIds.map(id => {
@@ -701,7 +813,9 @@ async function loadCustomersAndPricelists() {
                         plBadges = `<span style="color:#94a3b8; font-size:0.8rem;">Žiadne cenníky</span>`;
                     }
 
-                    // Detekcia pobočky
+                    const routeName = c.trasa_id ? (state.routes.find(r => r.id == c.trasa_id)?.nazov || 'Neznáma trasa') : 'Bez trasy';
+                    const routeBadge = `<div style="margin-bottom:5px;"><span style="background:#f1f5f9; color:#0f172a; padding:2px 6px; border-radius:4px; font-size:0.75rem; border:1px solid #cbd5e1;">🚛 ${escapeHtml(routeName)} (Poradie: ${c.trasa_poradie || '-'})</span></div>`;
+
                     const isBranch = !!c.parent_id;
                     const nameDisplay = isBranch 
                         ? `<div style="display:flex; flex-direction:column;">
@@ -720,48 +834,35 @@ async function loadCustomersAndPricelists() {
                             <div style="color:#64748b;">${escapeHtml(c.telefon || '')}</div>
                             <div style="color:#64748b; font-size:0.75rem;">${escapeHtml(c.adresa_dorucenia || c.adresa || '')}</div>
                         </td>
-                        <td>${plBadges}</td>
+                        <td>${routeBadge}${plBadges}</td>
                         <td style="text-align:right;">
-    <button class="btn btn-secondary btn-sm" style="background:#0ea5e9; color:white; border:none;" onclick="window.showCustomer360(${c.id})" title="Karta zákazníka (Štatistiky nákupov)">📊 Karta</button>
-    <button class="btn btn-primary btn-sm" style="margin-left:5px;" onclick="window.editB2BCustomer(${c.id})" title="Upraviť údaje a cenníky">✏️ Upraviť</button>
-    ${!isBranch ? `<button class="btn btn-warning btn-sm" style="margin-left:5px;" onclick="window.addB2BBranch(${c.id}, '${escapeHtml(c.nazov_firmy)}')" title="Pridať pobočku">+ Pobočka</button>` : ''}
-    <button class="btn btn-danger btn-sm" style="margin-left:5px;" onclick="window.deleteB2BCustomer(${c.id})" title="Zmazať účet">🗑️</button>
-</td>
+                            <button class="btn btn-secondary btn-sm" style="background:#0ea5e9; color:white; border:none;" onclick="window.showCustomer360(${c.id})" title="Karta zákazníka (Štatistiky nákupov)">📊 Karta</button>
+                            <button class="btn btn-primary btn-sm" style="margin-left:5px;" onclick="window.editB2BCustomer(${c.id})" title="Upraviť údaje a cenníky">✏️ Upraviť</button>
+                            ${!isBranch ? `<button class="btn btn-warning btn-sm" style="margin-left:5px;" onclick="window.addB2BBranch(${c.id}, '${escapeHtml(c.nazov_firmy)}')" title="Pridať pobočku">+ Pobočka</button>` : ''}
+                            <button class="btn btn-danger btn-sm" style="margin-left:5px;" onclick="window.deleteB2BCustomer(${c.id})" title="Zmazať účet">🗑️</button>
+                        </td>
                     </tr>`;
                 });
             }
             tableHtml += `</tbody></table></div>`;
-            
-            // Pätička
             tableHtml += `<div style="text-align:right; font-size:0.8rem; color:#64748b; margin-top:8px;">Zobrazené ${paginated.length} z ${filtered.length} zákazníkov</div>`;
 
             doc.getElementById('cust-table-wrapper').innerHTML = tableHtml;
 
-            // Renderovanie stránkovania
             let pagHtml = '';
             if (totalPages > 1) {
                 pagHtml += `<button class="btn btn-secondary btn-sm" ${currentPage===1?'disabled':''} onclick="window.changeCustPage(${currentPage-1})">«</button>`;
-                
                 let startPage = Math.max(1, currentPage - 2);
                 let endPage = Math.min(totalPages, currentPage + 2);
-                
                 for(let i=startPage; i<=endPage; i++) {
                     pagHtml += `<button class="btn btn-sm ${i===currentPage?'btn-primary':'btn-secondary'}" onclick="window.changeCustPage(${i})" style="min-width:30px;">${i}</button>`;
                 }
-                
                 pagHtml += `<button class="btn btn-secondary btn-sm" ${currentPage===totalPages?'disabled':''} onclick="window.changeCustPage(${currentPage+1})">»</button>`;
             }
             doc.getElementById('cust-pagination').innerHTML = pagHtml;
         };
 
-        // Globálna funkcia pre stránkovanie
-        window.changeCustPage = (pageNum) => {
-            if (pageNum < 1) return;
-            currentPage = pageNum;
-            renderTable();
-        };
-
-        // Listenery
+        window.changeCustPage = (pageNum) => { if (pageNum >= 1) { currentPage = pageNum; renderTable(); } };
         doc.getElementById('cust-search-text').addEventListener('input', () => { currentPage=1; renderTable(); });
         doc.getElementById('cust-filter-pricelist').addEventListener('change', () => { currentPage=1; renderTable(); });
         doc.getElementById('cust-filter-type').addEventListener('change', () => { currentPage=1; renderTable(); });
@@ -770,11 +871,9 @@ async function loadCustomersAndPricelists() {
             doc.getElementById('cust-search-text').value = '';
             doc.getElementById('cust-filter-pricelist').value = '';
             doc.getElementById('cust-filter-type').value = 'all';
-            currentPage = 1;
-            renderTable();
+            currentPage = 1; renderTable();
         });
 
-        // Prvé spustenie
         renderTable();
 
     } catch(e) { 
@@ -782,8 +881,6 @@ async function loadCustomersAndPricelists() {
         box.innerHTML = `<p class="error">Chyba pri načítaní: ${e.message}</p>`; 
     }
 }
-
-// === Existujúce funkcie (pre istotu ich tu nechávam, ak by ste ich potrebovali v kontexte) ===
 
 window.editB2BCustomer = function(id) {
     const cust = state.customers.find(c => c.id === id);
@@ -796,6 +893,13 @@ window.editB2BCustomer = function(id) {
         const checked = assignedIds.includes(p.id) ? 'checked' : '';
         plHtml += `<label style="display:block; margin-bottom:5px; padding:5px; background:#f9fafb; border-radius:4px;"><input type="checkbox" class="pl-check" value="${p.id}" ${checked}> ${escapeHtml(p.nazov_cennika)}</label>`;
     });
+
+    let routesHtml = '<option value="">-- Bez trasy --</option>';
+    state.routes.forEach(r => {
+        const sel = (r.id == cust.trasa_id) ? 'selected' : '';
+        routesHtml += `<option value="${r.id}" ${sel}>${escapeHtml(r.nazov)}</option>`;
+    });
+    const poradieVal = cust.trasa_poradie || 999;
     
     openModal(`<div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px;">
       <div>
@@ -809,7 +913,18 @@ window.editB2BCustomer = function(id) {
       </div>
       <div>
           <h4>Priradené cenníky</h4>
-          <div style="max-height:300px; overflow-y:auto; border:1px solid #ddd; padding:10px; border-radius:4px;">${plHtml}</div>
+          <div style="max-height:150px; overflow-y:auto; border:1px solid #ddd; padding:10px; border-radius:4px;">${plHtml}</div>
+          
+          <h4 style="margin-top:20px;">Logistika a Trasa</h4>
+          <div class="form-group">
+            <label>Priradená trasa (rozvoz)</label>
+            <select id="ced-trasa" class="filter-input" style="width:100%;">${routesHtml}</select>
+          </div>
+          <div class="form-group">
+            <label>Predvolené poradie vykládky</label>
+            <input type="number" id="ced-poradie" value="${poradieVal}" class="filter-input" style="width:100%;">
+          </div>
+
           <h4 style="margin-top:20px;">Iné</h4>
           <label><input type="checkbox" id="ced-active" ${cust.je_schvaleny ? 'checked' : ''}> Účet je aktívny</label>
       </div>
@@ -824,8 +939,10 @@ window.saveB2BCustomer = async function(id) {
         email: document.getElementById('ced-email').value, 
         telefon: document.getElementById('ced-phone').value, 
         adresa: document.getElementById('ced-addr').value,
-        adresa_dorucenia: document.getElementById('ced-del-addr').value, // Doplnené
+        adresa_dorucenia: document.getElementById('ced-del-addr').value,
         je_schvaleny: document.getElementById('ced-active').checked ? 1 : 0, 
+        trasa_id: document.getElementById('ced-trasa').value,
+        trasa_poradie: document.getElementById('ced-poradie').value,
         pricelist_ids: Array.from(document.querySelectorAll('.pl-check:checked')).map(cb => cb.value)
     };
     try {
@@ -839,37 +956,20 @@ window.saveB2BCustomer = async function(id) {
 window.deleteB2BCustomer = async function(id) {
     const cust = state.customers.find(c => c.id === id);
     if(!cust) return;
-
     const assignedIds = state.mapping[cust.zakaznik_id] || state.mapping[cust.id] || [];
     if (assignedIds.length > 0) {
         alert(`Zákazník ${cust.nazov_firmy} má priradené cenníky.\nPred zmazaním mu ich musíte odobrať.`);
         return;
     }
-
-    const confirmWord = prompt(
-        `UPOZORNENIE: Chystáte sa natrvalo zmazať zákazníka:\n"${cust.nazov_firmy}"\n\nAk ste si istí, napíšte slovo ZMAZAT:`
-    );
-
-    if (confirmWord !== "ZMAZAT") {
-        showStatus("Mazanie zrušené.", true);
-        return;
-    }
+    const confirmWord = prompt(`UPOZORNENIE: Chystáte sa natrvalo zmazať zákazníka:\n"${cust.nazov_firmy}"\n\nAk ste si istí, napíšte slovo ZMAZAT:`);
+    if (confirmWord !== "ZMAZAT") { showStatus("Mazanie zrušené.", true); return; }
 
     try {
-        const res = await callFirstOk([{ 
-            url: '/api/kancelaria/b2b/deleteCustomer', 
-            opts: { method: 'POST', body: { id: id } } 
-        }]);
-        
+        const res = await callFirstOk([{ url: '/api/kancelaria/b2b/deleteCustomer', opts: { method: 'POST', body: { id: id } } }]);
         showStatus(res.message || 'Zákazník bol zmazaný.');
         loadCustomersAndPricelists();
-        
-    } catch(e) { 
-        alert("Chyba pri mazaní: " + e.message); 
-    }
+    } catch(e) { alert("Chyba pri mazaní: " + e.message); }
 };
-
-// === NOVÉ FUNKCIE PRE POBOČKY (Step 4) ===
 
 window.addB2BBranch = function(parentId, parentName) {
     openModal(`
@@ -904,35 +1004,116 @@ window.saveB2BBranch = async function(parentId) {
         branch_code: document.getElementById('br-code').value,
         branch_address: document.getElementById('br-addr').value
     };
-    
-    if(!data.branch_name || !data.branch_code) {
-        return showStatus('Vyplňte názov a zákaznícke číslo.', true);
-    }
+    if(!data.branch_name || !data.branch_code) return showStatus('Vyplňte názov a zákaznícke číslo.', true);
     
     try {
-        await callFirstOk([{ 
-            url: '/api/kancelaria/b2b/createBranch', 
-            opts: { method: 'POST', body: data } 
-        }]);
-        
+        await callFirstOk([{ url: '/api/kancelaria/b2b/createBranch', opts: { method: 'POST', body: data } }]);
         showStatus('Pobočka úspešne vytvorená.');
         closeModal();
-        loadCustomersAndPricelists(); // Refresh tabuľky
-    } catch(e) {
-        alert("Chyba: " + e.message);
-    }
+        loadCustomersAndPricelists(); 
+    } catch(e) { alert("Chyba: " + e.message); }
+};
+
+window.showCustomer360 = async function(id) {
+    openModal('<div style="padding:40px; text-align:center; color:#666;"><i class="fas fa-spinner fa-spin fa-2x"></i><br>Načítavam štatistiky a nákupy zákazníka...</div>');
+    try {
+        const res = await callFirstOk([{ url: '/api/kancelaria/b2b/customer_360', opts: { method: 'POST', body: { id: id } } }]);
+        const c = res.customer;
+        const s = res.summary;
+        const products = res.products || [];
+        window.currentC360Products = products;
+        const sumMarginColor = s.margin_pct < 10 ? '#dc2626' : (s.margin_pct >= 20 ? '#16a34a' : '#d97706');
+
+        let html = `
+        <div style="width: 100%; max-width: 1200px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #e2e8f0; padding-bottom:15px; margin-bottom:20px;">
+                <h2 style="margin:0; color:#1e293b;">🏢 ${escapeHtml(c.nazov_firmy)} <span style="font-size:0.8em; color:#64748b;">(ID: ${c.zakaznik_id})</span></h2>
+                <button class="btn btn-secondary btn-sm" onclick="closeModal()">Zavrieť</button>
+            </div>
+            <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:15px; margin-bottom:25px;">
+                <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:15px; text-align:center;">
+                    <div style="font-size:0.8rem; color:#64748b; font-weight:600; text-transform:uppercase;">Počet objednávok</div>
+                    <div style="font-size:1.8rem; font-weight:bold; color:#0f172a; margin-top:5px;">${s.total_orders}</div>
+                </div>
+                <div style="background:#eff6ff; border:1px solid #bfdbfe; border-radius:8px; padding:15px; text-align:center;">
+                    <div style="font-size:0.8rem; color:#1e40af; font-weight:600; text-transform:uppercase;">Celková tržba (bez DPH)</div>
+                    <div style="font-size:1.8rem; font-weight:bold; color:#1d4ed8; margin-top:5px;">${s.total_revenue.toFixed(2)} €</div>
+                </div>
+                <div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:8px; padding:15px; text-align:center;">
+                    <div style="font-size:0.8rem; color:#166534; font-weight:600; text-transform:uppercase;">Celkový zisk</div>
+                    <div style="font-size:1.8rem; font-weight:bold; color:#15803d; margin-top:5px;">${s.total_profit.toFixed(2)} €</div>
+                </div>
+                <div style="background:#fff; border:1px solid ${sumMarginColor}; border-radius:8px; padding:15px; text-align:center;">
+                    <div style="font-size:0.8rem; color:${sumMarginColor}; font-weight:600; text-transform:uppercase;">Celková marža</div>
+                    <div style="font-size:1.8rem; font-weight:bold; color:${sumMarginColor}; margin-top:5px;">${s.margin_pct.toFixed(1)} %</div>
+                </div>
+            </div>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                <h4 style="margin:0;">Najčastejšie odoberané produkty</h4>
+                <input type="text" id="c360-search" class="filter-input" placeholder="Hľadať produkt (názov/EAN)..." style="width:250px;" oninput="window.filterC360Table()">
+            </div>
+            <div style="max-height: 450px; overflow-y: auto; border: 1px solid #cbd5e1; border-radius: 8px;">
+                <table class="table-refined" style="width:100%;">
+                    <thead style="position: sticky; top: 0; background: #f8fafc; z-index: 10;">
+                        <tr>
+                            <th>Názov produktu</th>
+                            <th style="text-align:right;">Odobraté</th>
+                            <th style="text-align:right;">Nákup/Výroba (€/MJ)</th>
+                            <th style="text-align:right;">Priem. Predajná (€/MJ)</th>
+                            <th style="text-align:right;">Tržba (€)</th>
+                            <th style="text-align:right;">Zisk (€)</th>
+                            <th style="text-align:right;">Marža</th>
+                        </tr>
+                    </thead>
+                    <tbody id="c360-table-body"></tbody>
+                </table>
+            </div>
+        </div>
+        `;
+        openModal(html);
+        const modalContent = document.querySelector('.b2b-modal-content');
+        if (modalContent) { modalContent.style.maxWidth = '1100px'; modalContent.style.width = '95%'; }
+        window.filterC360Table();
+    } catch(e) { openModal(`<div style="padding:20px; color:red; text-align:center;"><h2>Chyba</h2>${e.message}</div>`); }
+};
+
+window.filterC360Table = function() {
+    const searchVal = (document.getElementById('c360-search').value || '').toLowerCase();
+    const tbody = document.getElementById('c360-table-body');
+    if (!tbody || !window.currentC360Products) return;
+
+    let html = ''; let count = 0;
+    window.currentC360Products.forEach(p => {
+        if (searchVal && !p.name.toLowerCase().includes(searchVal) && !p.ean.includes(searchVal)) return;
+        let marginColor = '#475569';
+        if (p.margin < 10) marginColor = '#dc2626'; else if (p.margin > 20) marginColor = '#16a34a';
+        html += `
+        <tr>
+            <td>
+                <div style="font-weight:600; color:#1e293b;">${escapeHtml(p.name)}</div>
+                <div style="font-size:0.75rem; color:#64748b;">EAN: ${p.ean}</div>
+            </td>
+            <td style="text-align:right; font-weight:bold;">${p.qty} ${p.unit}</td>
+            <td style="text-align:right; color:#64748b;">${p.unit_cost.toFixed(2)} €</td>
+            <td style="text-align:right; color:#1d4ed8;">${p.avg_price.toFixed(2)} €</td>
+            <td style="text-align:right;">${p.revenue.toFixed(2)} €</td>
+            <td style="text-align:right; font-weight:bold; color:${p.profit < 0 ? '#dc2626' : '#15803d'};">${p.profit > 0 ? '+' : ''}${p.profit.toFixed(2)} €</td>
+            <td style="text-align:right; font-weight:bold; color:${marginColor};">${p.margin.toFixed(1)} %</td>
+        </tr>`;
+        count++;
+    });
+    if (count === 0) html = `<tr><td colspan="7" style="text-align:center; padding:20px; color:#64748b;">Nenašli sa žiadne produkty vyhovujúce filtru.</td></tr>`;
+    tbody.innerHTML = html;
 };
 
 // =================================================================
-// 5. CENNÍKY (MANAGEMENT) - FILTER, STRÁNKOVANIE A PREHĽAD
+// 5. CENNÍKY (MANAGEMENT)
 // =================================================================
 
 async function loadPricelistsForManagement() {
     const box = ensureContainer('b2b-pricelists-container');
     box.innerHTML = '<div style="text-align:center;padding:40px;color:#666;"><i class="fas fa-spinner fa-spin"></i> Načítavam zoznamy a priradenia...</div>';
-    
     try {
-        // 1. Načítame cenníky AJ zákazníkov (aby sme vedeli, komu čo patrí)
         const [plData, custData] = await Promise.all([
             callFirstOk([{ url: '/api/kancelaria/b2b/getPricelistsAndProducts' }]),
             callFirstOk([{ url: '/api/kancelaria/b2b/getCustomersAndPricelists' }])
@@ -941,71 +1122,46 @@ async function loadPricelistsForManagement() {
         state.pricelists = plData.pricelists || []; 
         state.productsAll = plData.products || [];
         state.customers = custData.customers || [];
-        state.mapping = custData.mapping || {}; // Mapa: customer_id -> [pricelist_id]
+        state.mapping = custData.mapping || {}; 
 
-        // 2. Spracovanie dát: Inverzné mapovanie (Cenník -> Zoznam firiem)
-        const pricelistUsage = {}; // id_cennika -> ["Firma A", "Firma B"]
-        
-        // Inicializácia polí
+        const pricelistUsage = {}; 
         state.pricelists.forEach(pl => pricelistUsage[pl.id] = []);
 
-        // Prejdenie zákazníkov a naplnenie použitia
         state.customers.forEach(c => {
-            // Mapping môže byť podľa ID (int) alebo zakaznik_id (string), skúsime oboje
             const assignedIds = state.mapping[c.zakaznik_id] || state.mapping[c.id] || [];
             assignedIds.forEach(plId => {
                 const pid = parseInt(plId);
-                if (pricelistUsage[pid]) {
-                    pricelistUsage[pid].push(c.nazov_firmy);
-                }
+                if (pricelistUsage[pid]) pricelistUsage[pid].push(c.nazov_firmy);
             });
         });
 
-        // 3. Vykreslenie UI (Ovládací panel + Kontajner na tabuľku)
         let html = `
             <div style="background:#f8fafc; padding:15px; border-radius:8px; border:1px solid #e2e8f0; margin-bottom:20px;">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
                     <h4 style="margin:0; color:#1e293b;">🗂️ Správa cenníkov</h4>
                     <button id="btn-create-pl" class="btn btn-success" style="font-weight:bold;"><i class="fas fa-plus"></i> + Nový cenník</button>
                 </div>
-                
                 <div class="filter-bar" style="border:none; padding:0; margin:0; box-shadow:none; background:transparent; gap:15px;">
-                    <div class="filter-group">
-                        <label>Názov cenníka</label>
-                        <input type="text" id="pl-search-text" class="filter-input" placeholder="Hľadať..." style="width:200px;">
-                    </div>
-                    
-                    <div class="filter-group">
-                        <label>Stav priradenia</label>
+                    <div class="filter-group"><label>Názov cenníka</label><input type="text" id="pl-search-text" class="filter-input" placeholder="Hľadať..." style="width:200px;"></div>
+                    <div class="filter-group"><label>Stav priradenia</label>
                         <select id="pl-filter-status" class="filter-input" style="width:160px;">
-                            <option value="all">Všetky</option>
-                            <option value="assigned">✅ Priradené (Aktívne)</option>
-                            <option value="unassigned">⚪ Nepriradené (Voľné)</option>
+                            <option value="all">Všetky</option><option value="assigned">✅ Priradené</option><option value="unassigned">⚪ Nepriradené</option>
                         </select>
                     </div>
-
-                    <div class="filter-group">
-                        <label>Patrí zákazníkovi</label>
+                    <div class="filter-group"><label>Patrí zákazníkovi</label>
                         <select id="pl-filter-customer" class="filter-input" style="width:250px;">
                             <option value="">-- Ktorýkoľvek --</option>
                             ${state.customers.map(c => `<option value="${escapeHtml(c.nazov_firmy)}">${escapeHtml(c.nazov_firmy)}</option>`).join('')}
                         </select>
                     </div>
-                    
-                    <div class="filter-group" style="justify-content:flex-end;">
-                         <label>&nbsp;</label>
-                         <button id="pl-reset-filter" class="btn btn-secondary">Reset</button>
-                    </div>
+                    <div class="filter-group" style="justify-content:flex-end;"><label>&nbsp;</label><button id="pl-reset-filter" class="btn btn-secondary">Reset</button></div>
                 </div>
             </div>
-
             <div id="pl-table-wrapper"></div>
             <div id="pl-pagination" style="display:flex; justify-content:center; gap:5px; margin-top:20px;"></div>
         `;
-        
         box.innerHTML = html;
 
-        // 4. Logika renderovania tabuľky
         let currentPage = 1;
         const itemsPerPage = 10;
 
@@ -1014,44 +1170,26 @@ async function loadPricelistsForManagement() {
             const statusFilter = doc.getElementById('pl-filter-status').value;
             const custFilter = doc.getElementById('pl-filter-customer').value;
 
-            // Filtrovanie
             const filtered = state.pricelists.filter(pl => {
                 const usage = pricelistUsage[pl.id] || [];
                 const isAssigned = usage.length > 0;
-
-                // A. Text filter
                 if (searchText && !pl.nazov_cennika.toLowerCase().includes(searchText)) return false;
-                
-                // B. Status filter
                 if (statusFilter === 'assigned' && !isAssigned) return false;
                 if (statusFilter === 'unassigned' && isAssigned) return false;
-
-                // C. Customer filter (ak je zvolený zákazník, cenník musí byť v jeho zozname)
                 if (custFilter && !usage.includes(custFilter)) return false;
-
                 return true;
             });
 
-            // Zoradenie (A-Z)
             filtered.sort((a,b) => a.nazov_cennika.localeCompare(b.nazov_cennika));
-
-            // Stránkovanie
             const totalPages = Math.ceil(filtered.length / itemsPerPage);
             if (currentPage > totalPages) currentPage = 1;
             const start = (currentPage - 1) * itemsPerPage;
             const paginated = filtered.slice(start, start + itemsPerPage);
 
-            // Generovanie HTML tabuľky
             let tableHtml = `
             <div class="stat-card" style="padding:0; overflow:hidden; border:1px solid #e2e8f0;">
                 <table class="table-refined">
-                    <thead>
-                        <tr>
-                            <th style="width:40%;">Názov cenníka</th>
-                            <th style="width:30%;">Použitie / Zákazníci</th>
-                            <th style="width:30%;text-align:right;">Akcia</th>
-                        </tr>
-                    </thead>
+                    <thead><tr><th style="width:40%;">Názov cenníka</th><th style="width:30%;">Použitie / Zákazníci</th><th style="width:30%;text-align:right;">Akcia</th></tr></thead>
                     <tbody>`;
 
             if (paginated.length === 0) {
@@ -1060,22 +1198,18 @@ async function loadPricelistsForManagement() {
                 paginated.forEach(pl => {
                     const usage = pricelistUsage[pl.id] || [];
                     let statusInfo = '';
-                    
                     if (usage.length > 0) {
                         const tooltip = usage.join('\n');
                         const countLabel = usage.length === 1 ? usage[0] : `${usage.length} zákazníkov`;
                         statusInfo = `<div style="display:flex; align-items:center; gap:5px;" title="${escapeHtml(tooltip)}">
                             <span style="color:#166534; background:#dcfce7; padding:2px 8px; border-radius:99px; font-size:0.75rem; font-weight:bold;">✅ Aktívny</span>
-                            <span style="font-size:0.85rem; color:#475569; cursor:help; border-bottom:1px dotted #ccc;">${escapeHtml(countLabel)}</span>
-                        </div>`;
+                            <span style="font-size:0.85rem; color:#475569; cursor:help; border-bottom:1px dotted #ccc;">${escapeHtml(countLabel)}</span></div>`;
                     } else {
                         statusInfo = `<span style="color:#64748b; background:#f1f5f9; padding:2px 8px; border-radius:99px; font-size:0.75rem;">⚪ Nepriradený</span>`;
                     }
 
                     tableHtml += `<tr>
-                        <td style="font-size:1.05rem; font-weight:600; vertical-align:middle; color:#0f172a;">
-                            ${escapeHtml(pl.nazov_cennika)}
-                        </td>
+                        <td style="font-size:1.05rem; font-weight:600; vertical-align:middle; color:#0f172a;">${escapeHtml(pl.nazov_cennika)}</td>
                         <td style="vertical-align:middle;">${statusInfo}</td>
                         <td style="text-align:right;">
                             <button class="btn btn-secondary btn-sm" onclick="window.printPricelistPreview(${pl.id})" title="Tlačiť náhľad">🖨️</button>
@@ -1085,197 +1219,73 @@ async function loadPricelistsForManagement() {
                     </tr>`;
                 });
             }
-            tableHtml += `</tbody></table></div>`;
-            
-            // Pätička s info
-            tableHtml += `<div style="text-align:right; font-size:0.8rem; color:#64748b; margin-top:8px;">Zobrazené ${paginated.length} z ${filtered.length} (Celkovo ${state.pricelists.length})</div>`;
-
+            tableHtml += `</tbody></table></div><div style="text-align:right; font-size:0.8rem; color:#64748b; margin-top:8px;">Zobrazené ${paginated.length} z ${filtered.length} (Celkovo ${state.pricelists.length})</div>`;
             doc.getElementById('pl-table-wrapper').innerHTML = tableHtml;
 
-            // Renderovanie tlačidiel stránkovania
             let pagHtml = '';
             if (totalPages > 1) {
-                pagHtml += `<button class="btn btn-secondary btn-sm" ${currentPage===1?'disabled':''} onclick="window.changePlPage(${currentPage-1})">« Predchádzajúca</button>`;
-                
-                // Zjednodušené zobrazenie čísiel stránok
+                pagHtml += `<button class="btn btn-secondary btn-sm" ${currentPage===1?'disabled':''} onclick="window.changePlPage(${currentPage-1})">«</button>`;
                 let startPage = Math.max(1, currentPage - 2);
                 let endPage = Math.min(totalPages, currentPage + 2);
-                
                 for(let i=startPage; i<=endPage; i++) {
                     pagHtml += `<button class="btn btn-sm ${i===currentPage?'btn-primary':'btn-secondary'}" onclick="window.changePlPage(${i})" style="min-width:30px;">${i}</button>`;
                 }
-                
-                pagHtml += `<button class="btn btn-secondary btn-sm" ${currentPage===totalPages?'disabled':''} onclick="window.changePlPage(${currentPage+1})">Ďalšia »</button>`;
+                pagHtml += `<button class="btn btn-secondary btn-sm" ${currentPage===totalPages?'disabled':''} onclick="window.changePlPage(${currentPage+1})">»</button>`;
             }
             doc.getElementById('pl-pagination').innerHTML = pagHtml;
 
-            // Re-attach delete listeners (pretože sme prekreslili HTML)
-            attachDeleteListeners();
-        };
-
-        const attachDeleteListeners = () => {
             box.querySelectorAll('button[data-del-pl]').forEach(b => {
                 b.onclick = async () => {
                     const plName = b.dataset.name;
-                    const verification = prompt(`⚠️ POZOR: Chystáte sa vymazať cenník "${plName}".\n\nAk to naozaj chcete urobiť, napíšte veľkými písmenami slovo: ZMAZAT`);
-                    
-                    if (verification !== "ZMAZAT") {
-                        alert("Mazanie bolo zrušené.");
-                        return;
-                    }
-
+                    if (prompt(`⚠️ POZOR: Chystáte sa vymazať cenník "${plName}".\n\nAk to naozaj chcete urobiť, napíšte veľkými písmenami slovo: ZMAZAT`) !== "ZMAZAT") return;
                     try {
                         await callFirstOk([{ url: '/api/kancelaria/b2b/deletePricelist', opts: { method: 'POST', body: { id: b.dataset.delPl } } }]);
                         showStatus('Cenník bol úspešne vymazaný.', false);
-                        loadPricelistsForManagement(); // Reload
+                        loadPricelistsForManagement(); 
                     } catch(e) { showStatus(e.message || String(e), true); }
                 };
             });
         };
 
-        // Globálna funkcia pre stránkovanie
-        window.changePlPage = (pageNum) => {
-            if (pageNum < 1) return;
-            currentPage = pageNum;
-            renderTable();
-        };
-
-        // Event Listeners pre filtre
+        window.changePlPage = (pageNum) => { if (pageNum >= 1) { currentPage = pageNum; renderTable(); } };
         doc.getElementById('pl-search-text').addEventListener('input', () => { currentPage=1; renderTable(); });
         doc.getElementById('pl-filter-status').addEventListener('change', () => { currentPage=1; renderTable(); });
         doc.getElementById('pl-filter-customer').addEventListener('change', () => { currentPage=1; renderTable(); });
-        
         doc.getElementById('pl-reset-filter').addEventListener('click', () => {
-            doc.getElementById('pl-search-text').value = '';
-            doc.getElementById('pl-filter-status').value = 'all';
-            doc.getElementById('pl-filter-customer').value = '';
-            currentPage = 1;
-            renderTable();
+            doc.getElementById('pl-search-text').value = ''; doc.getElementById('pl-filter-status').value = 'all';
+            doc.getElementById('pl-filter-customer').value = ''; currentPage = 1; renderTable();
         });
-        
         doc.getElementById('btn-create-pl').onclick = () => window.showPricelistEditor(null);
-
-        // Prvé vykreslenie
         renderTable();
-
-    } catch(e) { 
-        console.error(e);
-        box.innerHTML = `<p class="error">Chyba pri načítaní dát: ${e.message}</p>`; 
-    }
+    } catch(e) { box.innerHTML = `<p class="error">Chyba pri načítaní dát: ${e.message}</p>`; }
 }
-// =================================================================
-// 2. EDITOR V MODALE (VEĽKÉ OKNO - FULLSCREEN)
-// =================================================================
 
 window.showPricelistEditor = function(plId) {
     const isEdit = !!plId;
-    
-    // Zoznam zákazníkov (pre nový cenník)
     let customersHtml = '';
-    if (!isEdit) state.customers.forEach(c => { 
-        customersHtml += `<label class="cust-option"><input type="checkbox" value="${c.id}"> ${escapeHtml(c.nazov_firmy)}</label>`; 
-    });
-
-    // Zoznam cenníkov na kopírovanie
+    if (!isEdit) state.customers.forEach(c => { customersHtml += `<label class="cust-option"><input type="checkbox" value="${c.id}"> ${escapeHtml(c.nazov_firmy)}</label>`; });
     let copyOptions = '<option value="">-- Nevyplňovať --</option>';
-    state.pricelists.forEach(p => {
-        if (p.id != plId) copyOptions += `<option value="${p.id}">Kopírovať z: ${escapeHtml(p.nazov_cennika)}</option>`;
-    });
+    state.pricelists.forEach(p => { if (p.id != plId) copyOptions += `<option value="${p.id}">Kopírovať z: ${escapeHtml(p.nazov_cennika)}</option>`; });
 
-    // === HTML PRE MODAL (S CSS PRE VEĽKÉ OKNO) ===
     const modalHtml = `
       <style>
-          /* Tieto štýly "prebijú" predvolené malé okno */
-          .b2b-modal-content {
-              width: 96vw !important;        /* 96% šírky obrazovky */
-              max-width: 1920px !important;  /* Povoliť až do Full HD */
-              height: 92vh !important;       /* 92% výšky obrazovky */
-              display: flex !important;
-              flex-direction: column !important;
-              padding: 0 !important;         /* Reset paddingu, nastavíme si vlastný */
-              border-radius: 8px !important;
-              overflow: hidden !important;   /* Žiadny scroll na hlavnom okne */
-          }
-          
-          /* Hlavný layout editora */
-          .pl-editor-wrapper {
-              display: flex;
-              flex-direction: column;
-              height: 100%;
-              background: #f8fafc;
-          }
-
-          .pl-header {
-              padding: 15px 20px;
-              background: #fff;
-              border-bottom: 1px solid #e2e8f0;
-              display: flex;
-              justify-content: space-between;
-              align-items: center;
-          }
-
-          .pl-controls {
-              padding: 15px 20px;
-              background: #fff;
-              border-bottom: 1px solid #e2e8f0;
-              display: grid;
-              grid-template-columns: 2fr 1fr;
-              gap: 20px;
-          }
-
-          /* Grid pre tabuľky - roztiahne sa na zvyšok výšky */
-          .pl-tables-grid {
-              flex: 1;               /* Vyplní zvyšok miesta */
-              display: grid;
-              grid-template-columns: 1fr 1fr; /* Dva rovnaké stĺpce */
-              gap: 15px;
-              padding: 15px;
-              overflow: hidden;      /* Aby scrollovali len tabuľky, nie celá stránka */
-              min-height: 0;         /* Nutné pre flex/grid scrollovanie */
-          }
-
-          .pl-panel {
-              display: flex;
-              flex-direction: column;
-              background: #fff;
-              border: 1px solid #cbd5e1;
-              border-radius: 8px;
-              overflow: hidden;
-              box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-          }
-
-          .pl-panel-head {
-              padding: 10px 15px;
-              font-weight: bold;
-              border-bottom: 1px solid #e2e8f0;
-          }
-
-          .pl-scroll-area {
-              flex: 1;               /* Roztiahne sa */
-              overflow-y: auto;      /* Scrollovanie tu */
-              background: #fff;
-          }
-
-          .pl-footer {
-              padding: 15px 20px;
-              background: #fff;
-              border-top: 1px solid #e2e8f0;
-              text-align: right;
-          }
-          
-          /* Oprava tabuliek */
+          .b2b-modal-content { width: 96vw !important; max-width: 1920px !important; height: 92vh !important; display: flex !important; flex-direction: column !important; padding: 0 !important; border-radius: 8px !important; overflow: hidden !important; }
+          .pl-editor-wrapper { display: flex; flex-direction: column; height: 100%; background: #f8fafc; }
+          .pl-header { padding: 15px 20px; background: #fff; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; }
+          .pl-controls { padding: 15px 20px; background: #fff; border-bottom: 1px solid #e2e8f0; display: grid; grid-template-columns: 2fr 1fr; gap: 20px; }
+          .pl-tables-grid { flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 15px; padding: 15px; overflow: hidden; min-height: 0; }
+          .pl-panel { display: flex; flex-direction: column; background: #fff; border: 1px solid #cbd5e1; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+          .pl-panel-head { padding: 10px 15px; font-weight: bold; border-bottom: 1px solid #e2e8f0; }
+          .pl-scroll-area { flex: 1; overflow-y: auto; background: #fff; }
+          .pl-footer { padding: 15px 20px; background: #fff; border-top: 1px solid #e2e8f0; text-align: right; }
           .pl-scroll-area table { width: 100%; border-collapse: collapse; }
           .pl-scroll-area th { position: sticky; top: 0; z-index: 10; box-shadow: 0 1px 2px rgba(0,0,0,0.1); }
       </style>
-
       <div class="pl-editor-wrapper">
           <div class="pl-header">
-              <h3 style="margin:0; color:#1e3a8a; display:flex; align-items:center; gap:10px;">
-                  ${isEdit ? '✏️ Úprava cenníka' : '➕ Nový cenník'}
-              </h3>
+              <h3 style="margin:0; color:#1e3a8a; display:flex; align-items:center; gap:10px;">${isEdit ? '✏️ Úprava cenníka' : '➕ Nový cenník'}</h3>
               <button class="btn btn-secondary btn-sm" onclick="closeModal()">❌ Zavrieť</button>
           </div>
-          
           <div class="pl-controls">
               <div class="form-group">
                   <label style="font-weight:bold;">Názov cenníka</label>
@@ -1289,50 +1299,36 @@ window.showPricelistEditor = function(plId) {
                       <button class="btn btn-secondary btn-sm" onclick="window.importInfoFromSelected()">Načítať</button>
                   </div>
               </div>` : ''}
-              
               ${!isEdit ? `<div class="form-group"><label>Priradiť ihneď zákazníkom:</label><div class="cust-select-container" id="pl-new-cust-list" style="max-height:60px;">${customersHtml}</div></div>` : ''}
           </div>
-
           ${isEdit ? `
           <div class="pl-tables-grid">
               <div class="pl-panel" style="border-color: #94a3b8;">
                   <div class="pl-panel-head" style="background:#f1f5f9; display:flex; justify-content:space-between; align-items:center;">
-                      <span>📦 Katalóg produktov (Zdroj)</span>
-                      <input type="text" id="pl-prod-filter" class="filter-input" style="width:200px; padding:4px;" placeholder="🔍 Hľadať...">
+                      <span>📦 Katalóg produktov (Zdroj)</span><input type="text" id="pl-prod-filter" class="filter-input" style="width:200px; padding:4px;" placeholder="🔍 Hľadať...">
                   </div>
                   <div id="pl-source-list" class="pl-scroll-area"></div>
               </div>
-
               <div class="pl-panel" style="border-color: #22c55e;">
-                  <div class="pl-panel-head" style="background:#dcfce7; color:#14532d;">
-                      ✅ Položky v tomto cenníku
-                  </div>
+                  <div class="pl-panel-head" style="background:#dcfce7; color:#14532d;">✅ Položky v tomto cenníku</div>
                   <div id="pl-target-list" class="pl-scroll-area" style="background:#f0fdf4;"></div>
               </div>
           </div>` : '<div style="flex:1; display:flex; align-items:center; justify-content:center; color:#666;">Najprv uložte názov cenníka, potom budete môcť pridávať produkty.</div>'}
-          
           <div class="pl-footer">
               <button class="btn btn-secondary" onclick="closeModal()" style="margin-right:10px;">Zrušiť</button>
               <button id="pl-save-btn" class="btn btn-success" style="padding: 10px 40px; font-size:1.1rem; font-weight:bold;">💾 Uložiť cenník</button>
           </div>
       </div>`;
     
-    // Otvoríme modal
     openModal(modalHtml);
 
     if (isEdit) {
         const pl = state.pricelists.find(p => p.id == plId);
         if(pl) doc.getElementById('pl-name').value = pl.nazov_cennika;
-        
-        // Spustíme načítanie
         loadPricelistItemsForEdit(plId);
-        
         doc.getElementById('pl-save-btn').onclick = async () => window.savePricelistItems(plId);
         const filterInput = doc.getElementById('pl-prod-filter');
-        if(filterInput) {
-            filterInput.focus();
-            filterInput.addEventListener('input', (e) => renderSourceProducts(e.target.value));
-        }
+        if(filterInput) { filterInput.focus(); filterInput.addEventListener('input', (e) => renderSourceProducts(e.target.value)); }
     } else {
         doc.getElementById('pl-save-btn').onclick = async () => {
             const name = doc.getElementById('pl-name').value.trim();
@@ -1340,112 +1336,57 @@ window.showPricelistEditor = function(plId) {
             const selectedCusts = Array.from(doc.querySelectorAll('#pl-new-cust-list input:checked')).map(cb => cb.value);
             try { 
                 await callFirstOk([{ url: '/api/kancelaria/b2b/createPricelist', opts: { method: 'POST', body: { name, customer_ids: selectedCusts } } }]); 
-                showStatus('Cenník vytvorený'); 
-                closeModal(); 
-                loadPricelistsForManagement(); 
+                showStatus('Cenník vytvorený'); closeModal(); loadPricelistsForManagement(); 
             } catch(e) { showStatus(e.message, true); }
         };
     }
 };
-// Funkcia na uloženie (aktualizovaná pre Modal)
+
 window.savePricelistItems = async function(plId) {
     const newName = doc.getElementById('pl-name').value.trim();
     if(!newName) return showStatus('Názov cenníka nemôže byť prázdny!', true);
-
-    // Aktualizujeme mapu z inputov
     const rows = doc.querySelectorAll('.pl-item-row');
     rows.forEach(row => {
         const ean = row.dataset.ean;
         const priceInput = row.querySelector('.price-edit-input');
         const infoInput = row.querySelector('.info-edit-input');
-        
         if (ean && priceInput) {
-            currentPlItems.set(ean, {
-                price: parseFloat(priceInput.value) || 0,
-                info: infoInput ? infoInput.value.trim() : ''
-            });
+            currentPlItems.set(ean, { price: parseFloat(priceInput.value) || 0, info: infoInput ? infoInput.value.trim() : '' });
         }
     });
-
     const items = []; 
-    currentPlItems.forEach((data, ean) => items.push({ 
-        ean: ean, 
-        price: data.price,
-        info: data.info 
-    }));
-
+    currentPlItems.forEach((data, ean) => items.push({ ean: ean, price: data.price, info: data.info }));
     try { 
-        await callFirstOk([{ 
-            url: '/api/kancelaria/b2b/updatePricelist', 
-            opts: { method: 'POST', body: { id: plId, name: newName, items } } 
-        }]); 
-        showStatus('Cenník uložený.'); 
-        closeModal(); 
-        loadPricelistsForManagement(); 
-    } catch(e) { 
-        showStatus(e.message, true); 
-    }
+        await callFirstOk([{ url: '/api/kancelaria/b2b/updatePricelist', opts: { method: 'POST', body: { id: plId, name: newName, items } } }]); 
+        showStatus('Cenník uložený.'); closeModal(); loadPricelistsForManagement(); 
+    } catch(e) { showStatus(e.message, true); }
 };
 
 async function loadPricelistItemsForEdit(plId) {
     currentPlItems.clear();
     try {
         const data = await callFirstOk([{ url: '/api/kancelaria/b2b/getPricelistDetails', opts: { method:'POST', body:{id:plId} } }]);
-        // Načítame cenu aj info
-        (data.items || []).forEach(i => {
-            currentPlItems.set(i.ean_produktu, { 
-                price: Number(i.cena), 
-                info: i.info || i.poznamka || '' 
-            });
-        });
-        renderSourceProducts(''); 
-        renderTargetProducts();
+        (data.items || []).forEach(i => { currentPlItems.set(i.ean_produktu, { price: Number(i.cena), info: i.info || i.poznamka || '' }); });
+        renderSourceProducts(''); renderTargetProducts();
     } catch(e) { console.error(e); }
 }
 
 function renderSourceProducts(filter) {
     const container = doc.getElementById('pl-source-list');
     if (!container) return; 
-
     const f = filter.toLowerCase();
-    
-    // Hlavička tabuľky
-    let html = `<table style="width:100%; border-collapse:collapse; font-size:0.85rem;">
-        <thead style="background:#f8fafc; position:sticky; top:0;">
-            <tr>
-                <th style="text-align:left; padding:5px;">Produkt</th>
-                <th style="width:80px;">Cena (€)</th>
-                <th style="width:40px;"></th>
-            </tr>
-        </thead>
-        <tbody>`;
-    
+    let html = `<table style="width:100%; border-collapse:collapse; font-size:0.85rem;"><thead style="background:#f8fafc; position:sticky; top:0;"><tr><th style="text-align:left; padding:5px;">Produkt</th><th style="width:80px;">Cena (€)</th><th style="width:40px;"></th></tr></thead><tbody>`;
     let count = 0;
     state.productsAll.forEach(p => {
-        if (currentPlItems.has(p.ean)) return; // Už je v cenníku
-        if (count > 50 && !f) return; // Limit zobrazenia
-        
+        if (currentPlItems.has(p.ean)) return;
+        if (count > 50 && !f) return;
         if (!f || p.nazov_vyrobku.toLowerCase().includes(f) || p.ean.includes(f)) {
-            html += `
-            <tr style="border-bottom:1px solid #eee;">
-                <td style="padding:6px;">
-                    <div style="font-weight:600;">${escapeHtml(p.nazov_vyrobku)}</div>
-                    <div style="font-size:0.75em; color:#666;">EAN: ${p.ean} | DPH: ${p.dph}%</div>
-                </td>
-                <td style="padding:6px;">
-                    <input type="number" id="price-in-${p.ean}" placeholder="0.00" style="width:100%; padding:4px; border:1px solid #ccc; border-radius:4px;" step="0.01">
-                </td>
-                <td style="padding:6px; text-align:center;">
-                    <button class="btn btn-primary btn-sm" onclick="window.plAdd('${p.ean}')" style="padding:2px 8px;">+</button>
-                </td>
-            </tr>`;
+            html += `<tr style="border-bottom:1px solid #eee;"><td style="padding:6px;"><div style="font-weight:600;">${escapeHtml(p.nazov_vyrobku)}</div><div style="font-size:0.75em; color:#666;">EAN: ${p.ean} | DPH: ${p.dph}%</div></td><td style="padding:6px;"><input type="number" id="price-in-${p.ean}" placeholder="0.00" style="width:100%; padding:4px; border:1px solid #ccc; border-radius:4px;" step="0.01"></td><td style="padding:6px; text-align:center;"><button class="btn btn-primary btn-sm" onclick="window.plAdd('${p.ean}')" style="padding:2px 8px;">+</button></td></tr>`;
             count++;
         }
     });
     html += '</tbody></table>';
-    
     if (count === 0 && f) html = '<div style="padding:20px; text-align:center; color:#999;">Nenašiel sa žiadny produkt.</div>';
-    
     container.innerHTML = html;
 }
 
@@ -1453,15 +1394,12 @@ window.plAdd = (ean) => {
     const input = doc.getElementById(`price-in-${ean}`);
     const price = parseFloat(input.value);
     if (isNaN(price) || price < 0) return showStatus('Zadajte platnú cenu', true);
-    
     currentPlItems.set(ean, { price: price, info: '' });
-    
     renderSourceProducts(doc.getElementById('pl-prod-filter').value);
     renderTargetProducts();
     input.value = ''; 
 };
 
-// Sem vložíte novú funkciu:
 window.plRem = function(ean) {
     if (currentPlItems.has(ean)) {
         currentPlItems.delete(ean);
@@ -1470,137 +1408,54 @@ window.plRem = function(ean) {
         renderTargetProducts();
     }
 };
-// =================================================================
-// INTELIGENTNÁ CENOTVORBA (Vložte do b2b_admin.js)
-// =================================================================
 
 function renderTargetProducts() {
     const container = doc.getElementById('pl-target-list');
     if (!container) return;
-
-    // Hlavička s novými stĺpcami pre Nákup a Zisk
-    let html = `<table style="width:100%; border-collapse:collapse; font-size:0.85rem;">
-        <thead style="background:#dcfce7; position:sticky; top:0; z-index:20;">
-            <tr>
-                <th style="text-align:left; padding:8px;">Produkt v cenníku</th>
-                <th style="width:80px; text-align:right; color:#64748b;">Nákup</th>
-                <th style="width:90px;">Predajná Cena</th>
-                <th style="width:100px; text-align:right;">Marža / Zisk</th>
-                <th style="width:30px;"></th>
-            </tr>
-        </thead>
-        <tbody>`;
-
+    let html = `<table style="width:100%; border-collapse:collapse; font-size:0.85rem;"><thead style="background:#dcfce7; position:sticky; top:0; z-index:20;"><tr><th style="text-align:left; padding:8px;">Produkt v cenníku</th><th style="width:80px; text-align:right; color:#64748b;">Nákup</th><th style="width:90px;">Predajná Cena</th><th style="width:100px; text-align:right;">Marža / Zisk</th><th style="width:30px;"></th></tr></thead><tbody>`;
     currentPlItems.forEach((data, ean) => {
-        // Nájdeme produkt a jeho nákupnú cenu
-        const p = state.productsAll.find(x => x.ean === ean) || { 
-            nazov_vyrobku: 'Neznámy produkt', 
-            nakupna_cena: 0 
-        };
-        
+        const p = state.productsAll.find(x => x.ean === ean) || { nazov_vyrobku: 'Neznámy produkt', nakupna_cena: 0 };
         const priceVal = (typeof data === 'object') ? data.price : data;
         const infoVal = (typeof data === 'object') ? (data.info || '') : '';
         const buyPrice = parseFloat(p.nakupna_cena) || 0;
-
-        // Vypočítame počiatočné hodnoty
         const profit = priceVal - buyPrice;
         let marginPercent = 0;
         if (priceVal > 0) marginPercent = (profit / priceVal) * 100;
-
-        // Farba podľa zisku: Červená (strata), Oranžová (nízka marža < 10%), Zelená (ok)
         const profitClass = profit < 0 ? 'color:#dc2626;' : (marginPercent < 10 ? 'color:#d97706;' : 'color:#166534;');
         const profitText = `${profit > 0 ? '+' : ''}${profit.toFixed(2)} €`;
         const marginText = `${marginPercent.toFixed(1)}%`;
 
-        html += `
-        <tr class="pl-item-row" data-ean="${ean}" data-buy="${buyPrice}" style="border-bottom:1px solid #bbf7d0; background:#fff;">
-            <td style="padding:6px;">
-                <div style="font-weight:600; color:#1e293b;">${escapeHtml(p.nazov_vyrobku)}</div>
-                <div style="font-size:0.75em; color:#64748b;">EAN: ${ean}</div>
-                <input type="text" class="info-edit-input" value="${escapeHtml(infoVal)}" placeholder="Poznámka pre klienta..." style="width:100%; margin-top:4px; border:1px solid #e2e8f0; padding:2px 5px; font-size:0.8em; color:#444; border-radius:4px;">
-            </td>
-            
-            <td style="padding:6px; text-align:right; vertical-align:middle; font-size:0.9rem; color:#64748b;">
-                ${buyPrice > 0 ? buyPrice.toFixed(4) + ' €' : '-'}
-            </td>
-
-            <td style="padding:6px; vertical-align:middle;">
-                <input type="number" class="price-edit-input" value="${priceVal}" 
-                       oninput="window.recalcRow('${ean}')"
-                       id="input-price-${ean}"
-                       style="width:100%; padding:6px; border:2px solid #cbd5e1; border-radius:6px; font-weight:bold; text-align:center; color:#0f172a;" step="0.01">
-            </td>
-
-            <td style="padding:6px; text-align:right; vertical-align:middle;">
-                <div id="profit-wrap-${ean}" style="font-weight:bold; ${profitClass}">
-                    <div style="font-size:0.95rem;">${marginText}</div>
-                    <div style="font-size:0.75rem; opacity:0.8;">${profitText}</div>
-                </div>
-            </td>
-
-            <td style="padding:6px; text-align:center; vertical-align:middle;">
-                <button class="btn btn-danger btn-sm" onclick="window.plRem('${ean}')" style="padding:2px 8px; border-radius:4px;">&times;</button>
-            </td>
-        </tr>`;
+        html += `<tr class="pl-item-row" data-ean="${ean}" data-buy="${buyPrice}" style="border-bottom:1px solid #bbf7d0; background:#fff;"><td style="padding:6px;"><div style="font-weight:600; color:#1e293b;">${escapeHtml(p.nazov_vyrobku)}</div><div style="font-size:0.75em; color:#64748b;">EAN: ${ean}</div><input type="text" class="info-edit-input" value="${escapeHtml(infoVal)}" placeholder="Poznámka pre klienta..." style="width:100%; margin-top:4px; border:1px solid #e2e8f0; padding:2px 5px; font-size:0.8em; color:#444; border-radius:4px;"></td><td style="padding:6px; text-align:right; vertical-align:middle; font-size:0.9rem; color:#64748b;">${buyPrice > 0 ? buyPrice.toFixed(4) + ' €' : '-'}</td><td style="padding:6px; vertical-align:middle;"><input type="number" class="price-edit-input" value="${priceVal}" oninput="window.recalcRow('${ean}')" id="input-price-${ean}" style="width:100%; padding:6px; border:2px solid #cbd5e1; border-radius:6px; font-weight:bold; text-align:center; color:#0f172a;" step="0.01"></td><td style="padding:6px; text-align:right; vertical-align:middle;"><div id="profit-wrap-${ean}" style="font-weight:bold; ${profitClass}"><div style="font-size:0.95rem;">${marginText}</div><div style="font-size:0.75rem; opacity:0.8;">${profitText}</div></div></td><td style="padding:6px; text-align:center; vertical-align:middle;"><button class="btn btn-danger btn-sm" onclick="window.plRem('${ean}')" style="padding:2px 8px; border-radius:4px;">&times;</button></td></tr>`;
     });
     html += '</tbody></table>';
-    
     if (currentPlItems.size === 0) html = '<div style="padding:40px; text-align:center; color:#15803d; background:#f0fdf4;">Cenník je zatiaľ prázdny.<br>👈 Pridajte produkty z katalógu vľavo.</div>';
-    
     container.innerHTML = html;
 }
 
-// Funkcia na okamžitý prepočet pri písaní (bez sekania tabuľky)
 window.recalcRow = function(ean) {
     const row = document.querySelector(`.pl-item-row[data-ean="${ean}"]`);
     if (!row) return;
-
     const input = document.getElementById(`input-price-${ean}`);
     const wrap = document.getElementById(`profit-wrap-${ean}`);
-    
     const sellPrice = parseFloat(input.value) || 0;
     const buyPrice = parseFloat(row.dataset.buy) || 0;
-
     const profit = sellPrice - buyPrice;
-    
-    // Výpočet Marže
     let margin = 0;
-    if (sellPrice !== 0) {
-        margin = (profit / sellPrice) * 100;
-    }
-
-    // Formátovanie a farby
-    const color = profit < 0 ? '#dc2626' : (margin < 10 ? '#d97706' : '#166534');
-    wrap.style.color = color;
-    
-    // Zobrazíme: % hore, € dole
-    wrap.innerHTML = `
-        <div style="font-size:0.95rem;">${margin.toFixed(1)}%</div>
-        <div style="font-size:0.75rem; opacity:0.8;">${profit > 0 ? '+' : ''}${profit.toFixed(2)} €</div>
-    `;
-    
-    // Uloženie do pamäte (aby sa hodnota nestratila pri scrollovaní/filtrovaní)
-    if (currentPlItems.has(ean)) {
-        const item = currentPlItems.get(ean);
-        item.price = sellPrice;
-        currentPlItems.set(ean, item);
-    }
+    if (sellPrice !== 0) margin = (profit / sellPrice) * 100;
+    wrap.style.color = profit < 0 ? '#dc2626' : (margin < 10 ? '#d97706' : '#166534');
+    wrap.innerHTML = `<div style="font-size:0.95rem;">${margin.toFixed(1)}%</div><div style="font-size:0.75rem; opacity:0.8;">${profit > 0 ? '+' : ''}${profit.toFixed(2)} €</div>`;
+    if (currentPlItems.has(ean)) { const item = currentPlItems.get(ean); item.price = sellPrice; currentPlItems.set(ean, item); }
 };
 
-// === NOVÁ FUNKCIA: Import info z iného cenníka ===
 window.importInfoFromSelected = async () => {
     const sourceId = doc.getElementById('pl-source-copy').value;
     if (!sourceId) return showStatus('Vyberte cenník zo zoznamu', true);
-    
     if (!confirm("Týmto sa prepíšu poznámky/info pri produktoch, ktoré sa nachádzajú v oboch cenníkoch. Chcete pokračovať?")) return;
-
     try {
         const data = await callFirstOk([{ url: '/api/kancelaria/b2b/getPricelistDetails', opts: { method:'POST', body:{id: sourceId} } }]);
-        const sourceItems = data.items || [];
-        
         let updatedCount = 0;
         if (currentPlItems.size > 0) {
-            sourceItems.forEach(srcItem => {
+            (data.items || []).forEach(srcItem => {
                 if (currentPlItems.has(srcItem.ean_produktu)) {
                     const currentData = currentPlItems.get(srcItem.ean_produktu);
                     if (srcItem.info || srcItem.poznamka) {
@@ -1612,94 +1467,31 @@ window.importInfoFromSelected = async () => {
             });
             renderTargetProducts();
             showStatus(`Aktualizované info pri ${updatedCount} produktoch.`);
-        } else {
-            showStatus('Tento cenník zatiaľ nemá žiadne položky. Najprv pridajte produkty.', true);
-        }
-    } catch(e) {
-        console.error(e);
-        showStatus('Chyba pri importe: ' + e.message, true);
-    }
+        } else { showStatus('Tento cenník zatiaľ nemá žiadne položky.', true); }
+    } catch(e) { console.error(e); showStatus('Chyba pri importe: ' + e.message, true); }
 };
 
-// === TLAČOVÁ FUNKCIA (ktorá predtým chýbala) ===
 window.printPricelistPreview = async function(plId) {
     try {
         const data = await callFirstOk([{ url: '/api/kancelaria/b2b/getPricelistDetails', opts: { method:'POST', body:{id:plId} } }]);
         const pl = data.pricelist;
         const items = data.items || []; 
-
         if(!state.productsAll || state.productsAll.length === 0) {
              const pData = await callFirstOk([{ url: '/api/kancelaria/b2b/getPricelistsAndProducts' }]);
              state.productsAll = pData.products || [];
         }
-
-        let html = `
-        <html>
-        <head>
-            <title>Cenník: ${escapeHtml(pl.nazov_cennika)}</title>
-            <style>
-                body { font-family: Arial, sans-serif; padding: 20px; font-size: 12px; }
-                h1 { text-align: center; margin-bottom: 20px; }
-                table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
-                th, td { border: 1px solid #000; padding: 5px 8px; text-align: left; }
-                th { background-color: #eee; }
-                .num { text-align: right; }
-                .center { text-align: center; }
-            </style>
-        </head>
-        <body>
-            <h1>Cenník: ${escapeHtml(pl.nazov_cennika)}</h1>
-            <p>Dátum tlače: ${new Date().toLocaleString('sk-SK')}</p>
-            <table>
-                <thead>
-                    <tr>
-                        <th style="width:30px;">#</th>
-                        <th>EAN</th>
-                        <th>Názov produktu</th>
-                        <th class="num">Cena bez DPH</th>
-                        <th class="center">DPH %</th>
-                        <th class="num">Hodnota DPH</th>
-                        <th class="num">Cena s DPH</th>
-                    </tr>
-                </thead>
-                <tbody>
-        `;
-
+        let html = `<html><head><title>Cenník: ${escapeHtml(pl.nazov_cennika)}</title><style>body { font-family: Arial, sans-serif; padding: 20px; font-size: 12px; } h1 { text-align: center; margin-bottom: 20px; } table { width: 100%; border-collapse: collapse; margin-bottom: 20px; } th, td { border: 1px solid #000; padding: 5px 8px; text-align: left; } th { background-color: #eee; } .num { text-align: right; } .center { text-align: center; }</style></head><body><h1>Cenník: ${escapeHtml(pl.nazov_cennika)}</h1><p>Dátum tlače: ${new Date().toLocaleString('sk-SK')}</p><table><thead><tr><th style="width:30px;">#</th><th>EAN</th><th>Názov produktu</th><th class="num">Cena bez DPH</th><th class="center">DPH %</th><th class="num">Hodnota DPH</th><th class="num">Cena s DPH</th></tr></thead><tbody>`;
         items.forEach((item, index) => {
             const productInfo = state.productsAll.find(p => p.ean === item.ean_produktu) || { dph: 20 }; 
             const dphRate = Number(productInfo.dph);
             const priceNet = Number(item.cena);
             const vatAmount = priceNet * (dphRate / 100);
             const priceGross = priceNet + vatAmount;
-
-            html += `
-                <tr>
-                    <td class="center">${index + 1}.</td>
-                    <td>${item.ean_produktu}</td>
-                    <td>${escapeHtml(item.nazov_vyrobku)}</td>
-                    <td class="num">${priceNet.toFixed(2)} €</td>
-                    <td class="center">${dphRate}%</td>
-                    <td class="num">${vatAmount.toFixed(2)} €</td>
-                    <td class="num"><b>${priceGross.toFixed(2)} €</b></td>
-                </tr>
-            `;
+            html += `<tr><td class="center">${index + 1}.</td><td>${item.ean_produktu}</td><td>${escapeHtml(item.nazov_vyrobku)}</td><td class="num">${priceNet.toFixed(2)} €</td><td class="center">${dphRate}%</td><td class="num">${vatAmount.toFixed(2)} €</td><td class="num"><b>${priceGross.toFixed(2)} €</b></td></tr>`;
         });
-
-        html += `
-                </tbody>
-            </table>
-            <script>window.print();</script>
-        </body>
-        </html>
-        `;
-
-        const win = window.open('', '_blank');
-        win.document.write(html);
-        win.document.close();
-
-    } catch(e) {
-        alert("Chyba pri generovaní tlače: " + e.message);
-    }
+        html += `</tbody></table><script>window.print();</script></body></html>`;
+        const win = window.open('', '_blank'); win.document.write(html); win.document.close();
+    } catch(e) { alert("Chyba pri generovaní tlače: " + e.message); }
 };
 
   // =================================================================
@@ -1746,243 +1538,10 @@ window.printPricelistPreview = async function(plId) {
           doc.getElementById('save-ann-btn').onclick = async () => { await callFirstOk([{ url:'/api/kancelaria/b2b/saveAnnouncement', opts:{ method:'POST', body:{ announcement: doc.getElementById('b2b-ann-txt').value } } }]); showStatus('Oznam uložený'); };
       } catch(e) { box.innerHTML = `<p class="error">${e.message}</p>`; }
   }
-// =================================================================
-// 360° KARTA ZÁKAZNÍKA
-// =================================================================
 
-window.showCustomer360 = async function(id) {
-    openModal('<div style="padding:40px; text-align:center; color:#666;"><i class="fas fa-spinner fa-spin fa-2x"></i><br>Načítavam štatistiky a nákupy zákazníka...</div>');
-    
-    try {
-        const res = await callFirstOk([{ url: '/api/kancelaria/b2b/customer_360', opts: { method: 'POST', body: { id: id } } }]);
-        const c = res.customer;
-        const s = res.summary;
-        const products = res.products || [];
-
-        // Globálne si uložíme dáta pre filter
-        window.currentC360Products = products;
-
-        // Farby pre celkovú maržu
-        const sumMarginColor = s.margin_pct < 10 ? '#dc2626' : (s.margin_pct >= 20 ? '#16a34a' : '#d97706');
-
-        let html = `
-        <div style="width: 100%; max-width: 1200px;">
-            <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #e2e8f0; padding-bottom:15px; margin-bottom:20px;">
-                <h2 style="margin:0; color:#1e293b;">🏢 ${escapeHtml(c.nazov_firmy)} <span style="font-size:0.8em; color:#64748b;">(ID: ${c.zakaznik_id})</span></h2>
-                <button class="btn btn-secondary btn-sm" onclick="closeModal()">Zavrieť</button>
-            </div>
-
-            <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:15px; margin-bottom:25px;">
-                <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:15px; text-align:center;">
-                    <div style="font-size:0.8rem; color:#64748b; font-weight:600; text-transform:uppercase;">Počet objednávok</div>
-                    <div style="font-size:1.8rem; font-weight:bold; color:#0f172a; margin-top:5px;">${s.total_orders}</div>
-                </div>
-                <div style="background:#eff6ff; border:1px solid #bfdbfe; border-radius:8px; padding:15px; text-align:center;">
-                    <div style="font-size:0.8rem; color:#1e40af; font-weight:600; text-transform:uppercase;">Celková tržba (bez DPH)</div>
-                    <div style="font-size:1.8rem; font-weight:bold; color:#1d4ed8; margin-top:5px;">${s.total_revenue.toFixed(2)} €</div>
-                </div>
-                <div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:8px; padding:15px; text-align:center;">
-                    <div style="font-size:0.8rem; color:#166534; font-weight:600; text-transform:uppercase;">Celkový zisk</div>
-                    <div style="font-size:1.8rem; font-weight:bold; color:#15803d; margin-top:5px;">${s.total_profit.toFixed(2)} €</div>
-                </div>
-                <div style="background:#fff; border:1px solid ${sumMarginColor}; border-radius:8px; padding:15px; text-align:center;">
-                    <div style="font-size:0.8rem; color:${sumMarginColor}; font-weight:600; text-transform:uppercase;">Celková marža</div>
-                    <div style="font-size:1.8rem; font-weight:bold; color:${sumMarginColor}; margin-top:5px;">${s.margin_pct.toFixed(1)} %</div>
-                </div>
-            </div>
-
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-                <h4 style="margin:0;">Najčastejšie odoberané produkty</h4>
-                <input type="text" id="c360-search" class="filter-input" placeholder="Hľadať produkt (názov/EAN)..." style="width:250px;" oninput="window.filterC360Table()">
-            </div>
-            
-            <div style="max-height: 450px; overflow-y: auto; border: 1px solid #cbd5e1; border-radius: 8px;">
-                <table class="table-refined" style="width:100%;">
-                    <thead style="position: sticky; top: 0; background: #f8fafc; z-index: 10;">
-                        <tr>
-                            <th>Názov produktu</th>
-                            <th style="text-align:right;">Odobraté</th>
-                            <th style="text-align:right;">Nákup/Výroba (€/MJ)</th>
-                            <th style="text-align:right;">Priem. Predajná (€/MJ)</th>
-                            <th style="text-align:right;">Tržba (€)</th>
-                            <th style="text-align:right;">Zisk (€)</th>
-                            <th style="text-align:right;">Marža</th>
-                        </tr>
-                    </thead>
-                    <tbody id="c360-table-body">
-                        </tbody>
-                </table>
-            </div>
-        </div>
-        `;
-
-        // Modálne okno musíme spraviť širšie pre tento konkrétny pohľad
-        openModal(html);
-        const modalContent = document.querySelector('.b2b-modal-content');
-        if (modalContent) {
-            modalContent.style.maxWidth = '1100px';
-            modalContent.style.width = '95%';
-        }
-        
-        window.filterC360Table(); // prvotné naplnenie tabuľky
-
-    } catch(e) {
-        openModal(`<div style="padding:20px; color:red; text-align:center;"><h2>Chyba</h2>${e.message}</div>`);
-    }
-};
-
-window.filterC360Table = function() {
-    const searchVal = (document.getElementById('c360-search').value || '').toLowerCase();
-    const tbody = document.getElementById('c360-table-body');
-    if (!tbody || !window.currentC360Products) return;
-
-    let html = '';
-    let count = 0;
-
-    window.currentC360Products.forEach(p => {
-        if (searchVal && !p.name.toLowerCase().includes(searchVal) && !p.ean.includes(searchVal)) return;
-
-        // Formátovanie farieb podľa marže (červená pod 10%, zelená nad 20%)
-        let marginColor = '#475569';
-        if (p.margin < 10) marginColor = '#dc2626'; // strata alebo nízka marža
-        else if (p.margin > 20) marginColor = '#16a34a'; // skvelá marža
-
-        html += `
-        <tr>
-            <td>
-                <div style="font-weight:600; color:#1e293b;">${escapeHtml(p.name)}</div>
-                <div style="font-size:0.75rem; color:#64748b;">EAN: ${p.ean}</div>
-            </td>
-            <td style="text-align:right; font-weight:bold;">${p.qty} ${p.unit}</td>
-            <td style="text-align:right; color:#64748b;">${p.unit_cost.toFixed(2)} €</td>
-            <td style="text-align:right; color:#1d4ed8;">${p.avg_price.toFixed(2)} €</td>
-            <td style="text-align:right;">${p.revenue.toFixed(2)} €</td>
-            <td style="text-align:right; font-weight:bold; color:${p.profit < 0 ? '#dc2626' : '#15803d'};">${p.profit > 0 ? '+' : ''}${p.profit.toFixed(2)} €</td>
-            <td style="text-align:right; font-weight:bold; color:${marginColor};">${p.margin.toFixed(1)} %</td>
-        </tr>`;
-        count++;
-    });
-
-    if (count === 0) {
-        html = `<tr><td colspan="7" style="text-align:center; padding:20px; color:#64748b;">Nenašli sa žiadne produkty vyhovujúce filtru.</td></tr>`;
-    }
-
-    tbody.innerHTML = html;
-};
-// =================================================================
-// DENNÝ SUMÁR PRODUKTOV (NA EXPEDÍCIU)
-// =================================================================
-window.showDailySummary = function() {
-    // Predvolene predvyplníme zajtrajší dátum
-    const tomorrow = new Date(new Date().getTime() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-    
-    // Ak užívateľ má vo filtri nastavené "Do", vezmeme ten dátum
-    const filterTo = document.getElementById('ord-to');
-    const selectedDate = filterTo && filterTo.value ? filterTo.value : tomorrow;
-    
-    // HTML pre modálne okno
-    const html = `
-        <div style="padding: 5px;">
-            <h3 style="margin-top:0; color:#1e293b; border-bottom:1px solid #e2e8f0; padding-bottom:10px;">
-                📋 Sumár produktov na expedíciu
-            </h3>
-            <div style="display:flex; gap:10px; margin-bottom:15px; align-items:center;">
-                <label><strong>Deň dodania:</strong></label>
-                <input type="date" id="summary-date" class="filter-input" value="${selectedDate}">
-                <button class="btn btn-primary" onclick="window.fetchDailySummary()">Načítať dátum</button>
-                <button class="btn btn-secondary" onclick="window.printDailySummary()" style="margin-left:auto;">🖨️ Tlačiť list</button>
-            </div>
-            <div id="summary-results" style="max-height: 60vh; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 6px;">
-                <div style="padding: 20px; text-align: center; color: #64748b;">Kliknite na "Načítať" pre zobrazenie sumáru.</div>
-            </div>
-        </div>
-    `;
-    
-    openModal(html);
-    
-    // Okamžite načítame dáta pre predvolený dátum
-    window.fetchDailySummary();
-};
-
-window.fetchDailySummary = async function() {
-    const dateVal = document.getElementById('summary-date').value;
-    const resContainer = document.getElementById('summary-results');
-    
-    resContainer.innerHTML = '<div style="padding:30px; text-align:center; color:#64748b;"><i class="fas fa-spinner fa-spin fa-2x"></i><br><br>Pripravujem sumár...</div>';
-    
-    try {
-        const data = await callFirstOk([{ 
-            url: '/api/kancelaria/b2b/getDailySummary', 
-            opts: { method: 'POST', body: { date: dateVal } } 
-        }]);
-        
-        const items = data.items || [];
-        if (!items.length) {
-            resContainer.innerHTML = `<div style="padding:20px; text-align:center; color:#dc2626; font-weight:bold;">Na deň ${dateVal.split('-').reverse().join('.')} nie sú objednané žiadne produkty.</div>`;
-            return;
-        }
-        
-        let table = `<table class="table-refined" style="width:100%;">
-            <thead style="position:sticky; top:0; background:#f8fafc; box-shadow:0 1px 2px rgba(0,0,0,0.1);">
-                <tr>
-                    <th style="width:60%;">Názov produktu</th>
-                    <th style="text-align:right; width:20%;">Množstvo</th>
-                    <th style="width:20%;">Jednotka</th>
-                </tr>
-            </thead>
-            <tbody>`;
-            
-        items.forEach(it => {
-            table += `<tr>
-                <td>
-                    <div style="font-weight:600; color:#0f172a;">${escapeHtml(it.name)}</div>
-                    <div style="font-size:0.75rem; color:#64748b;">EAN: ${escapeHtml(it.ean)}</div>
-                </td>
-                <td style="text-align:right; font-size:1.1rem; font-weight:bold; color:#1d4ed8;">${it.qty}</td>
-                <td style="color:#475569;">${escapeHtml(it.unit)}</td>
-            </tr>`;
-        });
-        table += `</tbody></table>`;
-        resContainer.innerHTML = table;
-        
-    } catch (e) {
-        resContainer.innerHTML = `<div style="padding:20px; color:#dc2626; font-weight:bold;">Chyba: ${escapeHtml(e.message)}</div>`;
-    }
-};
-
-window.printDailySummary = function() {
-    const dateVal = document.getElementById('summary-date').value;
-    const content = document.getElementById('summary-results').innerHTML;
-    
-    const formattedDate = dateVal.split('-').reverse().join('.');
-    
-    const win = window.open('', '_blank');
-    win.document.write(`
-        <html>
-        <head>
-            <title>Sumár expedície B2B - ${formattedDate}</title>
-            <style>
-                body { font-family: Arial, sans-serif; padding: 20px; font-size: 14px; }
-                h2 { text-align: center; margin-bottom: 5px; }
-                p.subtitle { text-align: center; color: #555; margin-top: 0; margin-bottom: 20px; }
-                table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-                th, td { border: 1px solid #000; padding: 8px 12px; text-align: left; }
-                th { background-color: #f4f4f4; }
-                td[style*="text-align:right"] { text-align: right; font-weight: bold; }
-            </style>
-        </head>
-        <body>
-            <h2>Sumár produktov na B2B expedíciu</h2>
-            <p class="subtitle"><strong>Dátum dodania:</strong> ${formattedDate} | <strong>Vytlačené:</strong> ${new Date().toLocaleString('sk-SK')}</p>
-            ${content}
-            <script>window.print();</script>
-        </body>
-        </html>
-    `);
-    win.document.close();
-};
-
+  // =================================================================
   // EXPORT MODULU
+  // =================================================================
   (function (g) { 
       g.initializeB2BAdminModule = initializeB2BAdminModule; 
       g.loadCommView = loadCommView; 
