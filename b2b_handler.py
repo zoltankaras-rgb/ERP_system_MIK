@@ -638,94 +638,97 @@ def reject_b2b_registration(data: dict):
     return {"message": "Registrácia bola zamietnutá."}
 
 def get_customers_and_pricelists():
+    import db_connector
+    
+    # 1. Zákazníci - PRIDANÉ STĹPCE trasa_id a trasa_poradie DO SQL DOTAZU
     customers = db_connector.execute_query(
         """
-        SELECT id, zakaznik_id, nazov_firmy, email, telefon, adresa, adresa_dorucenia, je_schvaleny, trasa_id, trasa_poradie
-        FROM b2b_zakaznici WHERE typ='B2B' ORDER BY nazov_firmy
+        SELECT id, parent_id, zakaznik_id, nazov_firmy, email, telefon, 
+               adresa, adresa_dorucenia, je_schvaleny, trasa_id, trasa_poradie
+        FROM b2b_zakaznici 
+        ORDER BY nazov_firmy
         """
     ) or []
-    pricelists = db_connector.execute_query(
-        "SELECT id, nazov_cennika FROM b2b_cenniky ORDER BY nazov_cennika"
-    ) or []
-    routes = db_connector.execute_query(
-        "SELECT id, nazov FROM logistika_trasy WHERE is_active=1 ORDER BY nazov"
-    ) or []
+    
+    # 2. Cenníky
+    pricelists = db_connector.execute_query("SELECT id, nazov_cennika FROM b2b_cenniky ORDER BY nazov_cennika") or []
+    
+    # 3. Trasy
+    routes = db_connector.execute_query("SELECT id, nazov FROM logistika_trasy WHERE is_active=1 ORDER BY nazov") or []
+    
+    # 4. Mapovanie cenníkov
     try:
-        mapping_rows = db_connector.execute_query(
-            "SELECT zakaznik_id, cennik_id FROM b2b_zakaznik_cennik"
-        ) or []
+        mapping_rows = db_connector.execute_query("SELECT zakaznik_id, cennik_id FROM b2b_zakaznik_cennik") or []
     except Exception:
-        _ensure_mapping_table()
-        mapping_rows = db_connector.execute_query(
-            "SELECT zakaznik_id, cennik_id FROM b2b_zakaznik_cennik"
-        ) or []
+        mapping_rows = []
 
-    by_customer: Dict[str, List[int]] = {}
+    by_customer = {}
     for m in mapping_rows:
-        by_customer.setdefault(m['zakaznik_id'], []).append(m['cennik_id'])
+        # Uložíme pod stringovým aj intovým ID pre istotu
+        by_customer.setdefault(str(m['zakaznik_id']), []).append(m['cennik_id'])
+        
     return {"customers": customers, "pricelists": pricelists, "routes": routes, "mapping": by_customer}
 
 def update_customer_details(data: dict):
-    cid = (data or {}).get("id")
-    fields = (data or {}).get("fields") or {}
-    if not fields:
-        fields = {k: v for k, v in (data or {}).items() if k in {
-            'nazov_firmy','email','telefon','adresa','adresa_dorucenia','je_schvaleny','je_admin','trasa_id','trasa_poradie'
-        }}
-    pricelist_ids = (data or {}).get("pricelist_ids") or []
+    import db_connector
+    
+    cid = data.get("id")
     if not cid:
         return {"error": "Chýba id zákazníka."}
 
-    sets: List[str] = []
-    params: List[Any] = []
-    for k in ['nazov_firmy','email','telefon','adresa','adresa_dorucenia','je_schvaleny','je_admin', 'trasa_id', 'trasa_poradie']:
-        if k in fields:
-            sets.append(f"{k}=%s")
-            val = fields[k]
-            
-            # Bezpečné spracovanie prázdnych hodnôt pre trasy
-            if k == 'trasa_id' and (val == '' or val is None):
-                val = None
-            if k == 'trasa_poradie' and (val == '' or val is None):
-                val = 999
-                
-            params.append(val)
-            
-    if sets:
-        from db_connector import execute_query
-        execute_query(
-            "UPDATE b2b_zakaznici SET " + ", ".join(sets) + " WHERE id=%s",
-            tuple(params + [cid]),
-            fetch="none",
-        )
+    # Extrakcia dát (podporuje oba spôsoby, ak by app.py dáta zabalilo do 'fields')
+    fields = data.get("fields", data)
+    
+    nazov = fields.get('nazov_firmy')
+    email = fields.get('email')
+    telefon = fields.get('telefon')
+    adresa = fields.get('adresa')
+    adresa_dorucenia = fields.get('adresa_dorucenia')
+    je_schvaleny = fields.get('je_schvaleny', 1)
+    
+    # Kľúčové trasy (ošetrenie prázdnych hodnôt)
+    trasa_id = fields.get('trasa_id')
+    trasa_poradie = fields.get('trasa_poradie', 999)
+
+    if trasa_id == "" or trasa_id == "null":
+        trasa_id = None
+        
+    if trasa_poradie == "" or trasa_poradie is None:
+        trasa_poradie = 999
+
+    # Natvrdý UPDATE do databázy
+    db_connector.execute_query("""
+        UPDATE b2b_zakaznici 
+        SET nazov_firmy=%s, email=%s, telefon=%s, adresa=%s, 
+            adresa_dorucenia=%s, je_schvaleny=%s, trasa_id=%s, trasa_poradie=%s
+        WHERE id=%s
+    """, (nazov, email, telefon, adresa, adresa_dorucenia, je_schvaleny, trasa_id, int(trasa_poradie), cid), fetch="none")
 
     # Obnova cenníkov
-    from db_connector import execute_query
-    row = execute_query("SELECT zakaznik_id FROM b2b_zakaznici WHERE id=%s", (cid,), fetch="one")
+    pricelist_ids = fields.get("pricelist_ids") or []
+    row = db_connector.execute_query("SELECT zakaznik_id FROM b2b_zakaznici WHERE id=%s", (cid,), fetch="one")
+    
     if row and row["zakaznik_id"]:
         login = row["zakaznik_id"]
-        try:
-            execute_query("SELECT zakaznik_id, cennik_id FROM b2b_zakaznik_cennik LIMIT 1", fetch="none")
-        except:
-            pass # fallback, ak tabulka neexistuje
-            
-        execute_query("DELETE FROM b2b_zakaznik_cennik WHERE zakaznik_id = %s", (login,), fetch="none")
+        db_connector.execute_query("DELETE FROM b2b_zakaznik_cennik WHERE zakaznik_id = %s", (login,), fetch="none")
+        
         if pricelist_ids:
-            import db_connector
             conn = db_connector.get_connection()
             cur = conn.cursor()
             try:
                 cur.executemany(
                     "INSERT INTO b2b_zakaznik_cennik (zakaznik_id, cennik_id) VALUES (%s, %s)",
-                    [(login, int(pid)) for pid in pricelist_ids],
+                    [(login, int(pid)) for pid in pricelist_ids]
                 )
                 conn.commit()
             finally:
                 try:
-                    cur.close(); conn.close()
+                    cur.close()
+                    conn.close()
                 except Exception:
                     pass
-    return {"message": "Zákazník aktualizovaný."}
+
+    return {"message": "Zákazník bol úspešne aktualizovaný a trasa uložená."}
 
 def update_customer_details(data: dict):
     cid = (data or {}).get("id")
