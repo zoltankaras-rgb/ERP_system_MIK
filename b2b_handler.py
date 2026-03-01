@@ -2039,7 +2039,9 @@ def get_logistics_routes_data(target_date: str):
         return {"error": "Chýba parameter dátumu."}
 
     try:
-        trasy_db = db_connector.execute_query("SELECT id, nazov FROM logistika_trasy WHERE is_active=1 ORDER BY nazov", fetch='all') or []
+        from db_connector import execute_query
+        
+        trasy_db = execute_query("SELECT id, nazov FROM logistika_trasy WHERE is_active=1 ORDER BY nazov", fetch='all') or []
         trasy_map = {str(t['id']): t['nazov'] for t in trasy_db}
         trasy_map['unassigned'] = 'Zatiaľ nepriradená trasa (Zákazníci bez trasy)'
 
@@ -2066,7 +2068,7 @@ def get_logistics_routes_data(target_date: str):
           AND DATE(o.pozadovany_datum_dodania) = %s
         """
         
-        polozky = db_connector.execute_query(sql, (target_date,), fetch='all') or []
+        polozky = execute_query(sql, (target_date,), fetch='all') or []
 
         routes_data = {}
 
@@ -2147,13 +2149,18 @@ def get_logistics_routes_data(target_date: str):
             })
 
         final_routes.sort(key=lambda x: x["nazov"])
-        vehicles = db_connector.execute_query("SELECT id, license_plate, name FROM fleet_vehicles WHERE is_active=1 ORDER BY name", fetch='all') or []
-        return {"trasy": final_routes}
+        
+        # --- TOTO JE TEN KĽÚČOVÝ KUS KÓDU PRE AUTÁ ---
+        vehicles = execute_query("SELECT id, license_plate, name FROM fleet_vehicles WHERE is_active=1 ORDER BY name", fetch='all') or []
+        
+        return {"trasy": final_routes, "vehicles": vehicles}
+        
     except Exception as e:
         import traceback
         traceback.print_exc()
         return {"error": str(e)}
-
+    
+    
 def update_customer_route_order(data: dict):
     cid = data.get("zakaznik_id")
     poradie = data.get("poradie")
