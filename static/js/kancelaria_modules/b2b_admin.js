@@ -1529,16 +1529,87 @@ window.printPricelistPreview = async function(plId) {
     } catch (e) { box.innerHTML = `<p class="error">${e.message}</p>`; }
   }
 
-  async function loadB2BSettings() {
+ async function loadB2BSettings() {
       const box = ensureContainer('b2b-settings-container');
-      box.innerHTML = '<p>Načítavam...</p>';
+      box.innerHTML = '<p>Načítavam nastavenia...</p>';
       try {
           const s = await callFirstOk([{ url:'/api/kancelaria/b2b/getAnnouncement' }]);
-          box.innerHTML = `<h4>Oznam pre zákazníkov (B2B Portál)</h4><textarea id="b2b-ann-txt" class="filter-input" style="width:100%;" rows="5">${escapeHtml(s.announcement)}</textarea><button id="save-ann-btn" class="btn btn-primary" style="margin-top:10px;">Uložiť oznam</button>`;
-          doc.getElementById('save-ann-btn').onclick = async () => { await callFirstOk([{ url:'/api/kancelaria/b2b/saveAnnouncement', opts:{ method:'POST', body:{ announcement: doc.getElementById('b2b-ann-txt').value } } }]); showStatus('Oznam uložený'); };
+          const rData = await callFirstOk([{ url:'/api/kancelaria/b2b/getRoutes' }]);
+          const routes = rData.routes || [];
+
+          let routesHtml = `<table class="table-refined" style="margin-top:10px;"><thead><tr><th>ID</th><th>Názov trasy</th><th>Poznámka</th><th style="text-align:right;">Akcia</th></tr></thead><tbody>`;
+          if(routes.length === 0) {
+              routesHtml += `<tr><td colspan="4" style="text-align:center; color:#999; padding:20px;">Zatiaľ nie sú vytvorené žiadne trasy.</td></tr>`;
+          } else {
+              routes.forEach(r => {
+                  routesHtml += `<tr>
+                      <td>${r.id}</td>
+                      <td><strong>${escapeHtml(r.nazov)}</strong></td>
+                      <td><span style="color:#64748b; font-size:0.85em;">${escapeHtml(r.poznamka || '-')}</span></td>
+                      <td style="text-align:right;"><button class="btn btn-danger btn-sm" onclick="window.deleteRoute(${r.id})">🗑️ Zmazať</button></td>
+                  </tr>`;
+              });
+          }
+          routesHtml += `</tbody></table>`;
+
+          box.innerHTML = `
+              <div class="logistics-grid" style="display:grid; grid-template-columns:1fr 1fr; gap:20px; align-items:start;">
+                  <div class="card" style="border:1px solid #e2e8f0; padding:20px; border-radius:8px;">
+                      <h4 style="margin-top:0; color:#0369a1;">📢 Oznam pre zákazníkov (B2B Portál)</h4>
+                      <p style="font-size:0.85em; color:#64748b;">Text, ktorý sa zobrazí všetkým prihláseným odberateľom na ich nástenke.</p>
+                      <textarea id="b2b-ann-txt" class="filter-input" style="width:100%;" rows="6">${escapeHtml(s.announcement)}</textarea>
+                      <button id="save-ann-btn" class="btn btn-primary" style="margin-top:10px; width:100%;">Uložiť oznam</button>
+                  </div>
+                  
+                  <div class="card" style="border:1px solid #e2e8f0; padding:20px; border-radius:8px;">
+                      <h4 style="margin-top:0; color:#0369a1;">🚛 Správa trás (Logistika)</h4>
+                      <p style="font-size:0.85em; color:#64748b;">Pridajte si trasy (autá/smery). Následne ich budete môcť priradiť zákazníkom v karte Úpravy.</p>
+                      <div style="display:flex; gap:10px; margin-bottom:15px; align-items:stretch;">
+                          <div style="flex:2;"><input type="text" id="new-route-name" class="filter-input" placeholder="Názov trasy (napr. Trasa BA)" style="width:100%;"></div>
+                          <div style="flex:2;"><input type="text" id="new-route-note" class="filter-input" placeholder="Poznámka (ŠPZ / Šofér)" style="width:100%;"></div>
+                          <button id="add-route-btn" class="btn btn-success" style="white-space:nowrap;"><i class="fas fa-plus"></i> Pridať trasu</button>
+                      </div>
+                      <div style="max-height: 400px; overflow-y: auto; border:1px solid #cbd5e1; border-radius:6px;">
+                          ${routesHtml}
+                      </div>
+                  </div>
+              </div>
+          `;
+
+          // Ukladanie oznamu
+          doc.getElementById('save-ann-btn').onclick = async () => { 
+              await callFirstOk([{ url:'/api/kancelaria/b2b/saveAnnouncement', opts:{ method:'POST', body:{ announcement: doc.getElementById('b2b-ann-txt').value } } }]); 
+              showStatus('Oznam uložený'); 
+          };
+
+          // Pridanie trasy
+          doc.getElementById('add-route-btn').onclick = async () => {
+              const name = doc.getElementById('new-route-name').value;
+              const note = doc.getElementById('new-route-note').value;
+              if(!name) return showStatus('Názov trasy je povinný!', true);
+              try {
+                  await callFirstOk([{ url:'/api/kancelaria/b2b/createRoute', opts:{ method:'POST', body:{ nazov: name, poznamka: note } } }]);
+                  showStatus('Trasa pridaná');
+                  loadB2BSettings(); // Refreshne celú záložku
+              } catch(e) {
+                  showStatus(e.message, true);
+              }
+          };
+
       } catch(e) { box.innerHTML = `<p class="error">${e.message}</p>`; }
   }
 
+  // Funkcia na zmazanie trasy
+  window.deleteRoute = async function(id) {
+      if(!confirm("Naozaj chcete zmazať túto trasu?\n(Zákazníci priradení na túto trasu ostanú bez trasy a vyhodí ich do 'Zatiaľ nepriradená trasa'.)")) return;
+      try {
+          await callFirstOk([{ url:'/api/kancelaria/b2b/deleteRoute', opts:{ method:'POST', body:{ id: id } } }]);
+          showStatus('Trasa bola zmazaná');
+          loadB2BSettings(); // Refreshne celú záložku
+      } catch(e) {
+          showStatus(e.message, true);
+      }
+  };
   // =================================================================
   // EXPORT MODULU
   // =================================================================

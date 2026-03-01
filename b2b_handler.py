@@ -2163,3 +2163,38 @@ def update_customer_route_order(data: dict):
         (int(poradie), cid), fetch='none'
     )
     return {"message": "Poradie bolo úspešne uložené."}
+def get_routes_list():
+    try:
+        from db_connector import execute_query
+        rows = execute_query("SELECT id, nazov, poznamka FROM logistika_trasy WHERE is_active=1 ORDER BY id", fetch='all') or []
+        return {"routes": rows}
+    except Exception as e:
+        return {"error": str(e)}
+
+def create_route(data: dict):
+    nazov = (data.get("nazov") or "").strip()
+    poznamka = (data.get("poznamka") or "").strip()
+    if not nazov:
+        return {"error": "Názov trasy je povinný."}
+    
+    try:
+        from db_connector import execute_query
+        execute_query(
+            "INSERT INTO logistika_trasy (nazov, poznamka, is_active) VALUES (%s, %s, 1)", 
+            (nazov, poznamka), fetch='none'
+        )
+        return {"message": f"Trasa '{nazov}' bola úspešne vytvorená."}
+    except Exception as e:
+        return {"error": str(e)}
+
+def delete_route(data: dict):
+    rid = data.get("id")
+    if not rid:
+        return {"error": "Chýba ID trasy."}
+    try:
+        from db_connector import execute_query
+        # Trasu iba "deaktivujeme" aby sme nerozbili historické dáta u zákazníkov
+        execute_query("UPDATE logistika_trasy SET is_active=0 WHERE id=%s", (rid,), fetch='none')
+        return {"message": "Trasa bola vymazaná."}
+    except Exception as e:
+        return {"error": str(e)}

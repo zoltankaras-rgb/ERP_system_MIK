@@ -3817,6 +3817,21 @@ def b2b_order_pdf_alias():
 def api_update_route_order():
     import b2b_handler
     return jsonify(b2b_handler.update_customer_route_order(request.get_json()))
+
+@app.route("/api/kancelaria/b2b/getRoutes", methods=["GET"])
+def api_get_routes():
+    import b2b_handler
+    return jsonify(b2b_handler.get_routes_list())
+
+@app.route("/api/kancelaria/b2b/createRoute", methods=["POST"])
+def api_create_route():
+    import b2b_handler
+    return jsonify(b2b_handler.create_route(request.get_json()))
+
+@app.route("/api/kancelaria/b2b/deleteRoute", methods=["POST"])
+def api_delete_route():
+    import b2b_handler
+    return jsonify(b2b_handler.delete_route(request.get_json()))
 # =========================== KANCELÁRIA – rozrábka =============================
 # --- KANCELÁRIA / SKLAD / ROZRÁBKA ---
 
