@@ -67,6 +67,21 @@
       .cust-row { display: flex; align-items: center; padding: 8px; border-bottom: 1px solid #f1f5f9; cursor: pointer; }
       .cust-row:hover { background: #f8fafc; }
       .cust-row input { margin-right: 12px; transform: scale(1.2); cursor: pointer; }
+
+      /* === ŠTÝLY PRE ACCORDION (Rozpis hydiny) === */
+      .accordion { border: 1px solid #e5e7eb; border-radius: 6px; overflow: hidden; }
+      .accordion-item { border-bottom: 1px solid #e5e7eb; }
+      .accordion-item:last-child { border-bottom: none; }
+      .accordion-button { width: 100%; text-align: left; padding: 12px 15px; background: #f8fafc; border: none; font-weight: 600; cursor: pointer; display: flex; justify-content: space-between; align-items: center; color: #1f2937; }
+      .accordion-button:hover { background: #f1f5f9; }
+      .accordion-button::after { content: '\f107'; font-family: 'Font Awesome 6 Free'; font-weight: 900; transition: transform 0.2s; }
+      .accordion-button.collapsed::after { transform: rotate(-90deg); }
+      .accordion-collapse { display: none; padding: 15px; background: #fff; }
+      .accordion-collapse.show { display: block; }
+      .list-group { list-style: none; padding: 0; margin: 0; }
+      .list-group-item { padding: 8px 0; border-bottom: 1px solid #f1f5f9; display: flex; justify-content: space-between; }
+      .list-group-item:last-child { border-bottom: none; }
+      .poultry-badge { background: #0369a1; color: white; padding: 4px 10px; border-radius: 12px; font-size: 0.85em; font-weight: bold; }
   </style>
 </head>
 <body>
@@ -125,6 +140,20 @@
             <div class="card"><div class="card-body"><div class="muted">Suma spolu</div><div id="kpi-sum" style="font-weight:800;font-size:1.4rem">—</div></div></div>
           </div>
 
+          <div class="card" style="margin-top:16px; border: 1px solid #bae6fd;">
+            <div class="card-header" style="background-color: #f0f9ff; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap: 10px; padding: 12px 16px;">
+              <strong style="color: #0369a1; font-size: 1.1rem;"><i class="fas fa-drumstick-bite"></i> Rozpis hydiny (podľa odberateľov)</strong>
+              <div style="display:flex; gap: 8px;">
+                <button class="btn btn-primary btn-sm" onclick="loadPoultryBreakdown()"><i class="fas fa-sync"></i> Načítať z objednávok</button>
+                <button class="btn btn-warning btn-sm" id="btn-print-poultry" style="display:none; color: #000; font-weight: bold;" onclick="printPoultryBreakdown()"><i class="fas fa-print"></i> Tlačiť sumár</button>
+              </div>
+            </div>
+            <div class="card-body">
+              <div id="poultry-breakdown-container">
+                <p class="muted" style="margin:0;">Kliknite na "Načítať z objednávok" pre zobrazenie objednanej hydiny na dátum aktuálne vybraný vyššie v Prehľade dňa.</p>
+              </div>
+            </div>
+          </div>
           <div id="leader-next7"></div>
           <div id="leader-promos"></div>
           <div id="leader-lowstock-goods"></div>
@@ -344,6 +373,20 @@
       if (overlay) document.body.removeChild(overlay);
     }
     window.closeModal = closeModal;
+
+    // Globálny listener pre rozbaľovanie odberateľov (Accordion efekt pre hydinu)
+    document.addEventListener('click', function(e) {
+        if (e.target && e.target.classList.contains('accordion-button')) {
+            const targetId = e.target.getAttribute('data-bs-target');
+            if (targetId) {
+                const targetEl = document.querySelector(targetId);
+                if (targetEl) {
+                    targetEl.classList.toggle('show');
+                    e.target.classList.toggle('collapsed');
+                }
+            }
+        }
+    });
   </script>
 
 </body>
