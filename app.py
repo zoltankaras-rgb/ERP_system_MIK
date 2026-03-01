@@ -3813,12 +3813,6 @@ def b2b_order_pdf_alias():
 
     return jsonify({'error':'Objednávku sa nepodarilo nájsť.'}), 404
 
-@app.route("/api/leader/logistics/routes-data", methods=["GET"])
-def api_logistics_routes_data():
-    import b2b_handler
-    date = request.args.get("date")
-    return jsonify(b2b_handler.get_logistics_routes_data(date))
-
 @app.route("/api/kancelaria/b2b/updateCustomerRouteOrder", methods=["POST"])
 def api_update_route_order():
     import b2b_handler
