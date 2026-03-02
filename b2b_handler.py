@@ -2030,27 +2030,37 @@ def get_logistics_routes_data(target_date: str):
 
     try:
         import db_connector
+        
+        # 1. Načítanie trás
         trasy_db = db_connector.execute_query("SELECT id, nazov FROM logistika_trasy WHERE is_active=1 ORDER BY nazov", fetch='all') or []
         trasy_map = {str(t['id']): t['nazov'] for t in trasy_db}
         trasy_map['unassigned'] = 'Zatiaľ nepriradená trasa (Zákazníci bez trasy)'
 
-        # DOKONALÝ JOIN: Spájame tvoje odberné číslo v objednávke s tvojím odberným číslom v zákazníkoch
+        # 2. Načítanie VŠETKÝCH zákazníkov do pamäte (obídenie MySQL JOIN)
+        customers = db_connector.execute_query("SELECT id, zakaznik_id, nazov_firmy, trasa_id, trasa_poradie FROM b2b_zakaznici", fetch='all') or []
+        
+        # Vytvorenie vyhľadávacích indexov pre Python
+        cust_by_erp = {}
+        cust_by_name = {}
+        for c in customers:
+            if c.get('zakaznik_id'):
+                cust_by_erp[str(c['zakaznik_id']).strip().lower()] = c
+            if c.get('nazov_firmy'):
+                cust_by_name[str(c['nazov_firmy']).strip().lower()] = c
+
+        # 3. Načítanie objednávok samostatne
         sql = """
         SELECT 
             o.cislo_objednavky,
             o.nazov_firmy AS odberatel,
             o.adresa,
-            z.id AS db_id,
             o.zakaznik_id AS erp_id,
-            COALESCE(z.trasa_id, 'unassigned') AS trasa_id,
-            COALESCE(z.trasa_poradie, 999) AS poradie,
             pol.nazov_vyrobku AS produkt,
             pol.mnozstvo,
             pol.mj,
             p.predajna_kategoria
         FROM b2b_objednavky o
         JOIN b2b_objednavky_polozky pol ON o.id = pol.objednavka_id
-        LEFT JOIN b2b_zakaznici z ON TRIM(CAST(z.zakaznik_id AS CHAR)) = TRIM(CAST(o.zakaznik_id AS CHAR))
         LEFT JOIN produkty p ON (
              (p.ean IS NOT NULL AND pol.ean_produktu IS NOT NULL AND p.ean = pol.ean_produktu)
           OR (p.nazov_vyrobku = pol.nazov_vyrobku)
@@ -2063,11 +2073,28 @@ def get_logistics_routes_data(target_date: str):
 
         routes_data = {}
 
+        # 4. Manuálne spracovanie a prepájanie v Pythone
         for p in polozky:
-            tid = str(p['trasa_id'])
+            erp_id_val = str(p['erp_id']).strip().lower() if p['erp_id'] else ""
+            name_val = str(p['odberatel']).strip().lower() if p['odberatel'] else ""
             
-            # db_id použijeme na to, aby sme z Logistiky vedeli správne uložiť zmenu poradia naspäť do DB
-            db_id = str(p['db_id']) if p['db_id'] is not None else '0'
+            matched_cust = None
+            
+            # Match algoritmus: Prioritne ID, inak Názov
+            if erp_id_val in cust_by_erp:
+                matched_cust = cust_by_erp[erp_id_val]
+            elif name_val in cust_by_name:
+                matched_cust = cust_by_name[name_val]
+            
+            # Extrakcia vlastností
+            if matched_cust:
+                db_id = str(matched_cust['id'])
+                tid = str(matched_cust['trasa_id']) if matched_cust['trasa_id'] is not None else 'unassigned'
+                poradie = matched_cust['trasa_poradie'] if matched_cust['trasa_poradie'] is not None else 999
+            else:
+                db_id = '0'
+                tid = 'unassigned'
+                poradie = 999
             
             odberatel = p['odberatel']
             adresa = p['adresa']
@@ -2085,7 +2112,7 @@ def get_logistics_routes_data(target_date: str):
                     "zakaznik_id": db_id, 
                     "odberatel": odberatel, 
                     "adresa": adresa,
-                    "poradie": p['poradie'], 
+                    "poradie": int(poradie), 
                     "objednavky_set": set()
                 }
             routes_data[tid]["zastavky"][odberatel]["objednavky_set"].add(obj_cislo)
@@ -2111,6 +2138,7 @@ def get_logistics_routes_data(target_date: str):
                     "pocet_objednavok": len(obj_list), 
                     "cisla_objednavok": obj_list
                 })
+            # Zoradenie podľa trasa_poradie
             zastavky_list.sort(key=lambda x: x["poradie"])
 
             sumar_list = []
