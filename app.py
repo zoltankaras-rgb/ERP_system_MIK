@@ -5088,7 +5088,130 @@ def mail_contact_links_create():
 @login_required(role='kancelaria')
 def mail_message_assign_customer(message_id):
     data = request.json or {}
-    return handle_request(mail_handler.message_assign_customer, message_id, data.get('customer_id'))
+    return handle_request(mail_handler.message_assign_customer, message_id, data.get('customer_id'))  
+
+@app.route("/api/logistics/v2/routes-data", methods=["GET"])
+def api_logistics_v2_routes_data():
+    try:
+        from flask import request, jsonify
+        import db_connector
+        import re
+        
+        target_date = request.args.get("date")
+        if not target_date:
+            return jsonify({"error": "Chýba parameter dátumu."}), 400
+
+        # 1. Trasy z DB
+        trasy_db = db_connector.execute_query("SELECT id, nazov FROM logistika_trasy WHERE is_active=1", fetch='all') or []
+        trasy_map = {str(t['id']): t['nazov'] for t in trasy_db}
+        trasy_map['unassigned'] = 'Zatiaľ nepriradená trasa (Zákazníci bez trasy)'
+
+        # 2. Všetci zákazníci natvrdo do pamäte
+        customers = db_connector.execute_query("SELECT id, zakaznik_id, nazov_firmy, trasa_id, trasa_poradie FROM b2b_zakaznici", fetch='all') or []
+        
+        # Super-silný filter, ktorý zmaže medzery a zjednotí písmená
+        def clean_str(val):
+            return re.sub(r'\s+', '', str(val).lower()) if val else ""
+
+        cust_by_erp = {str(c.get('zakaznik_id')).strip().lower(): c for c in customers if c.get('zakaznik_id')}
+        cust_by_name = {clean_str(c.get('nazov_firmy')): c for c in customers if c.get('nazov_firmy')}
+
+        # 3. Iba PRIJATÉ objednávky
+        sql = """
+        SELECT 
+            o.cislo_objednavky,
+            o.nazov_firmy AS odberatel,
+            o.adresa,
+            o.zakaznik_id AS erp_id,
+            pol.nazov_vyrobku AS produkt,
+            pol.mnozstvo,
+            pol.mj,
+            p.predajna_kategoria
+        FROM b2b_objednavky o
+        JOIN b2b_objednavky_polozky pol ON o.id = pol.objednavka_id
+        LEFT JOIN produkty p ON (
+             (p.ean IS NOT NULL AND pol.ean_produktu IS NOT NULL AND p.ean = pol.ean_produktu)
+          OR (p.nazov_vyrobku = pol.nazov_vyrobku)
+        )
+        WHERE o.stav = 'Prijatá' 
+          AND DATE(o.pozadovany_datum_dodania) = %s
+        """
+        polozky = db_connector.execute_query(sql, (target_date,), fetch='all') or []
+
+        routes_data = {}
+
+        # 4. Manuálne prepojenie
+        for p in polozky:
+            erp_val = str(p['erp_id']).strip().lower() if p['erp_id'] else ""
+            name_val = clean_str(p['odberatel'])
+            
+            # Najprv skúsime podľa Odberného čísla, potom podľa Názvu firmy
+            match = cust_by_erp.get(erp_val) or cust_by_name.get(name_val)
+            
+            if match:
+                db_id = str(match['id'])
+                tid = str(match['trasa_id']) if match['trasa_id'] is not None else 'unassigned'
+                poradie = int(match['trasa_poradie']) if match['trasa_poradie'] is not None else 999
+            else:
+                db_id = '0'
+                tid = 'unassigned'
+                poradie = 999
+            
+            odberatel = p['odberatel'] or 'Neznámy'
+            adresa = p['adresa'] or ''
+            obj_cislo = p['cislo_objednavky']
+            kategoria = str(p['predajna_kategoria'] or 'Nezaradené').strip()
+            produkt = p['produkt']
+            mnozstvo = float(p['mnozstvo'] or 0)
+            mj = p['mj']
+
+            if tid not in routes_data:
+                routes_data[tid] = { "id": tid, "nazov": trasy_map.get(tid, 'Neznáma trasa'), "zastavky": {}, "sumar": {} }
+
+            if odberatel not in routes_data[tid]["zastavky"]:
+                routes_data[tid]["zastavky"][odberatel] = {
+                    "zakaznik_id": db_id, "odberatel": odberatel, "adresa": adresa,
+                    "poradie": poradie, "objednavky_set": set()
+                }
+            routes_data[tid]["zastavky"][odberatel]["objednavky_set"].add(obj_cislo)
+
+            if kategoria not in routes_data[tid]["sumar"]:
+                routes_data[tid]["sumar"][kategoria] = {}
+            
+            prod_key = f"{produkt}|{mj}"
+            if prod_key not in routes_data[tid]["sumar"][kategoria]:
+                routes_data[tid]["sumar"][kategoria][prod_key] = { "produkt": produkt, "mnozstvo": 0, "mj": mj }
+            routes_data[tid]["sumar"][kategoria][prod_key]["mnozstvo"] += mnozstvo
+
+        final_routes = []
+        for tid, data in routes_data.items():
+            zastavky_list = []
+            for odb, zdata in data["zastavky"].items():
+                obj_list = list(zdata["objednavky_set"])
+                zastavky_list.append({
+                    "zakaznik_id": zdata["zakaznik_id"], "odberatel": odb, "adresa": zdata["adresa"],
+                    "poradie": zdata["poradie"], "pocet_objednavok": len(obj_list), "cisla_objednavok": obj_list
+                })
+            zastavky_list.sort(key=lambda x: x["poradie"])
+
+            sumar_list = []
+            for kat, produkty in data["sumar"].items():
+                prod_list = list(produkty.values())
+                prod_list.sort(key=lambda x: x["produkt"])
+                sumar_list.append({ "kategoria": kat, "polozky": prod_list })
+            sumar_list.sort(key=lambda x: x["kategoria"])
+
+            final_routes.append({ "trasa_id": tid, "nazov": data["nazov"], "zastavky": zastavky_list, "sumar": sumar_list })
+
+        final_routes.sort(key=lambda x: x["nazov"])
+        vehicles = db_connector.execute_query("SELECT id, license_plate, name FROM fleet_vehicles WHERE is_active=1 ORDER BY name", fetch='all') or []
+        
+        return jsonify({"trasy": final_routes, "vehicles": vehicles})
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
 
 # =================================================================
 # === OBJEDNÁVKY / SKLAD BLUEPRINTY ===

@@ -414,7 +414,7 @@
 
         try {
             // 1. Stiahneme trasy (pôvodný link)
-            const res = await callFirstOk([{ url: `/api/leader/logistics/routes-data?date=${date}` }]);
+            const res = await callFirstOk([{ url: `/api/logistics/v2/routes-data?date=${date}` }]);
             const trasy = res.trasy || [];
             
             // 2. NEZÁVISLÉ STIAHNUTIE ÁUT (Toto obíde všetky predchádzajúce problémy)
