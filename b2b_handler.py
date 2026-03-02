@@ -2239,11 +2239,11 @@ def assign_vehicle_to_route_and_fleet(data: dict):
         
         start_km = last_log["end_odometer"] if last_log else initial_km
 
-        # 4. Založenie draftu s korektnými kilometrami
+        # 4. Založenie draftu s korektnými kilometrami A PRIDANÝM km_driven = 0
         cur.execute("""
             INSERT INTO fleet_logs 
-            (vehicle_id, log_date, driver, location_end, purpose, start_odometer, end_odometer) 
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            (vehicle_id, log_date, driver, location_end, purpose, start_odometer, end_odometer, km_driven) 
+            VALUES (%s, %s, %s, %s, %s, %s, %s, 0)
         """, (vehicle_id, date_str, driver, route_name, "Rozvoz tovaru", start_km, start_km))
 
         conn.commit()
