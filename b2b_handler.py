@@ -2030,83 +2030,49 @@ def get_logistics_routes_data(target_date: str):
 
     try:
         import db_connector
-        
-        # 1. Stiahneme trasy
         trasy_db = db_connector.execute_query("SELECT id, nazov FROM logistika_trasy WHERE is_active=1 ORDER BY nazov", fetch='all') or []
         trasy_map = {str(t['id']): t['nazov'] for t in trasy_db}
         trasy_map['unassigned'] = 'Zatiaľ nepriradená trasa (Zákazníci bez trasy)'
 
-        # 2. Stiahneme VŠETKÝCH zákazníkov do pamäte (aby sme ich prepojili v Pythone)
-        customers = db_connector.execute_query("SELECT id, zakaznik_id, nazov_firmy, trasa_id, trasa_poradie FROM b2b_zakaznici", fetch='all') or []
-
-        # 3. Stiahneme objednávky a položky bez zložitého JOINu
-        sql_orders = """
+        # DOKONALÝ JOIN: Spájame tvoje odberné číslo v objednávke s tvojím odberným číslom v zákazníkoch
+        sql = """
         SELECT 
             o.cislo_objednavky,
             o.nazov_firmy AS odberatel,
             o.adresa,
-            o.zakaznik_id AS o_zak_id,
+            z.id AS db_id,
+            o.zakaznik_id AS erp_id,
+            COALESCE(z.trasa_id, 'unassigned') AS trasa_id,
+            COALESCE(z.trasa_poradie, 999) AS poradie,
             pol.nazov_vyrobku AS produkt,
             pol.mnozstvo,
             pol.mj,
-            pol.ean_produktu
+            p.predajna_kategoria
         FROM b2b_objednavky o
         JOIN b2b_objednavky_polozky pol ON o.id = pol.objednavka_id
+        LEFT JOIN b2b_zakaznici z ON TRIM(CAST(z.zakaznik_id AS CHAR)) = TRIM(CAST(o.zakaznik_id AS CHAR))
+        LEFT JOIN produkty p ON (
+             (p.ean IS NOT NULL AND pol.ean_produktu IS NOT NULL AND p.ean = pol.ean_produktu)
+          OR (p.nazov_vyrobku = pol.nazov_vyrobku)
+        )
         WHERE o.stav NOT IN ('Hotová', 'Zrušená', 'Expedovaná')
           AND DATE(o.pozadovany_datum_dodania) = %s
         """
-        polozky = db_connector.execute_query(sql_orders, (target_date,), fetch='all') or []
-
-        # 4. Stiahneme kategórie produktov
-        prods = db_connector.execute_query("SELECT ean, nazov_vyrobku, predajna_kategoria FROM produkty", fetch='all') or []
-        kat_map_ean = {str(p['ean']): str(p['predajna_kategoria'] or 'Nezaradené').strip() for p in prods if p['ean']}
-        kat_map_name = {str(p['nazov_vyrobku']).strip().lower(): str(p['predajna_kategoria'] or 'Nezaradené').strip() for p in prods if p['nazov_vyrobku']}
+        
+        polozky = db_connector.execute_query(sql, (target_date,), fetch='all') or []
 
         routes_data = {}
 
         for p in polozky:
-            # === TVRDÉ PREPOJENIE OBJEDNÁVKY SO ZÁKAZNÍKOM V PYTHONE ===
-            match = None
-            o_zak_id_str = str(p['o_zak_id']).strip().lower() if p['o_zak_id'] else ""
-            odb_name_str = str(p['odberatel']).strip().lower() if p['odberatel'] else ""
-
-            for c in customers:
-                c_id_str = str(c['id']).strip().lower()
-                c_zak_id_str = str(c['zakaznik_id']).strip().lower() if c['zakaznik_id'] else ""
-                c_name_str = str(c['nazov_firmy']).strip().lower() if c['nazov_firmy'] else ""
-
-                # 1. Pokus: Zhoda vnútorného ID
-                if o_zak_id_str and o_zak_id_str == c_id_str:
-                    match = c; break
-                # 2. Pokus: Zhoda tvojho Odberného čísla
-                if o_zak_id_str and c_zak_id_str and o_zak_id_str == c_zak_id_str:
-                    match = c; break
-                # 3. Pokus: Zhoda názvu firmy
-                if odb_name_str and c_name_str and odb_name_str == c_name_str:
-                    match = c; break
-
-            # Získanie trasy z nájdenej zhody
-            if match:
-                tid = str(match['trasa_id']) if match['trasa_id'] is not None else 'unassigned'
-                zid = str(match['id'])
-                poradie = int(match['trasa_poradie']) if match['trasa_poradie'] is not None else 999
-            else:
-                tid = 'unassigned'
-                zid = str(p['o_zak_id']) or '0'
-                poradie = 999
-
-            # Spárovanie kategórií
-            ean = str(p.get('ean_produktu') or '')
-            pname_lower = str(p['produkt']).strip().lower()
-            kategoria = 'Nezaradené'
-            if ean and ean in kat_map_ean:
-                kategoria = kat_map_ean[ean]
-            elif pname_lower in kat_map_name:
-                kategoria = kat_map_name[pname_lower]
-
+            tid = str(p['trasa_id'])
+            
+            # db_id použijeme na to, aby sme z Logistiky vedeli správne uložiť zmenu poradia naspäť do DB
+            db_id = str(p['db_id']) if p['db_id'] is not None else '0'
+            
             odberatel = p['odberatel']
             adresa = p['adresa']
             obj_cislo = p['cislo_objednavky']
+            kategoria = str(p['predajna_kategoria'] or 'Nezaradené').strip()
             produkt = p['produkt']
             mnozstvo = float(p['mnozstvo'] or 0)
             mj = p['mj']
@@ -2116,8 +2082,11 @@ def get_logistics_routes_data(target_date: str):
 
             if odberatel not in routes_data[tid]["zastavky"]:
                 routes_data[tid]["zastavky"][odberatel] = {
-                    "zakaznik_id": zid, "odberatel": odberatel, "adresa": adresa,
-                    "poradie": poradie, "objednavky_set": set()
+                    "zakaznik_id": db_id, 
+                    "odberatel": odberatel, 
+                    "adresa": adresa,
+                    "poradie": p['poradie'], 
+                    "objednavky_set": set()
                 }
             routes_data[tid]["zastavky"][odberatel]["objednavky_set"].add(obj_cislo)
 
@@ -2129,15 +2098,18 @@ def get_logistics_routes_data(target_date: str):
                 routes_data[tid]["sumar"][kategoria][prod_key] = { "produkt": produkt, "mnozstvo": 0, "mj": mj }
             routes_data[tid]["sumar"][kategoria][prod_key]["mnozstvo"] += mnozstvo
 
-        # Finálne upratovanie a zoradenie trás
         final_routes = []
         for tid, data in routes_data.items():
             zastavky_list = []
             for odb, zdata in data["zastavky"].items():
                 obj_list = list(zdata["objednavky_set"])
                 zastavky_list.append({
-                    "zakaznik_id": zdata["zakaznik_id"], "odberatel": odb, "adresa": zdata["adresa"],
-                    "poradie": zdata["poradie"], "pocet_objednavok": len(obj_list), "cisla_objednavok": obj_list
+                    "zakaznik_id": zdata["zakaznik_id"], 
+                    "odberatel": odb, 
+                    "adresa": zdata["adresa"],
+                    "poradie": zdata["poradie"], 
+                    "pocet_objednavok": len(obj_list), 
+                    "cisla_objednavok": obj_list
                 })
             zastavky_list.sort(key=lambda x: x["poradie"])
 
@@ -2152,9 +2124,7 @@ def get_logistics_routes_data(target_date: str):
 
         final_routes.sort(key=lambda x: x["nazov"])
         
-        # Vozidlá pre Fleet modul
         vehicles = db_connector.execute_query("SELECT id, license_plate, name FROM fleet_vehicles WHERE is_active=1 ORDER BY name", fetch='all') or []
-        
         return {"trasy": final_routes, "vehicles": vehicles}
         
     except Exception as e:
