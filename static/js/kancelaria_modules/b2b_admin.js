@@ -694,8 +694,8 @@
       }
   };
 
- // =================================================================
-  // ADRESÁR PREVÁDZOK (Čisté manuálne miesta)
+  // =================================================================
+  // 1. ADRESÁR PREVÁDZOK (Čisté manuálne miesta, napr. Školy, Jednoty)
   // =================================================================
   window.manageStores = async function() {
       openModal('<div style="padding:30px; text-align:center;"><i class="fas fa-spinner fa-spin fa-2x"></i><br>Načítavam adresár...</div>');
@@ -726,7 +726,7 @@
                   <button class="btn btn-success" onclick="window.showStoreEditor(null)">+ Nová prevádzka</button>
               </div>
               <div style="background:#f8fafc; padding:12px; border-radius:6px; margin-bottom:15px; font-size:0.9rem; color:#475569; border:1px solid #e2e8f0;">
-                  ℹ️ Tu si definujete špecifické miesta vykládky, ktoré nemajú účet v B2B e-shope (napríklad školy, jednoty, atď.).
+                  ℹ️ Tu si definujete špecifické miesta vykládky, ktoré nemajú účet v B2B e-shope (napríklad školy, jednoty, atď.). Odtiaľto ich budete môcť vkladať do trás.
               </div>
               <div style="max-height: 50vh; overflow-y: auto; border: 1px solid #cbd5e1; border-radius: 8px;">
                 ${listHtml}
@@ -788,8 +788,9 @@
       } catch(e) { showStatus("Chyba: " + e.message, true); }
   };
 
+
   // =================================================================
-  // EDITOR ŠABLÓN (Kombinuje B2B zákazníkov a Adresár)
+  // 2. EDITOR ŠABLÓN TRÁS (Kombinuje B2B zákazníkov a Adresár)
   // =================================================================
   window.showManualRouteEditor = async function(id) {
       let template = { id: null, name: '', stops: [] };
@@ -798,37 +799,40 @@
           if (found) template = found;
       }
 
-      // 1. Načítame aktuálny adresár prevádzok
-      try {
-          const sData = await callFirstOk([{ url: '/api/kancelaria/b2b/getStores' }]);
-          state.stores = sData.stores || [];
-      } catch(e) {}
+      openModal('<div style="padding:30px; text-align:center;"><i class="fas fa-spinner fa-spin fa-2x"></i><br>Načítavam dáta (B2B zákazníkov a Adresár)...</div>');
 
-      // 2. Uistíme sa, že máme načítaných aj B2B zákazníkov
-      if (!state.customers || state.customers.length === 0) {
-          try {
-              const cData = await callFirstOk([{ url: '/api/kancelaria/b2b/getCustomersAndPricelists' }]);
-              state.customers = cData.customers || [];
-          } catch(e) {}
+      // VŽDY stiahneme aktuálne dáta priamo z DB pred otvorením, aby tam nechýbali B2B zákazníci
+      try {
+          const [sData, cData] = await Promise.all([
+              callFirstOk([{ url: '/api/kancelaria/b2b/getStores' }]),
+              callFirstOk([{ url: '/api/kancelaria/b2b/getCustomersAndPricelists' }])
+          ]);
+          state.stores = sData.stores || [];
+          state.customers = cData.customers || [];
+      } catch(e) {
+          console.error("Chyba pri sťahovaní zákazníkov:", e);
       }
 
-      let storeOptions = `<option value="">-- Vyberte prevádzku / zákazníka --</option>`;
+      let storeOptions = `<option value="">-- Vyberte prevádzku alebo B2B zákazníka --</option>`;
       
       // Skupina A: Systémoví B2B Zákazníci
-      storeOptions += `<optgroup label="🏢 B2B Zákazníci zo systému">`;
-      (state.customers || []).forEach(c => {
-          // Ako poznámku automaticky potiahneme adresu doručenia alebo klasickú adresu
-          const addr = c.adresa_dorucenia || c.adresa || '';
-          storeOptions += `<option value="b2b_${c.id}" data-name="${escapeHtml(c.nazov_firmy)}" data-note="${escapeHtml(addr)}">${escapeHtml(c.nazov_firmy)}</option>`;
-      });
-      storeOptions += `</optgroup>`;
+      if (state.customers.length > 0) {
+          storeOptions += `<optgroup label="🏢 B2B Zákazníci zo systému">`;
+          state.customers.forEach(c => {
+              const addr = c.adresa_dorucenia || c.adresa || '';
+              storeOptions += `<option value="b2b_${c.id}" data-name="${escapeHtml(c.nazov_firmy)}" data-note="${escapeHtml(addr)}">${escapeHtml(c.nazov_firmy)}</option>`;
+          });
+          storeOptions += `</optgroup>`;
+      }
 
       // Skupina B: Manuálne prevádzky z Adresára
-      storeOptions += `<optgroup label="📝 Manuálne prevádzky z Adresára">`;
-      (state.stores || []).forEach(s => {
-          storeOptions += `<option value="man_${s.id}" data-name="${escapeHtml(s.name)}" data-note="${escapeHtml(s.note || '')}">${escapeHtml(s.name)} ${s.note ? ' ('+escapeHtml(s.note)+')' : ''}</option>`;
-      });
-      storeOptions += `</optgroup>`;
+      if (state.stores.length > 0) {
+          storeOptions += `<optgroup label="📝 Manuálne prevádzky z Adresára">`;
+          state.stores.forEach(s => {
+              storeOptions += `<option value="man_${s.id}" data-name="${escapeHtml(s.name)}" data-note="${escapeHtml(s.note || '')}">${escapeHtml(s.name)} ${s.note ? ' ('+escapeHtml(s.note)+')' : ''}</option>`;
+          });
+          storeOptions += `</optgroup>`;
+      }
 
       let html = `
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
@@ -840,7 +844,7 @@
           </div>
           
           <div style="background:#f0fdf4; border:1px solid #bbf7d0; padding:15px; border-radius:6px; margin-top:20px;">
-              <label style="font-weight:bold; color:#166534; display:block; margin-bottom:5px;">Pridať zákazníka / prevádzku do tejto trasy:</label>
+              <label style="font-weight:bold; color:#166534; display:block; margin-bottom:5px;">Vložiť zákazníka / prevádzku do zoznamu:</label>
               <div style="display:flex; gap:10px;">
                   <select id="tpl-add-store-select" class="filter-input" style="flex:1; font-size:1rem;">
                       ${storeOptions}
@@ -862,7 +866,7 @@
 
       const container = document.getElementById('tpl-stops-container');
       
-      // Funkcia na vygenerovanie riadku v zozname
+      // Funkcia na vygenerovanie riadku v zozname (Poznámku možno ručne prepísať)
       window.renderStopRow = function(name, note, storeId = '') {
           const row = document.createElement('div');
           row.className = 'tpl-stop-row';
@@ -870,13 +874,12 @@
           row.dataset.name = name;
           row.style.cssText = 'display:flex; justify-content:space-between; align-items:center; background:#fff; padding:10px 15px; border:1px solid #e2e8f0; border-radius:4px; box-shadow:0 1px 2px rgba(0,0,0,0.05);';
           
-          // Poznámka/Adresa sa dá priamo tu v zozname prepísať!
           row.innerHTML = `
               <div style="display:flex; align-items:center; gap:15px; flex:1;">
-                  <div style="color:#94a3b8; cursor:ns-resize; font-size:1.2rem;" title="Poradie určíte postupným vkladaním">☰</div>
+                  <div style="color:#94a3b8; cursor:ns-resize; font-size:1.2rem;" title="Poradie meníte tým, ako ich vkladáte">☰</div>
                   <div style="flex:1; display:flex; flex-direction:column; gap:4px;">
                       <div style="font-weight:bold; color:#0f172a;">${escapeHtml(name)}</div>
-                      <input type="text" class="filter-input stop-note-input" value="${escapeHtml(note)}" placeholder="Adresa / Poznámka (voliteľné)" style="font-size:0.85rem; padding:4px; width:95%;">
+                      <input type="text" class="filter-input stop-note-input" value="${escapeHtml(note)}" placeholder="Adresa / Poznámka k vykládke (voliteľné)" style="font-size:0.85rem; padding:4px; width:95%;">
                   </div>
               </div>
               <button class="btn btn-danger btn-sm" onclick="this.parentElement.remove()" title="Odstrániť zo šablóny">✖</button>
@@ -885,20 +888,47 @@
           container.scrollTop = container.scrollHeight;
       };
 
-      // Tlačidlo "Vložiť do zoznamu"
+      // Akcia pre tlačidlo "Vložiť do zoznamu"
       window.addStoreToTemplate = function() {
           const select = document.getElementById('tpl-add-store-select');
-          if (select.selectedIndex <= 0) return showStatus("Najprv vyberte možnosť zo zoznamu.", true);
+          if (select.selectedIndex <= 0) return showStatus("Najprv vyberte možnosť z roletky.", true);
           
           const option = select.options[select.selectedIndex];
           window.renderStopRow(option.dataset.name, option.dataset.note, option.value);
-          select.value = ''; // zresetuje výber
+          select.value = ''; // zresetuje výber po vložení
       };
 
-      // Ak šablóna už obsahuje zastávky, vyrenderujeme ich
+      // Vykreslenie existujúcich zastávok pri editácii
       if (template.stops && template.stops.length > 0) {
           template.stops.forEach(s => window.renderStopRow(s.name, s.note, s.store_id || ''));
       }
+  };
+
+  // Bezpečné ukladanie (načítavame priamo z HTML elementu .stop-note-input)
+  window.saveManualRouteTemplate = async function(id) {
+      const name = document.getElementById('tpl-name').value.trim();
+      if (!name) return showStatus("Názov šablóny nesmie byť prázdny!", true);
+
+      const stops = [];
+      document.querySelectorAll('.tpl-stop-row').forEach(row => {
+          const noteInput = row.querySelector('.stop-note-input');
+          stops.push({ 
+              store_id: row.dataset.storeId || '', 
+              name: row.dataset.name || '', 
+              note: noteInput ? noteInput.value.trim() : '' 
+          });
+      });
+
+      if (stops.length === 0) return showStatus("Šablóna musí obsahovať aspoň jednu prevádzku / zákazníka.", true);
+
+      try {
+          await callFirstOk([{ 
+              url: '/api/kancelaria/b2b/saveRouteTemplate', 
+              opts: { method: 'POST', body: { id: id, name: name, stops: stops } } 
+          }]);
+          showStatus("Šablóna bola úspešne uložená.");
+          window.manageManualRoutes(); 
+      } catch(e) { showStatus("Chyba pri ukladaní: " + e.message, true); }
   };
 
   // Ukladanie šablóny
