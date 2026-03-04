@@ -4861,8 +4861,28 @@ def hr_leave_delete():
 @login_required(role=('kancelaria','veduci','admin'))
 def hr_labor_summary():
     return handle_request(hr_handler.get_labor_summary, request.args)
+# =================================================================
+# === TERMINAL (Tablet) ===
+# =================================================================
+@app.route('/terminal')
+def terminal_view():
+    """Zobrazí izolovanú stránku pre tablet (Terminál)"""
+    return render_template('terminal.html')
 
-
+@app.route('/api/terminal/punch', methods=['POST'])
+def api_terminal_punch():
+    """Spracuje PIN kód z tabletu"""
+    data = request.get_json() or {}
+    pin = data.get('pin')
+    
+    if not pin:
+        return jsonify({"error": "Zadaj PIN kód."}), 400
+        
+    result = hr_handler.process_terminal_punch(pin)
+    if "error" in result:
+        return jsonify(result), 400
+        
+    return jsonify(result)
 # =================================================================
 # === PROFITABILITY (Kancelária) ===
 # =================================================================

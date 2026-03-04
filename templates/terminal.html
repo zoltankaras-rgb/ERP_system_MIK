@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Dochádzkový Terminál</title>
+    <style>
+        * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; user-select: none; }
+        body { margin: 0; padding: 0; background-color: #0f172a; color: white; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; overflow: hidden; }
+        
+        /* Hodiny */
+        #clock { font-size: 6rem; font-weight: bold; margin-bottom: 5px; color: #f8fafc; letter-spacing: 2px; }
+        #date { font-size: 1.5rem; color: #94a3b8; margin-bottom: 40px; }
+
+        /* Displej pre PIN */
+        .pin-display { display: flex; gap: 15px; margin-bottom: 40px; }
+        .pin-dot { width: 30px; height: 30px; border-radius: 50%; background-color: #334155; border: 2px solid #475569; transition: all 0.2s ease; }
+        .pin-dot.filled { background-color: #38bdf8; border-color: #38bdf8; box-shadow: 0 0 15px rgba(56, 189, 248, 0.5); }
+
+        /* Klávesnica */
+        .numpad { display: grid; grid-template-columns: repeat(3, 100px); gap: 20px; }
+        .num-btn { width: 100px; height: 100px; border-radius: 50%; background-color: #1e293b; color: white; font-size: 2.5rem; font-weight: bold; border: 2px solid #334155; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 4px 6px rgba(0,0,0,0.3); transition: all 0.1s; }
+        .num-btn:active { background-color: #38bdf8; color: #0f172a; transform: scale(0.95); }
+        .num-btn.delete { background-color: #ef4444; border-color: #dc2626; font-size: 1.5rem; }
+
+        /* Vyskakovacie upozornenia (Notifikácie) */
+        #overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; opacity: 0; pointer-events: none; transition: opacity 0.3s ease; z-index: 100; }
+        #overlay.success-in { background-color: rgba(22, 101, 52, 0.95); opacity: 1; pointer-events: all; }
+        #overlay.success-out { background-color: rgba(3, 105, 161, 0.95); opacity: 1; pointer-events: all; }
+        #overlay.error { background-color: rgba(153, 27, 27, 0.95); opacity: 1; pointer-events: all; }
+        
+        .msg-title { font-size: 4rem; font-weight: bold; margin: 0; }
+        .msg-subtitle { font-size: 2rem; margin-top: 10px; color: #f8fafc; }
+        .msg-time { font-size: 3rem; font-weight: bold; margin-top: 30px; background: rgba(0,0,0,0.3); padding: 10px 30px; border-radius: 12px; }
+    </style>
+</head>
+<body>
+
+    <div id="clock">00:00</div>
+    <div id="date">Načítavam dátum...</div>
+
+    <div class="pin-display" id="pin-display">
+        <div class="pin-dot"></div>
+        <div class="pin-dot"></div>
+        <div class="pin-dot"></div>
+        <div class="pin-dot"></div>
+    </div>
+
+    <div class="numpad">
+        <div class="num-btn" onclick="pressKey('1')">1</div>
+        <div class="num-btn" onclick="pressKey('2')">2</div>
+        <div class="num-btn" onclick="pressKey('3')">3</div>
+        <div class="num-btn" onclick="pressKey('4')">4</div>
+        <div class="num-btn" onclick="pressKey('5')">5</div>
+        <div class="num-btn" onclick="pressKey('6')">6</div>
+        <div class="num-btn" onclick="pressKey('7')">7</div>
+        <div class="num-btn" onclick="pressKey('8')">8</div>
+        <div class="num-btn" onclick="pressKey('9')">9</div>
+        <div class="num-btn delete" onclick="clearPin()">ZMAZAŤ</div>
+        <div class="num-btn" onclick="pressKey('0')">0</div>
+        <div></div>
+    </div>
+
+    <div id="overlay">
+        <h1 class="msg-title" id="msg-title">Title</h1>
+        <div class="msg-subtitle" id="msg-subtitle">Subtitle</div>
+        <div class="msg-time" id="msg-time">00:00</div>
+    </div>
+
+    <script>
+        let currentPin = "";
+        let isProcessing = false;
+
+        // Aktualizácia hodín
+        function updateClock() {
+            const now = new Date();
+            document.getElementById('clock').innerText = now.toLocaleTimeString('sk-SK', { hour: '2-digit', minute: '2-digit' });
+            document.getElementById('date').innerText = now.toLocaleDateString('sk-SK', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }).toUpperCase();
+        }
+        setInterval(updateClock, 1000);
+        updateClock();
+
+        // Klávesnica a PIN logika
+        function pressKey(num) {
+            if (isProcessing) return;
+            if (currentPin.length < 4) {
+                currentPin += num;
+                updateDots();
+            }
+            if (currentPin.length === 4) {
+                submitPin();
+            }
+        }
+
+        function clearPin() {
+            currentPin = "";
+            updateDots();
+        }
+
+        function updateDots() {
+            const dots = document.querySelectorAll('.pin-dot');
+            dots.forEach((dot, index) => {
+                if (index < currentPin.length) dot.classList.add('filled');
+                else dot.classList.remove('filled');
+            });
+        }
+
+        // Odoslanie na server
+        async function submitPin() {
+            isProcessing = true;
+            try {
+                const response = await fetch('/api/terminal/punch', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ pin: currentPin })
+                });
+                
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    showScreen('error', 'Chyba', data.error || 'Neznámy PIN', '');
+                } else if (data.action === "IN") {
+                    showScreen('success-in', 'PRÍCHOD', data.name, data.time);
+                } else if (data.action === "OUT") {
+                    showScreen('success-out', 'ODCHOD', data.name, data.time);
+                }
+            } catch (err) {
+                showScreen('error', 'Chyba pripojenia', 'Skontrolujte internet', '');
+            }
+        }
+
+        // Zobrazenie výsledku
+        function showScreen(type, title, subtitle, time) {
+            const overlay = document.getElementById('overlay');
+            overlay.className = type;
+            document.getElementById('msg-title').innerText = title;
+            document.getElementById('msg-subtitle').innerText = subtitle;
+            document.getElementById('msg-time').innerText = time;
+            document.getElementById('msg-time').style.display = time ? 'block' : 'none';
+
+            // Zmizne po 3 sekundách a resetuje terminál pre ďalšieho
+            setTimeout(() => {
+                overlay.className = '';
+                clearPin();
+                isProcessing = false;
+            }, 3000);
+        }
+    </script>
+</body>
+</html>

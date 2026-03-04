@@ -388,10 +388,16 @@ def save_attendance(data: Dict[str, Any]) -> Dict[str, Any]:
             )
             if dt_out < dt_in:
                 dt_out = dt_out.replace(day=dt_out.day + 1)
+            
             diff_h = (dt_out - dt_in).total_seconds() / 3600.0
+            
+            # Ak je hrubý čas viac ako 6 hodín, odpočíta sa 0.5 hodiny (prestávka)
+            if diff_h > 6.0:
+                diff_h -= 0.5
+                
             worked_hours = round(max(diff_h, 0.0), 2)
     except Exception:
-        # necháme worked_hours z requestu
+        # necháme worked_hours z requestu, ak zlyhá parsovanie času
         pass
 
     try:
@@ -811,3 +817,68 @@ def get_labor_summary(params: Dict[str, Any]) -> Dict[str, Any]:
         "sections": sections_out,
         "employees": employees_out,
     }
+# -------------------------------------------------------------------
+# Terminál (Tablet) - Spracovanie PIN kódu
+# -------------------------------------------------------------------
+def process_terminal_punch(pin: str) -> dict:
+    _ensure_schema()
+    from datetime import datetime, date
+    
+    now = datetime.now()
+    today = now.date()
+    time_str = now.strftime("%H:%M")
+
+    # 1. Nájdi zamestnanca podľa PIN
+    emp = db_connector.execute_query(
+        "SELECT id, full_name FROM hr_employees WHERE punch_code=%s AND is_active=1", 
+        (pin,), fetch="one"
+    )
+    if not emp:
+        return {"error": "Neznámy alebo neaktívny PIN."}
+    
+    emp_id = emp["id"]
+    name = emp["full_name"]
+
+    # 2. Skontroluj dnešnú dochádzku
+    att = db_connector.execute_query(
+        "SELECT id, time_in, time_out FROM hr_attendance WHERE employee_id=%s AND work_date=%s ORDER BY id DESC LIMIT 1", 
+        (emp_id, today), fetch="one"
+    )
+
+    # Ak dnes nemá záznam, alebo má posledný záznam uzavretý (má príchod aj odchod), robíme PRÍCHOD
+    if not att or (att.get("time_in") and att.get("time_out")):
+        db_connector.execute_query(
+            "INSERT INTO hr_attendance (employee_id, work_date, time_in) VALUES (%s, %s, %s)", 
+            (emp_id, today, time_str), fetch="none"
+        )
+        return {"action": "IN", "name": name, "time": time_str}
+    
+    # Inak robíme ODCHOD (má príchod, ale chýba odchod)
+    else:
+        rec_id = att["id"]
+        t_in = att["time_in"]
+        
+        # Ošetrenie formátu času z DB
+        t_in_str = str(t_in)[:5] if t_in else "00:00"
+
+        # Výpočet hodín a automatickej prestávky
+        try:
+            dt_in = datetime.strptime(f"{today} {t_in_str}", "%Y-%m-%d %H:%M")
+            dt_out = datetime.strptime(f"{today} {time_str}", "%Y-%m-%d %H:%M")
+            if dt_out < dt_in:
+                dt_out = dt_out.replace(day=dt_out.day + 1)
+                
+            diff_h = (dt_out - dt_in).total_seconds() / 3600.0
+            
+            if diff_h > 6.0:
+                diff_h -= 0.5
+                
+            worked = round(max(diff_h, 0.0), 2)
+        except Exception:
+            worked = 0.0
+
+        db_connector.execute_query(
+            "UPDATE hr_attendance SET time_out=%s, worked_hours=%s WHERE id=%s", 
+            (time_str, worked, rec_id), fetch="none"
+        )
+        return {"action": "OUT", "name": name, "time": time_str, "hours": worked}
