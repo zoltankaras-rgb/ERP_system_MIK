@@ -8,6 +8,9 @@
         * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; user-select: none; }
         body { margin: 0; padding: 0; background-color: #0f172a; color: white; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; overflow: hidden; }
         
+        /* Logo */
+        .terminal-logo { width: 80px; height: auto; margin-bottom: 20px; filter: drop-shadow(0 0 10px rgba(56, 189, 248, 0.2)); }
+
         /* Hodiny */
         #clock { font-size: 6rem; font-weight: bold; margin-bottom: 5px; color: #f8fafc; letter-spacing: 2px; }
         #date { font-size: 1.5rem; color: #94a3b8; margin-bottom: 40px; }
@@ -24,17 +27,19 @@
         .num-btn.delete { background-color: #ef4444; border-color: #dc2626; font-size: 1.5rem; }
 
         /* Vyskakovacie upozornenia (Notifikácie) */
-        #overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; opacity: 0; pointer-events: none; transition: opacity 0.3s ease; z-index: 100; }
+        #overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; opacity: 0; pointer-events: none; transition: opacity 0.3s ease; z-index: 100; text-align: center; padding: 20px; }
         #overlay.success-in { background-color: rgba(22, 101, 52, 0.95); opacity: 1; pointer-events: all; }
         #overlay.success-out { background-color: rgba(3, 105, 161, 0.95); opacity: 1; pointer-events: all; }
         #overlay.error { background-color: rgba(153, 27, 27, 0.95); opacity: 1; pointer-events: all; }
         
         .msg-title { font-size: 4rem; font-weight: bold; margin: 0; }
-        .msg-subtitle { font-size: 2rem; margin-top: 10px; color: #f8fafc; }
-        .msg-time { font-size: 3rem; font-weight: bold; margin-top: 30px; background: rgba(0,0,0,0.3); padding: 10px 30px; border-radius: 12px; }
+        .msg-subtitle { font-size: 2.5rem; margin-top: 15px; color: #f8fafc; }
+        .msg-time { font-size: 3rem; font-weight: bold; margin-top: 40px; background: rgba(0,0,0,0.3); padding: 10px 30px; border-radius: 12px; }
     </style>
 </head>
 <body>
+
+    <img src="{{ url_for('static', filename='favicon.ico') }}" alt="Logo" class="terminal-logo">
 
     <div id="clock">00:00</div>
     <div id="date">Načítavam dátum...</div>
@@ -70,8 +75,8 @@
     <script>
         let currentPin = "";
         let isProcessing = false;
+        let overlayTimeout;
 
-        // Aktualizácia hodín
         function updateClock() {
             const now = new Date();
             document.getElementById('clock').innerText = now.toLocaleTimeString('sk-SK', { hour: '2-digit', minute: '2-digit' });
@@ -80,7 +85,6 @@
         setInterval(updateClock, 1000);
         updateClock();
 
-        // Klávesnica a PIN logika
         function pressKey(num) {
             if (isProcessing) return;
             if (currentPin.length < 4) {
@@ -105,7 +109,6 @@
             });
         }
 
-        // Odoslanie na server
         async function submitPin() {
             isProcessing = true;
             try {
@@ -120,16 +123,15 @@
                 if (!response.ok) {
                     showScreen('error', 'Chyba', data.error || 'Neznámy PIN', '');
                 } else if (data.action === "IN") {
-                    showScreen('success-in', 'PRÍCHOD', data.name, data.time);
+                    showScreen('success-in', 'PRÍCHOD ZAPÍSANÝ', `Vitaj v práci, ${data.name}! Nech sa ti dnes darí.`, data.time);
                 } else if (data.action === "OUT") {
-                    showScreen('success-out', 'ODCHOD', data.name, data.time);
+                    showScreen('success-out', 'ODCHOD ZAPÍSANÝ', `Koniec šichty, ${data.name}. Uži si pekný zvyšok dňa!`, data.time);
                 }
             } catch (err) {
-                showScreen('error', 'Chyba pripojenia', 'Skontrolujte internet', '');
+                showScreen('error', 'Chyba pripojenia', 'Skontrolujte internetové pripojenie', '');
             }
         }
 
-        // Zobrazenie výsledku
         function showScreen(type, title, subtitle, time) {
             const overlay = document.getElementById('overlay');
             overlay.className = type;
@@ -138,12 +140,13 @@
             document.getElementById('msg-time').innerText = time;
             document.getElementById('msg-time').style.display = time ? 'block' : 'none';
 
-            // Zmizne po 3 sekundách a resetuje terminál pre ďalšieho
-            setTimeout(() => {
+            if (overlayTimeout) clearTimeout(overlayTimeout);
+
+            overlayTimeout = setTimeout(() => {
                 overlay.className = '';
                 clearPin();
                 isProcessing = false;
-            }, 3000);
+            }, 5000);
         }
     </script>
 </body>
