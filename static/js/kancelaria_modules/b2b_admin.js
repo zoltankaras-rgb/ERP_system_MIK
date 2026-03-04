@@ -793,9 +793,19 @@
       }
   };
 
- window.showPrintManualRoute = function(id) {
+ // POZOR: Zmenili sme to na async function, aby sme vedeli načítať zoznam áut pred otvorením okna
+  window.showPrintManualRoute = async function(id) {
       const template = state.routeTemplates.find(t => t.id === id);
       if (!template) return;
+
+      // Načítanie dostupných áut pre modul Fleet
+      let vehicles = [];
+      try {
+          const vRes = await callFirstOk([{ url: '/api/fleet/active-vehicles' }]);
+          vehicles = vRes.vehicles || [];
+      } catch(ve) {
+          console.error("Nepodarilo sa načítať autá:", ve);
+      }
 
       let stopsHtml = '';
       template.stops.forEach((s, idx) => {
@@ -818,9 +828,26 @@
           `;
       });
 
+      const today = new Date().toISOString().slice(0, 10);
+
       let html = `
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
               <h3 style="margin:0; color:#1e293b;">🖨️ Príprava tlače: <span style="color:#0ea5e9;">${escapeHtml(template.name)}</span></h3>
+          </div>
+          
+          <div style="margin-bottom: 20px; padding: 15px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px;">
+              <h4 style="margin:0 0 10px 0; color:#166534;"><i class="fas fa-car"></i> Založiť knihu jázd (Fleet modul)</h4>
+              <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                  <label style="font-weight:bold; color:#166534; font-size:0.9rem;">Dátum rozvozu:</label>
+                  <input type="date" id="manual-route-date" class="filter-input" value="${today}" style="width:140px;">
+                  
+                  <select id="manual-veh-select" class="filter-input" style="flex:1; min-width:200px;">
+                      <option value="">-- Vyberte auto z Fleet modulu --</option>
+                      ${vehicles.map(v => `<option value="${v.id}">${escapeHtml(v.name)} (${escapeHtml(v.license_plate)})</option>`).join('')}
+                  </select>
+                  
+                  <button class="btn btn-success btn-sm" onclick="window.assignManualVehicle('${escapeHtml(template.name)}')">Založiť jazdu</button>
+              </div>
           </div>
           
           <div style="background:#eff6ff; border-left:4px solid #3b82f6; color:#1e3a8a; padding:12px 15px; margin-bottom:20px; font-size:0.95rem; border-radius:0 6px 6px 0;">
@@ -835,7 +862,7 @@
               </div>
           </div>
 
-          <div style="border:1px solid #cbd5e1; border-radius:8px; max-height:50vh; overflow-y:auto; margin-bottom:20px; box-shadow: inset 0 2px 4px rgba(0,0,0,0.05);">
+          <div style="border:1px solid #cbd5e1; border-radius:8px; max-height:40vh; overflow-y:auto; margin-bottom:20px; box-shadow: inset 0 2px 4px rgba(0,0,0,0.05);">
               ${stopsHtml}
           </div>
 
@@ -867,6 +894,24 @@
               });
           });
       }, 100);
+  };
+
+  // Nová funkcia na odoslanie požiadavky do Fleet modulu pre manuálnu trasu
+  window.assignManualVehicle = async function(routeName) {
+      const dateVal = document.getElementById('manual-route-date').value;
+      const vehicleId = document.getElementById('manual-veh-select').value;
+
+      if(!vehicleId) return showStatus("Najprv vyberte auto z rolovacieho zoznamu.", true);
+
+      try {
+          const res = await callFirstOk([{
+              url: '/api/leader/logistics/assign-vehicle',
+              opts: { method: 'POST', body: { date: dateVal, route_name: routeName, vehicle_id: vehicleId } }
+          }]);
+          showStatus(res.message);
+      } catch(e) {
+          alert("Chyba: " + e.message);
+      }
   };
 
   window.executePrintManualRoute = async function(id) {
