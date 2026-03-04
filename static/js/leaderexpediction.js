@@ -1836,3 +1836,578 @@ function printExpeditionBreakdown() {
     printWindow.document.write(printContent);
     printWindow.document.close();
 }
+// =================================================================
+// 🚛 LOGISTIKA & TRASY (Zrkadlenie z Kancelárie pre Vedúceho)
+// =================================================================
+
+// Globálny state pre logistiku v Leader module
+window.leaderLogisticsState = { customers: [], stores: [], routeTemplates: [] };
+
+// Bezpečná funkcia na volanie API (nezávislá od iných modulov)
+window.leaderApiCall = async function(url, method = 'GET', body = null) {
+    const opts = { method, headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin' };
+    if (body) opts.body = JSON.stringify(body);
+    const res = await fetch(url, opts);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
+};
+
+const escapeHtml = (s) => String(s ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+
+// Univerzálne Modálne okno pre Vedúceho
+window.openLeaderModal = function(html) {
+    let wrapper = document.getElementById('leader-modal-wrapper');
+    wrapper.innerHTML = `<div class="b2b-modal" style="position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:10000;display:flex;justify-content:center;align-items:center;">
+        <div class="b2b-modal-content" style="background:white;padding:25px;border-radius:12px;width:90%;max-width:800px;max-height:90vh;overflow-y:auto;box-shadow:0 20px 25px -5px rgba(0,0,0,0.1);">
+            <div style="text-align:right;margin-bottom:10px;"><span style="cursor:pointer;font-size:1.5rem;" onclick="window.closeLeaderModal()">&times;</span></div>
+            ${html}
+        </div>
+    </div>`;
+    wrapper.style.display = 'block';
+};
+window.closeLeaderModal = function() {
+    document.getElementById('leader-modal-wrapper').style.display = 'none';
+};
+
+// ===================== 1. ZÁKLADNÝ POHĽAD LOGISTIKY =====================
+window.loadLogisticsView = async function() {
+    const box = document.getElementById('logistics-container');
+    if (!box) return;
+
+    const today = new Date().toISOString().slice(0, 10);
+    
+    box.innerHTML = `
+        <div style="background:#f8fafc; padding:15px; border-radius:8px; border:1px solid #e2e8f0; margin-bottom:20px;">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <div style="display:flex; align-items:center; gap:15px;">
+                    <h4 style="margin:0; color:#1e293b;">🚛 Plánovanie rozvozu</h4>
+                    <button class="btn btn-secondary btn-sm" onclick="window.manageManualRoutes()">📝 Manuálne šablóny</button>
+                    <button class="btn btn-primary btn-sm" onclick="window.manageStores()">🏢 Adresár prevádzok</button>
+                </div>
+                <div style="display:flex; gap:10px; align-items:center;">
+                    <label style="font-weight:bold;">Deň rozvozu (Dodania):</label>
+                    <input type="date" id="logistics-date" class="form-control" style="width:auto; display:inline-block;" value="${today}">
+                    <button id="logistics-load-btn" class="btn btn-success"><i class="fas fa-sync"></i> Načítať trasy</button>
+                </div>
+            </div>
+        </div>
+        <div id="logistics-content">
+            <p style="color:#666;">Kliknite na "Načítať trasy" pre zobrazenie zoznamu.</p>
+        </div>
+    `;
+
+    document.getElementById('logistics-load-btn').onclick = async () => {
+        const date = document.getElementById('logistics-date').value;
+        const content = document.getElementById('logistics-content');
+        content.innerHTML = '<div style="padding:40px;text-align:center;color:#64748b;"><i class="fas fa-spinner fa-spin fa-2x"></i><br>Sťahujem dáta...</div>';
+
+        try {
+            const res = await window.leaderApiCall(`/api/logistics/v2/routes-data?date=${date}`);
+            const trasy = res.trasy || [];
+            
+            let vehicles = [];
+            try {
+                const vRes = await window.leaderApiCall('/api/fleet/active-vehicles');
+                vehicles = vRes.vehicles || [];
+            } catch(ve) { console.error("Autá sa nenačítali"); }
+
+            if (trasy.length === 0) {
+                content.innerHTML = '<div style="padding:20px;text-align:center;font-weight:bold;color:#dc2626;">Na tento deň nie sú naplánované žiadne objednávky pre rozvoz.</div>';
+                return;
+            }
+
+            let html = '';
+            trasy.forEach(t => {
+                html += `
+                <div style="margin-bottom: 25px; border: 1px solid #cbd5e1; border-radius:8px; overflow:hidden; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);">
+                    <div style="background:#f1f5f9; padding:15px; display:flex; justify-content:space-between; align-items:center; border-bottom: 2px solid #0284c7;">
+                        <h3 style="margin:0; color:#0f172a;">🚛 ${escapeHtml(t.nazov)}</h3>
+                        <div style="display:flex; gap:10px;">
+                            <button class="btn btn-warning btn-sm" style="color:#000; font-weight:bold;" onclick='window.printChecklist(${JSON.stringify(t).replace(/'/g, "&apos;")}, "${date}")'>📝 Nakládkový list</button>
+                            <button class="btn btn-dark btn-sm" onclick='window.printSummary(${JSON.stringify(t).replace(/'/g, "&apos;")}, "${date}")'>📦 Súhrn do auta</button>
+                        </div>
+                    </div>
+                    <div style="padding:15px; background:#fff; display:flex; gap:20px; flex-wrap:wrap;">
+                        
+                        <div style="flex:1; min-width:400px;">
+                            <h5 style="border-bottom:1px solid #e2e8f0; padding-bottom:8px; margin-top:0; color:#475569;">Poradie zastávok (Vykládka)</h5>
+                            <table style="width:100%; border-collapse:collapse; font-size:0.85rem;">
+                                <thead>
+                                    <tr style="border-bottom:1px solid #e2e8f0; background:#f8fafc; text-align:left;">
+                                        <th style="width:60px; text-align:center; padding:8px;">Poradie</th>
+                                        <th style="padding:8px;">Odberateľ a Adresa</th>
+                                        <th style="padding:8px;">Objednávky</th>
+                                        <th style="text-align:center; padding:8px;">Uložiť</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${t.zastavky.map((z) => `
+                                        <tr style="border-bottom:1px solid #f1f5f9;">
+                                            <td style="text-align:center; padding:8px;">
+                                                <input type="number" value="${z.poradie}" style="width:60px; text-align:center; font-weight:bold; border:1px solid #ccc; padding:4px; border-radius:4px;" id="poradie_${z.zakaznik_id}">
+                                            </td>
+                                            <td style="padding:8px;">
+                                                <strong style="font-size:1rem; color:#0f172a;">${escapeHtml(z.odberatel)}</strong><br>
+                                                <small style="color:#64748b;">${escapeHtml(z.adresa)}</small>
+                                            </td>
+                                            <td style="padding:8px;">
+                                                <span style="background:#e0f2fe; color:#0369a1; padding:2px 6px; border-radius:4px; font-weight:bold;">${z.pocet_objednavok} obj.</span><br>
+                                                <small style="color:#94a3b8;">${z.cisla_objednavok.join(', ')}</small>
+                                            </td>
+                                            <td style="text-align:center; padding:8px;">
+                                                <button class="btn btn-primary btn-sm" onclick="window.saveRouteOrder(${z.zakaznik_id})">💾</button>
+                                            </td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                            
+                            <div style="margin-top: 15px; padding: 15px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; display:flex; gap:10px; align-items:center;">
+                                <label style="font-weight:bold; color:#166534; margin:0;"><i class="fas fa-car"></i> Založiť knihu jázd:</label>
+                                <select id="veh_${t.trasa_id}" class="form-control" style="flex:1; display:inline-block; width:auto;">
+                                    <option value="">-- Vyberte auto z Fleet modulu --</option>
+                                    ${vehicles.map(v => `<option value="${v.id}">${escapeHtml(v.name)} (${escapeHtml(v.license_plate)})</option>`).join('')}
+                                </select>
+                                <button class="btn btn-success btn-sm" onclick="window.assignVehicleToFleet('${escapeHtml(t.nazov)}', '${t.trasa_id}')">Založiť jazdu</button>
+                            </div>
+                        </div>
+                        
+                        <div style="width:350px; background:#f8fafc; padding:15px; border-radius:8px; border:1px solid #e2e8f0;">
+                            <h5 style="border-bottom:1px solid #cbd5e1; padding-bottom:8px; margin-top:0; color:#475569;">Čo naložiť do auta</h5>
+                            ${t.sumar.map(s => `
+                                <div style="margin-bottom:12px;">
+                                    <strong style="color:#0369a1; display:block; border-bottom:1px dashed #cbd5e1; padding-bottom:3px;">${escapeHtml(s.kategoria)}</strong>
+                                    <ul style="margin:5px 0 0 0; padding-left:0; list-style:none; font-size:0.85rem;">
+                                        ${s.polozky.map(p => `
+                                            <li style="display:flex; justify-content:space-between; padding:3px 0;">
+                                                <span>${escapeHtml(p.produkt)}</span>
+                                                <b style="color:#1e293b;">${p.mnozstvo} ${p.mj}</b>
+                                            </li>
+                                        `).join('')}
+                                    </ul>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                </div>
+                `;
+            });
+            content.innerHTML = html;
+        } catch (e) {
+            content.innerHTML = `<div class="alert alert-danger" style="padding:20px; font-weight:bold;">Kritická chyba: ${e.message}</div>`;
+        }
+    };
+    
+    document.getElementById('logistics-load-btn').click();
+};
+
+window.assignVehicleToFleet = async function(routeName, routeId) {
+    const date = document.getElementById('logistics-date').value;
+    const vehicleId = document.getElementById(`veh_${routeId}`).value;
+    if(!vehicleId) return alert("Najprv vyberte auto z rolovacieho zoznamu.");
+    try {
+        const res = await window.leaderApiCall('/api/leader/logistics/assign-vehicle', 'POST', { date: date, route_name: routeName, vehicle_id: vehicleId });
+        alert(res.message);
+    } catch(e) { alert("Chyba: " + e.message); }
+};
+
+window.saveRouteOrder = async function(custId) {
+    const poradie = document.getElementById(`poradie_${custId}`).value;
+    try {
+        await window.leaderApiCall('/api/kancelaria/b2b/updateCustomerRouteOrder', 'POST', { zakaznik_id: custId, poradie: poradie });
+        document.getElementById('logistics-load-btn').click();
+    } catch(e) { alert('Chyba: ' + e.message); }
+};
+
+// ===================== 2. ADRESÁR PREVÁDZOK =====================
+window.manageStores = async function() {
+    window.openLeaderModal('<div style="padding:30px; text-align:center;">Načítavam adresár...</div>');
+    try {
+        const data = await window.leaderApiCall('/api/kancelaria/b2b/getStores');
+        window.leaderLogisticsState.stores = data.stores || [];
+
+        let listHtml = `<table style="width:100%; border-collapse:collapse; text-align:left;"><thead><tr style="border-bottom:2px solid #ccc;"><th style="padding:10px;">Názov prevádzky</th><th>Poznámka / Adresa</th><th style="text-align:right;">Akcia</th></tr></thead><tbody>`;
+        if (window.leaderLogisticsState.stores.length === 0) {
+            listHtml += `<tr><td colspan="3" style="text-align:center; padding:20px;">Zatiaľ nemáte žiadne manuálne prevádzky.</td></tr>`;
+        } else {
+            window.leaderLogisticsState.stores.forEach(s => {
+                listHtml += `<tr style="border-bottom:1px solid #eee;">
+                    <td style="padding:10px;"><strong>${escapeHtml(s.name)}</strong></td>
+                    <td style="color:#666;">${escapeHtml(s.note || '-')}</td>
+                    <td style="text-align:right;">
+                        <button class="btn btn-primary btn-sm" onclick="window.showStoreEditor(${s.id})">✏️ Upraviť</button>
+                        <button class="btn btn-danger btn-sm" onclick="window.deleteStore(${s.id}, '${escapeHtml(s.name)}')" style="margin-left:5px;">🗑️</button>
+                    </td>
+                </tr>`;
+            });
+        }
+        listHtml += `</tbody></table>`;
+
+        let html = `
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                <h3 style="margin:0; color:#1e293b;">🏢 Adresár manuálnych prevádzok</h3>
+                <button class="btn btn-success" onclick="window.showStoreEditor(null)">+ Nová prevádzka</button>
+            </div>
+            <div style="max-height: 50vh; overflow-y: auto; border: 1px solid #cbd5e1; border-radius: 8px;">
+              ${listHtml}
+            </div>
+            <div style="text-align:right; margin-top:20px;">
+                <button class="btn btn-secondary" onclick="window.closeLeaderModal()">Zavrieť</button>
+            </div>
+        `;
+        window.openLeaderModal(html);
+    } catch(e) { alert("Chyba: " + e.message); }
+};
+
+window.showStoreEditor = async function(id) {
+    let store = { id: null, name: '', note: '' };
+    if (id && window.leaderLogisticsState.stores) {
+        const found = window.leaderLogisticsState.stores.find(s => s.id === id);
+        if (found) store = found;
+    }
+    let html = `
+        <h3 style="margin-top:0;">${id ? '✏️ Úprava prevádzky' : '➕ Vytvorenie prevádzky'}</h3>
+        <div style="margin-bottom:15px;">
+            <label style="font-weight:bold;">Názov prevádzky *</label>
+            <input type="text" id="store-name" class="form-control" style="width:100%;" value="${escapeHtml(store.name)}">
+        </div>
+        <div style="margin-bottom:15px;">
+            <label>Poznámka / Adresa</label>
+            <input type="text" id="store-note" class="form-control" style="width:100%;" value="${escapeHtml(store.note)}">
+        </div>
+        <div style="text-align:right;">
+            <button class="btn btn-secondary" onclick="window.manageStores()" style="margin-right:10px;">Späť</button>
+            <button class="btn btn-success" onclick="window.saveStore(${id || 'null'})">💾 Uložiť</button>
+        </div>
+    `;
+    window.openLeaderModal(html);
+};
+
+window.saveStore = async function(id) {
+    const name = document.getElementById('store-name').value.trim();
+    const note = document.getElementById('store-note').value.trim();
+    if (!name) return alert("Názov prevádzky je povinný!");
+    try {
+        await window.leaderApiCall('/api/kancelaria/b2b/saveStore', 'POST', { id: id, name: name, note: note, b2b_customer_id: null });
+        window.manageStores(); 
+    } catch(e) { alert("Chyba: " + e.message); }
+};
+
+window.deleteStore = async function(id, name) {
+    if (!confirm(`Vymazať prevádzku "${name}"?`)) return;
+    try {
+        await window.leaderApiCall('/api/kancelaria/b2b/deleteStore', 'POST', { id: id });
+        window.manageStores();
+    } catch(e) { alert("Chyba: " + e.message); }
+};
+
+// ===================== 3. MANUÁLNE ŠABLÓNY TRÁS =====================
+window.manageManualRoutes = async function() {
+    window.openLeaderModal('<div style="padding:30px; text-align:center;">Načítavam šablóny...</div>');
+    try {
+        const data = await window.leaderApiCall('/api/kancelaria/b2b/getRouteTemplates');
+        window.leaderLogisticsState.routeTemplates = data.templates || [];
+
+        let listHtml = `<table style="width:100%; border-collapse:collapse; text-align:left;"><thead><tr style="border-bottom:2px solid #ccc;"><th style="padding:10px;">Názov šablóny</th><th>Zastávky</th><th style="text-align:right;">Akcia</th></tr></thead><tbody>`;
+        if (window.leaderLogisticsState.routeTemplates.length === 0) {
+            listHtml += `<tr><td colspan="3" style="text-align:center; padding:20px;">Žiadne manuálne šablóny.</td></tr>`;
+        } else {
+            window.leaderLogisticsState.routeTemplates.forEach(t => {
+                const stopsCount = Array.isArray(t.stops) ? t.stops.length : 0;
+                listHtml += `<tr style="border-bottom:1px solid #eee;">
+                    <td style="padding:10px;"><strong>${escapeHtml(t.name)}</strong></td>
+                    <td><span class="badge bg-info">${stopsCount} prevádzok</span></td>
+                    <td style="text-align:right;">
+                        <button class="btn btn-success btn-sm" onclick="window.showPrintManualRoute(${t.id})">🖨️ Tlačiť</button>
+                        <button class="btn btn-primary btn-sm" onclick="window.showManualRouteEditor(${t.id})" style="margin-left:5px;">✏️ Upraviť</button>
+                        <button class="btn btn-danger btn-sm" onclick="window.deleteManualRouteTemplate(${t.id}, '${escapeHtml(t.name)}')" style="margin-left:5px;">🗑️</button>
+                    </td>
+                </tr>`;
+            });
+        }
+        listHtml += `</tbody></table>`;
+
+        let html = `
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                <h3 style="margin:0;">📝 Manuálne šablóny trás</h3>
+                <button class="btn btn-success" onclick="window.showManualRouteEditor(null)">+ Nová šablóna</button>
+            </div>
+            <div style="max-height: 50vh; overflow-y: auto; border: 1px solid #cbd5e1; border-radius: 8px;">
+              ${listHtml}
+            </div>
+            <div style="text-align:right; margin-top:20px;">
+                <button class="btn btn-secondary" onclick="window.closeLeaderModal()">Zavrieť</button>
+            </div>
+        `;
+        window.openLeaderModal(html);
+    } catch(e) { alert("Chyba: " + e.message); }
+};
+
+window.showManualRouteEditor = async function(id) {
+    let template = { id: null, name: '', stops: [] };
+    if (id) {
+        const found = window.leaderLogisticsState.routeTemplates.find(t => t.id === id);
+        if (found) template = found;
+    }
+
+    window.openLeaderModal('<div style="padding:30px; text-align:center;">Načítavam dáta...</div>');
+
+    try {
+        const sData = await window.leaderApiCall('/api/kancelaria/b2b/getStores');
+        window.leaderLogisticsState.stores = sData.stores || [];
+    } catch(e) { window.leaderLogisticsState.stores = []; }
+
+    try {
+        const cData = await window.leaderApiCall('/api/kancelaria/b2b/getCustomersAndPricelists');
+        window.leaderLogisticsState.customers = cData.customers || [];
+    } catch(e) { window.leaderLogisticsState.customers = []; }
+
+    let storeOptions = `<option value="">-- Vyberte prevádzku alebo B2B zákazníka --</option>`;
+    
+    storeOptions += `<optgroup label="🏢 B2B Zákazníci zo systému">`;
+    if (window.leaderLogisticsState.customers && window.leaderLogisticsState.customers.length > 0) {
+        window.leaderLogisticsState.customers.forEach(c => {
+            const addr = c.adresa_dorucenia || c.adresa || '';
+            storeOptions += `<option value="b2b_${c.id}" data-name="${escapeHtml(c.nazov_firmy)}" data-note="${escapeHtml(addr)}">${escapeHtml(c.nazov_firmy)}</option>`;
+        });
+    }
+    storeOptions += `</optgroup>`;
+
+    storeOptions += `<optgroup label="📝 Manuálne prevádzky z Adresára">`;
+    if (window.leaderLogisticsState.stores && window.leaderLogisticsState.stores.length > 0) {
+        window.leaderLogisticsState.stores.forEach(s => {
+            storeOptions += `<option value="man_${s.id}" data-name="${escapeHtml(s.name)}" data-note="${escapeHtml(s.note || '')}">${escapeHtml(s.name)} ${s.note ? ' ('+escapeHtml(s.note)+')' : ''}</option>`;
+        });
+    }
+    storeOptions += `</optgroup>`;
+
+    let html = `
+        <h3 style="margin-top:0;">${id ? '✏️ Úprava šablóny' : '➕ Vytvorenie novej šablóny'}</h3>
+        <div style="margin-bottom:15px;">
+            <label style="font-weight:bold;">Názov šablóny</label>
+            <input type="text" id="tpl-name" class="form-control" style="width:100%;" value="${escapeHtml(template.name)}">
+        </div>
+        
+        <div style="background:#f0fdf4; border:1px solid #bbf7d0; padding:15px; border-radius:6px; margin-bottom:15px;">
+            <label style="font-weight:bold; display:block; margin-bottom:5px;">Vložiť zákazníka / prevádzku do zoznamu:</label>
+            <div style="display:flex; gap:10px;">
+                <select id="tpl-add-store-select" class="form-control" style="flex:1;">${storeOptions}</select>
+                <button class="btn btn-primary" onclick="window.addStoreToTemplate()">Vložiť ⬇️</button>
+            </div>
+        </div>
+        
+        <h4 style="border-bottom:1px solid #e2e8f0; padding-bottom:5px;">Poradie vykládky:</h4>
+        <div id="tpl-stops-container" style="max-height:35vh; overflow-y:auto; border:1px solid #cbd5e1; border-radius:6px; padding:10px; background:#f1f5f9; display:flex; flex-direction:column; gap:5px;">
+        </div>
+        
+        <div style="margin-top:20px; text-align:right;">
+            <button class="btn btn-secondary" onclick="window.manageManualRoutes()" style="margin-right:10px;">Späť</button>
+            <button class="btn btn-success" onclick="window.saveManualRouteTemplate(${id || 'null'})">💾 Uložiť šablónu</button>
+        </div>
+    `;
+    window.openLeaderModal(html);
+
+    const container = document.getElementById('tpl-stops-container');
+    
+    window.renderStopRow = function(name, note, storeId = '') {
+        const row = document.createElement('div');
+        row.className = 'tpl-stop-row';
+        row.dataset.storeId = storeId;
+        row.dataset.name = name;
+        row.style.cssText = 'display:flex; justify-content:space-between; align-items:center; background:#fff; padding:10px; border:1px solid #ccc; border-radius:4px;';
+        row.innerHTML = `
+            <div style="display:flex; align-items:center; gap:15px; flex:1;">
+                <div style="color:#999; font-size:1.2rem;">☰</div>
+                <div style="flex:1; display:flex; flex-direction:column; gap:4px;">
+                    <div style="font-weight:bold;">${escapeHtml(name)}</div>
+                    <input type="text" class="form-control stop-note-input" value="${escapeHtml(note)}" style="font-size:0.85rem; padding:4px; width:95%;">
+                </div>
+            </div>
+            <button class="btn btn-danger btn-sm" onclick="this.parentElement.remove()">✖</button>
+        `;
+        container.appendChild(row);
+        container.scrollTop = container.scrollHeight;
+    };
+
+    window.addStoreToTemplate = function() {
+        const select = document.getElementById('tpl-add-store-select');
+        if (select.selectedIndex <= 0) return alert("Vyberte možnosť z roletky.");
+        const option = select.options[select.selectedIndex];
+        window.renderStopRow(option.dataset.name, option.dataset.note, option.value);
+        select.value = ''; 
+    };
+
+    if (template.stops && template.stops.length > 0) {
+        template.stops.forEach(s => window.renderStopRow(s.name, s.note, s.store_id || ''));
+    }
+};
+
+window.saveManualRouteTemplate = async function(id) {
+    const name = document.getElementById('tpl-name').value.trim();
+    if (!name) return alert("Názov šablóny nesmie byť prázdny!");
+
+    const stops = [];
+    document.querySelectorAll('.tpl-stop-row').forEach(row => {
+        const noteInput = row.querySelector('.stop-note-input');
+        stops.push({ 
+            store_id: row.dataset.storeId || '', 
+            name: row.dataset.name || '', 
+            note: noteInput ? noteInput.value.trim() : '' 
+        });
+    });
+
+    if (stops.length === 0) return alert("Šablóna musí obsahovať aspoň jednu prevádzku.");
+
+    try {
+        await window.leaderApiCall('/api/kancelaria/b2b/saveRouteTemplate', 'POST', { id: id, name: name, stops: stops });
+        window.manageManualRoutes(); 
+    } catch(e) { alert("Chyba: " + e.message); }
+};
+
+window.deleteManualRouteTemplate = async function(id, name) {
+    if (!confirm(`Vymazať šablónu:\n"${name}"?`)) return;
+    try {
+        await window.leaderApiCall('/api/kancelaria/b2b/deleteRouteTemplate', 'POST', { id: id });
+        window.manageManualRoutes(); 
+    } catch(e) { alert("Chyba: " + e.message); }
+};
+
+// ===================== 4. TLAČ & FLEET PRE ŠABLÓNY =====================
+window.showPrintManualRoute = async function(id) {
+    const template = window.leaderLogisticsState.routeTemplates.find(t => t.id === id);
+    if (!template) return;
+
+    let vehicles = [];
+    try {
+        const vRes = await window.leaderApiCall('/api/fleet/active-vehicles');
+        vehicles = vRes.vehicles || [];
+    } catch(ve) {}
+
+    let stopsHtml = '';
+    template.stops.forEach((s, idx) => {
+        stopsHtml += `
+            <label style="display:flex; align-items:flex-start; padding:12px; border-bottom:1px solid #ccc; cursor:pointer; background:${idx % 2 === 0 ? '#fff' : '#f8fafc'};" class="print-row-label">
+                <div style="padding-top:3px;">
+                    <input type="checkbox" class="print-stop-cb" value="${idx}" checked style="transform:scale(1.3); margin:0 15px 0 5px;">
+                </div>
+                <div style="width: 40px; font-weight:bold; color:#666;">${idx + 1}.</div>
+                <div style="flex:1;">
+                    <div style="font-weight:bold; font-size:1.05rem;">${escapeHtml(s.name)}</div>
+                    ${s.note ? `<div style="font-size:0.85rem; color:#666; margin-top:4px;">📝 ${escapeHtml(s.note)}</div>` : ''}
+                </div>
+                <div style="width: 80px; text-align:right; font-weight:bold; font-size:0.85rem; color:#10b981;" class="status-badge">Zahrnuté</div>
+            </label>
+        `;
+    });
+
+    const today = new Date().toISOString().slice(0, 10);
+
+    let html = `
+        <h3 style="margin-top:0;">🖨️ Príprava tlače: <span style="color:#0ea5e9;">${escapeHtml(template.name)}</span></h3>
+        
+        <div style="margin-bottom: 15px; padding: 15px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px;">
+            <h4 style="margin:0 0 10px 0;"><i class="fas fa-car"></i> Založiť knihu jázd (Fleet)</h4>
+            <div style="display:flex; gap:10px; align-items:center;">
+                <input type="date" id="manual-route-date" class="form-control" value="${today}" style="width:auto;">
+                <select id="manual-veh-select" class="form-control" style="flex:1;">
+                    <option value="">-- Vyberte auto z Fleet modulu --</option>
+                    ${vehicles.map(v => `<option value="${v.id}">${escapeHtml(v.name)} (${escapeHtml(v.license_plate)})</option>`).join('')}
+                </select>
+                <button class="btn btn-success btn-sm" onclick="window.assignManualVehicle('${escapeHtml(template.name)}')">Založiť jazdu</button>
+            </div>
+        </div>
+        
+        <div style="background:#eff6ff; padding:10px; margin-bottom:15px; font-size:0.95rem; border-left:4px solid #3b82f6;">
+            Odškrtnite prevádzky, do ktorých sa dnes <b>nevezme tovar</b>.
+        </div>
+        
+        <div style="border:1px solid #ccc; max-height:40vh; overflow-y:auto; margin-bottom:20px;">
+            ${stopsHtml}
+        </div>
+
+        <div style="text-align:right;">
+            <button class="btn btn-secondary" onclick="window.manageManualRoutes()" style="margin-right:10px;">← Späť na zoznam</button>
+            <button class="btn btn-primary" onclick="window.executePrintManualRoute(${id})">🖨️ Vytlačiť</button>
+        </div>
+    `;
+    
+    window.openLeaderModal(html);
+
+    setTimeout(() => {
+        document.querySelectorAll('.print-stop-cb').forEach(cb => {
+            cb.addEventListener('change', function() {
+                const label = this.closest('.print-row-label');
+                const badge = label.querySelector('.status-badge');
+                if (this.checked) {
+                    badge.textContent = 'Zahrnuté'; badge.style.color = '#10b981'; label.style.opacity = '1';
+                } else {
+                    badge.textContent = 'Vynechané'; badge.style.color = '#ef4444'; label.style.opacity = '0.5';
+                }
+            });
+        });
+    }, 100);
+};
+
+window.assignManualVehicle = async function(routeName) {
+    const dateVal = document.getElementById('manual-route-date').value;
+    const vehicleId = document.getElementById('manual-veh-select').value;
+    if(!vehicleId) return alert("Najprv vyberte auto z rolovacieho zoznamu.");
+
+    try {
+        const res = await window.leaderApiCall('/api/leader/logistics/assign-vehicle', 'POST', { date: dateVal, route_name: routeName, vehicle_id: vehicleId });
+        alert(res.message);
+    } catch(e) { alert("Chyba: " + e.message); }
+};
+
+window.executePrintManualRoute = async function(id) {
+    const template = window.leaderLogisticsState.routeTemplates.find(t => t.id === id);
+    if (!template) return;
+
+    const activeStops = [];
+    document.querySelectorAll('.print-stop-cb:checked').forEach(cb => {
+        const idx = parseInt(cb.value);
+        if (template.stops[idx]) activeStops.push(template.stops[idx]);
+    });
+
+    if (activeStops.length === 0) return alert("Musíte nechať zaškrtnutú aspoň jednu prevádzku na tlač.");
+
+    try {
+        const res = await fetch('/api/kancelaria/b2b/printManualRoute', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: template.name, stops: activeStops })
+        });
+        if (!res.ok) throw new Error("Backend nevrátil správnu odpoveď.");
+        const htmlStr = await res.text();
+        const printWindow = window.open('', '_blank', 'width=900,height=800');
+        printWindow.document.write(htmlStr);
+        printWindow.document.close();
+        window.closeLeaderModal();
+    } catch(e) { alert("Chyba: " + e.message); }
+};
+
+// Pomocné funkcie pre tlač z tabuľky automatických trás (Nakládkový / Slepý list)
+window.printChecklist = function(routeObj, dateStr) {
+    const dateFormatted = dateStr.split('-').reverse().join('.');
+    let html = `<html><head><title>Nakládkový list - ${routeObj.nazov}</title><style>body { font-family: Arial; padding: 20px; font-size: 14px; } h1, h3 { text-align: center; } table { width: 100%; border-collapse: collapse; margin-top: 20px; } th, td { border: 1px solid #000; padding: 8px; text-align: left; } th { background-color: #f1f5f9; } .box { display: inline-block; width: 20px; height: 20px; border: 2px solid #000; } @media print { body { margin: 0; } }</style></head><body><h1>Nakládkový list / Itinerár</h1><h3>TRASA: ${escapeHtml(routeObj.nazov)} | DÁTUM: ${dateFormatted} | ŠOFÉR: __________________</h3><table><thead><tr><th>Por.</th><th>Odberateľ a Adresa</th><th>Objednávky</th><th style="text-align:center;">Pripravil</th><th style="text-align:center;">Naložil</th></tr></thead><tbody>`;
+    routeObj.zastavky.forEach((z, idx) => {
+        html += `<tr><td style="text-align:center; font-size:16px;"><strong>${idx + 1}.</strong></td><td><strong>${escapeHtml(z.odberatel)}</strong><br><span style="font-size:12px;">${escapeHtml(z.adresa)}</span></td><td style="font-size:12px;"><strong>${z.pocet_objednavok} obj.</strong><br>${z.cisla_objednavok.join('<br>')}</td><td style="text-align:center;"><div class="box"></div></td><td style="text-align:center;"><div class="box"></div></td></tr>`;
+    });
+    html += `</tbody></table><div style="margin-top: 30px; display: flex; justify-content: space-between;"><div>Podpis pripravil: _______________________</div><div>Podpis šoféra: _______________________</div></div><script>window.onload=function(){window.print(); setTimeout(function(){window.close();},500);}</script></body></html>`;
+    const win = window.open('', '_blank'); win.document.write(html); win.document.close();
+};
+
+window.printSummary = function(routeObj, dateStr) {
+    const dateFormatted = dateStr.split('-').reverse().join('.');
+    let html = `<html><head><title>Súhrn - ${routeObj.nazov}</title><style>body { font-family: Arial; padding: 20px; font-size: 14px; } h1, h3 { text-align: center; } .cat { background: #e2e8f0; padding: 8px; margin-top: 20px; font-weight: bold; border: 1px solid #000; border-bottom: none; } table { width: 100%; border-collapse: collapse; } th, td { border: 1px solid #000; padding: 8px; } .num { text-align: right; font-weight: bold; } @media print { body { margin: 0; } }</style></head><body><h1>Slepý list (Súhrn na naloženie)</h1><h3>TRASA: ${escapeHtml(routeObj.nazov)} | DÁTUM: ${dateFormatted}</h3>`;
+    routeObj.sumar.forEach(s => {
+        html += `<div class="cat">${escapeHtml(s.kategoria)}</div><table><tbody>`;
+        s.polozky.forEach(p => {
+            const val = parseFloat(p.mnozstvo);
+            const displayVal = Number.isInteger(val) ? val : val.toFixed(2);
+            html += `<tr><td>${escapeHtml(p.produkt)}</td><td class="num" style="width:120px;">${displayVal} ${p.mj}</td></tr>`;
+        });
+        html += `</tbody></table>`;
+    });
+    html += `<script>window.onload=function(){window.print(); setTimeout(function(){window.close();},500);}</script></body></html>`;
+    const win = window.open('', '_blank'); win.document.write(html); win.document.close();
+};

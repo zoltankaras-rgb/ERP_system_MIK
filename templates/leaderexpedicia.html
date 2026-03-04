@@ -190,7 +190,7 @@
               <button id="b2c-refresh" class="btn btn-primary">Obnoviť</button>
               <span style="flex:1"></span>
               <button id="b2c-export" class="btn btn-secondary">Export CSV</button>
-              <button id="b2c-pick"   class="btn btn-secondary">Picklist CSV</button>
+              <button id="b2c-pick"  class="btn btn-secondary">Picklist CSV</button>
             </div>
           </div>
           <div class="card" style="margin-top:12px">
@@ -215,7 +215,7 @@
               <button id="b2b-refresh" class="btn btn-primary">Obnoviť</button>
               <span style="flex:1"></span>
               <button id="b2b-export" class="btn btn-secondary">Export CSV</button>
-              <button id="b2b-pick"   class="btn btn-secondary">Picklist CSV</button>
+              <button id="b2b-pick"  class="btn btn-secondary">Picklist CSV</button>
             </div>
           </div>
           <div class="card" style="margin-top:12px">
@@ -273,8 +273,9 @@
         </div>
 
         <div id="leader-logistics" class="content-section">
-            <div id="leader-logistics-container"></div>
+            <div id="logistics-container"></div>
         </div>
+
         <div id="leader-b2b-comm" class="content-section">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
                 <h3>B2B Komunikácia so zákazníkmi</h3>
@@ -378,10 +379,12 @@
     </div>
   </div>
 
-  <script src="{{ url_for('static', filename='js/kancelaria_modules/b2b_admin.js') }}"></script>
+  <div id="leader-modal-wrapper" style="display:none;"></div>
+
+  <script src="{{ url_for('static', filename='js/kancelaria_modules/b2b_admin.js') }}?v=3"></script>
   <script src="{{ url_for('static', filename='js/kancelaria_modules/planning.js') }}"></script>
   <script src="{{ url_for('static', filename='js/kancelaria_modules/calendar_planner.js') }}"></script>
-  <script src="{{ url_for('static', filename='js/leaderexpediction.js') }}?v=1001"></script>
+  <script src="{{ url_for('static', filename='js/leaderexpediction.js') }}?v=1002"></script>
   
   <script>
     function closeModal() {
