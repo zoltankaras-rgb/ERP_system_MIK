@@ -3717,7 +3717,6 @@ def b2b_notify_order():
 # B2B LOGISTIKA & TRASY (Šablóny)
 # =================================================================
 
-# OPRAVA: Pridané methods=['GET', 'POST'], aby to fungovalo s callFirstOk
 @app.route('/api/kancelaria/b2b/getRouteTemplates', methods=['GET', 'POST'])
 @login_required(role=('kancelaria','veduci','admin'))
 def b2b_get_route_templates():
@@ -3726,7 +3725,6 @@ def b2b_get_route_templates():
 @app.route('/api/kancelaria/b2b/saveRouteTemplate', methods=['POST'])
 @login_required(role=('kancelaria','veduci','admin'))
 def b2b_save_route_template():
-    # Použi get_json(silent=True) pre bezpečnosť
     data = request.get_json(silent=True) or {}
     return handle_request(b2b_handler.save_route_template, data)
 
@@ -3735,6 +3733,74 @@ def b2b_save_route_template():
 def b2b_delete_route_template():
     data = request.get_json(silent=True) or {}
     return handle_request(b2b_handler.delete_route_template, data)
+
+# NOVÝ ENDPOINT PRE TLAČ MANUÁLNEJ TRASY
+@app.route('/api/kancelaria/b2b/printManualRoute', methods=['POST'])
+@login_required(role=('kancelaria','veduci','admin'))
+def print_manual_route():
+    data = request.get_json(silent=True) or {}
+    name = data.get("name", "Rozvozový list")
+    stops = data.get("stops", []) # Príjme len tie prevádzky, ktoré si na frontende nechal zaškrtnuté
+    date_str = datetime.now().strftime("%d.%m.%Y")
+    
+    # Vygenerovanie čistého HTML pre tlač
+    html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <title>{name}</title>
+        <style>
+            body {{ font-family: Arial, sans-serif; padding: 20px; }}
+            h1 {{ text-align: center; font-size: 24px; margin-bottom: 5px; }}
+            .date {{ text-align: center; margin-bottom: 30px; font-size: 16px; color: #555; }}
+            table {{ width: 100%; border-collapse: collapse; margin-top: 20px; }}
+            th, td {{ border: 1px solid #000; padding: 12px; text-align: left; font-size: 14px; }}
+            th {{ background-color: #f2f2f2; font-weight: bold; }}
+            .checkbox-box {{ width: 25px; height: 25px; border: 2px solid #000; margin: 0 auto; }}
+            @media print {{
+                .no-print {{ display: none; }}
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="no-print" style="margin-bottom: 20px; text-align: center;">
+            <button onclick="window.print()" style="padding: 10px 20px; font-size: 16px; cursor: pointer; background: #007bff; color: white; border: none; border-radius: 4px;">Tlačiť list</button>
+        </div>
+        <h1>{name}</h1>
+        <div class="date">Rozvoz na deň: {date_str}</div>
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 40px; text-align: center;">#</th>
+                    <th>Názov prevádzky / Zákazník</th>
+                    <th>Poznámka / Adresa</th>
+                    <th style="width: 80px; text-align: center;">Hotovo</th>
+                </tr>
+            </thead>
+            <tbody>
+    """
+    
+    # Vloží do tabuľky len prefiltrované prevádzky
+    for i, stop in enumerate(stops, 1):
+        stop_name = stop.get("name", "Neznáma prevádzka")
+        stop_note = stop.get("note", "")
+        html += f"""
+                <tr>
+                    <td style="text-align: center;">{i}.</td>
+                    <td><strong>{stop_name}</strong></td>
+                    <td>{stop_note}</td>
+                    <td><div class="checkbox-box"></div></td>
+                </tr>
+        """
+        
+    html += """
+            </tbody>
+        </table>
+    </body>
+    </html>
+    """
+    return html
 # ----------------------------------------------------------------------------
 # 1) MASTER: Zákazníci + ich cenníky (ideálne používať túto jednu cestu)
 # ----------------------------------------------------------------------------

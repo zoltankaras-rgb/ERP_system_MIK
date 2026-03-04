@@ -392,10 +392,12 @@
     const today = new Date().toISOString().slice(0, 10);
     
     box.innerHTML = `
-        <div style="background:#f8fafc; padding:15px; border-radius:8px; border:1px solid #e2e8f0; margin-bottom:20px;">
-            <div style="display:flex; justify-content:space-between; align-items:center;">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+            <div style="display:flex; align-items:center; gap:15px;">
                 <h4 style="margin:0; color:#1e293b;">🚛 Plánovanie rozvozu</h4>
-                <div style="display:flex; gap:10px; align-items:center;">
+                <button class="btn btn-secondary btn-sm" onclick="window.manageManualRoutes()">📝 Manuálne šablóny</button>
+            </div>
+            <div style="display:flex; gap:10px; align-items:center;">
                     <label style="font-weight:bold;">Deň rozvozu (Dodania):</label>
                     <input type="date" id="logistics-date" class="filter-input" value="${today}">
                     <button id="logistics-load-btn" class="btn btn-primary"><i class="fas fa-sync"></i> Načítať trasy</button>
@@ -642,7 +644,234 @@
       }
   };
 
+// =================================================================
+  // 2.A MANUÁLNE ŠABLÓNY TRÁS (Rozvozové listy mimo ERP)
+  // =================================================================
 
+  window.manageManualRoutes = async function() {
+      openModal('<div style="padding:30px; text-align:center;"><i class="fas fa-spinner fa-spin fa-2x"></i><br>Načítavam šablóny...</div>');
+      try {
+          const data = await callFirstOk([{ url: '/api/kancelaria/b2b/getRouteTemplates' }]);
+          state.routeTemplates = data.templates || [];
+
+          let listHtml = `<table class="table-refined"><thead><tr><th>Názov šablóny</th><th>Počet zastávok</th><th style="text-align:right;">Akcia</th></tr></thead><tbody>`;
+          if (state.routeTemplates.length === 0) {
+              listHtml += `<tr><td colspan="3" style="text-align:center; color:#666; padding:20px;">Zatiaľ nemáte žiadne manuálne šablóny.</td></tr>`;
+          } else {
+              state.routeTemplates.forEach(t => {
+                  const stopsCount = Array.isArray(t.stops) ? t.stops.length : 0;
+                  listHtml += `<tr>
+                      <td><strong style="color:#0f172a; font-size:1.05rem;">${escapeHtml(t.name)}</strong></td>
+                      <td><span style="background:#e0f2fe; color:#0369a1; padding:3px 8px; border-radius:12px; font-weight:bold; font-size:0.85rem;">${stopsCount} prevádzok</span></td>
+                      <td style="text-align:right;">
+                          <button class="btn btn-success btn-sm" onclick="window.showPrintManualRoute(${t.id})" title="Pripraviť na tlač">🖨️ Tlačiť</button>
+                          <button class="btn btn-primary btn-sm" onclick="window.showManualRouteEditor(${t.id})" style="margin-left:5px;">✏️ Upraviť</button>
+                          <button class="btn btn-danger btn-sm" onclick="window.deleteManualRouteTemplate(${t.id}, '${escapeHtml(t.name)}')" style="margin-left:5px;">🗑️</button>
+                      </td>
+                  </tr>`;
+              });
+          }
+          listHtml += `</tbody></table>`;
+
+          let html = `
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                  <h3 style="margin:0; color:#1e293b;">📝 Manuálne šablóny trás</h3>
+                  <button class="btn btn-success" onclick="window.showManualRouteEditor(null)">+ Nová šablóna</button>
+              </div>
+              <div style="background:#f8fafc; padding:12px; border-radius:6px; margin-bottom:15px; font-size:0.9rem; color:#475569; border:1px solid #e2e8f0;">
+                  ℹ️ Tu si môžete vytvoriť pevné rozvozové zoznamy pre zákazníkov, ktorí nechodia cez B2B e-shop (napríklad COOP Jednota, školy). Pred samotnou tlačou si jednoducho odkliknete prevádzky, ktoré daný deň tovar neberú.
+              </div>
+              <div style="max-height: 50vh; overflow-y: auto; border: 1px solid #cbd5e1; border-radius: 8px;">
+                ${listHtml}
+              </div>
+              <div style="text-align:right; margin-top:20px;">
+                  <button class="btn btn-secondary" onclick="closeModal()">Zavrieť</button>
+              </div>
+          `;
+          openModal(html);
+      } catch(e) {
+          openModal(`<div style="padding:20px; color:red; font-weight:bold;">Chyba: ${escapeHtml(e.message)}</div>`);
+      }
+  };
+
+  window.showManualRouteEditor = function(id) {
+      let template = { id: null, name: '', stops: [] };
+      if (id) {
+          const found = state.routeTemplates.find(t => t.id === id);
+          if (found) template = found;
+      }
+
+      let html = `
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+              <h3 style="margin:0; color:#1e3a8a;">${id ? '✏️ Úprava šablóny' : '➕ Vytvorenie novej šablóny'}</h3>
+          </div>
+          <div class="form-group">
+              <label style="font-weight:bold; color:#475569;">Názov šablóny (napr. Rozvoz Vlčany / COOP Jednoty)</label>
+              <input type="text" id="tpl-name" class="filter-input" style="width:100%; font-size:1.1rem; font-weight:bold; border-color:#3b82f6;" value="${escapeHtml(template.name)}">
+          </div>
+          
+          <div style="margin-top:20px; display:flex; justify-content:space-between; align-items:center;">
+              <label style="font-weight:bold; color:#475569;">Zoznam prevádzok (Zoradené podľa poradia vykládky):</label>
+              <button class="btn btn-primary btn-sm" onclick="window.addManualRouteStop()">+ Pridať ďalšiu prevádzku</button>
+          </div>
+          
+          <div id="tpl-stops-container" style="max-height:40vh; overflow-y:auto; border:1px solid #cbd5e1; border-radius:6px; padding:10px; background:#f1f5f9; margin-top:10px; display:flex; flex-direction:column; gap:10px;">
+          </div>
+          
+          <div style="margin-top:20px; text-align:right; border-top:1px solid #e2e8f0; padding-top:15px;">
+              <button class="btn btn-secondary" onclick="window.manageManualRoutes()" style="margin-right:10px;">Späť</button>
+              <button class="btn btn-success" style="padding:10px 20px; font-weight:bold;" onclick="window.saveManualRouteTemplate(${id || 'null'})">💾 Uložiť šablónu</button>
+          </div>
+      `;
+      openModal(html);
+
+      const container = document.getElementById('tpl-stops-container');
+      
+      // Vnútorná funkcia na vykreslenie jedného riadku (zastávky)
+      window.addManualRouteStop = function(name = '', note = '') {
+          const row = document.createElement('div');
+          row.className = 'tpl-stop-row';
+          row.style.cssText = 'display:flex; gap:10px; align-items:center; background:#fff; padding:10px; border:1px solid #e2e8f0; border-radius:6px; box-shadow:0 1px 2px rgba(0,0,0,0.05);';
+          row.innerHTML = `
+              <div style="color:#94a3b8; font-size:1.2rem; cursor:ns-resize; padding:0 5px;" title="Poradie meníte prepisovaním, alebo neskôr.">☰</div>
+              <input type="text" class="filter-input stop-name" placeholder="Názov (napr. COOP Vlčany)" value="${escapeHtml(name)}" style="flex:2; font-weight:bold;">
+              <input type="text" class="filter-input stop-note" placeholder="Poznámka / Adresa (napr. Rampa zozadu)" value="${escapeHtml(note)}" style="flex:2;">
+              <button class="btn btn-danger btn-sm" onclick="this.parentElement.remove()" title="Odstrániť riadok">✖</button>
+          `;
+          container.appendChild(row);
+          // Odruluje na spodok pri pridaní nového riadku
+          container.scrollTop = container.scrollHeight;
+      };
+
+      // Naplnenie existujúcimi dátami
+      if (template.stops && template.stops.length > 0) {
+          template.stops.forEach(s => window.addManualRouteStop(s.name, s.note));
+      } else {
+          window.addManualRouteStop(); // Prvý prázdny riadok ako pomocník
+      }
+  };
+
+  window.saveManualRouteTemplate = async function(id) {
+      const name = document.getElementById('tpl-name').value.trim();
+      if (!name) return showStatus("Názov šablóny nesmie byť prázdny!", true);
+
+      const stops = [];
+      document.querySelectorAll('.tpl-stop-row').forEach(row => {
+          const sName = row.querySelector('.stop-name').value.trim();
+          const sNote = row.querySelector('.stop-note').value.trim();
+          // Uložíme len tie, kde je aspoň názov
+          if (sName) {
+              stops.push({ name: sName, note: sNote });
+          }
+      });
+
+      if (stops.length === 0) return showStatus("Šablóna musí obsahovať aspoň jednu prevádzku.", true);
+
+      try {
+          await callFirstOk([{ 
+              url: '/api/kancelaria/b2b/saveRouteTemplate', 
+              opts: { method: 'POST', body: { id: id, name: name, stops: stops } } 
+          }]);
+          showStatus("Šablóna bola úspešne uložená.");
+          window.manageManualRoutes(); // Po uložení sa vrátime do zoznamu
+      } catch(e) {
+          showStatus("Chyba pri ukladaní: " + e.message, true);
+      }
+  };
+
+  window.deleteManualRouteTemplate = async function(id, name) {
+      if (!confirm(`Naozaj chcete natrvalo vymazať šablónu:\n"${name}"?`)) return;
+      try {
+          await callFirstOk([{ 
+              url: '/api/kancelaria/b2b/deleteRouteTemplate', 
+              opts: { method: 'POST', body: { id: id } } 
+          }]);
+          showStatus("Šablóna bola zmazaná.");
+          window.manageManualRoutes(); // Obnovíme zoznam
+      } catch(e) {
+          showStatus("Chyba pri mazaní: " + e.message, true);
+      }
+  };
+
+  window.showPrintManualRoute = function(id) {
+      const template = state.routeTemplates.find(t => t.id === id);
+      if (!template) return;
+
+      let stopsHtml = '';
+      template.stops.forEach((s, idx) => {
+          stopsHtml += `
+              <label style="display:flex; align-items:center; padding:12px; border-bottom:1px solid #e2e8f0; cursor:pointer; background:${idx % 2 === 0 ? '#fff' : '#f8fafc'}; transition: background 0.2s;">
+                  <input type="checkbox" class="print-stop-cb" value="${idx}" checked style="transform:scale(1.5); margin-right:20px; cursor:pointer;">
+                  <div style="flex:1;">
+                      <div style="font-weight:bold; color:#0f172a; font-size:1.05rem;">${idx + 1}. ${escapeHtml(s.name)}</div>
+                      ${s.note ? `<div style="font-size:0.85rem; color:#64748b; margin-top:2px;">${escapeHtml(s.note)}</div>` : ''}
+                  </div>
+              </label>
+          `;
+      });
+
+      let html = `
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+              <h3 style="margin:0; color:#1e293b;">🖨️ Príprava tlače</h3>
+          </div>
+          <div style="background:#fff7ed; border:1px solid #fed7aa; color:#c2410c; padding:10px; border-radius:6px; margin-bottom:15px; font-size:0.95rem;">
+              <strong>${escapeHtml(template.name)}</strong><br>
+              Odškrtnite prevádzky, do ktorých sa dnes <b>NEJDE</b> (nebudú na papieri).
+          </div>
+          
+          <div style="border:1px solid #cbd5e1; border-radius:8px; max-height:50vh; overflow-y:auto; margin-bottom:20px; box-shadow: inset 0 2px 4px rgba(0,0,0,0.05);">
+              ${stopsHtml}
+          </div>
+
+          <div style="text-align:right; display:flex; justify-content:flex-end; gap:10px; border-top:1px solid #e2e8f0; padding-top:15px;">
+              <button class="btn btn-secondary" onclick="window.manageManualRoutes()">Späť na zoznam</button>
+              <button class="btn btn-primary" style="padding:10px 25px; font-size:1.1rem; font-weight:bold;" onclick="window.executePrintManualRoute(${id})">🖨️ Vytlačiť zoznam</button>
+          </div>
+      `;
+      openModal(html);
+  };
+
+  window.executePrintManualRoute = async function(id) {
+      const template = state.routeTemplates.find(t => t.id === id);
+      if (!template) return;
+
+      // Pozbierame len tie objekty, ktoré nechal užívateľ zaškrtnuté
+      const activeStops = [];
+      document.querySelectorAll('.print-stop-cb:checked').forEach(cb => {
+          const idx = parseInt(cb.value);
+          if (template.stops[idx]) {
+              activeStops.push(template.stops[idx]);
+          }
+      });
+
+      if (activeStops.length === 0) return showStatus("Musíte nechať zaškrtnutú aspoň jednu prevádzku na tlač.", true);
+
+      try {
+          // Pošleme to na nový Python endpoint, ktorý vyrobí HTML s tabuľkou
+          const response = await fetch('/api/kancelaria/b2b/printManualRoute', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                  name: template.name,
+                  stops: activeStops
+              })
+          });
+
+          if (!response.ok) throw new Error("Backend nevrátil správnu odpoveď.");
+          
+          const htmlStr = await response.text();
+          
+          // Otvorí sa nové okno a vpíše sa do neho výsledné HTML s tabuľkou
+          const printWindow = window.open('', '_blank', 'width=900,height=800');
+          printWindow.document.write(htmlStr);
+          printWindow.document.close();
+          
+          // Akonáhle sa otvorí okno tlače, modal s výberom zavrieme
+          closeModal();
+      } catch(e) {
+          showStatus("Chyba pri príprave tlače: " + e.message, true);
+      }
+  };
   // =================================================================
   // 3. KOMUNIKÁCIA
   // =================================================================

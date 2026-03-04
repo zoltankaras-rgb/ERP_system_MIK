@@ -1790,47 +1790,65 @@ def get_daily_items_summary(data: dict):
         })
         
     return {"items": results, "date": target_date}
-# b2b_handler.py
 
 def _ensure_route_templates_table():
+    # Tabuľka používa stops_json (TEXT) pre uloženie celých objektov (názov, adresa, poradie)
     db_connector.execute_query("""
         CREATE TABLE IF NOT EXISTS b2b_route_templates (
             id INT AUTO_INCREMENT PRIMARY KEY,
             name VARCHAR(255) NOT NULL,
-            customer_ids JSON NOT NULL,
+            stops_json TEXT NOT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_slovak_ci
     """, fetch='none')
 
 def get_route_templates():
     _ensure_route_templates_table()
-    return db_connector.execute_query("SELECT * FROM b2b_route_templates ORDER BY name", fetch='all') or []
+    rows = db_connector.execute_query("SELECT * FROM b2b_route_templates ORDER BY name", fetch='all') or []
+    
+    # Dekódujeme JSON späť na objekty, aby frontend dostal rovno pole
+    for r in rows:
+        try:
+            r['stops'] = json.loads(r['stops_json'])
+        except Exception:
+            r['stops'] = []
+            
+    return {"templates": rows}
 
 def save_route_template(data: dict):
     _ensure_route_templates_table()
+    
     name = (data.get('name') or '').strip()
-    ids = data.get('ids') or []
+    stops = data.get('stops') or []  # Zmenené z 'ids' na 'stops' (pole objektov)
+    template_id = data.get('id')     # Ak pošleme ID, ide o úpravu existujúcej šablóny
     
-    if not name or not ids:
-        return {"error": "Chýba názov alebo vybraní zákazníci."}
+    if not name or not stops:
+        return {"error": "Chýba názov šablóny alebo zoznam zastávok."}
         
-    # Uložíme zoznam ID ako JSON string
-    import json
-    ids_json = json.dumps(ids)
+    # Uložíme zoznam zastávok ako string
+    stops_json = json.dumps(stops, ensure_ascii=False)
     
-    db_connector.execute_query(
-        "INSERT INTO b2b_route_templates (name, customer_ids) VALUES (%s, %s)",
-        (name, ids_json), fetch='none'
-    )
-    return {"message": "Šablóna trasy uložená."}
+    if template_id:
+        # Úprava existujúcej šablóny
+        db_connector.execute_query(
+            "UPDATE b2b_route_templates SET name=%s, stops_json=%s WHERE id=%s",
+            (name, stops_json, template_id), fetch='none'
+        )
+        return {"message": "Šablóna trasy bola úspešne upravená."}
+    else:
+        # Vytvorenie novej šablóny
+        db_connector.execute_query(
+            "INSERT INTO b2b_route_templates (name, stops_json) VALUES (%s, %s)",
+            (name, stops_json), fetch='none'
+        )
+        return {"message": "Nová šablóna trasy bola uložená."}
 
 def delete_route_template(data: dict):
     tid = data.get('id')
-    if not tid: return {"error": "Chýba ID."}
+    if not tid: 
+        return {"error": "Chýba ID šablóny."}
     db_connector.execute_query("DELETE FROM b2b_route_templates WHERE id=%s", (tid,), fetch='none')
-    return {"message": "Šablóna zmazaná."}
-
-# b2b_handler.py
+    return {"message": "Šablóna bola zmazaná."}
 
 def delete_pricelist(data: dict):
     pl_id = data.get('id')
