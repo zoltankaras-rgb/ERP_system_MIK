@@ -170,7 +170,7 @@ def save_employee(data: Dict[str, Any]) -> Dict[str, Any]:
         return {"error": "Meno zamestnanca je povinné."}
 
     section = (data.get("section") or "VYROBA").upper()
-    if section not in ("VYROBA", "EXPEDICIA", "ROZVOZ", "ADMIN", "INE"):
+    if section not in ("VYROBA", "EXPEDICIA", "ROZVOZ", "ADMIN", "UPRATOVANIE", "ROZRABKA", "INE"):
         section = "VYROBA"
 
     code = (data.get("code") or "").strip() or None
@@ -273,6 +273,8 @@ def list_attendance(params: Dict[str, Any]) -> Dict[str, Any]:
     d_to = _parse_date(params.get("date_to")) or date.today()
     emp_id = params.get("employee_id")
 
+    section_filter = params.get("section_filter")
+
     # 1) načítame dochádzku
     where = ["work_date >= %s", "work_date <= %s"]
     args: List[Any] = [d_from, d_to]
@@ -326,21 +328,25 @@ def list_attendance(params: Dict[str, Any]) -> Dict[str, Any]:
     items: List[Dict[str, Any]] = []
     for row in attendance:
         e = emp_map.get(row["employee_id"], {})
-        out: Dict[str, Any] = {}
+        
+        sec_base = e.get("section", "")
+        sec_override = row.get("section_override")
+        active_sec = sec_override if sec_override else sec_base
 
+        # Ak je zadaný filter úseku a nezhoduje sa, preskočíme záznam
+        if section_filter and active_sec != section_filter:
+            continue
+
+        out: Dict[str, Any] = {}
         out["id"] = row.get("id")
         out["employee_id"] = row.get("employee_id")
         out["full_name"] = e.get("full_name", "")
-        out["section"] = e.get("section", "")
-
+        out["section"] = sec_base
         out["work_date"] = _date_to_str(row.get("work_date"))
         out["time_in"] = _time_to_str(row.get("time_in"))
         out["time_out"] = _time_to_str(row.get("time_out"))
-
-        # worked_hours – na frontend posielame vždy číslo
         out["worked_hours"] = float(row.get("worked_hours") or 0.0)
-
-        out["section_override"] = row.get("section_override")
+        out["section_override"] = sec_override
         out["note"] = row.get("note")
 
         items.append(out)
@@ -371,7 +377,7 @@ def save_attendance(data: Dict[str, Any]) -> Dict[str, Any]:
     section_override = data.get("section_override")
     if section_override:
         section_override = section_override.upper()
-        if section_override not in ("VYROBA", "EXPEDICIA", "ROZVOZ", "ADMIN", "INE"):
+        if section_override not in ("VYROBA", "EXPEDICIA", "ROZVOZ", "ADMIN", "UPRATOVANIE", "ROZRABKA", "INE"):
             section_override = None
     else:
         section_override = None

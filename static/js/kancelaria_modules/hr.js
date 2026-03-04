@@ -23,6 +23,7 @@
 
   const HR = {
     employees: [],
+    currentAttendanceData: [],
     dom: {},
 
     init() {
@@ -103,12 +104,14 @@
                             <div class="form-group">
                                 <label style="font-weight: 600; color: #475569;">Sekcia</label>
                                 <select id="hr-employee-section" class="filter-input" style="width: 100%;">
-                                    <option value="VYROBA">Výroba</option>
-                                    <option value="EXPEDICIA">Expedícia</option>
-                                    <option value="ROZVOZ">Rozvoz</option>
-                                    <option value="ADMIN">Admin</option>
-                                    <option value="INE">Iné</option>
-                                </select>
+    <option value="VYROBA">Výroba</option>
+    <option value="ROZRABKA">Rozrábka</option>
+    <option value="EXPEDICIA">Expedícia</option>
+    <option value="ROZVOZ">Rozvoz</option>
+    <option value="UPRATOVANIE">Upratovanie</option>
+    <option value="ADMIN">Admin</option>
+    <option value="INE">Iné</option>
+</select>
                             </div>
                         </div>
                         
@@ -173,12 +176,25 @@
             <div style="background: #fff; padding: 20px; border-radius: 12px; border: 1px solid #e2e8f0; margin-bottom: 25px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
                 <div style="display:flex; flex-wrap:wrap; gap:15px; align-items:flex-end;">
                   <div>
-                    <label style="font-weight: 600; font-size: 0.9rem;">Od dátumu</label><br />
+                    <label style="font-weight: 600; font-size: 0.9rem;">Od</label><br />
                     <input type="date" id="hr-att-date-from" class="filter-input" />
                   </div>
                   <div>
-                    <label style="font-weight: 600; font-size: 0.9rem;">Do dátumu</label><br />
+                    <label style="font-weight: 600; font-size: 0.9rem;">Do</label><br />
                     <input type="date" id="hr-att-date-to" class="filter-input" />
+                  </div>
+                  <div>
+                    <label style="font-weight: 600; font-size: 0.9rem;">Úsek</label><br />
+                    <select id="hr-att-section-filter" class="filter-input" style="min-width:140px;">
+    <option value="">Všetky</option>
+    <option value="VYROBA">Výroba</option>
+    <option value="ROZRABKA">Rozrábka</option>
+    <option value="EXPEDICIA">Expedícia</option>
+    <option value="ROZVOZ">Rozvoz</option>
+    <option value="UPRATOVANIE">Upratovanie</option>
+    <option value="ADMIN">Admin</option>
+    <option value="INE">Iné</option>
+</select>
                   </div>
                   <div>
                     <label style="font-weight: 600; font-size: 0.9rem;">Zamestnanec</label><br />
@@ -186,6 +202,7 @@
                   </div>
                   <div>
                     <button type="button" id="hr-att-filter-btn" class="btn btn-primary" style="padding: 8px 20px;"><i class="fas fa-search"></i> Zobraziť</button>
+                    <button type="button" id="hr-att-print-btn" class="btn btn-secondary" style="padding: 8px 20px; margin-left: 10px; background: #475569;"><i class="fas fa-print"></i> Tlačiť report</button>
                   </div>
                 </div>
             </div>
@@ -240,6 +257,7 @@
                             <tr>
                             <th style="padding: 15px;">Dátum</th>
                             <th>Meno</th>
+                            <th>Úsek</th>
                             <th>Príchod</th>
                             <th>Odchod</th>
                             <th>Čisté Hodiny</th>
@@ -370,7 +388,7 @@
             </div>
 
             <div id="hr-sum-totals" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin-bottom: 30px;">
-                </div>
+            </div>
 
             <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 25px;">
                 <div style="background: #fff; border-radius: 12px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.05); align-self: flex-start;">
@@ -479,7 +497,9 @@
       this.dom.attFilterFrom = document.getElementById("hr-att-date-from");
       this.dom.attFilterTo = document.getElementById("hr-att-date-to");
       this.dom.attFilterEmployee = document.getElementById("hr-att-employee-filter");
+      this.dom.attFilterSection = document.getElementById("hr-att-section-filter");
       this.dom.attFilterBtn = document.getElementById("hr-att-filter-btn");
+      this.dom.attPrintBtn = document.getElementById("hr-att-print-btn");
 
       this.dom.leaveForm = document.getElementById("hr-leave-form");
       this.dom.leaveId = document.getElementById("hr-leave-id");
@@ -688,6 +708,7 @@
 
       if (this.dom.attReset) this.dom.attReset.addEventListener("click", () => this.resetAttendanceForm());
       if (this.dom.attFilterBtn) this.dom.attFilterBtn.addEventListener("click", () => this.loadAttendance());
+      if (this.dom.attPrintBtn) this.dom.attPrintBtn.addEventListener("click", () => this.printAttendanceReport());
     },
 
     resetAttendanceForm() {
@@ -702,9 +723,96 @@
         if (this.dom.attFilterFrom.value) params.append("date_from", this.dom.attFilterFrom.value);
         if (this.dom.attFilterTo.value) params.append("date_to", this.dom.attFilterTo.value);
         if (this.dom.attFilterEmployee.value) params.append("employee_id", this.dom.attFilterEmployee.value);
+        if (this.dom.attFilterSection && this.dom.attFilterSection.value) params.append("section", this.dom.attFilterSection.value);
+        
         const data = await api.get("/api/kancelaria/hr/attendance?" + params.toString());
-        this.renderAttendance(data.items || []);
+        this.currentAttendanceData = data.items || [];
+        this.renderAttendance(this.currentAttendanceData);
       } catch (err) { console.error(err); }
+    },
+
+    printAttendanceReport() {
+        if (!this.currentAttendanceData || this.currentAttendanceData.length === 0) {
+            alert("Tabuľka je prázdna. Zmeňte filter a načítajte dáta.");
+            return;
+        }
+
+        const dateFrom = this.dom.attFilterFrom.value;
+        const dateTo = this.dom.attFilterTo.value;
+        
+        let html = `
+        <html>
+        <head>
+            <title>Report Dochádzky</title>
+            <style>
+                body { font-family: Arial, sans-serif; padding: 20px; font-size: 12px; }
+                h2 { margin-top: 0; }
+                table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+                th, td { border: 1px solid #000; padding: 6px 8px; text-align: left; }
+                th { background-color: #f1f5f9; font-weight: bold; }
+                .note { margin-top: 20px; font-weight: bold; }
+                @media print { .no-print { display: none; } }
+            </style>
+        </head>
+        <body>
+            <h2>Report dochádzky (${dateFrom} - ${dateTo})</h2>
+            <button class="no-print" onclick="window.print()" style="padding: 10px 20px; font-size: 14px; margin-bottom: 20px; cursor: pointer;">🖨️ Vytlačiť report</button>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Dátum</th>
+                        <th>Zamestnanec</th>
+                        <th>Úsek</th>
+                        <th>Príchod</th>
+                        <th>Odchod</th>
+                        <th>Čisté Hodiny</th>
+                        <th>Poznámka</th>
+                    </tr>
+                </thead>
+                <tbody>
+        `;
+
+        let totalHours = 0;
+
+        this.currentAttendanceData.forEach(it => {
+            const dateParts = (it.work_date || "").slice(0, 10).split('-');
+            const fDate = dateParts.length === 3 ? `${dateParts[2]}.${dateParts[1]}.${dateParts[0]}` : it.work_date;
+            const tIn = it.time_in ? it.time_in.slice(0, 5) : '-';
+            const tOut = it.time_out ? it.time_out.slice(0, 5) : '-';
+            const activeSec = it.section_override || it.section || '-';
+            const hours = Number(it.worked_hours || 0);
+            totalHours += hours;
+            
+            html += `
+                <tr>
+                    <td>${fDate}</td>
+                    <td><strong>${it.full_name}</strong></td>
+                    <td>${activeSec}</td>
+                    <td>${tIn}</td>
+                    <td>${tOut}</td>
+                    <td><strong>${hours.toFixed(2)}</strong></td>
+                    <td>${it.note || ''}</td>
+                </tr>
+            `;
+        });
+
+        html += `
+                    <tr>
+                        <td colspan="5" style="text-align: right; font-weight: bold;">SPOLU HODÍN:</td>
+                        <td colspan="2" style="font-weight: bold;">${totalHours.toFixed(2)} h</td>
+                    </tr>
+                </tbody>
+            </table>
+            <div class="note">
+                (Z každého dňa s hrubým odpracovaným časom nad 6 hodín je automaticky odčítaných 30 minút na prestávku)
+            </div>
+        </body>
+        </html>
+        `;
+
+        const printWin = window.open('', '', 'width=1000,height=800');
+        printWin.document.write(html);
+        printWin.document.close();
     },
 
     renderAttendance(items) {
@@ -725,9 +833,13 @@
             ? `<span style="background:#dcfce7; color:#166534; padding: 4px 10px; border-radius: 12px; font-weight: bold;">${Number(hoursVal).toFixed(2)} h</span>`
             : `<span style="background:#fee2e2; color:#991b1b; padding: 4px 10px; border-radius: 12px; font-weight: bold;">0.00 h</span>`;
 
+        const activeSec = it.section_override || it.section || '-';
+        const secBadge = `<span style="background:#e0f2fe; color:#0369a1; padding: 3px 8px; border-radius: 4px; font-size: 0.8rem; font-weight:bold;">${activeSec}</span>`;
+
         tr.innerHTML = `
           <td style="padding-left:15px; font-weight:bold; color:#475569;">${fmtDate(it.work_date)}</td>
           <td><strong style="color: #0ea5e9;">${it.full_name}</strong></td>
+          <td>${secBadge}</td>
           <td>${fmtTime(it.time_in)}</td>
           <td>${fmtTime(it.time_out)}</td>
           <td>${hBadge}</td>
