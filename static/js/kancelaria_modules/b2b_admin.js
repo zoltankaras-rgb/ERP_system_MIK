@@ -801,7 +801,7 @@
 
       openModal('<div style="padding:30px; text-align:center;"><i class="fas fa-spinner fa-spin fa-2x"></i><br>Načítavam dáta (B2B zákazníkov a Adresár)...</div>');
 
-      // VŽDY stiahneme aktuálne dáta priamo z DB pred otvorením, aby tam nechýbali B2B zákazníci
+      // VŽDY stiahneme aktuálne dáta priamo z DB pred otvorením
       try {
           const [sData, cData] = await Promise.all([
               callFirstOk([{ url: '/api/kancelaria/b2b/getStores' }]),
@@ -810,13 +810,13 @@
           state.stores = sData.stores || [];
           state.customers = cData.customers || [];
       } catch(e) {
-          console.error("Chyba pri sťahovaní zákazníkov:", e);
+          console.error("Chyba pri sťahovaní dát do roletky:", e);
       }
 
       let storeOptions = `<option value="">-- Vyberte prevádzku alebo B2B zákazníka --</option>`;
       
       // Skupina A: Systémoví B2B Zákazníci
-      if (state.customers.length > 0) {
+      if (state.customers && state.customers.length > 0) {
           storeOptions += `<optgroup label="🏢 B2B Zákazníci zo systému">`;
           state.customers.forEach(c => {
               const addr = c.adresa_dorucenia || c.adresa || '';
@@ -826,7 +826,7 @@
       }
 
       // Skupina B: Manuálne prevádzky z Adresára
-      if (state.stores.length > 0) {
+      if (state.stores && state.stores.length > 0) {
           storeOptions += `<optgroup label="📝 Manuálne prevádzky z Adresára">`;
           state.stores.forEach(s => {
               storeOptions += `<option value="man_${s.id}" data-name="${escapeHtml(s.name)}" data-note="${escapeHtml(s.note || '')}">${escapeHtml(s.name)} ${s.note ? ' ('+escapeHtml(s.note)+')' : ''}</option>`;
@@ -866,7 +866,6 @@
 
       const container = document.getElementById('tpl-stops-container');
       
-      // Funkcia na vygenerovanie riadku v zozname (Poznámku možno ručne prepísať)
       window.renderStopRow = function(name, note, storeId = '') {
           const row = document.createElement('div');
           row.className = 'tpl-stop-row';
@@ -888,33 +887,36 @@
           container.scrollTop = container.scrollHeight;
       };
 
-      // Akcia pre tlačidlo "Vložiť do zoznamu"
       window.addStoreToTemplate = function() {
           const select = document.getElementById('tpl-add-store-select');
           if (select.selectedIndex <= 0) return showStatus("Najprv vyberte možnosť z roletky.", true);
           
           const option = select.options[select.selectedIndex];
           window.renderStopRow(option.dataset.name, option.dataset.note, option.value);
-          select.value = ''; // zresetuje výber po vložení
+          select.value = ''; 
       };
 
-      // Vykreslenie existujúcich zastávok pri editácii
       if (template.stops && template.stops.length > 0) {
           template.stops.forEach(s => window.renderStopRow(s.name, s.note, s.store_id || ''));
       }
   };
 
-  // Bezpečné ukladanie (načítavame priamo z HTML elementu .stop-note-input)
+  // Robustné ukladanie šablóny
   window.saveManualRouteTemplate = async function(id) {
-      const name = document.getElementById('tpl-name').value.trim();
+      const nameInput = document.getElementById('tpl-name');
+      if (!nameInput) return;
+      
+      const name = nameInput.value.trim();
       if (!name) return showStatus("Názov šablóny nesmie byť prázdny!", true);
 
       const stops = [];
       document.querySelectorAll('.tpl-stop-row').forEach(row => {
+          // Tu už bezpečne sťahujeme .stop-note-input
           const noteInput = row.querySelector('.stop-note-input');
+          const rowName = row.dataset.name || 'Neznáma prevádzka';
           stops.push({ 
               store_id: row.dataset.storeId || '', 
-              name: row.dataset.name || '', 
+              name: rowName, 
               note: noteInput ? noteInput.value.trim() : '' 
           });
       });
