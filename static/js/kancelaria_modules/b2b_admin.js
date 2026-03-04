@@ -695,7 +695,7 @@
   };
 
   // =================================================================
-  // 1. ADRESÁR PREVÁDZOK (Čisté manuálne miesta, napr. Školy, Jednoty)
+  // 1. ADRESÁR PREVÁDZOK
   // =================================================================
   window.manageStores = async function() {
       openModal('<div style="padding:30px; text-align:center;"><i class="fas fa-spinner fa-spin fa-2x"></i><br>Načítavam adresár...</div>');
@@ -745,7 +745,7 @@
           const found = state.stores.find(s => s.id === id);
           if (found) store = found;
       }
-      
+
       let html = `
           <h3 style="margin-top:0; color:#1e3a8a;">${id ? '✏️ Úprava prevádzky' : '➕ Vytvorenie prevádzky'}</h3>
           <div class="form-group">
@@ -770,12 +770,12 @@
       if (!name) return showStatus("Názov prevádzky je povinný!", true);
 
       try {
-          await callFirstOk([{ 
-              url: '/api/kancelaria/b2b/saveStore', 
-              opts: { method: 'POST', body: { id: id, name: name, note: note, b2b_customer_id: null } } 
+          await callFirstOk([{
+              url: '/api/kancelaria/b2b/saveStore',
+              opts: { method: 'POST', body: { id: id, name: name, note: note, b2b_customer_id: null } }
           }]);
           showStatus("Prevádzka bola uložená.");
-          window.manageStores(); 
+          window.manageStores();
       } catch(e) { showStatus("Chyba: " + e.message, true); }
   };
 
@@ -788,10 +788,55 @@
       } catch(e) { showStatus("Chyba: " + e.message, true); }
   };
 
+  // =================================================================
+  // 2. MANUÁLNE ŠABLÓNY TRÁS (Zoznam, Úprava, Mazanie)
+  // =================================================================
+  window.manageManualRoutes = async function() {
+      openModal('<div style="padding:30px; text-align:center;"><i class="fas fa-spinner fa-spin fa-2x"></i><br>Načítavam šablóny...</div>');
+      try {
+          const data = await callFirstOk([{ url: '/api/kancelaria/b2b/getRouteTemplates' }]);
+          state.routeTemplates = data.templates || [];
 
-  // =================================================================
-  // 2. EDITOR ŠABLÓN TRÁS (Kombinuje B2B zákazníkov a Adresár)
-  // =================================================================
+          let listHtml = `<table class="table-refined"><thead><tr><th>Názov šablóny</th><th>Počet zastávok</th><th style="text-align:right;">Akcia</th></tr></thead><tbody>`;
+          if (state.routeTemplates.length === 0) {
+              listHtml += `<tr><td colspan="3" style="text-align:center; color:#666; padding:20px;">Zatiaľ nemáte žiadne manuálne šablóny.</td></tr>`;
+          } else {
+              state.routeTemplates.forEach(t => {
+                  const stopsCount = Array.isArray(t.stops) ? t.stops.length : 0;
+                  listHtml += `<tr>
+                      <td><strong style="color:#0f172a; font-size:1.05rem;">${escapeHtml(t.name)}</strong></td>
+                      <td><span style="background:#e0f2fe; color:#0369a1; padding:3px 8px; border-radius:12px; font-weight:bold; font-size:0.85rem;">${stopsCount} prevádzok</span></td>
+                      <td style="text-align:right;">
+                          <button class="btn btn-success btn-sm" onclick="window.showPrintManualRoute(${t.id})" title="Pripraviť na tlač">🖨️ Tlačiť</button>
+                          <button class="btn btn-primary btn-sm" onclick="window.showManualRouteEditor(${t.id})" style="margin-left:5px;">✏️ Upraviť</button>
+                          <button class="btn btn-danger btn-sm" onclick="window.deleteManualRouteTemplate(${t.id}, '${escapeHtml(t.name)}')" style="margin-left:5px;">🗑️</button>
+                      </td>
+                  </tr>`;
+              });
+          }
+          listHtml += `</tbody></table>`;
+
+          let html = `
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                  <h3 style="margin:0; color:#1e293b;">📝 Manuálne šablóny trás</h3>
+                  <button class="btn btn-success" onclick="window.showManualRouteEditor(null)">+ Nová šablóna</button>
+              </div>
+              <div style="background:#f8fafc; padding:12px; border-radius:6px; margin-bottom:15px; font-size:0.9rem; color:#475569; border:1px solid #e2e8f0;">
+                  ℹ️ Tu si môžete vytvoriť pevné rozvozové zoznamy pre zákazníkov, ktorí nechodia cez B2B e-shop (napríklad COOP Jednota, školy). Pred samotnou tlačou si jednoducho odkliknete prevádzky, ktoré daný deň tovar neberú.
+              </div>
+              <div style="max-height: 50vh; overflow-y: auto; border: 1px solid #cbd5e1; border-radius: 8px;">
+                ${listHtml}
+              </div>
+              <div style="text-align:right; margin-top:20px;">
+                  <button class="btn btn-secondary" onclick="closeModal()">Zavrieť</button>
+              </div>
+          `;
+          openModal(html);
+      } catch(e) {
+          openModal(`<div style="padding:20px; color:red; font-weight:bold;">Chyba: ${escapeHtml(e.message)}</div>`);
+      }
+  };
+
   window.showManualRouteEditor = async function(id) {
       let template = { id: null, name: '', stops: [] };
       if (id) {
@@ -801,38 +846,36 @@
 
       openModal('<div style="padding:30px; text-align:center;"><i class="fas fa-spinner fa-spin fa-2x"></i><br>Načítavam dáta (B2B zákazníkov a Adresár)...</div>');
 
-      // VŽDY stiahneme aktuálne dáta priamo z DB pred otvorením
       try {
-          const [sData, cData] = await Promise.all([
-              callFirstOk([{ url: '/api/kancelaria/b2b/getStores' }]),
-              callFirstOk([{ url: '/api/kancelaria/b2b/getCustomersAndPricelists' }])
-          ]);
+          const sData = await callFirstOk([{ url: '/api/kancelaria/b2b/getStores' }]);
           state.stores = sData.stores || [];
+      } catch(e) { state.stores = []; }
+
+      try {
+          const cData = await callFirstOk([{ url: '/api/kancelaria/b2b/getCustomersAndPricelists' }]);
           state.customers = cData.customers || [];
-      } catch(e) {
-          console.error("Chyba pri sťahovaní dát do roletky:", e);
-      }
+      } catch(e) { state.customers = []; }
 
       let storeOptions = `<option value="">-- Vyberte prevádzku alebo B2B zákazníka --</option>`;
       
-      // Skupina A: Systémoví B2B Zákazníci
+      storeOptions += `<optgroup label="🏢 B2B Zákazníci zo systému">`;
       if (state.customers && state.customers.length > 0) {
-          storeOptions += `<optgroup label="🏢 B2B Zákazníci zo systému">`;
           state.customers.forEach(c => {
               const addr = c.adresa_dorucenia || c.adresa || '';
               storeOptions += `<option value="b2b_${c.id}" data-name="${escapeHtml(c.nazov_firmy)}" data-note="${escapeHtml(addr)}">${escapeHtml(c.nazov_firmy)}</option>`;
           });
-          storeOptions += `</optgroup>`;
+      } else {
+          storeOptions += `<option value="" disabled>Zákazníci nenačítaní</option>`;
       }
+      storeOptions += `</optgroup>`;
 
-      // Skupina B: Manuálne prevádzky z Adresára
+      storeOptions += `<optgroup label="📝 Manuálne prevádzky z Adresára">`;
       if (state.stores && state.stores.length > 0) {
-          storeOptions += `<optgroup label="📝 Manuálne prevádzky z Adresára">`;
           state.stores.forEach(s => {
               storeOptions += `<option value="man_${s.id}" data-name="${escapeHtml(s.name)}" data-note="${escapeHtml(s.note || '')}">${escapeHtml(s.name)} ${s.note ? ' ('+escapeHtml(s.note)+')' : ''}</option>`;
           });
-          storeOptions += `</optgroup>`;
       }
+      storeOptions += `</optgroup>`;
 
       let html = `
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
@@ -901,7 +944,6 @@
       }
   };
 
-  // Robustné ukladanie šablóny
   window.saveManualRouteTemplate = async function(id) {
       const nameInput = document.getElementById('tpl-name');
       if (!nameInput) return;
@@ -911,7 +953,6 @@
 
       const stops = [];
       document.querySelectorAll('.tpl-stop-row').forEach(row => {
-          // Tu už bezpečne sťahujeme .stop-note-input
           const noteInput = row.querySelector('.stop-note-input');
           const rowName = row.dataset.name || 'Neznáma prevádzka';
           stops.push({ 
@@ -933,38 +974,25 @@
       } catch(e) { showStatus("Chyba pri ukladaní: " + e.message, true); }
   };
 
-  // Ukladanie šablóny
-  window.saveManualRouteTemplate = async function(id) {
-      const name = document.getElementById('tpl-name').value.trim();
-      if (!name) return showStatus("Názov šablóny nesmie byť prázdny!", true);
-
-      const stops = [];
-      document.querySelectorAll('.tpl-stop-row').forEach(row => {
-          const noteInput = row.querySelector('.stop-note-input');
-          stops.push({ 
-              store_id: row.dataset.storeId, 
-              name: row.dataset.name, 
-              note: noteInput ? noteInput.value.trim() : '' 
-          });
-      });
-
-      if (stops.length === 0) return showStatus("Šablóna musí obsahovať aspoň jednu prevádzku.", true);
-
+  window.deleteManualRouteTemplate = async function(id, name) {
+      if (!confirm(`Naozaj chcete natrvalo vymazať šablónu:\n"${name}"?`)) return;
       try {
           await callFirstOk([{ 
-              url: '/api/kancelaria/b2b/saveRouteTemplate', 
-              opts: { method: 'POST', body: { id: id, name: name, stops: stops } } 
+              url: '/api/kancelaria/b2b/deleteRouteTemplate', 
+              opts: { method: 'POST', body: { id: id } } 
           }]);
-          showStatus("Šablóna bola úspešne uložená.");
+          showStatus("Šablóna bola zmazaná.");
           window.manageManualRoutes(); 
-      } catch(e) { showStatus("Chyba: " + e.message, true); }
+      } catch(e) { showStatus("Chyba pri mazaní: " + e.message, true); }
   };
-  
+
+  // =================================================================
+  // 3. TLAČ MANUÁLNYCH TRÁS + FLEET MODUL
+  // =================================================================
   window.showPrintManualRoute = async function(id) {
       const template = state.routeTemplates.find(t => t.id === id);
       if (!template) return;
 
-      // Načítanie dostupných áut pre modul Fleet
       let vehicles = [];
       try {
           const vRes = await callFirstOk([{ url: '/api/fleet/active-vehicles' }]);
@@ -1042,7 +1070,6 @@
       
       openModal(html);
 
-      // Pridanie vizuálnej spätnej väzby po kliknutí na checkbox
       setTimeout(() => {
           document.querySelectorAll('.print-stop-cb').forEach(cb => {
               cb.addEventListener('change', function() {
@@ -1062,7 +1089,6 @@
       }, 100);
   };
 
-  // Nová funkcia na odoslanie požiadavky do Fleet modulu pre manuálnu trasu
   window.assignManualVehicle = async function(routeName) {
       const dateVal = document.getElementById('manual-route-date').value;
       const vehicleId = document.getElementById('manual-veh-select').value;
@@ -1077,6 +1103,43 @@
           showStatus(res.message);
       } catch(e) {
           alert("Chyba: " + e.message);
+      }
+  };
+
+  window.executePrintManualRoute = async function(id) {
+      const template = state.routeTemplates.find(t => t.id === id);
+      if (!template) return;
+
+      const activeStops = [];
+      document.querySelectorAll('.print-stop-cb:checked').forEach(cb => {
+          const idx = parseInt(cb.value);
+          if (template.stops[idx]) {
+              activeStops.push(template.stops[idx]);
+          }
+      });
+
+      if (activeStops.length === 0) return showStatus("Musíte nechať zaškrtnutú aspoň jednu prevádzku na tlač.", true);
+
+      try {
+          const response = await fetch('/api/kancelaria/b2b/printManualRoute', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                  name: template.name,
+                  stops: activeStops
+              })
+          });
+
+          if (!response.ok) throw new Error("Backend nevrátil správnu odpoveď.");
+          
+          const htmlStr = await response.text();
+          const printWindow = window.open('', '_blank', 'width=900,height=800');
+          printWindow.document.write(htmlStr);
+          printWindow.document.close();
+          
+          closeModal();
+      } catch(e) {
+          showStatus("Chyba pri príprave tlače: " + e.message, true);
       }
   };
 
