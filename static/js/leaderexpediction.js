@@ -1870,8 +1870,8 @@ window.closeLeaderModal = function() {
 };
 
 // ===================== 1. ZÁKLADNÝ POHĽAD LOGISTIKY =====================
-window.loadLogisticsView = async function() {
-    const box = document.getElementById('logistics-container');
+window.loadLogistics = async function() {
+    const box = document.getElementById('leader-logistics-container');
     if (!box) return;
 
     const today = new Date().toISOString().slice(0, 10);
