@@ -206,24 +206,67 @@
   function closeModal() { doc.getElementById('b2b-modal-wrapper').style.display = 'none'; }
 
   // Background Polling
-  function startBackgroundPolling() {
-    const check = async () => {
-        try {
-            const data = await callFirstOk([{ url: '/api/kancelaria/b2b/getPendingB2BRegistrations' }]);
-            const regs = (data && data.registrations) ? data.registrations.length : 0;
-            const badge = doc.getElementById('badge-regs');
-            if (badge) { badge.textContent = regs; badge.style.display = regs > 0 ? 'inline-flex' : 'none'; }
-            
-            const r = await callFirstOk([{ url: '/api/kancelaria/b2b/messages/unread' }]);
-            const msgs = Number((r && r.unread) || 0);
-            const badgeMsg = doc.getElementById('badge-msgs');
-            if (badgeMsg) { badgeMsg.textContent = msgs; badgeMsg.style.display = msgs > 0 ? 'inline-flex' : 'none'; }
-        } catch(e) {}
-    };
-    check();
-    setInterval(check, 30000);
+ // Pomocná funkcia na vyvolanie systémovej Windows/Mac notifikácie
+  function showSystemNotification(title, body) {
+      if (!("Notification" in window)) return; // Ak to prehliadač náhodou nepodporuje
+      
+      if (Notification.permission === "granted") {
+          // Zobrazenie samotnej notifikácie
+          new Notification(title, { body: body });
+      } else if (Notification.permission !== "denied") {
+          Notification.requestPermission().then(permission => {
+              if (permission === "granted") {
+                  new Notification(title, { body: body });
+              }
+          });
+      }
   }
 
+  // Vylepšené Background Polling s pamäťou stavu pre notifikácie
+  function startBackgroundPolling() {
+      // Ihneď pri spustení skúsime požiadať o povolenie na notifikácie
+      if ("Notification" in window && Notification.permission !== "granted" && Notification.permission !== "denied") {
+          Notification.requestPermission();
+      }
+
+      // Premenné na zapamätanie si posledného známeho počtu (-1 znamená prvý štart)
+      let lastRegsCount = -1;
+      let lastMsgsCount = -1;
+
+      const check = async () => {
+          try {
+              // 1. Kontrola čakajúcich registrácií
+              const data = await callFirstOk([{ url: '/api/kancelaria/b2b/getPendingB2BRegistrations' }]);
+              const regs = (data && data.registrations) ? data.registrations.length : 0;
+              const badge = doc.getElementById('badge-regs');
+              if (badge) { badge.textContent = regs; badge.style.display = regs > 0 ? 'inline-flex' : 'none'; }
+              
+              // Ak sme už bežali a číslo sa ZVÝŠILO, vyhodíme notifikáciu
+              if (lastRegsCount !== -1 && regs > lastRegsCount) {
+                  showSystemNotification("B2B Portál: Nová registrácia", "Máte novú žiadosť o registráciu na schválenie.");
+              }
+              lastRegsCount = regs;
+              
+              // 2. Kontrola neprečítaných správ
+              const r = await callFirstOk([{ url: '/api/kancelaria/b2b/messages/unread' }]);
+              const msgs = Number((r && r.unread) || 0);
+              const badgeMsg = doc.getElementById('badge-msgs');
+              if (badgeMsg) { badgeMsg.textContent = msgs; badgeMsg.style.display = msgs > 0 ? 'inline-flex' : 'none'; }
+              
+              // Ak sme už bežali a číslo správ sa ZVÝŠILO, vyhodíme notifikáciu
+              if (lastMsgsCount !== -1 && msgs > lastMsgsCount) {
+                  showSystemNotification("B2B Portál: Nová správa", "Prišla nová neprečítaná správa od zákazníka.");
+              }
+              lastMsgsCount = msgs;
+
+          } catch(e) {
+              console.error("Chyba background pollingu:", e);
+          }
+      };
+      
+      check();
+      setInterval(check, 30000); // Kontrola každých 30 sekúnd
+  }
  // =================================================================
   // 1. OBJEDNÁVKY + DENNÝ SUMÁR
   // =================================================================
