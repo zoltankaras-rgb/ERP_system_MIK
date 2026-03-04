@@ -2275,3 +2275,60 @@ def assign_vehicle_to_route_and_fleet(data: dict):
     finally:
         if conn and conn.is_connected():
             conn.close()
+            # =================================================================
+# ADRESÁR PREVÁDZOK PRE MANUÁLNE TRASY
+# =================================================================
+
+def _ensure_stores_table():
+    db_connector.execute_query("""
+        CREATE TABLE IF NOT EXISTS b2b_stores (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            name VARCHAR(255) NOT NULL,
+            note VARCHAR(255),
+            b2b_customer_id INT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_slovak_ci
+    """, fetch='none')
+
+def get_stores():
+    _ensure_stores_table()
+    rows = db_connector.execute_query("""
+        SELECT s.id, s.name, s.note, s.b2b_customer_id, c.nazov_firmy as b2b_name, c.zakaznik_id as b2b_erp_id
+        FROM b2b_stores s
+        LEFT JOIN b2b_zakaznici c ON s.b2b_customer_id = c.id
+        ORDER BY s.name
+    """, fetch='all') or []
+    return {"stores": rows}
+
+def save_store(data: dict):
+    _ensure_stores_table()
+    sid = data.get('id')
+    name = (data.get('name') or '').strip()
+    note = (data.get('note') or '').strip()
+    b2b_id = data.get('b2b_customer_id')
+
+    if not name:
+        return {"error": "Názov prevádzky je povinný."}
+
+    # Ak je b2b_id prázdne, uložíme NULL
+    if not b2b_id or str(b2b_id) == "0":
+        b2b_id = None
+
+    if sid:
+        db_connector.execute_query(
+            "UPDATE b2b_stores SET name=%s, note=%s, b2b_customer_id=%s WHERE id=%s",
+            (name, note, b2b_id, sid), fetch='none'
+        )
+        return {"message": "Prevádzka bola úspešne upravená."}
+    else:
+        db_connector.execute_query(
+            "INSERT INTO b2b_stores (name, note, b2b_customer_id) VALUES (%s, %s, %s)",
+            (name, note, b2b_id), fetch='none'
+        )
+        return {"message": "Nová prevádzka bola pridaná do adresára."}
+
+def delete_store(data: dict):
+    sid = data.get('id')
+    if not sid: return {"error": "Chýba ID prevádzky."}
+    db_connector.execute_query("DELETE FROM b2b_stores WHERE id=%s", (sid,), fetch='none')
+    return {"message": "Prevádzka bola zmazaná."}

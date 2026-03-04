@@ -3817,6 +3817,24 @@ def print_manual_route():
     </html>
     """
     return html
+
+    # Endpointy pre Adresár prevádzok
+@app.route('/api/kancelaria/b2b/getStores', methods=['GET', 'POST'])
+@login_required(role=('kancelaria','veduci','admin'))
+def b2b_get_stores():
+    return handle_request(b2b_handler.get_stores)
+
+@app.route('/api/kancelaria/b2b/saveStore', methods=['POST'])
+@login_required(role=('kancelaria','veduci','admin'))
+def b2b_save_store():
+    data = request.get_json(silent=True) or {}
+    return handle_request(b2b_handler.save_store, data)
+
+@app.route('/api/kancelaria/b2b/deleteStore', methods=['POST'])
+@login_required(role=('kancelaria','veduci','admin'))
+def b2b_delete_store():
+    data = request.get_json(silent=True) or {}
+    return handle_request(b2b_handler.delete_store, data)
 # ----------------------------------------------------------------------------
 # 1) MASTER: Zákazníci + ich cenníky (ideálne používať túto jednu cestu)
 # ----------------------------------------------------------------------------
