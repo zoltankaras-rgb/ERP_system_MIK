@@ -793,42 +793,80 @@
       }
   };
 
-  window.showPrintManualRoute = function(id) {
+ window.showPrintManualRoute = function(id) {
       const template = state.routeTemplates.find(t => t.id === id);
       if (!template) return;
 
       let stopsHtml = '';
       template.stops.forEach((s, idx) => {
           stopsHtml += `
-              <label style="display:flex; align-items:center; padding:12px; border-bottom:1px solid #e2e8f0; cursor:pointer; background:${idx % 2 === 0 ? '#fff' : '#f8fafc'}; transition: background 0.2s;">
-                  <input type="checkbox" class="print-stop-cb" value="${idx}" checked style="transform:scale(1.5); margin-right:20px; cursor:pointer;">
+              <label style="display:flex; align-items:flex-start; padding:12px 15px; border-bottom:1px solid #e2e8f0; cursor:pointer; background:${idx % 2 === 0 ? '#fff' : '#f8fafc'}; transition: opacity 0.2s, background 0.2s;" class="print-row-label">
+                  <div style="padding-top:3px;">
+                      <input type="checkbox" class="print-stop-cb" value="${idx}" checked style="transform:scale(1.3); margin:0 15px 0 5px; cursor:pointer;">
+                  </div>
+                  <div style="width: 40px; font-weight:bold; color:#64748b; font-size:1.05rem; padding-top:1px;">
+                      ${idx + 1}.
+                  </div>
                   <div style="flex:1;">
-                      <div style="font-weight:bold; color:#0f172a; font-size:1.05rem;">${idx + 1}. ${escapeHtml(s.name)}</div>
-                      ${s.note ? `<div style="font-size:0.85rem; color:#64748b; margin-top:2px;">${escapeHtml(s.note)}</div>` : ''}
+                      <div style="font-weight:bold; color:#0f172a; font-size:1.05rem;">${escapeHtml(s.name)}</div>
+                      ${s.note ? `<div style="font-size:0.85rem; color:#64748b; margin-top:4px;">📝 ${escapeHtml(s.note)}</div>` : ''}
+                  </div>
+                  <div style="width: 80px; text-align:right; font-weight:bold; font-size:0.85rem; padding-top:4px; color:#10b981;" class="status-badge">
+                      Zahrnuté
                   </div>
               </label>
           `;
       });
 
       let html = `
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-              <h3 style="margin:0; color:#1e293b;">🖨️ Príprava tlače</h3>
-          </div>
-          <div style="background:#fff7ed; border:1px solid #fed7aa; color:#c2410c; padding:10px; border-radius:6px; margin-bottom:15px; font-size:0.95rem;">
-              <strong>${escapeHtml(template.name)}</strong><br>
-              Odškrtnite prevádzky, do ktorých sa dnes <b>NEJDE</b> (nebudú na papieri).
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+              <h3 style="margin:0; color:#1e293b;">🖨️ Príprava tlače: <span style="color:#0ea5e9;">${escapeHtml(template.name)}</span></h3>
           </div>
           
+          <div style="background:#eff6ff; border-left:4px solid #3b82f6; color:#1e3a8a; padding:12px 15px; margin-bottom:20px; font-size:0.95rem; border-radius:0 6px 6px 0;">
+              Odškrtnite prevádzky, do ktorých sa dnes <b>nevezme tovar</b>. Na papieri sa následne zoznam automaticky prečísluje.
+          </div>
+          
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; padding:0 5px;">
+              <span style="font-weight:bold; color:#475569;">Zoznam prevádzok v šablóne:</span>
+              <div>
+                  <button class="btn btn-secondary btn-sm" onclick="document.querySelectorAll('.print-stop-cb').forEach(cb => { cb.checked = true; cb.dispatchEvent(new Event('change')); })">Označiť všetko</button>
+                  <button class="btn btn-secondary btn-sm" onclick="document.querySelectorAll('.print-stop-cb').forEach(cb => { cb.checked = false; cb.dispatchEvent(new Event('change')); })" style="margin-left:5px;">Zrušiť všetko</button>
+              </div>
+          </div>
+
           <div style="border:1px solid #cbd5e1; border-radius:8px; max-height:50vh; overflow-y:auto; margin-bottom:20px; box-shadow: inset 0 2px 4px rgba(0,0,0,0.05);">
               ${stopsHtml}
           </div>
 
-          <div style="text-align:right; display:flex; justify-content:flex-end; gap:10px; border-top:1px solid #e2e8f0; padding-top:15px;">
-              <button class="btn btn-secondary" onclick="window.manageManualRoutes()">Späť na zoznam</button>
-              <button class="btn btn-primary" style="padding:10px 25px; font-size:1.1rem; font-weight:bold;" onclick="window.executePrintManualRoute(${id})">🖨️ Vytlačiť zoznam</button>
+          <div style="text-align:right; display:flex; justify-content:flex-end; gap:15px; border-top:1px solid #e2e8f0; padding-top:20px;">
+              <button class="btn btn-secondary" onclick="window.manageManualRoutes()">← Späť na zoznam</button>
+              <button class="btn btn-primary" style="padding:10px 30px; font-size:1.1rem; font-weight:bold; box-shadow: 0 4px 6px rgba(14, 165, 233, 0.3);" onclick="window.executePrintManualRoute(${id})">
+                  🖨️ Pokračovať na tlač
+              </button>
           </div>
       `;
+      
       openModal(html);
+
+      // Pridanie vizuálnej spätnej väzby po kliknutí na checkbox
+      setTimeout(() => {
+          document.querySelectorAll('.print-stop-cb').forEach(cb => {
+              cb.addEventListener('change', function() {
+                  const label = this.closest('.print-row-label');
+                  const badge = label.querySelector('.status-badge');
+                  if (this.checked) {
+                      badge.textContent = 'Zahrnuté';
+                      badge.style.color = '#10b981';
+                      label.style.opacity = '1';
+                  } else {
+                      badge.textContent = 'Vynechané';
+                      badge.style.color = '#ef4444';
+                      label.style.opacity = '0.5';
+                  }
+              });
+          });
+      }, 100);
   };
 
   window.executePrintManualRoute = async function(id) {
