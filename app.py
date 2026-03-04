@@ -3734,69 +3734,85 @@ def b2b_delete_route_template():
     data = request.get_json(silent=True) or {}
     return handle_request(b2b_handler.delete_route_template, data)
 
-# NOVÝ ENDPOINT PRE TLAČ MANUÁLNEJ TRASY
+# NOVÝ ENDPOINT PRE TLAČ MANUÁLNEJ TRASY (Dizajn: Nakládkový list)
 @app.route('/api/kancelaria/b2b/printManualRoute', methods=['POST'])
 @login_required(role=('kancelaria','veduci','admin'))
 def print_manual_route():
     data = request.get_json(silent=True) or {}
-    name = data.get("name", "Rozvozový list")
-    stops = data.get("stops", []) # Príjme len tie prevádzky, ktoré si na frontende nechal zaškrtnuté
+    name = data.get("name", "Manuálny rozvozový list")
+    stops = data.get("stops", [])
     date_str = datetime.now().strftime("%d.%m.%Y")
     
-    # Vygenerovanie čistého HTML pre tlač
     html = f"""
     <!DOCTYPE html>
     <html>
     <head>
         <meta charset="utf-8">
-        <title>{name}</title>
+        <title>Nakládkový list - {name}</title>
         <style>
-            body {{ font-family: Arial, sans-serif; padding: 20px; }}
-            h1 {{ text-align: center; font-size: 24px; margin-bottom: 5px; }}
-            .date {{ text-align: center; margin-bottom: 30px; font-size: 16px; color: #555; }}
+            body {{ font-family: Arial, sans-serif; padding: 20px; font-size: 14px; }}
+            h1 {{ text-align: center; margin-bottom: 5px; text-transform: uppercase; }}
+            h3 {{ text-align: center; margin-top: 0; color: #555; }}
             table {{ width: 100%; border-collapse: collapse; margin-top: 20px; }}
-            th, td {{ border: 1px solid #000; padding: 12px; text-align: left; font-size: 14px; }}
-            th {{ background-color: #f2f2f2; font-weight: bold; }}
-            .checkbox-box {{ width: 25px; height: 25px; border: 2px solid #000; margin: 0 auto; }}
-            @media print {{
+            th, td {{ border: 1px solid #000; padding: 12px 10px; text-align: left; vertical-align: middle; }}
+            th {{ background-color: #f1f5f9; font-size: 13px; }}
+            .checkbox-col {{ width: 90px; text-align: center; }}
+            .box {{ display: inline-block; width: 20px; height: 20px; border: 2px solid #000; }}
+            @media print {{ 
+                body {{ margin: 0; padding: 10px; }}
                 .no-print {{ display: none; }}
             }}
         </style>
     </head>
     <body>
         <div class="no-print" style="margin-bottom: 20px; text-align: center;">
-            <button onclick="window.print()" style="padding: 10px 20px; font-size: 16px; cursor: pointer; background: #007bff; color: white; border: none; border-radius: 4px;">Tlačiť list</button>
+            <button onclick="window.print()" style="padding: 10px 20px; font-size: 16px; cursor: pointer; background: #007bff; color: white; border: none; border-radius: 4px;">🖨️ Tlačiť list</button>
         </div>
-        <h1>{name}</h1>
-        <div class="date">Rozvoz na deň: {date_str}</div>
+        
+        <h1>Nakládkový list / Itinerár</h1>
+        <h3>TRASA: {name} | DÁTUM: {date_str} | ŠOFÉR: __________________</h3>
+        
         <table>
             <thead>
                 <tr>
-                    <th style="width: 40px; text-align: center;">#</th>
-                    <th>Názov prevádzky / Zákazník</th>
-                    <th>Poznámka / Adresa</th>
-                    <th style="width: 80px; text-align: center;">Hotovo</th>
+                    <th style="width: 40px; text-align: center;">Por.</th>
+                    <th>Odberateľ a Adresa dodania</th>
+                    <th>Poznámka / Detail</th>
+                    <th class="checkbox-col">Pripravil do skladu</th>
+                    <th class="checkbox-col">Naložil do auta</th>
                 </tr>
             </thead>
             <tbody>
     """
     
-    # Vloží do tabuľky len prefiltrované prevádzky
     for i, stop in enumerate(stops, 1):
         stop_name = stop.get("name", "Neznáma prevádzka")
         stop_note = stop.get("note", "")
+        
         html += f"""
                 <tr>
-                    <td style="text-align: center;">{i}.</td>
-                    <td><strong>{stop_name}</strong></td>
-                    <td>{stop_note}</td>
-                    <td><div class="checkbox-box"></div></td>
+                    <td style="text-align: center; font-size: 16px;"><strong>{i}.</strong></td>
+                    <td><strong style="font-size: 16px;">{stop_name}</strong></td>
+                    <td style="font-size: 12px;">{stop_note}</td>
+                    <td class="checkbox-col"><div class="box"></div></td>
+                    <td class="checkbox-col"><div class="box"></div></td>
                 </tr>
         """
         
     html += """
             </tbody>
         </table>
+        
+        <div style="margin-top: 40px; display: flex; justify-content: space-between; font-weight: bold;">
+            <div>Podpis pripravil: _______________________</div>
+            <div>Podpis šoféra (Prebral): _______________________</div>
+        </div>
+        
+        <script>
+            // Po načítaní okna môžeme nechať užívateľa kliknúť ručne na tlačidlo Tlačiť,
+            // alebo automaticky vyvolať print okno. Zatiaľ to nechávame na manuálne kliknutie 
+            // cez modré tlačidlo pre lepšiu kontrolu.
+        </script>
     </body>
     </html>
     """
