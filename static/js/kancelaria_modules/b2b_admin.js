@@ -590,7 +590,7 @@
           table { width: 100%; border-collapse: collapse; margin-top: 20px; }
           th, td { border: 1px solid #000; padding: 12px 10px; text-align: left; vertical-align: middle; }
           th { background-color: #f1f5f9; font-size: 13px; }
-          .checkbox-col { width: 80px; text-align: center; }
+          .checkbox-col { width: 70px; text-align: center; }
           .box { display: inline-block; width: 20px; height: 20px; border: 2px solid #000; }
           @media print { body { margin: 0; padding: 10px; } }
       </style>
@@ -600,11 +600,13 @@
           <table>
               <thead>
                   <tr>
-                      <th style="width:40px;">Por.</th>
+                      <th style="width:40px; text-align:center;">Por.</th>
                       <th>Odberateľ a Adresa dodania</th>
                       <th>Detail objednávok</th>
-                      <th class="checkbox-col">Pripravil do skladu</th>
-                      <th class="checkbox-col">Naložil do auta</th>
+                      <th style="width: 80px; text-align: center;">Počet E2</th>
+                      <th class="checkbox-col">Prichystal (Sklad)</th>
+                      <th class="checkbox-col">Naložil (Šofér)</th>
+                      <th style="width: 220px;">Poznámka / Chýba (Doložiť)</th>
                   </tr>
               </thead>
               <tbody>
@@ -618,15 +620,17 @@
                       <strong>${z.pocet_objednavok} obj.</strong><br>
                       ${z.cisla_objednavok.join('<br>')}
                   </td>
+                  <td style="text-align:center; font-size:16px; color:#aaa;"><strong>_____ ks</strong></td>
                   <td class="checkbox-col"><div class="box"></div></td>
                   <td class="checkbox-col"><div class="box"></div></td>
+                  <td></td>
               </tr>
           `;
       });
       html += `</tbody></table>
-      <div style="margin-top: 30px; display: flex; justify-content: space-between;">
-          <div>Podpis pripravil: _______________________</div>
-          <div>Podpis šoféra (Prebral): _______________________</div>
+      <div style="margin-top: 30px; display: flex; justify-content: space-between; font-weight:bold;">
+          <div>Podpis pripravil (Expedícia): _______________________</div>
+          <div>Podpis prebral/naložil (Šofér): _______________________</div>
       </div>
       <script>window.onload=function(){window.print(); setTimeout(function(){window.close();},500);}</script></body></html>`;
       const win = window.open('', '_blank');
