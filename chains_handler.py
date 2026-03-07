@@ -37,7 +37,6 @@ def create_parent_chain():
         return jsonify({"error": "Názov firmy a Interné ERP ID sú povinné."}), 400
         
     try:
-        # Kontrola, či dané interné ERP ID už neexistuje
         exists = db_connector.execute_query("SELECT id FROM b2b_zakaznici WHERE zakaznik_id=%s", (zakaznik_id,), fetch="one")
         if exists:
             return jsonify({"error": f"Interné ERP ID '{zakaznik_id}' už v systéme existuje."}), 400
@@ -47,7 +46,6 @@ def create_parent_chain():
         key = hashlib.pbkdf2_hmac("sha256", secrets.token_hex(16).encode("utf-8"), salt, 250000)
         salt_hex, hash_hex = salt.hex(), key.hex()
         
-        # Dynamické zistenie stĺpcov
         cols_info = db_connector.execute_query(
             "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'b2b_zakaznici'", 
             fetch="all"
@@ -64,7 +62,6 @@ def create_parent_chain():
                 cols.append(col)
                 vals.append(val)
                 
-        # Zabezpečíme, že sa vyplnia VŠETKY povinné polia rovnako ako pri bežnej registrácii
         add("zakaznik_id", zakaznik_id)
         add("nazov_firmy", nazov_firmy)
         add("email", dummy_email)
@@ -86,13 +83,13 @@ def create_parent_chain():
         
         verify = db_connector.execute_query("SELECT id FROM b2b_zakaznici WHERE zakaznik_id=%s", (zakaznik_id,), fetch="one")
         if not verify:
-            return jsonify({"error": "Chyba databázy: Záznam sa nepodarilo uložiť kvôli nezodpovedajúcej štruktúre."}), 500
+            return jsonify({"error": "Chyba databázy: Záznam sa nepodarilo uložiť."}), 500
 
         return jsonify({"message": f"Centrála '{nazov_firmy}' bola úspešne vytvorená."})
     except Exception as e:
-        import traceback
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
+
 
 @chains_bp.route('/api/chains/<int:parent_id>/branches', methods=['GET'])
 @login_required(role=("kancelaria", "admin", "veduci"))
@@ -111,7 +108,6 @@ def get_branches(parent_id):
 @chains_bp.route('/api/chains/branch/<int:branch_id>', methods=['POST'])
 @login_required(role=("kancelaria", "admin", "veduci"))
 def update_branch(branch_id):
-    """Aktualizácia konkrétnej pobočky (napr. priradenie interného ERP čísla 'zakaznik_id')."""
     data = request.json or {}
     try:
         db_connector.execute_query(
@@ -130,9 +126,8 @@ def update_branch(branch_id):
 # ==========================================
 
 @chains_bp.route('/api/chains/<int:parent_id>/import_stores', methods=['POST'])
-@login_required(role=("admin", "veduci"))
+@login_required(role=("kancelaria", "admin", "veduci"))  # <- OPRAVA: Pridaná rola Kancelária
 def import_coop_stores(parent_id):
-    """Spracuje CSV a vykoná UPSERT pobočiek na základe GLN (edi_kod)."""
     if 'file' not in request.files:
         return jsonify({"error": "Chýba súbor."}), 400
         
@@ -213,15 +208,17 @@ def import_coop_stores(parent_id):
 @login_required(role=("kancelaria", "admin", "veduci"))
 def get_edi_mapping(parent_id):
     try:
+        # OPRAVA: Pretypovanie COLLATE aby nedochádzalo k "Illegal mix of collations" pri LEFT JOIN
         sql = """
             SELECT m.id, m.edi_ean, m.interny_ean, p.nazov_vyrobku 
             FROM edi_produkty_mapovanie m
-            LEFT JOIN produkty p ON p.ean = m.interny_ean
+            LEFT JOIN produkty p ON CONVERT(p.ean USING utf8mb4) COLLATE utf8mb4_general_ci = CONVERT(m.interny_ean USING utf8mb4) COLLATE utf8mb4_general_ci
             WHERE m.chain_parent_id = %s
         """
         rows = db_connector.execute_query(sql, (parent_id,), fetch='all') or []
         return jsonify({"mapping": rows})
     except Exception as e:
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 @chains_bp.route('/api/chains/<int:parent_id>/edi_mapping', methods=['POST'])
@@ -252,7 +249,7 @@ def add_edi_mapping(parent_id):
         return jsonify({"error": str(e)}), 500
 
 @chains_bp.route('/api/chains/edi_mapping/<int:mapping_id>', methods=['DELETE'])
-@login_required(role=("admin", "veduci"))
+@login_required(role=("kancelaria", "admin", "veduci")) # <- OPRAVA: Pridaná rola Kancelária
 def delete_edi_mapping(mapping_id):
     try:
         db_connector.execute_query("DELETE FROM edi_produkty_mapovanie WHERE id=%s", (mapping_id,), fetch='none')
@@ -308,10 +305,13 @@ def api_action_sales_report():
         traceback.print_exc()
         return jsonify({"error": f"Chyba pri generovaní reportu: {str(e)}"}), 500
 
+# ==========================================
+# 5. MANUÁLNY ZÁLOŽNÝ IMPORT OBJEDNÁVOK Z EDI (UI TEST)
+# ==========================================
+
 @chains_bp.route('/api/chains/<int:parent_id>/import_orders', methods=['POST'])
 @login_required(role=("kancelaria", "admin", "veduci"))
 def import_edi_orders(parent_id):
-    """Manuálny záložný import EDI objednávok cez UI pre testovacie účely."""
     if 'file' not in request.files:
         return jsonify({"error": "Chýba súbor s objednávkami."}), 400
 
@@ -327,10 +327,9 @@ def import_edi_orders(parent_id):
         if not lines:
             return jsonify({"error": "Súbor je prázdny."}), 400
 
-        # 1. Extrakcia dátumu z prvého riadku (hlavičky)
         header_parts = lines[0].split(';')
         if len(header_parts) >= 8:
-            date_str = header_parts[7].strip() # 28.08.2025
+            date_str = header_parts[7].strip() 
             try:
                 delivery_date = datetime.strptime(date_str, '%d.%m.%Y').strftime('%Y-%m-%d')
             except ValueError:
@@ -341,7 +340,6 @@ def import_edi_orders(parent_id):
         conn = db_connector.get_connection()
         cur = conn.cursor(dictionary=True)
 
-        # 2. Zoskupenie položiek
         orders_grouped = {}
         for line in lines[1:]:
             if not line.strip(): continue
@@ -358,8 +356,8 @@ def import_edi_orders(parent_id):
                 
             if qty <= 0: continue
             
-            coop_order_no = parts[-4].strip() # 9104063_2503918
-            gln = parts[-2].strip()           # 8589000032058
+            coop_order_no = parts[-4].strip() 
+            gln = parts[-2].strip()           
             
             group_key = (gln, coop_order_no)
             if group_key not in orders_grouped:
