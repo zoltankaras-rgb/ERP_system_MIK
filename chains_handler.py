@@ -148,7 +148,6 @@ def import_coop_stores(parent_id):
         conn = db_connector.get_connection()
         cur = conn.cursor(dictionary=True)
         
-        # Dynamické zistenie stĺpcov
         cur.execute("SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'b2b_zakaznici'")
         db_cols = {r.get('COLUMN_NAME', r.get('column_name', '')).lower() for r in cur.fetchall()}
         
@@ -180,15 +179,14 @@ def import_coop_stores(parent_id):
             nazov_firmy = f"{retazec} - {mesto}"[:255]
             adresa_dorucenia = f"{adresa_ulica}, {psc} {mesto}"[:255]
             
-            # Generovanie dočasného unikátneho ID pre databázu
-            temp_zakaznik_id = f"EDI-{gln}"[:64]
-            
             import secrets, hashlib, os
             salt = os.urandom(16)
             key = hashlib.pbkdf2_hmac("sha256", secrets.token_hex(16).encode("utf-8"), salt, 250000)
             salt_hex, hash_hex = salt.hex(), key.hex()
+            
+            # Generovanie formátu PENDING-XXXXXXXX pre povinné pole zakaznik_id
+            temp_zakaznik_id = f"PENDING-{secrets.token_hex(4).upper()}"
 
-            # Pridané 'zakaznik_id' do zoznamu povinne zapisovaných polí
             insert_fields = ['parent_id', 'typ', 'nazov_firmy', 'adresa_dorucenia', 'telefon', 'email', 'edi_kod', 'cislo_prevadzky', hash_col, salt_col, 'je_schvaleny', 'zakaznik_id']
             insert_vals = [parent_id, 'B2B', nazov_firmy, adresa_dorucenia, mobil, email, gln, cislo_pj, hash_hex, salt_hex, 1, temp_zakaznik_id]
             
