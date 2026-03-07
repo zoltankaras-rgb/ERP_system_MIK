@@ -1004,36 +1004,41 @@
       }
 
       let html = `
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px;">
+          <style>
+              /* Dynamické zväčšenie modálneho okna len pre tento editor (prebije pôvodných 800px) */
+              .b2b-modal-content { max-width: 1400px !important; width: 95% !important; height: 90vh !important; display: flex !important; flex-direction: column !important; }
+          </style>
+          
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px; flex-shrink: 0;">
               <h3 style="margin:0; color:#1e3a8a;">${id ? '✏️ Úprava rozvozovej trasy' : '➕ Vytvorenie novej rozvozovej trasy'}</h3>
           </div>
           
-          <div style="display:flex; gap:20px; align-items:flex-start; height: 65vh;">
+          <div style="display:flex; gap:20px; align-items:flex-start; flex: 1; min-height: 0;">
               
               <div style="flex: 1; background:#f1f5f9; padding:20px; border-radius:8px; border:1px solid #cbd5e1; display:flex; flex-direction:column; height: 100%;">
-                  <div class="form-group" style="margin-bottom:15px;">
+                  <div class="form-group" style="margin-bottom:15px; flex-shrink: 0;">
                       <label style="font-weight:bold; color:#0f172a; font-size:1.1rem; margin-bottom:5px; display:block;">Názov rozvozovej trasy</label>
                       <input type="text" id="tpl-name" class="filter-input" style="width:100%; font-size:1.2rem; font-weight:bold; border:2px solid #3b82f6; border-radius:6px; padding:10px;" value="${escapeHtml(template.name)}" placeholder="Zadajte názov trasy...">
                   </div>
                   
-                  <h4 style="color:#334155; margin-bottom:10px; font-size:1rem; border-bottom:1px solid #cbd5e1; padding-bottom:5px;">Zoznam zastávok (Vľavo/Vpravo presúva poradie):</h4>
+                  <h4 style="color:#334155; margin-bottom:10px; font-size:1rem; border-bottom:1px solid #cbd5e1; padding-bottom:5px; flex-shrink: 0;">Zoznam zastávok (Vľavo/Vpravo presúva poradie):</h4>
                   <div id="tpl-stops-container" style="flex:1; overflow-y:auto; border:1px solid #94a3b8; border-radius:6px; padding:10px; background:#e2e8f0; display:flex; flex-direction:column; gap:5px;">
                   </div>
                   
-                  <div style="margin-top:15px; display:flex; gap:10px;">
+                  <div style="margin-top:15px; display:flex; gap:10px; flex-shrink: 0;">
                       <button class="btn btn-secondary" style="padding:12px; min-width:120px;" onclick="window.manageManualRoutes()">Zrušiť</button>
                       <button class="btn btn-success" style="flex:1; padding:12px; font-weight:bold; font-size:1.1rem;" onclick="window.saveManualRouteTemplate(${id || 'null'})"><i class="fas fa-save"></i> Uložiť trasu</button>
                   </div>
               </div>
 
               <div style="flex: 1; background:#fff; padding:20px; border-radius:8px; border:1px solid #cbd5e1; display:flex; flex-direction:column; height: 100%;">
-                  <h4 style="color:#0f172a; margin-top:0; margin-bottom:15px; font-size:1.1rem;">🔍 Pridať zastávky do trasy</h4>
+                  <h4 style="color:#0f172a; margin-top:0; margin-bottom:15px; font-size:1.1rem; flex-shrink: 0;">🔍 Pridať zastávky do trasy</h4>
                   
-                  <div style="margin-bottom:15px;">
-                      <input type="text" oninput="window.filterAvailableStores(this.value)" class="filter-input" style="width:100%; font-size:1rem; padding:10px; border:1px solid #94a3b8; border-radius:6px;" placeholder="Hľadať COOP predajne a iné...">
+                  <div style="margin-bottom:15px; flex-shrink: 0;">
+                      <input type="text" oninput="window.filterAvailableStores(this.value)" class="filter-input" style="width:100%; font-size:1rem; padding:10px; border:1px solid #94a3b8; border-radius:6px;" placeholder="Hľadať COOP predajne, mestá, ID...">
                   </div>
 
-                  <div style="display:flex; gap:10px; margin-bottom:15px; padding-bottom:15px; border-bottom:1px solid #e2e8f0;">
+                  <div style="display:flex; gap:10px; margin-bottom:15px; padding-bottom:15px; border-bottom:1px solid #e2e8f0; flex-shrink: 0;">
                       <input type="text" id="tpl-custom-stop" class="filter-input" style="flex:1; padding:8px; border-radius:4px; border:1px solid #cbd5e1;" placeholder="Pridať vlastný názov (napr. Sklad)">
                       <button class="btn btn-primary" onclick="window.addCustomStorePanel()">Pridať ➕</button>
                   </div>
@@ -1045,6 +1050,7 @@
           </div>
       `;
       openModal(html);
+     
 
       // Vyrenderujeme už uložené zastávky, ak trasu iba editujeme
       if (template.stops && template.stops.length > 0) {
