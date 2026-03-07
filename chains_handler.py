@@ -139,44 +139,56 @@ def import_coop_stores(parent_id):
         except UnicodeDecodeError:
             content = raw_bytes.decode('cp1250', errors='replace')
             
-        first_line = content.split('\n', 1)[0]
-        delimiter = ';' if ';' in first_line else ','
+        lines = content.splitlines()
         
-        stream = io.StringIO(content, newline='')
-        csv_reader = csv.reader(stream, delimiter=delimiter)
+        # Analytická detekcia oddelovača na základe prvých 10 riadkov
+        delimiter = ';'
+        for line in lines[:10]:
+            if line.count(';') > line.count(','):
+                delimiter = ';'
+                break
+            elif line.count(',') > line.count(';'):
+                delimiter = ','
+                break
+        
+        csv_reader = csv.reader(lines, delimiter=delimiter)
         
         conn = db_connector.get_connection()
         cur = conn.cursor(dictionary=True)
         
-        # Zistíme si všetky stĺpce
         cur.execute("SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'b2b_zakaznici'")
         db_cols = {r.get('COLUMN_NAME', r.get('column_name', '')).lower() for r in cur.fetchall()}
         
+        has_poznamka = 'poznamka' in db_cols
+        hash_col = 'password_hash_hex' if 'password_hash_hex' in db_cols else 'heslo_hash'
+        salt_col = 'password_salt_hex' if 'password_salt_hex' in db_cols else 'heslo_salt'
+        
         processed, updated = 0, 0
+
+        def clean_excel_val(val):
+            val = str(val).replace('\n', ' ').replace('\r', '').strip()
+            if val.endswith('.0'):
+                return val[:-2]
+            return val
 
         for row in csv_reader:
             if not row or len(row) < 11:
                 continue 
 
-            raw_gln = str(row[10]).replace('.0', '').replace('\n', '').replace('\r', '').strip()
-            if "GLN" in raw_gln or not raw_gln:
+            gln = clean_excel_val(row[10])
+            if "GLN" in gln.upper() or not gln:
                 continue 
-            
-            gln = raw_gln[:64]
 
-            retazec = str(row[2]).strip()[:100]
-            cislo_pj = str(row[3]).strip()[:32]
-            mesto = str(row[4]).strip()
-            psc = str(row[5]).replace('.0', '').strip()
-            adresa_ulica = str(row[6]).replace('\n', ' ').replace('\r', '').strip()
-            veduca = str(row[7]).strip()
-            mobil = str(row[8]).strip()[:50]
-            email = str(row[9]).strip()[:100]
+            retazec = clean_excel_val(row[2])[:100]
+            cislo_pj = clean_excel_val(row[3])[:32]
+            mesto = clean_excel_val(row[4])
+            adresa_dorucenia = clean_excel_val(row[6])[:255]
+            veduca = clean_excel_val(row[7])
+            mobil = clean_excel_val(row[8])[:50]
+            email = clean_excel_val(row[9])[:100]
 
             nazov_firmy = f"{retazec} - {mesto}"[:255]
-            adresa_dorucenia = f"{adresa_ulica}, {psc} {mesto}"[:255]
             
-            # Bezpečné generovanie hesla a dočasného ID
             import secrets, hashlib, os
             salt = os.urandom(16)
             key = hashlib.pbkdf2_hmac("sha256", secrets.token_hex(16).encode("utf-8"), salt, 250000)
@@ -184,9 +196,8 @@ def import_coop_stores(parent_id):
             
             temp_zakaznik_id = f"PENDING-{secrets.token_hex(4).upper()}"
 
-            # Základné polia
-            insert_fields = ['parent_id', 'typ', 'nazov_firmy', 'adresa_dorucenia', 'telefon', 'email', 'edi_kod', 'cislo_prevadzky', 'je_schvaleny', 'zakaznik_id']
-            insert_vals = [parent_id, 'B2B', nazov_firmy, adresa_dorucenia, mobil, email, gln, cislo_pj, 1, temp_zakaznik_id]
+            insert_fields = ['parent_id', 'typ', 'nazov_firmy', 'adresa_dorucenia', 'telefon', 'email', 'edi_kod', 'cislo_prevadzky', hash_col, salt_col, 'je_schvaleny', 'zakaznik_id']
+            insert_vals = [parent_id, 'B2B', nazov_firmy, adresa_dorucenia, mobil, email, gln, cislo_pj, hash_hex, salt_hex, 1, temp_zakaznik_id]
             
             update_fields = [
                 'nazov_firmy=VALUES(nazov_firmy)', 
@@ -196,27 +207,11 @@ def import_coop_stores(parent_id):
                 'cislo_prevadzky=VALUES(cislo_prevadzky)'
             ]
 
-            # Dynamické plnenie ďalších povolených polí v DB
-            if 'poznamka' in db_cols:
+            if has_poznamka:
                 insert_fields.append('poznamka')
                 insert_vals.append(f"Vedúca: {veduca}"[:500])
                 update_fields.append('poznamka=VALUES(poznamka)')
 
-            # Naplníme všetky varianty hesiel, aké si vaša DB pýta
-            if 'password_hash_hex' in db_cols:
-                insert_fields.append('password_hash_hex')
-                insert_vals.append(hash_hex)
-            if 'password_salt_hex' in db_cols:
-                insert_fields.append('password_salt_hex')
-                insert_vals.append(salt_hex)
-            if 'heslo_hash' in db_cols:
-                insert_fields.append('heslo_hash')
-                insert_vals.append(hash_hex)
-            if 'heslo_salt' in db_cols:
-                insert_fields.append('heslo_salt')
-                insert_vals.append(salt_hex)
-
-            # Zloženie finálneho SQL dopytu
             placeholders = ', '.join(['%s'] * len(insert_fields))
             sql = f"""
                 INSERT INTO b2b_zakaznici ({', '.join(insert_fields)}) 
