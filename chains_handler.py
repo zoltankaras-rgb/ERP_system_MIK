@@ -25,6 +25,47 @@ def get_chains():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@chains_bp.route('/api/chains/create_parent', methods=['POST'])
+@login_required(role=("kancelaria", "admin", "veduci"))
+def create_parent_chain():
+    """Manuálne a okamžité vytvorenie materskej spoločnosti (Reťazca) z administrácie."""
+    data = request.json or {}
+    nazov_firmy = data.get("nazov_firmy", "").strip()
+    zakaznik_id = data.get("zakaznik_id", "").strip()
+    
+    if not nazov_firmy or not zakaznik_id:
+        return jsonify({"error": "Názov firmy a Interné ERP ID sú povinné."}), 400
+        
+    try:
+        # Kontrola, či dané interné ERP ID už neexistuje
+        exists = db_connector.execute_query("SELECT id FROM b2b_zakaznici WHERE zakaznik_id=%s", (zakaznik_id,), fetch="one")
+        if exists:
+            return jsonify({"error": f"Interné ERP ID '{zakaznik_id}' už v systéme existuje."}), 400
+            
+        # Generovanie fiktívneho hesla (ochrana pred chybami DB)
+        import secrets, hashlib, os
+        salt = os.urandom(16)
+        key = hashlib.pbkdf2_hmac("sha256", secrets.token_hex(16).encode("utf-8"), salt, 250000)
+        salt_hex, hash_hex = salt.hex(), key.hex()
+        
+        # Ošetrenie pre staršie a novšie schémy hesiel v b2b_zakaznici
+        try:
+            db_connector.execute_query("""
+                INSERT INTO b2b_zakaznici (typ, nazov_firmy, zakaznik_id, heslo_hash, heslo_salt, je_schvaleny)
+                VALUES ('B2B', %s, %s, %s, %s, 1)
+            """, (nazov_firmy, zakaznik_id, hash_hex, salt_hex), fetch='none')
+        except Exception:
+            db_connector.execute_query("""
+                INSERT INTO b2b_zakaznici (typ, nazov_firmy, zakaznik_id, password_hash_hex, password_salt_hex, je_schvaleny)
+                VALUES ('B2B', %s, %s, %s, %s, 1)
+            """, (nazov_firmy, zakaznik_id, hash_hex, salt_hex), fetch='none')
+
+        return jsonify({"message": f"Centrála '{nazov_firmy}' bola úspešne vytvorená."})
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
 @chains_bp.route('/api/chains/<int:parent_id>/branches', methods=['GET'])
 @login_required(role=("kancelaria", "admin", "veduci"))
 def get_branches(parent_id):

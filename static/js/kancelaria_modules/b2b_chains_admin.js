@@ -3,14 +3,34 @@ const B2BChainsAdmin = {
     <div class="chains-admin-container">
         <h2>Správa Reťazcov a EDI (COOP)</h2>
         
-        <div class="form-group" style="margin-bottom: 20px;">
-            <label><strong>Vyberte Reťazec (Centrálu):</strong></label>
-            <select v-model="selectedChainId" @change="loadChainData" class="form-control" style="max-width: 400px;">
-                <option value="">-- Vyberte --</option>
-                <option v-for="chain in chains" :key="chain.id" :value="chain.id">
-                    {{ chain.nazov_firmy }} ({{ chain.zakaznik_id || 'Bez ID' }})
-                </option>
-            </select>
+        <div class="form-group" style="margin-bottom: 20px; display: flex; align-items: flex-end; gap: 10px;">
+            <div>
+                <label><strong>Vyberte Reťazec (Centrálu):</strong></label>
+                <select v-model="selectedChainId" @change="loadChainData" class="form-control" style="min-width: 300px;">
+                    <option value="">-- Vyberte --</option>
+                    <option v-for="chain in chains" :key="chain.id" :value="chain.id">
+                        {{ chain.nazov_firmy }} ({{ chain.zakaznik_id || 'Bez ID' }})
+                    </option>
+                </select>
+            </div>
+            <button @click="showCreateChain = !showCreateChain" class="btn btn-outline-secondary">
+                <i class="fas fa-plus"></i> Nová Centrála
+            </button>
+        </div>
+
+        <div v-if="showCreateChain" style="margin-bottom: 20px; padding: 15px; border: 1px dashed #b91c1c; background: #fffcfc; display: flex; gap: 10px; align-items: end; border-radius: 6px;">
+            <div>
+                <label>Názov (napr. COOP Jednota Galanta)</label>
+                <input type="text" v-model="newChain.nazov_firmy" class="form-control" placeholder="Zadajte názov...">
+            </div>
+            <div>
+                <label>Interné ERP ID</label>
+                <input type="text" v-model="newChain.zakaznik_id" class="form-control" placeholder="Napr. 257400">
+            </div>
+            <button @click="createChain" class="btn btn-success" :disabled="isCreatingChain">
+                {{ isCreatingChain ? 'Ukladám...' : 'Vytvoriť v ERP' }}
+            </button>
+            <button @click="showCreateChain = false" class="btn btn-secondary">Zrušiť</button>
         </div>
 
         <div v-if="selectedChainId">
@@ -175,7 +195,10 @@ const B2BChainsAdmin = {
         return {
             chains: [],
             selectedChainId: "",
-            activeTab: 'branches', // Predvolená záložka
+            showCreateChain: false,
+            newChain: { nazov_firmy: '', zakaznik_id: '' },
+            isCreatingChain: false,
+            activeTab: 'branches',
             branches: [],
             ediMappings: [],
             isImporting: false,
@@ -188,7 +211,6 @@ const B2BChainsAdmin = {
     },
     mounted() {
         this.loadChains();
-        // Nastavenie default dátumov pre report (aktuálny mesiac)
         const date = new Date();
         this.reportParams.date_from = new Date(date.getFullYear(), date.getMonth(), 1).toISOString().split('T')[0];
         this.reportParams.date_to = new Date(date.getFullYear(), date.getMonth() + 1, 0).toISOString().split('T')[0];
@@ -201,6 +223,33 @@ const B2BChainsAdmin = {
                 this.chains = data.chains || [];
             } catch (e) {
                 alert("Chyba načítania reťazcov.");
+            }
+        },
+        async createChain() {
+            if (!this.newChain.nazov_firmy || !this.newChain.zakaznik_id) {
+                alert("Názov a ID sú povinné.");
+                return;
+            }
+            this.isCreatingChain = true;
+            try {
+                const res = await fetch('/api/chains/create_parent', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(this.newChain)
+                });
+                const data = await res.json();
+                if (data.error) {
+                    alert(data.error);
+                } else {
+                    alert(data.message);
+                    this.newChain = { nazov_firmy: '', zakaznik_id: '' };
+                    this.showCreateChain = false;
+                    this.loadChains(); // Znovunačítanie roletky
+                }
+            } catch (e) {
+                alert("Chyba pri vytváraní centrály.");
+            } finally {
+                this.isCreatingChain = false;
             }
         },
         loadChainData() {
@@ -256,8 +305,8 @@ const B2BChainsAdmin = {
                 if (result.error) alert(result.error);
                 else {
                     alert(result.message);
-                    this.loadBranches(); // Refresh tabuľky
-                    fileInput.value = ""; // Clear input
+                    this.loadBranches();
+                    fileInput.value = ""; 
                 }
             } catch (e) {
                 alert("Kritická chyba pri importe prevádzok.");
@@ -353,7 +402,7 @@ const B2BChainsAdmin = {
                         msg += "\n\nUpozornenia (Zlyhalo párovanie):\n" + result.errors.join("\n");
                     }
                     alert(msg);
-                    fileInput.value = ""; // Vyčistenie inputu
+                    fileInput.value = ""; 
                 }
             } catch (e) {
                 alert("Kritická chyba pri nahrávaní EDI objednávok.");
