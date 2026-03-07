@@ -242,13 +242,9 @@ def api_action_sales_report():
 @chains_bp.route('/api/chains/<int:parent_id>/import_orders', methods=['POST'])
 @login_required(role=("kancelaria", "admin", "veduci"))
 def import_edi_orders(parent_id):
-    """Importuje EDI objednávky a zapíše ich natívne ako B2B objednávky."""
+    """Manuálny záložný import EDI objednávok cez UI pre testovacie účely."""
     if 'file' not in request.files:
         return jsonify({"error": "Chýba súbor s objednávkami."}), 400
-
-    delivery_date = request.form.get("delivery_date")
-    if not delivery_date:
-        return jsonify({"error": "Chýba požadovaný dátum dodania."}), 400
 
     file = request.files['file']
     try:
@@ -258,34 +254,58 @@ def import_edi_orders(parent_id):
         except UnicodeDecodeError:
             content = raw_bytes.decode('cp1250', errors='replace')
             
-        csv_reader = csv.reader(io.StringIO(content), delimiter=';') # EDI CSV zvyčajne používa bodkočiarku
+        lines = content.splitlines()
+        if not lines:
+            return jsonify({"error": "Súbor je prázdny."}), 400
+
+        # 1. Extrakcia dátumu z prvého riadku (hlavičky)
+        header_parts = lines[0].split(';')
+        if len(header_parts) >= 8:
+            date_str = header_parts[7].strip() # 28.08.2025
+            try:
+                delivery_date = datetime.strptime(date_str, '%d.%m.%Y').strftime('%Y-%m-%d')
+            except ValueError:
+                delivery_date = datetime.now().strftime('%Y-%m-%d')
+        else:
+            delivery_date = datetime.now().strftime('%Y-%m-%d')
         
         conn = db_connector.get_connection()
         cur = conn.cursor(dictionary=True)
 
-        # Zoskupenie položiek podľa GLN (EDI kódu predajne)
-        orders_by_gln = {}
-        for row in csv_reader:
-            if len(row) < 11 or "GLN" in row[0]: continue
+        # 2. Zoskupenie položiek
+        orders_grouped = {}
+        for line in lines[1:]:
+            if not line.strip(): continue
+            parts = line.split()
+            if len(parts) < 6: continue
             
-            gln = str(row[10]).replace('.0', '').strip()
-            edi_ean = str(row[4]).strip()
-            qty_str = str(row[5]).replace(',', '.')
+            raw_ean = parts[0].strip()
+            stripped_ean = raw_ean.lstrip('0') or raw_ean 
+            
             try:
-                qty = float(qty_str)
+                qty = float(parts[-5].replace(',', '.'))
             except ValueError:
                 continue
                 
-            if qty <= 0 or not gln: continue
+            if qty <= 0: continue
+            
+            coop_order_no = parts[-4].strip() # 9104063_2503918
+            gln = parts[-2].strip()           # 8589000032058
+            
+            group_key = (gln, coop_order_no)
+            if group_key not in orders_grouped:
+                orders_grouped[group_key] = []
                 
-            if gln not in orders_by_gln: orders_by_gln[gln] = []
-            orders_by_gln[gln].append({"edi_ean": edi_ean, "qty": qty})
+            orders_grouped[group_key].append({
+                "raw_ean": raw_ean,
+                "stripped_ean": stripped_ean,
+                "qty": qty
+            })
 
         processed_count = 0
         errors = []
 
-        for gln, items in orders_by_gln.items():
-            # 1. Nájdenie pobočky podľa EDI kódu
+        for (gln, coop_order_no), items in orders_grouped.items():
             cur.execute("SELECT id, zakaznik_id, nazov_firmy, adresa_dorucenia FROM b2b_zakaznici WHERE edi_kod = %s AND parent_id = %s", (gln, parent_id))
             customer = cur.fetchone()
             if not customer:
@@ -293,49 +313,50 @@ def import_edi_orders(parent_id):
                 continue
 
             order_items = []
-            total_net = 0.0
             total_gross = 0.0
             
             for item in items:
-                # 2. Preklad cudzieho EAN na interný EAN
-                cur.execute("SELECT interny_ean FROM edi_produkty_mapovanie WHERE edi_ean = %s AND chain_parent_id = %s", (item['edi_ean'], parent_id))
+                cur.execute("""
+                    SELECT interny_ean FROM edi_produkty_mapovanie 
+                    WHERE chain_parent_id = %s AND (edi_ean = %s OR edi_ean = %s) LIMIT 1
+                """, (parent_id, item['raw_ean'], item['stripped_ean']))
                 map_result = cur.fetchone()
-                interny_ean = map_result['interny_ean'] if map_result else item['edi_ean']
+                
+                interny_ean = map_result['interny_ean'] if map_result else item['stripped_ean']
 
-                # 3. Zistenie produktu z databázy
                 cur.execute("SELECT nazov_vyrobku, dph, predajna_kategoria, vaha_balenia_g, typ_polozky, mj FROM produkty WHERE ean = %s", (interny_ean,))
                 prod = cur.fetchone()
                 if not prod:
-                    errors.append(f"Produkt EAN {interny_ean} neexistuje (EDI: {item['edi_ean']})")
+                    errors.append(f"Produkt EAN {interny_ean} neexistuje (EDI: {item['raw_ean']})")
                     continue
 
-                # 4. Zistenie bežnej ceny (Fallback, ideálne napojiť na b2b_cennik_polozky)
                 cur.execute("""
-                    SELECT cp.cena 
-                    FROM b2b_cennik_polozky cp
+                    SELECT cp.cena FROM b2b_cennik_polozky cp
                     JOIN b2b_zakaznik_cennik zc ON zc.cennik_id = cp.cennik_id
                     WHERE zc.zakaznik_id = %s AND cp.ean_produktu = %s LIMIT 1
                 """, (customer['zakaznik_id'], interny_ean))
                 price_row = cur.fetchone()
                 price = float(price_row['cena']) if price_row else 0.0
 
-                # 5. Kontrola akcie (Správa Akcií)
                 is_akcia = 0
                 display_name = prod['nazov_vyrobku']
-                # Predpokladaná tabuľka pre akcie. Ak je iná, upravíme.
-                # cur.execute("SELECT cena FROM akciove_ceny WHERE ean = %s AND platnost_od <= %s AND platnost_do >= %s LIMIT 1", (interny_ean, delivery_date, delivery_date))
-                # action_row = cur.fetchone()
-                # if action_row:
-                #     price = float(action_row['cena'])
-                #     is_akcia = 1
-                #     display_name = f"[AKCIA] {prod['nazov_vyrobku']}"
+
+                cur.execute("""
+                    SELECT cena FROM akciove_ceny 
+                    WHERE ean = %s AND platnost_od <= %s AND platnost_do >= %s AND zakaznik_skupina_id = %s LIMIT 1
+                """, (interny_ean, delivery_date, delivery_date, parent_id))
+                action_result = cur.fetchone()
+                
+                if action_result:
+                    price = float(action_result['cena'])
+                    is_akcia = 1
+                    display_name = f"[AKCIA] {prod['nazov_vyrobku']}"
 
                 qty = item['qty']
                 dph_rate = float(prod['dph'] or 20)
                 line_net = price * qty
                 line_gross = line_net * (1 + (dph_rate / 100))
                 
-                total_net += line_net
                 total_gross += line_gross
                 
                 order_items.append((
@@ -345,8 +366,13 @@ def import_edi_orders(parent_id):
 
             if not order_items: continue
 
-            # 6. Zápis do B2B_OBJEDNAVKY (Natívne zapojenie do ERP)
-            order_number = f"EDI-{customer['zakaznik_id']}-{datetime.now().strftime('%m%d%H%M%S')}"
+            order_number = f"EDI-{coop_order_no}"
+            
+            cur.execute("SELECT id FROM b2b_objednavky WHERE cislo_objednavky = %s LIMIT 1", (order_number,))
+            if cur.fetchone():
+                errors.append(f"Objednávka {order_number} už bola v minulosti importovaná.")
+                continue
+
             cur.execute("""
                 INSERT INTO b2b_objednavky 
                 (cislo_objednavky, zakaznik_id, nazov_firmy, adresa, pozadovany_datum_dodania, celkova_suma_s_dph, stav)
@@ -355,7 +381,6 @@ def import_edi_orders(parent_id):
             
             order_id = cur.lastrowid
             
-            # 7. Zápis položiek
             insert_query = """
                 INSERT INTO b2b_objednavky_polozky 
                 (objednavka_id, ean_produktu, nazov_vyrobku, mnozstvo, mj, dph, predajna_kategoria, vaha_balenia_g, typ_polozky, cena_bez_dph, pozadovany_datum_dodania, is_akcia)
@@ -365,7 +390,7 @@ def import_edi_orders(parent_id):
             processed_count += 1
 
         conn.commit()
-        return jsonify({"message": f"Úspešne naimportovaných a vytvorených {processed_count} B2B objednávok.", "errors": errors})
+        return jsonify({"message": f"Dátum dodania zo súboru: {delivery_date}. Vytvorených {processed_count} objednávok.", "errors": errors})
 
     except Exception as e:
         traceback.print_exc()

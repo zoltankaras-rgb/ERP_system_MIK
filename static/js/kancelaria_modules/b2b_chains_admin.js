@@ -153,20 +153,16 @@ const B2BChainsAdmin = {
 
             <div v-show="activeTab === 'orders'">
                 <div style="margin-bottom: 20px; padding: 20px; border: 1px solid #ddd; background: #fdfdfd; border-radius: 8px;">
-                    <h4 style="color: #b91c1c;"><i class="fas fa-file-upload"></i> Import denných objednávok z EDI (CSV)</h4>
-                    <p>Tieto objednávky sa po importe automaticky zaradia medzi bežné B2B objednávky, zobrazia sa v Slepom liste a na Dashboarde.</p>
+                    <h4 style="color: #b91c1c;"><i class="fas fa-file-upload"></i> Manuálny testovací import z EDI (CSV)</h4>
+                    <p>Dátum dodania a čísla objednávok si systém načíta priamo z vnútra súboru automaticky. Tieto objednávky sa po importe automaticky zaradia medzi bežné B2B objednávky, zobrazia sa v Slepom liste a na Dashboarde.</p>
                     
                     <div style="display: flex; gap: 15px; align-items: end; margin-top: 15px;">
-                        <div>
-                            <label><strong>Požadovaný dátum dodania:</strong></label>
-                            <input type="date" v-model="orderImportDate" class="form-control" required>
-                        </div>
                         <div>
                             <label><strong>Vyberte CSV súbor z váhy/terminálu:</strong></label>
                             <input type="file" ref="orderCsvFile" accept=".csv" class="form-control">
                         </div>
                         <button @click="importOrders" class="btn btn-success" :disabled="isImportingOrders">
-                            <i class="fas fa-cogs"></i> {{ isImportingOrders ? 'Spracovávam...' : 'Vytvoriť B2B Objednávky' }}
+                            <i class="fas fa-cogs"></i> {{ isImportingOrders ? 'Spracovávam...' : 'Nahrať Objednávky' }}
                         </button>
                     </div>
                 </div>
@@ -187,8 +183,7 @@ const B2BChainsAdmin = {
             isImportingOrders: false,
             newMapping: { edi_ean: '', interny_ean: '' },
             reportParams: { date_from: '', date_to: '' },
-            reportData: null,
-            orderImportDate: ''
+            reportData: null
         }
     },
     mounted() {
@@ -197,11 +192,6 @@ const B2BChainsAdmin = {
         const date = new Date();
         this.reportParams.date_from = new Date(date.getFullYear(), date.getMonth(), 1).toISOString().split('T')[0];
         this.reportParams.date_to = new Date(date.getFullYear(), date.getMonth() + 1, 0).toISOString().split('T')[0];
-        
-        // Default dátum pre import objednávok (zajtra)
-        const tomorrow = new Date();
-        tomorrow.setDate(tomorrow.getDate() + 1);
-        this.orderImportDate = tomorrow.toISOString().split('T')[0];
     },
     methods: {
         async loadChains() {
@@ -266,8 +256,8 @@ const B2BChainsAdmin = {
                 if (result.error) alert(result.error);
                 else {
                     alert(result.message);
-                    this.loadBranches();
-                    fileInput.value = ""; 
+                    this.loadBranches(); // Refresh tabuľky
+                    fileInput.value = ""; // Clear input
                 }
             } catch (e) {
                 alert("Kritická chyba pri importe prevádzok.");
@@ -339,15 +329,14 @@ const B2BChainsAdmin = {
         },
         async importOrders() {
             const fileInput = this.$refs.orderCsvFile;
-            if (!fileInput.files.length || !this.orderImportDate) {
-                alert("Prosím, vyberte CSV súbor objednávok a zadajte dátum dodania.");
+            if (!fileInput.files.length) {
+                alert("Prosím, vyberte CSV súbor objednávok.");
                 return;
             }
             
             this.isImportingOrders = true;
             const formData = new FormData();
             formData.append("file", fileInput.files[0]);
-            formData.append("delivery_date", this.orderImportDate);
 
             try {
                 const res = await fetch(`/api/chains/${this.selectedChainId}/import_orders`, {
