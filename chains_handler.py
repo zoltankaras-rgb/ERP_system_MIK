@@ -148,7 +148,7 @@ def import_coop_stores(parent_id):
         conn = db_connector.get_connection()
         cur = conn.cursor(dictionary=True)
         
-        # Dynamické zistenie stĺpcov, aby SQL nepadalo na chýbajúcich poliach
+        # Dynamické zistenie stĺpcov
         cur.execute("SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'b2b_zakaznici'")
         db_cols = {r.get('COLUMN_NAME', r.get('column_name', '')).lower() for r in cur.fetchall()}
         
@@ -159,30 +159,36 @@ def import_coop_stores(parent_id):
         processed, updated = 0, 0
 
         for row in csv_reader:
-            if not row or len(row) < 11 or "GLN" in str(row[10]) or not str(row[10]).strip():
+            if not row or len(row) < 11:
                 continue 
 
-            retazec = str(row[2]).strip()
-            cislo_pj = str(row[3]).strip() 
+            # Agresívne čistenie GLN a odstránenie bielych znakov a enterov
+            raw_gln = str(row[10]).replace('.0', '').replace('\n', '').replace('\r', '').strip()
+            if "GLN" in raw_gln or not raw_gln:
+                continue 
+            
+            # Bezpečnostný rez pre databázu (max 64 znakov pre EDI kód)
+            gln = raw_gln[:64]
+
+            # Extrakcia a limitovanie dĺžky reťazcov
+            retazec = str(row[2]).strip()[:100]
+            cislo_pj = str(row[3]).strip()[:32]
             mesto = str(row[4]).strip()
             psc = str(row[5]).replace('.0', '').strip()
-            adresa_ulica = str(row[6]).replace('\n', ' ').strip()
+            adresa_ulica = str(row[6]).replace('\n', ' ').replace('\r', '').strip()
             veduca = str(row[7]).strip()
-            mobil = str(row[8]).strip()
-            email = str(row[9]).strip()
-            gln = str(row[10]).replace('.0', '').strip() 
-            
-            if not gln: continue
+            mobil = str(row[8]).strip()[:50]
+            email = str(row[9]).strip()[:100]
 
-            nazov_firmy = f"{retazec} - {mesto}"
-            adresa_dorucenia = f"{adresa_ulica}, {psc} {mesto}"
+            # Spojenie do limitu 255 znakov
+            nazov_firmy = f"{retazec} - {mesto}"[:255]
+            adresa_dorucenia = f"{adresa_ulica}, {psc} {mesto}"[:255]
             
             import secrets, hashlib, os
             salt = os.urandom(16)
             key = hashlib.pbkdf2_hmac("sha256", secrets.token_hex(16).encode("utf-8"), salt, 250000)
             salt_hex, hash_hex = salt.hex(), key.hex()
 
-            # Dynamické zloženie SQL príkazu podľa štruktúry vašej DB
             insert_fields = ['parent_id', 'typ', 'nazov_firmy', 'adresa_dorucenia', 'telefon', 'email', 'edi_kod', 'cislo_prevadzky', hash_col, salt_col, 'je_schvaleny']
             insert_vals = [parent_id, 'B2B', nazov_firmy, adresa_dorucenia, mobil, email, gln, cislo_pj, hash_hex, salt_hex, 1]
             
@@ -196,7 +202,7 @@ def import_coop_stores(parent_id):
 
             if has_poznamka:
                 insert_fields.append('poznamka')
-                insert_vals.append(f"Vedúca: {veduca}")
+                insert_vals.append(f"Vedúca: {veduca}"[:500])
                 update_fields.append('poznamka=VALUES(poznamka)')
 
             placeholders = ', '.join(['%s'] * len(insert_fields))
@@ -206,7 +212,6 @@ def import_coop_stores(parent_id):
                 ON DUPLICATE KEY UPDATE {', '.join(update_fields)}
             """
             
-            # Vykonanie dotazu
             cur.execute(sql, tuple(insert_vals))
             
             if cur.rowcount == 1: processed += 1
