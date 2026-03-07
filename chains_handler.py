@@ -126,7 +126,7 @@ def update_branch(branch_id):
 # ==========================================
 
 @chains_bp.route('/api/chains/<int:parent_id>/import_stores', methods=['POST'])
-@login_required(role=("kancelaria", "admin", "veduci"))  # <- OPRAVA: Pridaná rola Kancelária
+@login_required(role=("kancelaria", "admin", "veduci"))
 def import_coop_stores(parent_id):
     if 'file' not in request.files:
         return jsonify({"error": "Chýba súbor."}), 400
@@ -139,7 +139,14 @@ def import_coop_stores(parent_id):
         except UnicodeDecodeError:
             content = raw_bytes.decode('cp1250', errors='replace')
             
-        csv_reader = csv.reader(io.StringIO(content), delimiter=',')
+        # OPRAVA: Extrakcia prvého riadku pre zistenie oddelovača
+        first_line = content.split('\n', 1)[0]
+        delimiter = ';' if ';' in first_line else ','
+        
+        # OPRAVA: Parameter newline='' zabraňuje chybe 'new-line character seen in unquoted field'
+        # Dovolí knižnici csv správne interpretovať skryté Entery vnútri buniek z Excelu.
+        stream = io.StringIO(content, newline='')
+        csv_reader = csv.reader(stream, delimiter=delimiter)
         
         conn = db_connector.get_connection()
         cur = conn.cursor()
@@ -147,18 +154,19 @@ def import_coop_stores(parent_id):
         processed, updated = 0, 0
 
         for row in csv_reader:
-            if len(row) < 11 or "GLN" in row[10] or not row[10].strip():
+            # Kontrola minimálnej dĺžky riadku a prítomnosti identifikátora hlavičky
+            if not row or len(row) < 11 or "GLN" in str(row[10]) or not str(row[10]).strip():
                 continue 
 
-            retazec = row[2].strip()
-            cislo_pj = row[3].strip() 
-            mesto = row[4].strip()
-            psc = row[5].replace('.0', '').strip()
-            adresa_ulica = row[6].strip()
-            veduca = row[7].strip()
-            mobil = row[8].strip()
-            email = row[9].strip()
-            gln = row[10].replace('.0', '').strip() 
+            retazec = str(row[2]).strip()
+            cislo_pj = str(row[3]).strip() 
+            mesto = str(row[4]).strip()
+            psc = str(row[5]).replace('.0', '').strip()
+            adresa_ulica = str(row[6]).replace('\n', ' ').strip() # Odstránenie internej medzery v adrese
+            veduca = str(row[7]).strip()
+            mobil = str(row[8]).strip()
+            email = str(row[9]).strip()
+            gln = str(row[10]).replace('.0', '').strip() 
             
             if not gln: continue
 
