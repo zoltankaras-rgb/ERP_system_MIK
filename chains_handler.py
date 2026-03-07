@@ -110,6 +110,14 @@ def get_branches(parent_id):
 def update_branch(branch_id):
     data = request.json or {}
     try:
+        cislo_pj = data.get('cislo_prevadzky', '').strip()
+        nazov_firmy = data.get('nazov_firmy', '').strip()
+        
+        # Automatické zlúčenie: Ak názov firmy ešte nezačína číslom prevádzky, prilepí ho na začiatok.
+        # Toto zabezpečí, že číslo bude okamžite viditeľné v Logistike a na trasách.
+        if cislo_pj and not nazov_firmy.startswith(cislo_pj):
+            nazov_firmy = f"{cislo_pj} {nazov_firmy}"
+
         db_connector.execute_query(
             """UPDATE b2b_zakaznici 
                SET zakaznik_id=%s, edi_kod=%s, telefon=%s, email=%s,
@@ -120,8 +128,8 @@ def update_branch(branch_id):
                 data.get('edi_kod'), 
                 data.get('telefon'), 
                 data.get('email'),
-                data.get('cislo_prevadzky'),
-                data.get('nazov_firmy'),
+                cislo_pj,
+                nazov_firmy,
                 data.get('adresa_dorucenia'),
                 branch_id
             ),
