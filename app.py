@@ -100,6 +100,7 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 if not all([app.config['MAIL_SERVER'], app.config['MAIL_USERNAME'], app.config['MAIL_PASSWORD'], app.config['MAIL_DEFAULT_SENDER']]):
     print("!!! VAROVANIE: Chýbajú niektoré konfiguračné premenné pre e-mail v .env súbore! Odosielanie e-mailov bude zlyhávať. !!!")
 
+
 mail = Mail(app)
 ERP_EXCHANGE_DIR = os.getenv("ERP_EXCHANGE_DIR") or "/var/app/static/erp_exchange"
 ERP_IMPORT_FILENAME = "ZASOBA.CSV"
@@ -142,6 +143,7 @@ app.register_blueprint(kancelaria_b2c_bp)  # /api/kancelaria/b2c/*  (admin)
 app.register_blueprint(leader_bp) 
 # Ostatné blueprinty / moduly
 app.register_blueprint(stock_bp)
+app.register_blueprint(chains_handler.chains_bp)
 init_stock()
 mail_bp = Blueprint("mail_api", __name__)
 # Voliteľné: štart teplomerov
