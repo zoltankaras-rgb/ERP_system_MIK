@@ -139,22 +139,26 @@ def import_coop_stores(parent_id):
         except UnicodeDecodeError:
             content = raw_bytes.decode('cp1250', errors='replace')
             
-        # OPRAVA: Extrakcia prvého riadku pre zistenie oddelovača
         first_line = content.split('\n', 1)[0]
         delimiter = ';' if ';' in first_line else ','
         
-        # OPRAVA: Parameter newline='' zabraňuje chybe 'new-line character seen in unquoted field'
-        # Dovolí knižnici csv správne interpretovať skryté Entery vnútri buniek z Excelu.
         stream = io.StringIO(content, newline='')
         csv_reader = csv.reader(stream, delimiter=delimiter)
         
         conn = db_connector.get_connection()
-        cur = conn.cursor()
+        cur = conn.cursor(dictionary=True)
+        
+        # Dynamické zistenie stĺpcov, aby SQL nepadalo na chýbajúcich poliach
+        cur.execute("SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'b2b_zakaznici'")
+        db_cols = {r.get('COLUMN_NAME', r.get('column_name', '')).lower() for r in cur.fetchall()}
+        
+        has_poznamka = 'poznamka' in db_cols
+        hash_col = 'password_hash_hex' if 'password_hash_hex' in db_cols else 'heslo_hash'
+        salt_col = 'password_salt_hex' if 'password_salt_hex' in db_cols else 'heslo_salt'
         
         processed, updated = 0, 0
 
         for row in csv_reader:
-            # Kontrola minimálnej dĺžky riadku a prítomnosti identifikátora hlavičky
             if not row or len(row) < 11 or "GLN" in str(row[10]) or not str(row[10]).strip():
                 continue 
 
@@ -162,7 +166,7 @@ def import_coop_stores(parent_id):
             cislo_pj = str(row[3]).strip() 
             mesto = str(row[4]).strip()
             psc = str(row[5]).replace('.0', '').strip()
-            adresa_ulica = str(row[6]).replace('\n', ' ').strip() # Odstránenie internej medzery v adrese
+            adresa_ulica = str(row[6]).replace('\n', ' ').strip()
             veduca = str(row[7]).strip()
             mobil = str(row[8]).strip()
             email = str(row[9]).strip()
@@ -172,42 +176,50 @@ def import_coop_stores(parent_id):
 
             nazov_firmy = f"{retazec} - {mesto}"
             adresa_dorucenia = f"{adresa_ulica}, {psc} {mesto}"
-            poznamka = f"Vedúca: {veduca}"
             
             import secrets, hashlib, os
             salt = os.urandom(16)
             key = hashlib.pbkdf2_hmac("sha256", secrets.token_hex(16).encode("utf-8"), salt, 250000)
             salt_hex, hash_hex = salt.hex(), key.hex()
 
-            sql = """
-                INSERT INTO b2b_zakaznici 
-                (parent_id, typ, nazov_firmy, adresa_dorucenia, telefon, email, edi_kod, cislo_prevadzky, heslo_hash, heslo_salt, je_schvaleny, poznamka)
-                VALUES (%s, 'B2B', %s, %s, %s, %s, %s, %s, %s, %s, 1, %s)
-                ON DUPLICATE KEY UPDATE 
-                nazov_firmy=VALUES(nazov_firmy),
-                adresa_dorucenia=VALUES(adresa_dorucenia),
-                telefon=VALUES(telefon),
-                email=VALUES(email),
-                cislo_prevadzky=VALUES(cislo_prevadzky),
-                poznamka=VALUES(poznamka)
+            # Dynamické zloženie SQL príkazu podľa štruktúry vašej DB
+            insert_fields = ['parent_id', 'typ', 'nazov_firmy', 'adresa_dorucenia', 'telefon', 'email', 'edi_kod', 'cislo_prevadzky', hash_col, salt_col, 'je_schvaleny']
+            insert_vals = [parent_id, 'B2B', nazov_firmy, adresa_dorucenia, mobil, email, gln, cislo_pj, hash_hex, salt_hex, 1]
+            
+            update_fields = [
+                'nazov_firmy=VALUES(nazov_firmy)', 
+                'adresa_dorucenia=VALUES(adresa_dorucenia)', 
+                'telefon=VALUES(telefon)', 
+                'email=VALUES(email)', 
+                'cislo_prevadzky=VALUES(cislo_prevadzky)'
+            ]
+
+            if has_poznamka:
+                insert_fields.append('poznamka')
+                insert_vals.append(f"Vedúca: {veduca}")
+                update_fields.append('poznamka=VALUES(poznamka)')
+
+            placeholders = ', '.join(['%s'] * len(insert_fields))
+            sql = f"""
+                INSERT INTO b2b_zakaznici ({', '.join(insert_fields)}) 
+                VALUES ({placeholders})
+                ON DUPLICATE KEY UPDATE {', '.join(update_fields)}
             """
-            cur.execute(sql, (
-                parent_id, nazov_firmy, adresa_dorucenia, mobil, email, 
-                gln, cislo_pj, hash_hex, salt_hex, poznamka
-            ))
+            
+            # Vykonanie dotazu
+            cur.execute(sql, tuple(insert_vals))
             
             if cur.rowcount == 1: processed += 1
             else: updated += 1
 
         conn.commit()
-        return jsonify({"message": f"Import úspešný. Vytvorených: {processed}, Aktualizovaných: {updated}."})
+        return jsonify({"message": f"Import úspešný. Vytvorených: {processed}, Aktualizovaných: {updated} pobočiek."})
     except Exception as e:
         traceback.print_exc()
         return jsonify({"error": f"Chyba importu: {str(e)}"}), 500
     finally:
         if 'cur' in locals(): cur.close()
         if 'conn' in locals(): conn.close()
-
 # ==========================================
 # 3. EDI MAPOVANIE PRODUKTOV
 # ==========================================
