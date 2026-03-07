@@ -42,23 +42,41 @@ def create_parent_chain():
         if exists:
             return jsonify({"error": f"Interné ERP ID '{zakaznik_id}' už v systéme existuje."}), 400
             
-        # Generovanie fiktívneho hesla (ochrana pred chybami DB)
         import secrets, hashlib, os
         salt = os.urandom(16)
         key = hashlib.pbkdf2_hmac("sha256", secrets.token_hex(16).encode("utf-8"), salt, 250000)
         salt_hex, hash_hex = salt.hex(), key.hex()
         
-        # Ošetrenie pre staršie a novšie schémy hesiel v b2b_zakaznici
-        try:
-            db_connector.execute_query("""
-                INSERT INTO b2b_zakaznici (typ, nazov_firmy, zakaznik_id, heslo_hash, heslo_salt, je_schvaleny)
-                VALUES ('B2B', %s, %s, %s, %s, 1)
-            """, (nazov_firmy, zakaznik_id, hash_hex, salt_hex), fetch='none')
-        except Exception:
-            db_connector.execute_query("""
-                INSERT INTO b2b_zakaznici (typ, nazov_firmy, zakaznik_id, password_hash_hex, password_salt_hex, je_schvaleny)
-                VALUES ('B2B', %s, %s, %s, %s, 1)
-            """, (nazov_firmy, zakaznik_id, hash_hex, salt_hex), fetch='none')
+        # Dynamické zistenie stĺpcov v tabuľke, aby to nepadlo na heslách
+        cols_info = db_connector.execute_query(
+            "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'b2b_zakaznici'", 
+            fetch="all"
+        ) or []
+        db_cols = {r.get('COLUMN_NAME', r.get('column_name', '')).lower() for r in cols_info}
+
+        # Základné hodnoty, fiktívny email (tabuľka ho zvyčajne vyžaduje)
+        dummy_email = f"centrala_{zakaznik_id}@edi.local"
+        
+        insert_cols = ['typ', 'nazov_firmy', 'zakaznik_id', 'email', 'telefon', 'adresa', 'je_schvaleny']
+        insert_vals = ['B2B', nazov_firmy, zakaznik_id, dummy_email, '', '', 1]
+        
+        # Ošetrenie pre rôzne verzie stĺpcov hesla
+        if 'password_hash_hex' in db_cols and 'password_salt_hex' in db_cols:
+            insert_cols.extend(['password_hash_hex', 'password_salt_hex'])
+            insert_vals.extend([hash_hex, salt_hex])
+        elif 'heslo_hash' in db_cols and 'heslo_salt' in db_cols:
+            insert_cols.extend(['heslo_hash', 'heslo_salt'])
+            insert_vals.extend([hash_hex, salt_hex])
+            
+        placeholders = ', '.join(['%s'] * len(insert_cols))
+        sql = f"INSERT INTO b2b_zakaznici ({', '.join(insert_cols)}) VALUES ({placeholders})"
+        
+        db_connector.execute_query(sql, tuple(insert_vals), fetch='none')
+        
+        # Overenie, či sa to DO DATABÁZY skutočne zapísalo
+        verify = db_connector.execute_query("SELECT id FROM b2b_zakaznici WHERE zakaznik_id=%s", (zakaznik_id,), fetch="one")
+        if not verify:
+            return jsonify({"error": "Databáza odmietla záznam uložiť (pravdepodobne chýba nejaké iné povinné pole). Skontrolujte logy."}), 500
 
         return jsonify({"message": f"Centrála '{nazov_firmy}' bola úspešne vytvorená."})
     except Exception as e:
