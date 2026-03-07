@@ -162,15 +162,12 @@ def import_coop_stores(parent_id):
             if not row or len(row) < 11:
                 continue 
 
-            # Agresívne čistenie GLN a odstránenie bielych znakov a enterov
             raw_gln = str(row[10]).replace('.0', '').replace('\n', '').replace('\r', '').strip()
             if "GLN" in raw_gln or not raw_gln:
                 continue 
             
-            # Bezpečnostný rez pre databázu (max 64 znakov pre EDI kód)
             gln = raw_gln[:64]
 
-            # Extrakcia a limitovanie dĺžky reťazcov
             retazec = str(row[2]).strip()[:100]
             cislo_pj = str(row[3]).strip()[:32]
             mesto = str(row[4]).strip()
@@ -180,17 +177,20 @@ def import_coop_stores(parent_id):
             mobil = str(row[8]).strip()[:50]
             email = str(row[9]).strip()[:100]
 
-            # Spojenie do limitu 255 znakov
             nazov_firmy = f"{retazec} - {mesto}"[:255]
             adresa_dorucenia = f"{adresa_ulica}, {psc} {mesto}"[:255]
+            
+            # Generovanie dočasného unikátneho ID pre databázu
+            temp_zakaznik_id = f"EDI-{gln}"[:64]
             
             import secrets, hashlib, os
             salt = os.urandom(16)
             key = hashlib.pbkdf2_hmac("sha256", secrets.token_hex(16).encode("utf-8"), salt, 250000)
             salt_hex, hash_hex = salt.hex(), key.hex()
 
-            insert_fields = ['parent_id', 'typ', 'nazov_firmy', 'adresa_dorucenia', 'telefon', 'email', 'edi_kod', 'cislo_prevadzky', hash_col, salt_col, 'je_schvaleny']
-            insert_vals = [parent_id, 'B2B', nazov_firmy, adresa_dorucenia, mobil, email, gln, cislo_pj, hash_hex, salt_hex, 1]
+            # Pridané 'zakaznik_id' do zoznamu povinne zapisovaných polí
+            insert_fields = ['parent_id', 'typ', 'nazov_firmy', 'adresa_dorucenia', 'telefon', 'email', 'edi_kod', 'cislo_prevadzky', hash_col, salt_col, 'je_schvaleny', 'zakaznik_id']
+            insert_vals = [parent_id, 'B2B', nazov_firmy, adresa_dorucenia, mobil, email, gln, cislo_pj, hash_hex, salt_hex, 1, temp_zakaznik_id]
             
             update_fields = [
                 'nazov_firmy=VALUES(nazov_firmy)', 
