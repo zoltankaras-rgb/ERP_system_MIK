@@ -141,7 +141,7 @@ def import_coop_stores(parent_id):
             
         lines = content.splitlines()
         
-        # Analytická detekcia oddelovača na základe prvých 10 riadkov
+        # Analytická detekcia oddelovača
         delimiter = ';'
         for line in lines[:10]:
             if line.count(';') > line.count(','):
@@ -160,8 +160,6 @@ def import_coop_stores(parent_id):
         db_cols = {r.get('COLUMN_NAME', r.get('column_name', '')).lower() for r in cur.fetchall()}
         
         has_poznamka = 'poznamka' in db_cols
-        hash_col = 'password_hash_hex' if 'password_hash_hex' in db_cols else 'heslo_hash'
-        salt_col = 'password_salt_hex' if 'password_salt_hex' in db_cols else 'heslo_salt'
         
         processed, updated = 0, 0
 
@@ -196,8 +194,9 @@ def import_coop_stores(parent_id):
             
             temp_zakaznik_id = f"PENDING-{secrets.token_hex(4).upper()}"
 
-            insert_fields = ['parent_id', 'typ', 'nazov_firmy', 'adresa_dorucenia', 'telefon', 'email', 'edi_kod', 'cislo_prevadzky', hash_col, salt_col, 'je_schvaleny', 'zakaznik_id']
-            insert_vals = [parent_id, 'B2B', nazov_firmy, adresa_dorucenia, mobil, email, gln, cislo_pj, hash_hex, salt_hex, 1, temp_zakaznik_id]
+            # Základné polia
+            insert_fields = ['parent_id', 'typ', 'nazov_firmy', 'adresa_dorucenia', 'telefon', 'email', 'edi_kod', 'cislo_prevadzky', 'je_schvaleny', 'zakaznik_id']
+            insert_vals = [parent_id, 'B2B', nazov_firmy, adresa_dorucenia, mobil, email, gln, cislo_pj, 1, temp_zakaznik_id]
             
             update_fields = [
                 'nazov_firmy=VALUES(nazov_firmy)', 
@@ -207,10 +206,25 @@ def import_coop_stores(parent_id):
                 'cislo_prevadzky=VALUES(cislo_prevadzky)'
             ]
 
+            # Pridanie poznámky ak existuje v DB
             if has_poznamka:
                 insert_fields.append('poznamka')
                 insert_vals.append(f"Vedúca: {veduca}"[:500])
                 update_fields.append('poznamka=VALUES(poznamka)')
+
+            # PLNE DYNAMICKÉ pridanie všetkých možných variácií hesiel (riešenie pre váš duplicitný stĺpec v DB)
+            if 'password_hash_hex' in db_cols:
+                insert_fields.append('password_hash_hex')
+                insert_vals.append(hash_hex)
+            if 'password_salt_hex' in db_cols:
+                insert_fields.append('password_salt_hex')
+                insert_vals.append(salt_hex)
+            if 'heslo_hash' in db_cols:
+                insert_fields.append('heslo_hash')
+                insert_vals.append(hash_hex)
+            if 'heslo_salt' in db_cols:
+                insert_fields.append('heslo_salt')
+                insert_vals.append(salt_hex)
 
             placeholders = ', '.join(['%s'] * len(insert_fields))
             sql = f"""
