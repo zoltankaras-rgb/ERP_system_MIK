@@ -272,6 +272,10 @@ const B2BChainsAdmin = {
             }
         },
         async saveBranch(event, branch) {
+            // Zachytenie tlačidla do pamäte EŠTE PRED spustením await (server requestu)
+            const btn = event.currentTarget;
+            const originalHtml = btn.innerHTML;
+
             try {
                 const res = await fetch(`/api/chains/branch/${branch.id}`, {
                     method: 'POST',
@@ -287,12 +291,11 @@ const B2BChainsAdmin = {
                     })
                 });
                 const result = await res.json();
+                
                 if (result.error) {
                     alert(result.error);
                 } else {
-                    // Vizuálne potvrdenie na tlačidle
-                    const btn = event.currentTarget;
-                    const originalHtml = btn.innerHTML;
+                    // Vizuálne potvrdenie na uloženom objekte
                     btn.innerHTML = '<i class="fas fa-check"></i> OK';
                     btn.classList.replace('btn-success', 'btn-outline-success');
                     setTimeout(() => {
@@ -301,7 +304,7 @@ const B2BChainsAdmin = {
                     }, 1500);
                 }
             } catch (e) {
-                alert("Chyba pri ukladaní.");
+                alert("Systémová chyba: " + e.message);
             }
         },
         async importCsv() {
