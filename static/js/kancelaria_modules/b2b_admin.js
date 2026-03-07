@@ -595,7 +595,7 @@
           @media print { body { margin: 0; padding: 10px; } }
       </style>
       </head><body>
-          <h1>Nakládkový list / Itinerár</h1>
+          <h1>Kontrolný a Nakládkový list </h1>
           <h3>TRASA: ${escapeHtml(routeObj.nazov)} | DÁTUM: ${dateFormatted} | ŠOFÉR: __________________</h3>
           <table>
               <thead>

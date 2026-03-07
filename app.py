@@ -53,6 +53,7 @@ import core_temp_handler
 from pdf_generator import create_pricelist_pdf
 import integration_handler
 import meat_calc_handler
+import chains_handler
 # ===================== ENTERPRISE KALENDÁR – KONŠTANTY =========================
 
 EVENT_STATUS_OPEN = 'OPEN'
@@ -1991,6 +1992,8 @@ def kanc_7d_forecast():
                 "pack_g": float(r.get("g") or 0),
             }
 
+
+
     # ===================== B2B (pôvodná logika) =====================
     b2b_fc = {}
     try:
@@ -3835,6 +3838,29 @@ def b2b_save_store():
 def b2b_delete_store():
     data = request.get_json(silent=True) or {}
     return handle_request(b2b_handler.delete_store, data)
+# ----------------------------------------------------------------------------
+# B2B – REPORT AKCIÍ (nový endpoint pre reportovanie predaja podľa akcií, dátová logika v chains_handler)
+# ----------------------------------------------------------------------------
+
+@app.route('/api/chains/action_report', methods=['POST'])
+@login_required(role=("kancelaria", "admin", "veduci"))
+def api_action_sales_report():
+    data = request.json or {}
+    date_from = data.get("date_from")
+    date_to = data.get("date_to")
+    parent_id = data.get("parent_id")
+
+    if not date_from or not date_to or not parent_id:
+        return jsonify({"error": "Chýbajú povinné parametre (date_from, date_to, parent_id)."}), 400
+
+    try:
+        # Zavolanie dátovej logiky z chains_handler
+        result = chains_handler.get_action_sales_report(date_from, date_to, parent_id)
+        return jsonify(result)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"Chyba pri generovaní reportu: {str(e)}"}), 500
 # ----------------------------------------------------------------------------
 # 1) MASTER: Zákazníci + ich cenníky (ideálne používať túto jednu cestu)
 # ----------------------------------------------------------------------------
