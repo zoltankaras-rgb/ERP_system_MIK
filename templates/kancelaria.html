@@ -5,17 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Modul Kancelária</title>
 
-  <!-- CSS -->
   <link rel="stylesheet" href="{{ url_for('static', filename='css/kancelaria.css') }}?v=7" />
 
-  <!-- Favicon (bez requestu) -->
   <link rel="icon" href="data:;base64,iVBORw0KGgo=" />
 
-  <!-- Fonts + Icons -->
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
 
-  <!-- External libs -->
   <script src="https://www.gstatic.com/charts/loader.js"></script>
   <script src="https://cdn.tiny.cloud/1/no-api-key/tinymce/6/tinymce.min.js" referrerpolicy="origin"></script>
   <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
@@ -40,7 +36,6 @@
 </head>
 
 <body>
-  <!-- LOGIN -->
   <div id="login-wrapper" class="login-wrapper hidden">
     <div class="login-container">
       <h2><i class="fas fa-briefcase"></i> Modul Kancelária</h2>
@@ -58,7 +53,6 @@
     </div>
   </div>
 
-  <!-- APP -->
   <div id="app-container" class="app-container">
     <header class="app-header">
       <div>
@@ -71,7 +65,6 @@
     </header>
 
     <div class="main-layout">
-      <!-- SIDEBAR -->
       <aside class="sidebar">
         <ul class="sidebar-nav">
           <li><a class="sidebar-link active" data-section="section-dashboard"><i class="fas fa-chart-line"></i> Dashboard</a></li>
@@ -87,11 +80,13 @@
           <li><a class="sidebar-link" data-section="section-pricelists"><i class="fas fa-file-invoice-dollar"></i> Cenníky a Akcie</a></li>
 
           <li><a class="sidebar-link" data-section="section-b2b-admin"><i class="fas fa-users-cog"></i> B2B Admin</a></li>
+          
+          <li><a class="sidebar-link" data-section="section-chains-admin"><i class="fas fa-network-wired"></i> Správa Reťazcov (EDI)</a></li>
+
           <li><a class="sidebar-link" data-section="section-b2c-admin"><i class="fas fa-shopping-basket"></i> B2C Správa</a></li>
 
           <li><a class="sidebar-link" data-section="section-haccp"><i class="fas fa-file-shield"></i> HACCP</a></li>
 
-          <!-- NOVÉ: Teplota jadra -->
           <li><a class="sidebar-link" data-section="section-core-temp"><i class="fas fa-thermometer-half"></i> Teplota jadra</a></li>
 
           <li><a class="sidebar-link" data-section="section-fleet"><i class="fas fa-truck"></i> Vozový park</a></li>
@@ -112,7 +107,6 @@
         </ul>
       </aside>
 
-      <!-- MAIN -->
       <main class="main-content">
         <div id="section-dashboard" class="content-section active"></div>
 
@@ -131,6 +125,10 @@
 
         <div id="section-b2b-admin" class="content-section"></div>
 
+        <div id="section-chains-admin" class="content-section">
+          <div id="chains-app"></div>
+        </div>
+
         <div id="section-b2c-admin" class="content-section">
           <h3>B2C Správa – Cenník</h3>
           <div id="b2c-admin-pricelist"></div>
@@ -138,7 +136,6 @@
 
         <div id="section-haccp" class="content-section"></div>
 
-        <!-- NOVÉ: kontajner pre modul Teplota jadra -->
         <div id="section-core-temp" class="content-section"></div>
 
         <div id="section-fleet" class="content-section"></div>
@@ -160,7 +157,6 @@
     </div>
   </div>
 
-  <!-- CONFIRMATION MODAL TEMPLATE -->
   <template id="confirmation-modal-template">
     <div class="modal-confirmation">
       <p id="confirmation-message" class="modal-confirmation-message"></p>
@@ -172,7 +168,6 @@
     </div>
   </template>
 
-  <!-- GLOBAL MODAL CONTAINER -->
   <div id="modal-container">
     <div class="modal-backdrop"></div>
     <div class="modal-content">
@@ -184,17 +179,14 @@
     </div>
   </div>
 
-  <!-- COMMON (helpers, auth, modal, fetch wrappers...) -->
   <script src="{{ url_for('static', filename='js/common.js') }}" defer></script>
 
-  <!-- Kancelária modules -->
   <script src="{{ url_for('static', filename='js/kancelaria_modules/dashboard.js') }}" defer></script>
   <script src="{{ url_for('static', filename='js/kancelaria_modules/stock.js') }}" defer></script>
   <script src="{{ url_for('static', filename='js/kancelaria_modules/planning.js') }}" defer></script>
   <script src="{{ url_for('static', filename='js/kancelaria_modules/order_forecast.js') }}" defer></script>
   <script src="{{ url_for('static', filename='js/kancelaria_modules/erp_admin.js') }}" defer></script>
 
-  <!-- Pricelist Vue manager -->
   <script src="{{ url_for('static', filename='js/kancelaria_modules/pricelist_manager.js') }}" defer></script>
   <script defer>
     document.addEventListener("DOMContentLoaded", () => {
@@ -212,13 +204,25 @@
     });
   </script>
 
-  <<script src="{{ url_for('static', filename='js/kancelaria_modules/b2b_admin.js', v='3') }}" defer></script>
+  <script src="{{ url_for('static', filename='js/kancelaria_modules/b2b_admin.js') }}?v=3" defer></script>
+  
+  <script src="{{ url_for('static', filename='js/kancelaria_modules/b2b_chains_admin.js') }}" defer></script>
+  <script defer>
+    document.addEventListener("DOMContentLoaded", () => {
+      // Čakáme, kým sa načíta b2b_chains_admin.js
+      setTimeout(() => {
+        if (typeof B2BChainsAdmin !== "undefined" && document.getElementById("chains-app")) {
+          const chainsApp = Vue.createApp(B2BChainsAdmin);
+          chainsApp.mount("#chains-app");
+        }
+      }, 500);
+    });
+  </script>
+
   <script src="{{ url_for('static', filename='js/kancelaria_modules/b2c_admin.js') }}" defer></script>
   <script src="{{ url_for('static', filename='js/kancelaria_modules/haccp.js') }}" defer></script>
 
-  <!-- NOVÉ: Teplota jadra modul -->
   <script src="{{ url_for('static', filename='js/kancelaria_modules/core_temp.js') }}?v=999" defer></script>
-
 
   <script src="{{ url_for('static', filename='js/kancelaria_modules/fleet.js') }}" defer></script>
   <script src="{{ url_for('static', filename='js/kancelaria_modules/hygiene.js') }}" defer></script>
@@ -231,14 +235,11 @@
   <script src="{{ url_for('static', filename='js/kancelaria_modules/calendar_planner.js') }}?v=2" defer></script>
   <script src="{{ url_for('static', filename='js/kancelaria_modules/hr.js') }}" defer></script>
 
-  <!-- Shell/Router for kancelária (prepínanie sekcií) -->
   <script src="{{ url_for('static', filename='js/kancelaria.js') }}" defer></script>
 
-  <!-- Ostatné moduly (existujúce) -->
   <script src="{{ url_for('static', filename='js/profitability.js') }}" defer></script>
   <script src="{{ url_for('static', filename='js/costs.js') }}" defer></script>
 
-  <!-- Gemini + tasks -->
   <script src="{{ url_for('static', filename='js/gemini.js') }}" defer></script>
   <script src="{{ url_for('static', filename='js/task_planner.js') }}" defer></script>
   <script src="{{ url_for('static', filename='js/kancelaria_modules/gemini_tasks.js') }}" defer></script>
