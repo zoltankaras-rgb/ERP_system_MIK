@@ -47,36 +47,46 @@ def create_parent_chain():
         key = hashlib.pbkdf2_hmac("sha256", secrets.token_hex(16).encode("utf-8"), salt, 250000)
         salt_hex, hash_hex = salt.hex(), key.hex()
         
-        # Dynamické zistenie stĺpcov v tabuľke, aby to nepadlo na heslách
+        # Dynamické zistenie stĺpcov
         cols_info = db_connector.execute_query(
             "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'b2b_zakaznici'", 
             fetch="all"
         ) or []
         db_cols = {r.get('COLUMN_NAME', r.get('column_name', '')).lower() for r in cols_info}
 
-        # Základné hodnoty, fiktívny email (tabuľka ho zvyčajne vyžaduje)
-        dummy_email = f"centrala_{zakaznik_id}@edi.local"
+        dummy_email = f"centrala_{zakaznik_id.replace(' ', '')}@edi.local"
         
-        insert_cols = ['typ', 'nazov_firmy', 'zakaznik_id', 'email', 'telefon', 'adresa', 'je_schvaleny']
-        insert_vals = ['B2B', nazov_firmy, zakaznik_id, dummy_email, '', '', 1]
+        cols = []
+        vals = []
         
-        # Ošetrenie pre rôzne verzie stĺpcov hesla
-        if 'password_hash_hex' in db_cols and 'password_salt_hex' in db_cols:
-            insert_cols.extend(['password_hash_hex', 'password_salt_hex'])
-            insert_vals.extend([hash_hex, salt_hex])
-        elif 'heslo_hash' in db_cols and 'heslo_salt' in db_cols:
-            insert_cols.extend(['heslo_hash', 'heslo_salt'])
-            insert_vals.extend([hash_hex, salt_hex])
-            
-        placeholders = ', '.join(['%s'] * len(insert_cols))
-        sql = f"INSERT INTO b2b_zakaznici ({', '.join(insert_cols)}) VALUES ({placeholders})"
+        def add(col, val):
+            if col.lower() in db_cols:
+                cols.append(col)
+                vals.append(val)
+                
+        # Zabezpečíme, že sa vyplnia VŠETKY povinné polia rovnako ako pri bežnej registrácii
+        add("zakaznik_id", zakaznik_id)
+        add("nazov_firmy", nazov_firmy)
+        add("email", dummy_email)
+        add("telefon", "")
+        add("adresa", "")
+        add("adresa_dorucenia", "")
+        add("typ", "B2B")
+        add("je_schvaleny", 1)
+        add("je_admin", 0)
+        add("password_hash_hex", hash_hex)
+        add("password_salt_hex", salt_hex)
+        add("heslo_hash", hash_hex)
+        add("heslo_salt", salt_hex)
         
-        db_connector.execute_query(sql, tuple(insert_vals), fetch='none')
+        placeholders = ', '.join(['%s'] * len(cols))
+        sql = f"INSERT INTO b2b_zakaznici ({', '.join(cols)}) VALUES ({placeholders})"
         
-        # Overenie, či sa to DO DATABÁZY skutočne zapísalo
+        db_connector.execute_query(sql, tuple(vals), fetch='none')
+        
         verify = db_connector.execute_query("SELECT id FROM b2b_zakaznici WHERE zakaznik_id=%s", (zakaznik_id,), fetch="one")
         if not verify:
-            return jsonify({"error": "Databáza odmietla záznam uložiť (pravdepodobne chýba nejaké iné povinné pole). Skontrolujte logy."}), 500
+            return jsonify({"error": "Chyba databázy: Záznam sa nepodarilo uložiť kvôli nezodpovedajúcej štruktúre."}), 500
 
         return jsonify({"message": f"Centrála '{nazov_firmy}' bola úspešne vytvorená."})
     except Exception as e:
