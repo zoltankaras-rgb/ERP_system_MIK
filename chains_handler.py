@@ -148,12 +148,9 @@ def import_coop_stores(parent_id):
         conn = db_connector.get_connection()
         cur = conn.cursor(dictionary=True)
         
+        # Zistíme si všetky stĺpce
         cur.execute("SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'b2b_zakaznici'")
         db_cols = {r.get('COLUMN_NAME', r.get('column_name', '')).lower() for r in cur.fetchall()}
-        
-        has_poznamka = 'poznamka' in db_cols
-        hash_col = 'password_hash_hex' if 'password_hash_hex' in db_cols else 'heslo_hash'
-        salt_col = 'password_salt_hex' if 'password_salt_hex' in db_cols else 'heslo_salt'
         
         processed, updated = 0, 0
 
@@ -179,16 +176,17 @@ def import_coop_stores(parent_id):
             nazov_firmy = f"{retazec} - {mesto}"[:255]
             adresa_dorucenia = f"{adresa_ulica}, {psc} {mesto}"[:255]
             
+            # Bezpečné generovanie hesla a dočasného ID
             import secrets, hashlib, os
             salt = os.urandom(16)
             key = hashlib.pbkdf2_hmac("sha256", secrets.token_hex(16).encode("utf-8"), salt, 250000)
             salt_hex, hash_hex = salt.hex(), key.hex()
             
-            # Generovanie formátu PENDING-XXXXXXXX pre povinné pole zakaznik_id
             temp_zakaznik_id = f"PENDING-{secrets.token_hex(4).upper()}"
 
-            insert_fields = ['parent_id', 'typ', 'nazov_firmy', 'adresa_dorucenia', 'telefon', 'email', 'edi_kod', 'cislo_prevadzky', hash_col, salt_col, 'je_schvaleny', 'zakaznik_id']
-            insert_vals = [parent_id, 'B2B', nazov_firmy, adresa_dorucenia, mobil, email, gln, cislo_pj, hash_hex, salt_hex, 1, temp_zakaznik_id]
+            # Základné polia
+            insert_fields = ['parent_id', 'typ', 'nazov_firmy', 'adresa_dorucenia', 'telefon', 'email', 'edi_kod', 'cislo_prevadzky', 'je_schvaleny', 'zakaznik_id']
+            insert_vals = [parent_id, 'B2B', nazov_firmy, adresa_dorucenia, mobil, email, gln, cislo_pj, 1, temp_zakaznik_id]
             
             update_fields = [
                 'nazov_firmy=VALUES(nazov_firmy)', 
@@ -198,11 +196,27 @@ def import_coop_stores(parent_id):
                 'cislo_prevadzky=VALUES(cislo_prevadzky)'
             ]
 
-            if has_poznamka:
+            # Dynamické plnenie ďalších povolených polí v DB
+            if 'poznamka' in db_cols:
                 insert_fields.append('poznamka')
                 insert_vals.append(f"Vedúca: {veduca}"[:500])
                 update_fields.append('poznamka=VALUES(poznamka)')
 
+            # Naplníme všetky varianty hesiel, aké si vaša DB pýta
+            if 'password_hash_hex' in db_cols:
+                insert_fields.append('password_hash_hex')
+                insert_vals.append(hash_hex)
+            if 'password_salt_hex' in db_cols:
+                insert_fields.append('password_salt_hex')
+                insert_vals.append(salt_hex)
+            if 'heslo_hash' in db_cols:
+                insert_fields.append('heslo_hash')
+                insert_vals.append(hash_hex)
+            if 'heslo_salt' in db_cols:
+                insert_fields.append('heslo_salt')
+                insert_vals.append(salt_hex)
+
+            # Zloženie finálneho SQL dopytu
             placeholders = ', '.join(['%s'] * len(insert_fields))
             sql = f"""
                 INSERT INTO b2b_zakaznici ({', '.join(insert_fields)}) 
