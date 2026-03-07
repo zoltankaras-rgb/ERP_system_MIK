@@ -112,9 +112,19 @@ def update_branch(branch_id):
     try:
         db_connector.execute_query(
             """UPDATE b2b_zakaznici 
-               SET zakaznik_id=%s, edi_kod=%s, telefon=%s, email=%s 
+               SET zakaznik_id=%s, edi_kod=%s, telefon=%s, email=%s,
+                   cislo_prevadzky=%s, nazov_firmy=%s, adresa_dorucenia=%s
                WHERE id=%s""",
-            (data.get('zakaznik_id'), data.get('edi_kod'), data.get('telefon'), data.get('email'), branch_id),
+            (
+                data.get('zakaznik_id'), 
+                data.get('edi_kod'), 
+                data.get('telefon'), 
+                data.get('email'),
+                data.get('cislo_prevadzky'),
+                data.get('nazov_firmy'),
+                data.get('adresa_dorucenia'),
+                branch_id
+            ),
             fetch='none'
         )
         return jsonify({"message": "Pobočka bola úspešne aktualizovaná."})

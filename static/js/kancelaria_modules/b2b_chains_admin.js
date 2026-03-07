@@ -71,10 +71,12 @@ const B2BChainsAdmin = {
                     </thead>
                     <tbody>
                         <tr v-for="b in branches" :key="b.id">
-                            <td>{{ b.cislo_prevadzky }}</td>
                             <td>
-                                <strong>{{ b.nazov_firmy }}</strong><br>
-                                <small>{{ b.adresa_dorucenia }}</small>
+                                <input type="text" v-model="b.cislo_prevadzky" class="form-control form-control-sm" style="width: 80px;" title="Číslo PJ">
+                            </td>
+                            <td>
+                                <input type="text" v-model="b.nazov_firmy" class="form-control form-control-sm mb-1" placeholder="Názov pobočky">
+                                <input type="text" v-model="b.adresa_dorucenia" class="form-control form-control-sm" placeholder="Ulica, PSČ Mesto">
                             </td>
                             <td><input type="text" v-model="b.edi_kod" class="form-control form-control-sm"></td>
                             <td><input type="text" v-model="b.zakaznik_id" class="form-control form-control-sm" placeholder="Zadajte ID..."></td>
@@ -82,8 +84,10 @@ const B2BChainsAdmin = {
                                 <input type="text" v-model="b.telefon" class="form-control form-control-sm mb-1" placeholder="Mobil">
                                 <input type="text" v-model="b.email" class="form-control form-control-sm" placeholder="Email">
                             </td>
-                            <td>
-                                <button @click="saveBranch(b)" class="btn btn-success btn-sm">Uložiť</button>
+                            <td class="text-center align-middle">
+                                <button @click="saveBranch($event, b)" class="btn btn-success btn-sm" style="min-width: 85px;">
+                                    <i class="fas fa-save"></i> Uložiť
+                                </button>
                             </td>
                         </tr>
                     </tbody>
@@ -244,7 +248,7 @@ const B2BChainsAdmin = {
                     alert(data.message);
                     this.newChain = { nazov_firmy: '', zakaznik_id: '' };
                     this.showCreateChain = false;
-                    this.loadChains(); // Znovunačítanie roletky
+                    this.loadChains();
                 }
             } catch (e) {
                 alert("Chyba pri vytváraní centrály.");
@@ -267,7 +271,7 @@ const B2BChainsAdmin = {
                 alert("Chyba načítania pobočiek.");
             }
         },
-        async saveBranch(branch) {
+        async saveBranch(event, branch) {
             try {
                 const res = await fetch(`/api/chains/branch/${branch.id}`, {
                     method: 'POST',
@@ -276,12 +280,26 @@ const B2BChainsAdmin = {
                         zakaznik_id: branch.zakaznik_id,
                         edi_kod: branch.edi_kod,
                         telefon: branch.telefon,
-                        email: branch.email
+                        email: branch.email,
+                        cislo_prevadzky: branch.cislo_prevadzky,
+                        nazov_firmy: branch.nazov_firmy,
+                        adresa_dorucenia: branch.adresa_dorucenia
                     })
                 });
                 const result = await res.json();
-                if (result.error) alert(result.error);
-                else alert("Údaje pobočky uložené.");
+                if (result.error) {
+                    alert(result.error);
+                } else {
+                    // Vizuálne potvrdenie na tlačidle
+                    const btn = event.currentTarget;
+                    const originalHtml = btn.innerHTML;
+                    btn.innerHTML = '<i class="fas fa-check"></i> OK';
+                    btn.classList.replace('btn-success', 'btn-outline-success');
+                    setTimeout(() => {
+                        btn.innerHTML = originalHtml;
+                        btn.classList.replace('btn-outline-success', 'btn-success');
+                    }, 1500);
+                }
             } catch (e) {
                 alert("Chyba pri ukladaní.");
             }
