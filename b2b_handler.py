@@ -640,16 +640,21 @@ def reject_b2b_registration(data: dict):
 def get_customers_and_pricelists():
     import db_connector
     
-    # 1. Zákazníci - VRÁTENÁ STRIKTNÁ PODMIENKA: WHERE typ='B2B'
+    # 1. Zákazníci - Pridané cislo_prevadzky pre Logistiku
     customers = db_connector.execute_query(
         """
         SELECT id, parent_id, zakaznik_id, nazov_firmy, email, telefon, 
-               adresa, adresa_dorucenia, je_schvaleny, trasa_id, trasa_poradie
+               adresa, adresa_dorucenia, je_schvaleny, trasa_id, trasa_poradie, cislo_prevadzky
         FROM b2b_zakaznici 
         WHERE typ='B2B'
         ORDER BY nazov_firmy
         """
     ) or []
+
+    # Zlúčenie do jedného reťazca pre zobrazenie v Logistike
+    for c in customers:
+        if c.get("cislo_prevadzky") and c.get("nazov_firmy") and not c["nazov_firmy"].startswith(c["cislo_prevadzky"]):
+            c["nazov_firmy"] = f"[{c['cislo_prevadzky']}] {c['nazov_firmy']}"
     
     # 2. Cenníky
     pricelists = db_connector.execute_query("SELECT id, nazov_cennika FROM b2b_cenniky ORDER BY nazov_cennika") or []
@@ -668,7 +673,6 @@ def get_customers_and_pricelists():
         by_customer.setdefault(str(m['zakaznik_id']), []).append(m['cennik_id'])
         
     return {"customers": customers, "pricelists": pricelists, "routes": routes, "mapping": by_customer}
-
 
 def update_customer_details(data: dict):
     cid = data.get("id")
@@ -2275,7 +2279,7 @@ def assign_vehicle_to_route_and_fleet(data: dict):
     finally:
         if conn and conn.is_connected():
             conn.close()
-            # =================================================================
+ # =================================================================
 # ADRESÁR PREVÁDZOK PRE MANUÁLNE TRASY
 # =================================================================
 
@@ -2293,13 +2297,19 @@ def _ensure_stores_table():
 def get_stores():
     _ensure_stores_table()
     rows = db_connector.execute_query("""
-        SELECT s.id, s.name, s.note, s.b2b_customer_id, c.nazov_firmy as b2b_name, c.zakaznik_id as b2b_erp_id
+        SELECT s.id, s.name, s.note, s.b2b_customer_id, 
+               c.nazov_firmy as b2b_name, c.zakaznik_id as b2b_erp_id, c.cislo_prevadzky
         FROM b2b_stores s
         LEFT JOIN b2b_zakaznici c ON s.b2b_customer_id = c.id
         ORDER BY s.name
     """, fetch='all') or []
-    return {"stores": rows}
 
+    # Ošetrenie prepojených b2b záznamov v manuálnom adresári zastávok
+    for r in rows:
+        if r.get("cislo_prevadzky") and r.get("b2b_name") and not r["b2b_name"].startswith(r["cislo_prevadzky"]):
+            r["b2b_name"] = f"[{r['cislo_prevadzky']}] {r['b2b_name']}"
+            
+    return {"stores": rows}
 def save_store(data: dict):
     _ensure_stores_table()
     sid = data.get('id')
