@@ -1943,14 +1943,64 @@ window.showManualRouteEditor = async function(id) {
       } catch(e) { showStatus("Chyba: " + e.message, true); }
   };
 
-  window.printChecklist = function(routeObj, dateStr) {
+ window.printChecklist = function(routeObj, dateStr) {
       const dateFormatted = dateStr.split('-').reverse().join('.');
-      let html = `<html><head><title>Nakládkový list - ${routeObj.nazov}</title><style>body { font-family: Arial; padding: 20px; font-size: 14px; } h1, h3 { text-align: center; } table { width: 100%; border-collapse: collapse; margin-top: 20px; } th, td { border: 1px solid #000; padding: 8px; text-align: left; } th { background-color: #f1f5f9; } .box { display: inline-block; width: 20px; height: 20px; border: 2px solid #000; } @media print { body { margin: 0; } }</style></head><body><h1>Nakládkový list / Itinerár</h1><h3>TRASA: ${escapeHtml(routeObj.nazov)} | DÁTUM: ${dateFormatted} | ŠOFÉR: __________________</h3><table><thead><tr><th>Por.</th><th>Odberateľ a Adresa</th><th>Objednávky</th><th style="text-align:center;">Pripravil</th><th style="text-align:center;">Naložil</th></tr></thead><tbody>`;
+      let html = `<html><head><title>Nakládkový list - ${routeObj.nazov}</title><style>
+          body { font-family: Arial, sans-serif; padding: 20px; font-size: 14px; } 
+          h1, h3 { text-align: center; margin-bottom: 5px; margin-top: 0; } 
+          .info-box { background: #eff6ff; border: 1px solid #bfdbfe; padding: 10px 15px; margin-bottom: 15px; font-size: 13px; border-radius: 4px; line-height: 1.4; }
+          table { width: 100%; border-collapse: collapse; margin-top: 10px; } 
+          th, td { border: 1px solid #000; padding: 8px; text-align: left; vertical-align: top; } 
+          th { background-color: #f1f5f9; } 
+          .box { display: inline-block; width: 20px; height: 20px; border: 2px solid #000; } 
+          .center { text-align: center; }
+          @media print { body { margin: 0; padding: 10mm; } .info-box { background: #fff !important; border: 1px dashed #000; } }
+          </style></head><body>
+          <h1>Nakládkový list / Itinerár</h1>
+          <h3>TRASA: ${escapeHtml(routeObj.nazov)} | DÁTUM: ${dateFormatted} | ŠOFÉR: __________________</h3>
+          
+          <div class="info-box">
+              <strong>💡 UPOZORNENIE PRE EXPEDÍCIU A ROZVOZ:</strong><br>
+              • Do stĺpca <b>"Počet E2"</b> dôsledne zaznačte množstvo dodaných prepraviek pre každého odberateľa.<br>
+              • Ak v objednávke niečo chýba, do stĺpca <b>"Poznámky"</b> presne špecifikujte <b>čo chýba a v akom množstve</b> (napr.: <i>"Chýba 2kg Hovädzie zadné"</i> alebo <i>"Nedodané 3ks klobásy"</i>).
+          </div>
+
+          <table>
+              <thead>
+                  <tr>
+                      <th class="center" style="width: 40px;">Por.</th>
+                      <th style="width: 25%;">Odberateľ a Adresa</th>
+                      <th style="width: 15%;">Objednávky</th>
+                      <th class="center" style="width: 80px;">Počet E2</th>
+                      <th class="center" style="width: 70px;">Pripravil</th>
+                      <th class="center" style="width: 70px;">Naložil</th>
+                      <th style="width: 30%;">Poznámky (Chýbajúci tovar a iné)</th>
+                  </tr>
+              </thead>
+              <tbody>`;
+              
       routeObj.zastavky.forEach((z, idx) => {
-          html += `<tr><td style="text-align:center; font-size:16px;"><strong>${idx + 1}.</strong></td><td><strong>${escapeHtml(z.odberatel)}</strong><br><span style="font-size:12px;">${escapeHtml(z.adresa)}</span></td><td style="font-size:12px;"><strong>${z.pocet_objednavok} obj.</strong><br>${z.cisla_objednavok.join('<br>')}</td><td style="text-align:center;"><div class="box"></div></td><td style="text-align:center;"><div class="box"></div></td></tr>`;
+          html += `<tr>
+              <td class="center" style="font-size:16px;"><strong>${idx + 1}.</strong></td>
+              <td><strong>${escapeHtml(z.odberatel)}</strong><br><span style="font-size:12px; color: #555;">${escapeHtml(z.adresa)}</span></td>
+              <td style="font-size:12px;"><strong>${z.pocet_objednavok} obj.</strong><br>${z.cisla_objednavok.join('<br>')}</td>
+              <td class="center" style="color: #999;">____ ks</td>
+              <td class="center"><div class="box"></div></td>
+              <td class="center"><div class="box"></div></td>
+              <td></td>
+          </tr>`;
       });
-      html += `</tbody></table><div style="margin-top: 30px; display: flex; justify-content: space-between;"><div>Podpis pripravil: _______________________</div><div>Podpis šoféra: _______________________</div></div><script>window.onload=function(){window.print(); setTimeout(function(){window.close();},500);}</script></body></html>`;
-      const win = window.open('', '_blank'); win.document.write(html); win.document.close();
+      
+      html += `</tbody></table>
+      <div style="margin-top: 30px; display: flex; justify-content: space-between; font-weight: bold;">
+          <div>Podpis pripravil: _______________________</div>
+          <div>Podpis šoféra: _______________________</div>
+      </div>
+      <script>window.onload=function(){window.print(); setTimeout(function(){window.close();},500);}</script></body></html>`;
+      
+      const win = window.open('', '_blank'); 
+      win.document.write(html); 
+      win.document.close();
   };
 
   window.printSummary = function(routeObj, dateStr) {
