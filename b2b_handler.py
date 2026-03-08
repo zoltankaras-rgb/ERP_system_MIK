@@ -683,7 +683,6 @@ def update_customer_details(data: dict):
     trasa_id = fields.get('trasa_id')
     trasa_poradie = fields.get('trasa_poradie')
 
-    # Bezpečné spracovanie prázdnych hodnôt
     if str(trasa_id).strip() in ["", "null", "None"]:
         trasa_id = None
     else:
@@ -697,7 +696,6 @@ def update_customer_details(data: dict):
     conn = db_connector.get_connection()
     try:
         cur = conn.cursor()
-        # TVRDÝ ZÁPIS A COMMIT
         cur.execute("""
             UPDATE b2b_zakaznici 
             SET nazov_firmy=%s, email=%s, telefon=%s, adresa=%s, 
@@ -714,23 +712,39 @@ def update_customer_details(data: dict):
         if conn and conn.is_connected():
             conn.close()
 
-    # Cenníky necháme bežať cez pôvodný systém
+    # KASKÁDOVÉ ULOŽENIE CENNÍKA (RODIČ -> VŠETKY POBOČKY)
     pricelist_ids = fields.get("pricelist_ids") or []
     row = db_connector.execute_query("SELECT zakaznik_id FROM b2b_zakaznici WHERE id=%s", (cid,), fetch="one")
+    
     if row and row["zakaznik_id"]:
         login = row["zakaznik_id"]
-        db_connector.execute_query("DELETE FROM b2b_zakaznik_cennik WHERE zakaznik_id = %s", (login,), fetch="none")
-        if pricelist_ids:
-            conn2 = db_connector.get_connection()
-            cur2 = conn2.cursor()
-            try:
-                cur2.executemany("INSERT INTO b2b_zakaznik_cennik (zakaznik_id, cennik_id) VALUES (%s, %s)", [(login, int(pid)) for pid in pricelist_ids])
-                conn2.commit()
-            finally:
-                cur2.close()
-                conn2.close()
+        
+        # Zistíme všetky pobočky, ktoré patria tomuto zákazníkovi
+        children = db_connector.execute_query("SELECT zakaznik_id FROM b2b_zakaznici WHERE parent_id=%s", (cid,), fetch="all") or []
+        all_logins = [login] + [c["zakaznik_id"] for c in children if c.get("zakaznik_id")]
+        
+        conn2 = db_connector.get_connection()
+        cur2 = conn2.cursor()
+        try:
+            # 1. Vymažeme doterajšie mapovanie cenníkov pre rodiča aj všetky jeho pobočky
+            format_strings = ','.join(['%s'] * len(all_logins))
+            cur2.execute(f"DELETE FROM b2b_zakaznik_cennik WHERE zakaznik_id IN ({format_strings})", tuple(all_logins))
+            
+            # 2. Priradíme nový cenník hromadne všetkým prepojeným účtom
+            if pricelist_ids:
+                insert_data = []
+                for lgn in all_logins:
+                    for pid in pricelist_ids:
+                        insert_data.append((lgn, int(pid)))
+                
+                cur2.executemany("INSERT INTO b2b_zakaznik_cennik (zakaznik_id, cennik_id) VALUES (%s, %s)", insert_data)
+            
+            conn2.commit()
+        finally:
+            cur2.close()
+            conn2.close()
 
-    return {"message": "Zákazník bol úspešne aktualizovaný a trasa uložená."}
+    return {"message": "Zákazník bol aktualizovaný a cenník sa úspešne aplikoval aj na všetky jeho pobočky."}
 
 def update_customer_route_order(data: dict):
     cid = data.get("zakaznik_id")
