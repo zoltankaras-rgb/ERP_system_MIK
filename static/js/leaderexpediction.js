@@ -1917,32 +1917,78 @@ window.showManualRouteEditor = async function(id) {
       } catch(e) { showStatus("Chyba: " + e.message, true); }
   };
 
-  window.executePrintManualRoute = async function(id) {
-      const template = window.leaderLogisticsState.routeTemplates.find(t => t.id === id);
-      if (!template) return;
+ window.executePrintManualRoute = async function(id) {
+    const template = window.leaderLogisticsState.routeTemplates.find(t => t.id === id);
+    if (!template) return;
 
-      const activeStops = [];
-      document.querySelectorAll('.print-stop-cb:checked').forEach(cb => {
-          const idx = parseInt(cb.value);
-          if (template.stops[idx]) activeStops.push(template.stops[idx]);
-      });
+    const activeStops = [];
+    document.querySelectorAll('.print-stop-cb:checked').forEach(cb => {
+        const idx = parseInt(cb.value);
+        if (template.stops[idx]) activeStops.push(template.stops[idx]);
+    });
 
-      if (activeStops.length === 0) return showStatus("Musíte nechať zaškrtnutú aspoň jednu prevádzku na tlač.", true);
+    if (activeStops.length === 0) return showStatus("Musíte nechať zaškrtnutú aspoň jednu prevádzku na tlač.", true);
 
-      try {
-          const res = await fetch('/api/kancelaria/b2b/printManualRoute', {
-              method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ name: template.name, stops: activeStops })
-          });
-          if (!res.ok) throw new Error("Backend nevrátil správnu odpoveď.");
-          const htmlStr = await res.text();
-          const printWindow = window.open('', '_blank', 'width=900,height=800');
-          printWindow.document.write(htmlStr);
-          printWindow.document.close();
-          window.closeLeaderModal();
-      } catch(e) { showStatus("Chyba: " + e.message, true); }
-  };
+    // Vytvoríme HTML priamo tu vo frontende, aby sme nemuseli ťahať starý vzhľad zo servera
+    const dateInput = document.getElementById('manual-route-date');
+    const dateFormatted = dateInput && dateInput.value ? dateInput.value.split('-').reverse().join('.') : new Date().toLocaleDateString('sk-SK');
+    
+    let htmlStr = `<html><head><title>Nakládkový list - ${escapeHtml(template.name)}</title><style>
+        body { font-family: Arial, sans-serif; padding: 20px; font-size: 14px; } 
+        h1, h3 { text-align: center; margin-bottom: 5px; margin-top: 0; } 
+        .info-box { background: #eff6ff; border: 1px solid #bfdbfe; padding: 10px 15px; margin-bottom: 15px; font-size: 13px; border-radius: 4px; line-height: 1.4; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; } 
+        th, td { border: 1px solid #000; padding: 8px; text-align: left; vertical-align: top; } 
+        th { background-color: #f1f5f9; } 
+        .box { display: inline-block; width: 20px; height: 20px; border: 2px solid #000; } 
+        .center { text-align: center; }
+        @media print { body { margin: 0; padding: 10mm; } .info-box { background: #fff !important; border: 1px dashed #000; } }
+        </style></head><body>
+        <h1>Nakládkový list / Itinerár (Manuálna trasa)</h1>
+        <h3>TRASA: ${escapeHtml(template.name)} | DÁTUM: ${dateFormatted} | ŠOFÉR: __________________</h3>
+        
+        <div class="info-box">
+            <strong>💡 UPOZORNENIE PRE EXPEDÍCIU A ROZVOZ:</strong><br>
+            • Do stĺpca <b>"Počet E2"</b> dôsledne zaznačte množstvo dodaných prepraviek pre každého odberateľa.<br>
+            • Ak v objednávke niečo chýba, do stĺpca <b>"Poznámky"</b> presne špecifikujte <b>čo chýba a v akom množstve</b> (napr.: <i>"Chýba 2kg Hovädzie zadné"</i> alebo <i>"Nedodané 3ks klobásy"</i>).
+        </div>
 
+        <table>
+            <thead>
+                <tr>
+                    <th class="center" style="width: 40px;">Por.</th>
+                    <th style="width: 25%;">Odberateľ a Adresa</th>
+                    <th class="center" style="width: 80px;">Počet E2</th>
+                    <th class="center" style="width: 70px;">Pripravil</th>
+                    <th class="center" style="width: 70px;">Naložil</th>
+                    <th style="width: 40%;">Poznámky (Chýbajúci tovar a iné)</th>
+                </tr>
+            </thead>
+            <tbody>`;
+            
+    activeStops.forEach((z, idx) => {
+        htmlStr += `<tr>
+            <td class="center" style="font-size:16px;"><strong>${idx + 1}.</strong></td>
+            <td><strong>${escapeHtml(z.name)}</strong><br><span style="font-size:12px; color: #555;">${escapeHtml(z.note || '')}</span></td>
+            <td class="center" style="color: #999;">____ ks</td>
+            <td class="center"><div class="box"></div></td>
+            <td class="center"><div class="box"></div></td>
+            <td></td>
+        </tr>`;
+    });
+    
+    htmlStr += `</tbody></table>
+    <div style="margin-top: 30px; display: flex; justify-content: space-between; font-weight: bold;">
+        <div>Podpis pripravil: _______________________</div>
+        <div>Podpis šoféra: _______________________</div>
+    </div>
+    <script>window.onload=function(){window.print(); setTimeout(function(){window.close();},500);}</script></body></html>`;
+
+    const printWindow = window.open('', '_blank', 'width=900,height=800');
+    printWindow.document.write(htmlStr);
+    printWindow.document.close();
+    window.closeLeaderModal();
+};
  window.printChecklist = function(routeObj, dateStr) {
       const dateFormatted = dateStr.split('-').reverse().join('.');
       let html = `<html><head><title>Nakládkový list - ${routeObj.nazov}</title><style>
