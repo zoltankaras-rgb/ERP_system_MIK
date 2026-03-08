@@ -364,7 +364,7 @@
     tr.querySelector('.nb2b-ean').addEventListener('change', ()=>{ const e = safeStr(tr.querySelector('.nb2b-ean').value); if (e && __pricelistMapByEAN && __pricelistMapByEAN[e]!=null) tr.querySelector('.nb2b-price').value = fmt2(__pricelistMapByEAN[e]); });
   }
 
-  // ================= AMBULANTNÝ PREDAJ - FUNKCIE (NOVÉ) =================
+  // ================= AMBULANTNÝ PREDAJ - FUNKCIE =================
 
   function addProductRow(product) {
       const tb = $('#nb2b-items tbody');
@@ -508,7 +508,7 @@
       const res = await apiRequest('/api/leader/b2b/orders', { method:'POST', body });
       if (!res?.order_id){ showStatus('Server nevrátil ID.', true); return; }
 
-      // 3. Notifikácia (CSV na sklad) - VOLÁME VŽDY
+      // 3. Notifikácia (CSV na sklad)
       await apiRequest(`/api/leader/b2b/notify_order`, { method:'POST', body:{ order_id: res.order_id } }).catch(()=>{});
       
       showStatus('Objednávka uložená a CSV odoslané.', false); 
@@ -538,21 +538,18 @@
 
   // ============================== KRÁJAČKY (CUT JOBS) ======================
    
-  // 1. ZRUŠENIE ÚLOHY (Globálne dostupná funkcia)
   async function cancelCutJob(id) {
     if (!confirm("Naozaj chcete zrušiť túto úlohu? Surovina sa vráti na sklad.")) return;
     try {
         await apiRequest('/api/leader/cut_jobs/cancel', { method: 'POST', body: { id: id } });
         showStatus("Úloha bola zrušená.", false);
-        loadCutJobs(); // Obnoviť tabuľku
+        loadCutJobs();
     } catch (e) {
         showStatus(e.message || String(e), true);
     }
   }
-  // Export funkcie, aby bola dostupná pre onclick v HTML
   root.cancelCutJob = cancelCutJob;
 
-  // 2. NAČÍTANIE ZOZNAMU ÚLOH
   async function loadCutJobs(){
     const d = $('#cut-date').value || todayISO();
     const tb = $('#tbl-cut tbody'); 
@@ -589,7 +586,6 @@
     }
   }
 
-  // 3. NOVÁ ÚLOHA (MODAL)
   async function openNewCutModal() {
     let products = [];
     try {
@@ -612,7 +608,6 @@
         .form-control:focus { outline: none; border-color: #2563eb; ring: 2px solid #2563eb; }
         .row { display: flex; gap: 12px; }
         .col { flex: 1; }
-        /* Autocomplete zoznam */
         #customer-suggestions {
             position: absolute; background: white; border: 1px solid #ddd; 
             width: 100%; max-height: 200px; overflow-y: auto; z-index: 100;
@@ -665,7 +660,6 @@
         const customerInput = body.querySelector('#cut-customer');
         const suggestionsBox = body.querySelector('#customer-suggestions');
         
-        // --- Logika pre Select ---
         let selectedEan = '';
         let selectedName = '';
         
@@ -674,7 +668,6 @@
             selectedName = select.options[select.selectedIndex].text;
         });
 
-        // --- Logika pre Autocomplete Zákazníka ---
         let debounceTimer;
         customerInput.addEventListener('input', (e) => {
             clearTimeout(debounceTimer);
@@ -692,7 +685,6 @@
                         ).join('');
                         suggestionsBox.style.display = 'block';
                         
-                        // Click handler na itemy
                         body.querySelectorAll('.suggestion-item').forEach(item => {
                             item.onclick = () => {
                                 customerInput.value = item.getAttribute('data-val');
@@ -706,12 +698,10 @@
             }, 300);
         });
 
-        // Skryť našepkávač pri kliknutí mimo
         document.addEventListener('click', (e) => {
             if (e.target !== customerInput) suggestionsBox.style.display = 'none';
         });
 
-        // --- Uloženie ---
         body.querySelector('#cut-save').onclick = async () => {
             const payload = {
                 ean: selectedEan,
@@ -729,7 +719,7 @@
                 await apiRequest('/api/leader/cut_jobs', { method:'POST', body: payload });
                 showStatus('Úloha odoslaná do Expedície.', false);
                 closeModal();
-                loadCutJobs(); // Obnovíme zoznam
+                loadCutJobs();
             } catch (e) {
                 showStatus(e.message, true);
             }
@@ -741,10 +731,9 @@
   var __mol_inited = false;
   const MOL_HISTORY_KEY = 'mol_history_v1';
 
-  // Layout pre A4 (tlač): 2 stĺpce x N riadkov na stranu
-  const MOL_ROW_GAP = '5mm';    // medzera medzi riadkami (na strihanie)
-  const MOL_COL_GAP = '6mm';    // medzera medzi ľavým/pravým štítkom
-  const MOL_SAFE_PAGE_H = '275mm'; // približná využiteľná výška po okrajoch (nech máme rezervu proti orezaniu)
+  const MOL_ROW_GAP = '5mm';    
+  const MOL_COL_GAP = '6mm';    
+  const MOL_SAFE_PAGE_H = '275mm'; 
 
   function mol_titleForType(type){
     const t = String(type||'').toLowerCase();
@@ -948,14 +937,12 @@
       .mol-page { page-break-after: always; }
       .mol-page:last-child { page-break-after: auto; }
 
-      /* rovnomerné rozloženie na A4 + medzery na strihanie */
       .mol-entry {
         display: grid;
         grid-template-columns: 1fr 1fr;
         column-gap: var(--mol-col-gap, 6mm);
         margin-bottom: var(--mol-row-gap, 5mm);
 
-        /* výška jedného "riadku štítkov" aby sa pekne vyplnila strana */
         height: calc((var(--mol-page-h, 275mm) - (var(--mol-rows, 6) - 1) * var(--mol-row-gap, 5mm)) / var(--mol-rows, 6));
       }
       .mol-page .mol-entry:last-child { margin-bottom: 0; }
@@ -1016,7 +1003,6 @@
     }
   }
 
-  // ------------------ HISTÓRIA (localStorage) ------------------
   function mol_hist_load(){
     try{
       const raw = localStorage.getItem(MOL_HISTORY_KEY);
@@ -1605,6 +1591,65 @@
       } catch(e) { showStatus("Chyba: " + e.message, true); }
   };
 
+  // Pomocné funkcie pre Editor (Vyhľadávanie a pridávanie)
+  window.filterAvailableStores = function(query) {
+      const q = (query || '').toLowerCase();
+      const items = document.querySelectorAll('.tpl-store-item');
+      items.forEach(item => {
+          const text = item.getAttribute('data-search');
+          if (text.includes(q)) {
+              item.style.display = 'flex';
+          } else {
+              item.style.display = 'none';
+          }
+      });
+  };
+
+  window.renderStopRow = function(name, note, storeId) {
+      const container = document.getElementById('tpl-stops-container');
+      const row = document.createElement('div');
+      row.className = 'tpl-stop-row';
+      row.dataset.storeId = storeId || '';
+      row.dataset.name = name || '';
+      row.style.cssText = "display:flex; align-items:center; gap:10px; background:#fff; padding:10px; border:1px solid #cbd5e1; border-radius:6px; margin-bottom:5px;";
+
+      row.innerHTML = `
+          <div style="display:flex; flex-direction:column; gap:2px;">
+              <button type="button" class="btn btn-sm btn-light" style="padding: 2px 6px;" onclick="if(this.closest('.tpl-stop-row').previousElementSibling) this.closest('.tpl-stop-row').parentNode.insertBefore(this.closest('.tpl-stop-row'), this.closest('.tpl-stop-row').previousElementSibling)" title="Hore">⬆️</button>
+              <button type="button" class="btn btn-sm btn-light" style="padding: 2px 6px;" onclick="if(this.closest('.tpl-stop-row').nextElementSibling) this.closest('.tpl-stop-row').parentNode.insertBefore(this.closest('.tpl-stop-row').nextElementSibling, this.closest('.tpl-stop-row'))" title="Dole">⬇️</button>
+          </div>
+          <div style="flex:1;">
+              <div style="font-weight:bold; color:#1e293b; font-size:1.05rem;">${escapeHtml(name)}</div>
+              <input type="text" class="form-control stop-note-input" value="${escapeHtml(note || '')}" placeholder="Poznámka alebo adresa pre šoféra" style="width:100%; border:1px solid #cbd5e1; border-radius:4px; padding:6px; font-size:0.85rem; margin-top:4px; background:#f8fafc;">
+          </div>
+          <button type="button" class="btn btn-danger btn-sm" onclick="this.closest('.tpl-stop-row').remove()" title="Odstrániť zo šablóny">✖</button>
+      `;
+      container.appendChild(row);
+      container.scrollTop = container.scrollHeight;
+  };
+
+  window.addStoreFromPanel = function(btn) {
+      window.renderStopRow(btn.dataset.name, btn.dataset.note, btn.dataset.id);
+      
+      const origText = btn.innerHTML;
+      btn.innerHTML = '✔️ Pridané';
+      btn.style.backgroundColor = '#dcfce7';
+      btn.style.borderColor = '#22c55e';
+      setTimeout(() => {
+          btn.innerHTML = origText;
+          btn.style.backgroundColor = '';
+          btn.style.borderColor = '';
+      }, 700);
+  };
+
+  window.addCustomStorePanel = function() {
+      const input = document.getElementById('tpl-custom-stop');
+      const val = input.value.trim();
+      if (!val) return;
+      window.renderStopRow(val, '', '');
+      input.value = '';
+  };
+
   window.manageManualRoutes = async function() {
       window.openLeaderModal('<div style="padding:30px; text-align:center;">Načítavam šablóny...</div>');
       try {
@@ -1653,7 +1698,7 @@
           if (found) template = found;
       }
 
-      window.openLeaderModal('<div style="padding:30px; text-align:center;">Načítavam dáta...</div>');
+      window.openLeaderModal('<div style="padding:30px; text-align:center;"><i class="fas fa-spinner fa-spin fa-2x"></i><br>Načítavam zoznam zákazníkov a adresár pre trasy...</div>');
 
       try {
           const sData = await apiRequest('/api/leader/b2b/getStores');
@@ -1665,83 +1710,87 @@
           window.leaderLogisticsState.customers = cData.customers || [];
       } catch(e) { window.leaderLogisticsState.customers = []; }
 
-      let storeOptions = `<option value="">-- Vyberte prevádzku alebo B2B zákazníka --</option>`;
+      let availableStoresHtml = '';
       
-      storeOptions += `<optgroup label="🏢 B2B Zákazníci zo systému">`;
       if (window.leaderLogisticsState.customers && window.leaderLogisticsState.customers.length > 0) {
           window.leaderLogisticsState.customers.forEach(c => {
               const addr = c.adresa_dorucenia || c.adresa || '';
-              storeOptions += `<option value="b2b_${c.id}" data-name="${escapeHtml(c.nazov_firmy)}" data-note="${escapeHtml(addr)}">${escapeHtml(c.nazov_firmy)}</option>`;
+              const searchStr = (c.nazov_firmy + ' ' + addr + ' ' + (c.zakaznik_id || '')).toLowerCase();
+              availableStoresHtml += `
+                  <div class="tpl-store-item" data-search="${escapeHtml(searchStr)}" style="display:flex; justify-content:space-between; align-items:center; padding:10px; border-bottom:1px solid #e2e8f0; background:#fff; margin-bottom:2px; border-radius:4px;">
+                      <div>
+                          <strong style="color:#1e3a8a; font-size:0.95rem;">${escapeHtml(c.nazov_firmy)}</strong> 
+                          <span style="font-size:0.7rem; background:#bfdbfe; color:#1e3a8a; padding:2px 5px; border-radius:4px; margin-left:5px;">B2B</span><br>
+                          <small style="color:#64748b;">${escapeHtml(addr)}</small>
+                      </div>
+                      <button class="btn btn-sm btn-outline-success" style="font-weight:bold; min-width:85px; border:1px solid #22c55e; background:transparent; color:#166534;" data-id="b2b_${c.id}" data-name="${escapeHtml(c.nazov_firmy)}" data-note="${escapeHtml(addr)}" onclick="window.addStoreFromPanel(this)">+ Pridať</button>
+                  </div>
+              `;
           });
       }
-      storeOptions += `</optgroup>`;
 
-      storeOptions += `<optgroup label="📝 Manuálne prevádzky z Adresára">`;
       if (window.leaderLogisticsState.stores && window.leaderLogisticsState.stores.length > 0) {
           window.leaderLogisticsState.stores.forEach(s => {
-              storeOptions += `<option value="man_${s.id}" data-name="${escapeHtml(s.name)}" data-note="${escapeHtml(s.note || '')}">${escapeHtml(s.name)} ${s.note ? ' ('+escapeHtml(s.note)+')' : ''}</option>`;
+              const searchStr = (s.name + ' ' + (s.note || '')).toLowerCase();
+              availableStoresHtml += `
+                  <div class="tpl-store-item" data-search="${escapeHtml(searchStr)}" style="display:flex; justify-content:space-between; align-items:center; padding:10px; border-bottom:1px solid #e2e8f0; background:#f8fafc; margin-bottom:2px; border-radius:4px;">
+                      <div>
+                          <strong style="color:#0f172a; font-size:0.95rem;">${escapeHtml(s.name)}</strong> 
+                          <span style="font-size:0.7rem; background:#e2e8f0; color:#334155; padding:2px 5px; border-radius:4px; margin-left:5px;">Manuálna</span><br>
+                          <small style="color:#64748b;">${escapeHtml(s.note || 'Bez adresy')}</small>
+                      </div>
+                      <button class="btn btn-sm btn-outline-success" style="font-weight:bold; min-width:85px; border:1px solid #22c55e; background:transparent; color:#166534;" data-id="man_${s.id}" data-name="${escapeHtml(s.name)}" data-note="${escapeHtml(s.note || '')}" onclick="window.addStoreFromPanel(this)">+ Pridať</button>
+                  </div>
+              `;
           });
       }
-      storeOptions += `</optgroup>`;
 
       let html = `
-          <h3 style="margin-top:0; color:#1e3a8a;">${id ? '✏️ Úprava šablóny' : '➕ Vytvorenie novej šablóny'}</h3>
-          <div style="margin-bottom:15px;">
-              <label style="font-weight:bold;">Názov šablóny</label>
-              <input type="text" id="tpl-name" class="form-control" style="width:100%; border:2px solid #3b82f6;" value="${escapeHtml(template.name)}">
+          <style>
+              #leader-modal-wrapper .b2b-modal-content { max-width: 1400px !important; width: 95% !important; height: 90vh !important; display: flex !important; flex-direction: column !important; }
+          </style>
+          
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px; flex-shrink: 0;">
+              <h3 style="margin:0; color:#1e3a8a;">${id ? '✏️ Úprava rozvozovej trasy' : '➕ Vytvorenie novej rozvozovej trasy'}</h3>
           </div>
           
-          <div style="background:#f0fdf4; border:1px solid #bbf7d0; padding:15px; border-radius:6px; margin-bottom:15px;">
-              <label style="font-weight:bold; display:block; margin-bottom:5px;">Vložiť zákazníka / prevádzku do zoznamu:</label>
-              <div style="display:flex; gap:10px;">
-                  <select id="tpl-add-store-select" class="form-control" style="flex:1;">${storeOptions}</select>
-                  <button class="btn btn-primary" onclick="window.addStoreToTemplate()">Vložiť ⬇️</button>
+          <div style="display:flex; gap:20px; align-items:flex-start; flex: 1; min-height: 0;">
+              
+              <div style="flex: 1; background:#f1f5f9; padding:20px; border-radius:8px; border:1px solid #cbd5e1; display:flex; flex-direction:column; height: 100%;">
+                  <div class="form-group" style="margin-bottom:15px; flex-shrink: 0;">
+                      <label style="font-weight:bold; color:#0f172a; font-size:1.1rem; margin-bottom:5px; display:block;">Názov rozvozovej trasy</label>
+                      <input type="text" id="tpl-name" class="form-control" style="width:100%; font-size:1.2rem; font-weight:bold; border:2px solid #3b82f6; border-radius:6px; padding:10px;" value="${escapeHtml(template.name)}" placeholder="Zadajte názov trasy...">
+                  </div>
+                  
+                  <h4 style="color:#334155; margin-bottom:10px; font-size:1rem; border-bottom:1px solid #cbd5e1; padding-bottom:5px; flex-shrink: 0;">Zoznam zastávok (Vľavo/Vpravo presúva poradie):</h4>
+                  <div id="tpl-stops-container" style="flex:1; overflow-y:auto; border:1px solid #94a3b8; border-radius:6px; padding:10px; background:#e2e8f0; display:flex; flex-direction:column; gap:5px;">
+                  </div>
+                  
+                  <div style="margin-top:15px; display:flex; gap:10px; flex-shrink: 0;">
+                      <button class="btn btn-secondary" style="padding:12px; min-width:120px;" onclick="window.manageManualRoutes()">Zrušiť</button>
+                      <button class="btn btn-success" style="flex:1; padding:12px; font-weight:bold; font-size:1.1rem;" onclick="window.saveManualRouteTemplate(${id || 'null'})"><i class="fas fa-save"></i> Uložiť trasu</button>
+                  </div>
               </div>
-          </div>
-          
-          <h4 style="border-bottom:1px solid #e2e8f0; padding-bottom:5px;">Poradie vykládky:</h4>
-          <div id="tpl-stops-container" style="max-height:35vh; overflow-y:auto; border:1px solid #cbd5e1; border-radius:6px; padding:10px; background:#f1f5f9; display:flex; flex-direction:column; gap:5px;">
-          </div>
-          
-          <div style="margin-top:20px; text-align:right;">
-              <button class="btn btn-secondary" onclick="window.manageManualRoutes()" style="margin-right:10px;">Späť</button>
-              <button class="btn btn-success" onclick="window.saveManualRouteTemplate(${id || 'null'})">💾 Uložiť šablónu</button>
+
+              <div style="flex: 1; background:#fff; padding:20px; border-radius:8px; border:1px solid #cbd5e1; display:flex; flex-direction:column; height: 100%;">
+                  <h4 style="color:#0f172a; margin-top:0; margin-bottom:15px; font-size:1.1rem; flex-shrink: 0;">🔍 Pridať zastávky do trasy</h4>
+                  
+                  <div style="margin-bottom:15px; flex-shrink: 0;">
+                      <input type="text" oninput="window.filterAvailableStores(this.value)" class="form-control" style="width:100%; font-size:1rem; padding:10px; border:1px solid #94a3b8; border-radius:6px;" placeholder="Hľadať zákazníkov, mestá...">
+                  </div>
+
+                  <div style="display:flex; gap:10px; margin-bottom:15px; padding-bottom:15px; border-bottom:1px solid #e2e8f0; flex-shrink: 0;">
+                      <input type="text" id="tpl-custom-stop" class="form-control" style="flex:1; padding:8px; border-radius:4px; border:1px solid #cbd5e1;" placeholder="Pridať vlastný názov (napr. Sklad)">
+                      <button class="btn btn-primary" onclick="window.addCustomStorePanel()">Pridať ➕</button>
+                  </div>
+                  
+                  <div id="tpl-available-stores" style="flex:1; overflow-y:auto; border:1px solid #cbd5e1; border-radius:6px; background:#f8fafc; padding:5px;">
+                      ${availableStoresHtml}
+                  </div>
+              </div>
           </div>
       `;
       window.openLeaderModal(html);
-
-      const container = document.getElementById('tpl-stops-container');
-      
-      window.renderStopRow = function(name, note, storeId = '') {
-          const row = document.createElement('div');
-          row.className = 'tpl-stop-row';
-          row.dataset.storeId = storeId;
-          row.dataset.name = name;
-          row.style.cssText = 'display:flex; justify-content:space-between; align-items:center; background:#fff; padding:10px; border:1px solid #ccc; border-radius:4px;';
-          row.innerHTML = `
-              <div style="display:flex; align-items:center; gap:15px; flex:1;">
-                  <div style="display:flex; flex-direction:column; gap:2px;">
-                      <button type="button" class="btn btn-sm btn-light p-1" onclick="if(this.closest('.tpl-stop-row').previousElementSibling) this.closest('.tpl-stop-row').parentNode.insertBefore(this.closest('.tpl-stop-row'), this.closest('.tpl-stop-row').previousElementSibling)" title="Hore">⬆️</button>
-                      <button type="button" class="btn btn-sm btn-light p-1" onclick="if(this.closest('.tpl-stop-row').nextElementSibling) this.closest('.tpl-stop-row').parentNode.insertBefore(this.closest('.tpl-stop-row').nextElementSibling, this.closest('.tpl-stop-row'))" title="Dole">⬇️</button>
-                  </div>
-                  <div style="flex:1; display:flex; flex-direction:column; gap:4px;">
-                      <div style="font-weight:bold;">${escapeHtml(name)}</div>
-                      <input type="text" class="form-control stop-note-input" value="${escapeHtml(note)}" style="font-size:0.85rem; padding:4px; width:95%;">
-                  </div>
-              </div>
-              <button class="btn btn-danger btn-sm" onclick="this.parentElement.remove()">✖</button>
-          `;
-          container.appendChild(row);
-          container.scrollTop = container.scrollHeight;
-      };
-
-      window.addStoreToTemplate = function() {
-          const select = document.getElementById('tpl-add-store-select');
-          if (select.selectedIndex <= 0) return showStatus("Vyberte možnosť z roletky.", true);
-          const option = select.options[select.selectedIndex];
-          window.renderStopRow(option.dataset.name, option.dataset.note, option.value);
-          select.value = ''; 
-      };
 
       if (template.stops && template.stops.length > 0) {
           template.stops.forEach(s => window.renderStopRow(s.name, s.note, s.store_id || ''));
