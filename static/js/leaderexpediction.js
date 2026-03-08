@@ -109,123 +109,6 @@
       modal(title, res.html, res.onReady);
   };
 
-  // ========================= LOGISTIKA A TRASY =====================
-
-  root.loadLogistics = async function() {
-      // 1. Prepnutie UI
-      $$('.content-section').forEach(s => { s.classList.remove('active'); s.style.display = 'none'; });
-      $$('.sidebar-link').forEach(l => l.classList.remove('active'));
-      
-      const sec = $('#leader-logistics');
-      if (sec) { 
-          sec.classList.add('active'); 
-          sec.style.display = 'block'; 
-      } else {
-          console.error("Chýba #leader-logistics kontajner v HTML");
-          return;
-      }
-      
-      // Zvýraznenie tlačidla v menu (nájdeme podľa ikony fa-truck)
-      const btn = document.querySelector('.sidebar-link i.fa-truck')?.closest('a');
-      if(btn) btn.classList.add('active');
-
-      // 2. Načítanie
-      const box = $('#leader-logistics-container');
-      if (!box) return;
-      
-      box.innerHTML = '<div class="muted p-4" style="text-align:center"><i class="fas fa-spinner fa-spin"></i> Načítavam trasy...</div>';
-      
-      try {
-          // !!! TUTO BOLA CHYBA - TERAZ VOLÁME SPRÁVNE API Z LEADER_HANDLER.PY !!!
-          const data = await apiRequest('/api/leader/routes/list');
-          _routesCache = data.routes || [];
-
-          let html = `
-              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
-                  <h3><i class="fas fa-truck"></i> Logistika & Trasy</h3>
-                  <button class="btn btn-primary" onclick="ldr_editRoute(null)">+ Nová trasa</button>
-              </div>
-              <div class="card">
-                  <div class="card-body">
-                      <table class="tbl" style="width:100%">
-                          <thead>
-                              <tr><th>Názov trasy</th><th>Poznámka / Šofér</th><th style="text-align:right">Akcia</th></tr>
-                          </thead>
-                          <tbody>
-          `;
-
-          if (!_routesCache.length) {
-              html += `<tr><td colspan="3" class="muted" style="text-align:center; padding:1rem;">Žiadne definované trasy.</td></tr>`;
-          } else {
-              html += _routesCache.map(r => {
-                  return `<tr>
-                      <td><strong>${escapeHtml(r.template_name)}</strong></td>
-                      <td>${escapeHtml(r.note || '')}</td>
-                      <td style="text-align:right">
-                          <button class="btn btn-sm btn-secondary" onclick="ldr_editRoute(${r.id})">Upraviť</button>
-                          <button class="btn btn-sm btn-danger" onclick="ldr_deleteRoute(${r.id})" style="margin-left:5px">Zmazať</button>
-                      </td>
-                  </tr>`;
-              }).join('');
-          }
-          
-          html += `</tbody></table></div></div>`;
-          box.innerHTML = html;
-
-      } catch (e) {
-          box.innerHTML = `<div class="error p-4">Chyba pri načítaní: ${escapeHtml(e.message)}</div>`;
-      }
-  };
-
-  root.ldr_editRoute = function(id) {
-      const route = id ? _routesCache.find(r => r.id == id) : { template_name: '', note: '' };
-      if (!route && id) return;
-
-      const title = id ? 'Upraviť trasu' : 'Nová trasa';
-      const html = `
-          <div class="form-group"><label>Názov trasy</label><input id="rt-name" class="form-control" value="${escapeHtml(route.template_name||'')}"></div>
-          <div class="form-group"><label>Poznámka / Šofér</label><input id="rt-note" class="form-control" value="${escapeHtml(route.note||'')}"></div>
-          <div style="text-align:right; margin-top:1rem;">
-              <button class="btn btn-secondary" onclick="closeModal()">Zrušiť</button>
-              <button class="btn btn-primary" id="rt-save">Uložiť</button>
-          </div>
-      `;
-
-      modal(title, html, (body) => {
-          body.querySelector('#rt-save').onclick = async () => {
-              const name = body.querySelector('#rt-name').value.trim();
-              const note = body.querySelector('#rt-note').value.trim();
-              if (!name) { showStatus('Zadajte názov trasy.', true); return; }
-
-              try {
-                  // !!! SPRÁVNE VOLANIE API !!!
-                  await apiRequest('/api/leader/routes/save', {
-                      method: 'POST',
-                      body: { id: id, name: name, note: note }
-                  });
-                  showStatus('Trasa uložená.', false);
-                  closeModal();
-                  root.loadLogistics();
-              } catch (e) {
-                  showStatus(e.message, true);
-              }
-          };
-      });
-  };
-
-  root.ldr_deleteRoute = async function(id) {
-      const ok = await modalConfirm({ title:'Zmazať trasu', message:'Naozaj chcete zmazať túto trasu?' });
-      if (!ok) return;
-      try {
-          // !!! SPRÁVNE VOLANIE API !!!
-          await apiRequest('/api/leader/routes/delete', { method: 'POST', body: { id: id } });
-          showStatus('Trasa zmazaná.', false);
-          root.loadLogistics();
-      } catch (e) {
-          showStatus(e.message, true);
-      }
-  };
-
 
   // ========================= SHARED B2B STATE =====================
   var __pickedCustomer = null; var __pickedPricelist = null; var __pricelistMapByEAN = Object.create(null);
@@ -853,635 +736,636 @@
         };
     });
   }
-// ======================= ŠTÍTKY PÔVODU MÄSA (TLAČ) =======================
-var __mol_inited = false;
-const MOL_HISTORY_KEY = 'mol_history_v1';
 
-// Layout pre A4 (tlač): 2 stĺpce x N riadkov na stranu
-const MOL_ROW_GAP = '5mm';    // medzera medzi riadkami (na strihanie)
-const MOL_COL_GAP = '6mm';    // medzera medzi ľavým/pravým štítkom
-const MOL_SAFE_PAGE_H = '275mm'; // približná využiteľná výška po okrajoch (nech máme rezervu proti orezaniu)
+  // ======================= ŠTÍTKY PÔVODU MÄSA (TLAČ) =======================
+  var __mol_inited = false;
+  const MOL_HISTORY_KEY = 'mol_history_v1';
 
-function mol_titleForType(type){
-  const t = String(type||'').toLowerCase();
-  if (t === 'poultry') return 'Informácie o pôvode mäsa hydinové';
-  if (t === 'pork')    return 'Informácie o pôvode mäsa ošípaných';
-  return 'Informácie o pôvode mäsa hovädzie';
-}
+  // Layout pre A4 (tlač): 2 stĺpce x N riadkov na stranu
+  const MOL_ROW_GAP = '5mm';    // medzera medzi riadkami (na strihanie)
+  const MOL_COL_GAP = '6mm';    // medzera medzi ľavým/pravým štítkom
+  const MOL_SAFE_PAGE_H = '275mm'; // približná využiteľná výška po okrajoch (nech máme rezervu proti orezaniu)
 
-function mol_defaultDateLabel(type){
-  const t = String(type||'').toLowerCase();
-  return (t === 'poultry') ? 'Dátum :' : 'Dátum spot:';
-}
-
-function mol_isBeef(type){
-  return String(type||'').toLowerCase() === 'beef';
-}
-
-function mol_defaultCutText(){
-  // Default: aby na štítku bolo "Delené: v Slovenskej republike SK 4053 ES"
-  // Na štítku sa tlačí ako "Delené:" + hodnota
-  return 'v Slovenskej republike SK 4053 ES';
-}
-
-function mol_applyBeefVisibility(type){
-  const t = String(type || $('#mol-type')?.value || 'beef').toLowerCase();
-  const isBeef = (t === 'beef');
-
-  const scope = $('#leader-meat-origin-labels') || doc;
-  scope.querySelectorAll('.mol-beef-only').forEach(el => {
-    el.style.display = isBeef ? '' : 'none';
-  });
-
-  if (isBeef){
-    const cut = $('#mol-cuttext');
-    if (cut && !safeStr(cut.value)) cut.value = mol_defaultCutText();
+  function mol_titleForType(type){
+    const t = String(type||'').toLowerCase();
+    if (t === 'poultry') return 'Informácie o pôvode mäsa hydinové';
+    if (t === 'pork')    return 'Informácie o pôvode mäsa ošípaných';
+    return 'Informácie o pôvode mäsa hovädzie';
   }
-}
 
-function mol_fmtDate(iso, mode){
-  const s = safeStr(iso);
-  if (!s) return ''; // DÁTUM JE VOLITEĽNÝ
-  if (String(mode||'').toLowerCase() === 'iso') return s;
-  try{
-    const d = new Date(s + 'T00:00:00');
-    if (!Number.isFinite(d.getTime())) return s;
-    const dd = String(d.getDate()).padStart(2,'0');
-    const mm = String(d.getMonth()+1).padStart(2,'0');
-    const yy = String(d.getFullYear());
-    return `${dd}.${mm}.${yy}`;
-  }catch(_){ return s; }
-}
+  function mol_defaultDateLabel(type){
+    const t = String(type||'').toLowerCase();
+    return (t === 'poultry') ? 'Dátum :' : 'Dátum spot:';
+  }
 
-function mol_addRow(tb, preset){
-  if (!tb) return;
-  const tr = doc.createElement('tr');
-  const p = preset || {};
-  tr.innerHTML = `
-    <td><input class="mol-date" type="date" value="${escapeHtml(p.date || '')}" style="min-width:140px"></td>
-    <td><input class="mol-batch" placeholder="napr. 05 01" value="${escapeHtml(p.batch || '')}"></td>
-    <td class="mol-beef-only"><input class="mol-ref" placeholder="ak prázdne, použije sa kód dávky" value="${escapeHtml(p.ref || '')}"></td>
-    <td><input class="mol-origin" placeholder="napr. EU – SK" value="${escapeHtml(p.origin || '')}"></td>
-    <td><button class="btn btn-sm" data-mol-del>×</button></td>
-  `;
-  tb.appendChild(tr);
-  tr.querySelector('[data-mol-del]').onclick = ()=> tr.remove();
+  function mol_isBeef(type){
+    return String(type||'').toLowerCase() === 'beef';
+  }
 
-  mol_applyBeefVisibility();
-}
+  function mol_defaultCutText(){
+    return 'v Slovenskej republike SK 4053 ES';
+  }
 
-function mol_collect(){
-  const type = safeStr($('#mol-type')?.value || 'beef');
-  const company = safeStr($('#mol-company')?.value || '');
-  const approval = safeStr($('#mol-approval')?.value || '');
-  const dateLabel = safeStr($('#mol-date-label')?.value || mol_defaultDateLabel(type));
-  const rowsPerPage = Math.max(1, Math.min(12, Math.floor(toNum($('#mol-rows-per-page')?.value, 6)) || 6));
-  const dateFormat = safeStr($('#mol-date-format')?.value || 'sk');
-  const fontSize = Math.max(8, Math.min(16, Math.floor(toNum($('#mol-font-size')?.value, 11)) || 11));
+  function mol_applyBeefVisibility(type){
+    const t = String(type || $('#mol-type')?.value || 'beef').toLowerCase();
+    const isBeef = (t === 'beef');
 
-  const cutText = safeStr($('#mol-cuttext')?.value || '');
+    const scope = $('#leader-meat-origin-labels') || doc;
+    scope.querySelectorAll('.mol-beef-only').forEach(el => {
+      el.style.display = isBeef ? '' : 'none';
+    });
 
-  const tb = $('#mol-items tbody');
-  const entries = [];
-  if (tb){
-    const trs = Array.from(tb.querySelectorAll('tr'));
-    trs.forEach(tr=>{
-      const date = safeStr(tr.querySelector('.mol-date')?.value || '');
-      const batch = safeStr(tr.querySelector('.mol-batch')?.value || '');
-      const origin = safeStr(tr.querySelector('.mol-origin')?.value || '');
-      const ref = safeStr(tr.querySelector('.mol-ref')?.value || '');
+    if (isBeef){
+      const cut = $('#mol-cuttext');
+      if (cut && !safeStr(cut.value)) cut.value = mol_defaultCutText();
+    }
+  }
 
-      // berieme riadok len ak je niečo vyplnené (aby prázdne riadky neblokovali tlač)
-      if (date || batch || origin || ref){
-        entries.push({ date, batch, origin, ref, _tr: tr });
+  function mol_fmtDate(iso, mode){
+    const s = safeStr(iso);
+    if (!s) return ''; 
+    if (String(mode||'').toLowerCase() === 'iso') return s;
+    try{
+      const d = new Date(s + 'T00:00:00');
+      if (!Number.isFinite(d.getTime())) return s;
+      const dd = String(d.getDate()).padStart(2,'0');
+      const mm = String(d.getMonth()+1).padStart(2,'0');
+      const yy = String(d.getFullYear());
+      return `${dd}.${mm}.${yy}`;
+    }catch(_){ return s; }
+  }
+
+  function mol_addRow(tb, preset){
+    if (!tb) return;
+    const tr = doc.createElement('tr');
+    const p = preset || {};
+    tr.innerHTML = `
+      <td><input class="mol-date" type="date" value="${escapeHtml(p.date || '')}" style="min-width:140px"></td>
+      <td><input class="mol-batch" placeholder="napr. 05 01" value="${escapeHtml(p.batch || '')}"></td>
+      <td class="mol-beef-only"><input class="mol-ref" placeholder="ak prázdne, použije sa kód dávky" value="${escapeHtml(p.ref || '')}"></td>
+      <td><input class="mol-origin" placeholder="napr. EU – SK" value="${escapeHtml(p.origin || '')}"></td>
+      <td><button class="btn btn-sm" data-mol-del>×</button></td>
+    `;
+    tb.appendChild(tr);
+    tr.querySelector('[data-mol-del]').onclick = ()=> tr.remove();
+
+    mol_applyBeefVisibility();
+  }
+
+  function mol_collect(){
+    const type = safeStr($('#mol-type')?.value || 'beef');
+    const company = safeStr($('#mol-company')?.value || '');
+    const approval = safeStr($('#mol-approval')?.value || '');
+    const dateLabel = safeStr($('#mol-date-label')?.value || mol_defaultDateLabel(type));
+    const rowsPerPage = Math.max(1, Math.min(12, Math.floor(toNum($('#mol-rows-per-page')?.value, 6)) || 6));
+    const dateFormat = safeStr($('#mol-date-format')?.value || 'sk');
+    const fontSize = Math.max(8, Math.min(16, Math.floor(toNum($('#mol-font-size')?.value, 11)) || 11));
+
+    const cutText = safeStr($('#mol-cuttext')?.value || '');
+
+    const tb = $('#mol-items tbody');
+    const entries = [];
+    if (tb){
+      const trs = Array.from(tb.querySelectorAll('tr'));
+      trs.forEach(tr=>{
+        const date = safeStr(tr.querySelector('.mol-date')?.value || '');
+        const batch = safeStr(tr.querySelector('.mol-batch')?.value || '');
+        const origin = safeStr(tr.querySelector('.mol-origin')?.value || '');
+        const ref = safeStr(tr.querySelector('.mol-ref')?.value || '');
+
+        if (date || batch || origin || ref){
+          entries.push({ date, batch, origin, ref, _tr: tr });
+        }
+      });
+    }
+
+    const cfg = { type, company, approval, dateLabel, rowsPerPage, dateFormat, fontSize, cutText };
+    return { cfg, entries };
+  }
+
+  function mol_validate(entries){
+    let ok = true;
+    (entries||[]).forEach(it=>{
+      const tr = it._tr;
+      const bad = !(safeStr(it.batch) && safeStr(it.origin));
+      if (tr){
+        tr.style.background = bad ? '#fff7ed' : '';
       }
+      if (bad) ok = false;
     });
+    return ok;
   }
 
-  const cfg = { type, company, approval, dateLabel, rowsPerPage, dateFormat, fontSize, cutText };
-  return { cfg, entries };
-}
+  function mol_labelHtml(data, cfg){
+    const company = escapeHtml(cfg.company || '');
+    const approval = escapeHtml(cfg.approval || '');
+    const title = escapeHtml(mol_titleForType(cfg.type));
+    const origin = escapeHtml(data.origin || '');
+    const batch  = escapeHtml(data.batch || '');
+    const dlabel = escapeHtml(cfg.dateLabel || 'Dátum:');
+    const date   = escapeHtml(mol_fmtDate(data.date, cfg.dateFormat));
 
-/**
- * Validácia:
- * - POVINNÉ: kód dávky + pôvod
- * - VOLITEĽNÉ: dátum
- */
-function mol_validate(entries){
-  let ok = true;
-  (entries||[]).forEach(it=>{
-    const tr = it._tr;
-    const bad = !(safeStr(it.batch) && safeStr(it.origin)); // dátum NEvyžadujeme
-    if (tr){
-      tr.style.background = bad ? '#fff7ed' : '';
-    }
-    if (bad) ok = false;
-  });
-  return ok;
-}
+    const isBeef = mol_isBeef(cfg.type);
+    const refVal = escapeHtml(safeStr(data.ref) || safeStr(data.batch) || '');
+    const cutVal = escapeHtml(cfg.cutText || '');
 
-function mol_labelHtml(data, cfg){
-  const company = escapeHtml(cfg.company || '');
-  const approval = escapeHtml(cfg.approval || '');
-  const title = escapeHtml(mol_titleForType(cfg.type));
-  const origin = escapeHtml(data.origin || '');
-  const batch  = escapeHtml(data.batch || '');
-  const dlabel = escapeHtml(cfg.dateLabel || 'Dátum:');
-  const date   = escapeHtml(mol_fmtDate(data.date, cfg.dateFormat));
-
-  const isBeef = mol_isBeef(cfg.type);
-  const refVal = escapeHtml(safeStr(data.ref) || safeStr(data.batch) || '');
-  const cutVal = escapeHtml(cfg.cutText || '');
-
-  return `
-    <table class="mol-label" cellspacing="0" cellpadding="0">
-      <tr><td colspan="4" class="mol-company">${company}</td></tr>
-      <tr><td colspan="4" class="mol-approval">${approval}</td></tr>
-      <tr><td colspan="4" class="mol-title">${title}</td></tr>
-      ${isBeef ? `<tr><td class="mol-lbl">Referenčné číslo:</td><td colspan="3" class="mol-val" style="font-size:0.75em; letter-spacing:-0.5px; white-space:nowrap;">${refVal}</td></tr>` : ''}
-      ${isBeef ? `<tr><td class="mol-lbl">Delené:</td><td colspan="3" class="mol-val">${cutVal}</td></tr>` : ''}
-      <tr><td class="mol-lbl">CHOVANÉ v:</td><td colspan="3" class="mol-val">${origin}</td></tr>
-      <tr><td class="mol-lbl">ZABITÉ v:</td><td colspan="3" class="mol-val">${origin}</td></tr>
-      <tr><td class="mol-lbl">POVOD:</td><td colspan="3" class="mol-val">${origin}</td></tr>
-      <tr>
-        <td class="mol-lbl">Kód dávky:</td><td class="mol-val">${batch}</td>
-        <td class="mol-lbl">${dlabel}</td><td class="mol-val">${date}</td>
-      </tr>
-    </table>
-  `;
-}
-
-/**
- * NOVÉ správanie:
- * - Každý zadaný riadok (dávka+pôvod+...) = 1 A4 strana
- * - Na stranu sa automaticky namnoží toľko štítkov, aby sa vyplnil A4 formát (2 stĺpce x rowsPerPage riadkov)
- */
-function mol_buildMarkup(cfg, entries){
-  const rowsPerPage = cfg.rowsPerPage || 6;
-
-  const pagesHtml = (entries || []).map((it, idx)=>{
-    const label = mol_labelHtml(it, cfg);
-    let rows = '';
-    for (let r=0; r<rowsPerPage; r++){
-      rows += `<div class="mol-entry">${label}${label}</div>`;
-    }
-    return `<div class="mol-page" data-page="${idx+1}">${rows}</div>`;
-  }).join('');
-
-  return `<div class="mol-root" style="
-      --mol-font:${cfg.fontSize || 11}px;
-      --mol-rows:${rowsPerPage};
-      --mol-row-gap:${MOL_ROW_GAP};
-      --mol-col-gap:${MOL_COL_GAP};
-      --mol-page-h:${MOL_SAFE_PAGE_H};
-    ">${pagesHtml}</div>`;
-}
-
-function mol_preview(){
-  const { cfg, entries } = mol_collect();
-  const wrap = $('#mol-preview-wrap');
-  if (!wrap) return;
-
-  if (!entries.length){
-    wrap.innerHTML = '<div class="muted" style="margin-top:6px">Zatiaľ nie sú zadané žiadne riadky.</div>';
-    return;
-  }
-
-  mol_validate(entries);
-
-  const html = mol_buildMarkup(cfg, entries);
-  const perPageLabels = (cfg.rowsPerPage || 6) * 2;
-
-  wrap.innerHTML = `
-    <div class="card" style="margin-top:12px;">
-      <div class="card-header">
-        <strong>Náhľad</strong>
-        <span class="muted">(${entries.length} strán / ${perPageLabels} štítkov na stranu)</span>
-        <span class="muted" style="margin-left:10px;">Dátum je voliteľný.</span>
-      </div>
-      <div class="card-body" style="overflow:auto;">
-        <div class="mol-preview">${html}</div>
-      </div>
-    </div>
-  `;
-}
-
-function mol_openPrintWindow(markup){
-  const css = `
-    @page { size: A4; margin: 10mm; }
-    html, body { height: 100%; }
-    body { margin: 0; font-family: Arial, Helvetica, sans-serif; }
-
-    .mol-root { font-size: var(--mol-font, 11px); }
-
-    .mol-page { page-break-after: always; }
-    .mol-page:last-child { page-break-after: auto; }
-
-    /* rovnomerné rozloženie na A4 + medzery na strihanie */
-    .mol-entry {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      column-gap: var(--mol-col-gap, 6mm);
-      margin-bottom: var(--mol-row-gap, 5mm);
-
-      /* výška jedného "riadku štítkov" aby sa pekne vyplnila strana */
-      height: calc((var(--mol-page-h, 275mm) - (var(--mol-rows, 6) - 1) * var(--mol-row-gap, 5mm)) / var(--mol-rows, 6));
-    }
-    .mol-page .mol-entry:last-child { margin-bottom: 0; }
-
-    .mol-label {
-      width: 100%;
-      height: 100%;
-      border-collapse: collapse;
-      table-layout: fixed;
-      border: 1px solid #000;
-    }
-    .mol-label td {
-      border: 1px solid #000;
-      padding: 2mm 2.2mm;
-      vertical-align: middle;
-    }
-
-    .mol-company, .mol-approval, .mol-title { text-align: center; font-weight: 700; }
-    .mol-company { font-size: 1.05em; }
-    .mol-title { font-size: 1.05em; }
-    .mol-lbl { font-weight: 700; white-space: nowrap; }
-    .mol-val { overflow: hidden; text-overflow: ellipsis; }
-  `;
-
-  const w = window.open('', '_blank');
-  if (!w){
-    showStatus('Prehliadač zablokoval tlačové okno (pop-up). Povoľte pop-up pre túto stránku.', true);
-    return null;
-  }
-  w.document.open();
-  w.document.write(`<!doctype html><html lang="sk"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Štítky pôvodu mäsa</title><style>${css}</style></head><body>${markup}</body></html>`);
-  w.document.close();
-  w.focus();
-  return w;
-}
-
-function mol_printCore(cfg, entries, opts){
-  const options = opts || {};
-  if (!entries.length){
-    showStatus('Zadajte aspoň 1 riadok (kód dávky, pôvod). Dátum je voliteľný.', true);
-    return;
-  }
-
-  // validácia pre tlač bez UI (história): vyžadujeme len batch + origin
-  const allOk = entries.every(it => safeStr(it.batch) && safeStr(it.origin));
-  if (!allOk){
-    showStatus('Niektoré riadky sú neúplné (chýba kód dávky alebo pôvod). Dátum môže byť prázdny.', true);
-    return;
-  }
-
-  const markup = mol_buildMarkup(cfg, entries);
-  const w = mol_openPrintWindow(markup);
-  if (!w) return;
-
-  setTimeout(()=>{ try{ w.print(); }catch(_){} }, 250);
-
-  if (options.afterPrint) {
-    try{ options.afterPrint(); }catch(_){ }
-  }
-}
-
-// ------------------ HISTÓRIA (localStorage) ------------------
-function mol_hist_load(){
-  try{
-    const raw = localStorage.getItem(MOL_HISTORY_KEY);
-    const data = raw ? JSON.parse(raw) : [];
-    return Array.isArray(data) ? data : [];
-  }catch(_){ return []; }
-}
-function mol_hist_store(list){
-  try{ localStorage.setItem(MOL_HISTORY_KEY, JSON.stringify(Array.isArray(list) ? list : [])); }catch(_){ }
-}
-function mol_hist_makeId(){
-  return 'mol_' + Date.now() + '_' + Math.random().toString(16).slice(2);
-}
-function mol_hist_keyOf(item){
-  const cfg = item.cfg || {};
-  const row = item.row || {};
-  return [cfg.type, row.date, row.batch, row.origin, row.ref, cfg.cutText].map(x=> safeStr(x)).join('|');
-}
-function mol_hist_upsert(cfg, entries){
-  const nowIso = new Date().toISOString();
-  const cur = mol_hist_load();
-
-  const idxByKey = new Map();
-  cur.forEach((it, i)=>{ idxByKey.set(mol_hist_keyOf(it), i); });
-
-  (entries||[]).forEach(e=>{
-    const row = { date: safeStr(e.date), batch: safeStr(e.batch), origin: safeStr(e.origin), ref: safeStr(e.ref) };
-    const item = {
-      id: mol_hist_makeId(),
-      ts: nowIso,
-      cfg: {
-        type: safeStr(cfg.type),
-        company: safeStr(cfg.company),
-        approval: safeStr(cfg.approval),
-        dateLabel: safeStr(cfg.dateLabel),
-        rowsPerPage: Math.max(1, Math.min(12, Math.floor(toNum(cfg.rowsPerPage, 6)) || 6)),
-        dateFormat: safeStr(cfg.dateFormat),
-        fontSize: Math.max(8, Math.min(16, Math.floor(toNum(cfg.fontSize, 11)) || 11)),
-        cutText: safeStr(cfg.cutText)
-      },
-      row
-    };
-
-    const key = mol_hist_keyOf(item);
-    if (idxByKey.has(key)){
-      const i = idxByKey.get(key);
-      cur[i].ts = nowIso;
-      cur[i].cfg = item.cfg;
-      cur[i].row = item.row;
-    } else {
-      cur.unshift(item);
-    }
-  });
-
-  mol_hist_store(cur.slice(0, 200));
-}
-function mol_hist_delete(id){
-  const cur = mol_hist_load();
-  mol_hist_store(cur.filter(it => String(it.id) !== String(id)));
-}
-function mol_hist_clear(){ mol_hist_store([]); }
-
-function mol_hist_typeLabel(type){
-  const t = String(type||'').toLowerCase();
-  if (t === 'poultry') return 'Hydina';
-  if (t === 'pork') return 'Ošípané';
-  return 'Hovädzie';
-}
-function mol_hist_fmtTs(iso){
-  const s = safeStr(iso);
-  if (!s) return '';
-  try{ return new Date(s).toLocaleString('sk-SK'); }catch(_){ return s; }
-}
-
-function mol_hist_render(){
-  const host = $('#mol-history-list');
-  if (!host) return;
-
-  const filter = safeStr($('#mol-history-filter')?.value || '').toLowerCase();
-  let items = mol_hist_load();
-  items.sort((a,b)=> String(b.ts||'').localeCompare(String(a.ts||'')));
-
-  if (filter){
-    items = items.filter(it=>{
-      const r = it.row || {};
-      const c = it.cfg || {};
-      const hay = [r.date, r.batch, r.origin, r.ref, c.type, c.cutText].map(x=> String(x||'').toLowerCase()).join(' | ');
-      return hay.includes(filter);
-    });
-  }
-
-  if (!items.length){
-    host.innerHTML = '<div class="muted" style="padding:8px 0">História je prázdna.</div>';
-    return;
-  }
-
-  host.innerHTML = `
-    <div class="table-container">
-      <table class="tbl" id="mol-history-table">
-        <thead>
-          <tr>
-            <th style="width:120px">Dátum</th>
-            <th style="width:140px">Kód dávky</th>
-            <th style="width:180px" class="mol-beef-only">Referenčné</th>
-            <th>Pôvod</th>
-            <th style="width:110px">Typ</th>
-            <th style="width:170px">Uložené</th>
-            <th style="width:220px"></th>
-          </tr>
-        </thead>
-        <tbody>
-          ${items.map(it=>{
-            const r = it.row || {};
-            const c = it.cfg || {};
-            return `
-              <tr>
-                <td>${escapeHtml(r.date || '')}</td>
-                <td><span style="font-family:monospace">${escapeHtml(r.batch || '')}</span></td>
-                <td class="mol-beef-only"><span style="font-family:monospace">${escapeHtml(r.ref || r.batch || '')}</span></td>
-                <td>${escapeHtml(r.origin || '')}</td>
-                <td>${escapeHtml(mol_hist_typeLabel(c.type))}</td>
-                <td>${escapeHtml(mol_hist_fmtTs(it.ts))}</td>
-                <td style="text-align:right; white-space:nowrap;">
-                  <button class="btn btn-sm btn-secondary" data-mol-hload="${escapeHtml(it.id)}">Vložiť</button>
-                  <button class="btn btn-sm btn-secondary" data-mol-hprint="${escapeHtml(it.id)}">Tlačiť (A4)</button>
-                  <button class="btn btn-sm" data-mol-hdel="${escapeHtml(it.id)}">×</button>
-                </td>
-              </tr>
-            `;
-          }).join('')}
-        </tbody>
+    return `
+      <table class="mol-label" cellspacing="0" cellpadding="0">
+        <tr><td colspan="4" class="mol-company">${company}</td></tr>
+        <tr><td colspan="4" class="mol-approval">${approval}</td></tr>
+        <tr><td colspan="4" class="mol-title">${title}</td></tr>
+        ${isBeef ? `<tr><td class="mol-lbl">Referenčné číslo:</td><td colspan="3" class="mol-val" style="font-size:0.75em; letter-spacing:-0.5px; white-space:nowrap;">${refVal}</td></tr>` : ''}
+        ${isBeef ? `<tr><td class="mol-lbl">Delené:</td><td colspan="3" class="mol-val">${cutVal}</td></tr>` : ''}
+        <tr><td class="mol-lbl">CHOVANÉ v:</td><td colspan="3" class="mol-val">${origin}</td></tr>
+        <tr><td class="mol-lbl">ZABITÉ v:</td><td colspan="3" class="mol-val">${origin}</td></tr>
+        <tr><td class="mol-lbl">POVOD:</td><td colspan="3" class="mol-val">${origin}</td></tr>
+        <tr>
+          <td class="mol-lbl">Kód dávky:</td><td class="mol-val">${batch}</td>
+          <td class="mol-lbl">${dlabel}</td><td class="mol-val">${date}</td>
+        </tr>
       </table>
-    </div>
-    <div class="muted" style="margin-top:6px">
-      Poznámka: História je uložená v tomto prehliadači (localStorage). Dátum je voliteľný.
-    </div>
-  `;
+    `;
+  }
 
-  host.querySelectorAll('[data-mol-hdel]').forEach(btn=>{
-    btn.onclick = ()=>{
-      const id = btn.getAttribute('data-mol-hdel');
-      mol_hist_delete(id);
-      mol_hist_render();
-    };
-  });
+  function mol_buildMarkup(cfg, entries){
+    const rowsPerPage = cfg.rowsPerPage || 6;
 
-  // NOVÉ: "Tlačiť (A4)" vždy vytlačí plnú A4 stranu (namnožené)
-  host.querySelectorAll('[data-mol-hprint]').forEach(btn=>{
-    btn.onclick = ()=>{
-      const id = btn.getAttribute('data-mol-hprint');
-      const it = mol_hist_load().find(x=> String(x.id) === String(id));
-      if (!it) return;
-
-      const cfg = Object.assign({}, it.cfg || {});
-      cfg.rowsPerPage = Math.max(1, Math.min(12, Math.floor(toNum(cfg.rowsPerPage, 6)) || 6));
-
-      const entries = [Object.assign({}, it.row || {})];
-      mol_applyBeefVisibility(cfg.type);
-      mol_printCore(cfg, entries, { afterPrint: null });
-    };
-  });
-
-  host.querySelectorAll('[data-mol-hload]').forEach(btn=>{
-    btn.onclick = ()=>{
-      const id = btn.getAttribute('data-mol-hload');
-      const it = mol_hist_load().find(x=> String(x.id) === String(id));
-      if (!it) return;
-
-      const cfg = it.cfg || {};
-      const row = it.row || {};
-
-      const typeSel = $('#mol-type');
-      if (typeSel && cfg.type){ typeSel.value = cfg.type; }
-      mol_applyBeefVisibility(cfg.type);
-
-      const companyEl = $('#mol-company');
-      if (companyEl) companyEl.value = cfg.company || companyEl.value;
-
-      const approvalEl = $('#mol-approval');
-      if (approvalEl) approvalEl.value = cfg.approval || approvalEl.value;
-
-      const dateLblSel = $('#mol-date-label');
-      if (dateLblSel && cfg.dateLabel){
-        if (Array.from(dateLblSel.options||[]).some(o=> String(o.value) === String(cfg.dateLabel))){
-          dateLblSel.value = cfg.dateLabel;
-        }
+    const pagesHtml = (entries || []).map((it, idx)=>{
+      const label = mol_labelHtml(it, cfg);
+      let rows = '';
+      for (let r=0; r<rowsPerPage; r++){
+        rows += `<div class="mol-entry">${label}${label}</div>`;
       }
+      return `<div class="mol-page" data-page="${idx+1}">${rows}</div>`;
+    }).join('');
 
-      const rppEl = $('#mol-rows-per-page');
-      if (rppEl && cfg.rowsPerPage) rppEl.value = String(cfg.rowsPerPage);
-
-      const dfEl = $('#mol-date-format');
-      if (dfEl && cfg.dateFormat){
-        if (Array.from(dfEl.options||[]).some(o=> String(o.value) === String(cfg.dateFormat))){
-          dfEl.value = cfg.dateFormat;
-        }
-      }
-
-      const fsEl = $('#mol-font-size');
-      if (fsEl && cfg.fontSize) fsEl.value = String(cfg.fontSize);
-
-      const cutEl = $('#mol-cuttext');
-      if (cutEl && mol_isBeef(cfg.type)) cutEl.value = cfg.cutText || mol_defaultCutText();
-
-      const tb = $('#mol-items tbody');
-      mol_addRow(tb, { date: row.date, batch: row.batch, origin: row.origin, ref: row.ref });
-
-      mol_preview();
-    };
-  });
-
-  mol_applyBeefVisibility();
-}
-
-function mol_saveHistory(){
-  const { cfg, entries } = mol_collect();
-  if (!entries.length){
-    showStatus('Zadajte aspoň 1 riadok (kód dávky, pôvod). Dátum je voliteľný.', true);
-    return;
-  }
-  const ok = mol_validate(entries);
-  if (!ok){
-    showStatus('Niektoré riadky sú neúplné (chýba kód dávky alebo pôvod). Dátum môže byť prázdny.', true);
-    return;
-  }
-  mol_hist_upsert(cfg, entries);
-  mol_hist_render();
-  showStatus('Uložené do histórie dávok.', false);
-}
-
-function mol_print(){
-  const { cfg, entries } = mol_collect();
-  if (!entries.length){
-    showStatus('Zadajte aspoň 1 riadok (kód dávky, pôvod). Dátum je voliteľný.', true);
-    return;
-  }
-  const ok = mol_validate(entries);
-  if (!ok){
-    showStatus('Niektoré riadky sú neúplné (chýba kód dávky alebo pôvod). Dátum môže byť prázdny.', true);
-    return;
+    return `<div class="mol-root" style="
+        --mol-font:${cfg.fontSize || 11}px;
+        --mol-rows:${rowsPerPage};
+        --mol-row-gap:${MOL_ROW_GAP};
+        --mol-col-gap:${MOL_COL_GAP};
+        --mol-page-h:${MOL_SAFE_PAGE_H};
+      ">${pagesHtml}</div>`;
   }
 
-  // uložiť do histórie
-  mol_hist_upsert(cfg, entries);
-  mol_hist_render();
+  function mol_preview(){
+    const { cfg, entries } = mol_collect();
+    const wrap = $('#mol-preview-wrap');
+    if (!wrap) return;
 
-  // Tlač: každá dávka = 1 strana (A4 vyplnená namnoženými štítkami)
-  mol_printCore(cfg, entries, {});
-}
-
-function initMeatOriginLabels(){
-  if (__mol_inited) return;
-  const tb = $('#mol-items tbody');
-  if (!tb) return;
-  __mol_inited = true;
-
-  // necháme 6 prázdnych riadkov – používateľ vyplní len potrebné (ostatné sa ignorujú)
-  for (let i=0; i<6; i++) mol_addRow(tb);
-
-  const typeSel = $('#mol-type');
-  const dateLblSel = $('#mol-date-label');
-
-  function applyTypeDefaults(){
-    const t = safeStr(typeSel?.value || 'beef');
-    const desired = mol_defaultDateLabel(t);
-    if (dateLblSel && Array.from(dateLblSel.options||[]).some(o=> String(o.value) === desired)) {
-      dateLblSel.value = desired;
+    if (!entries.length){
+      wrap.innerHTML = '<div class="muted" style="margin-top:6px">Zatiaľ nie sú zadané žiadne riadky.</div>';
+      return;
     }
-    mol_applyBeefVisibility(t);
+
+    mol_validate(entries);
+
+    const html = mol_buildMarkup(cfg, entries);
+    const perPageLabels = (cfg.rowsPerPage || 6) * 2;
+
+    wrap.innerHTML = `
+      <div class="card" style="margin-top:12px;">
+        <div class="card-header">
+          <strong>Náhľad</strong>
+          <span class="muted">(${entries.length} strán / ${perPageLabels} štítkov na stranu)</span>
+          <span class="muted" style="margin-left:10px;">Dátum je voliteľný.</span>
+        </div>
+        <div class="card-body" style="overflow:auto;">
+          <div class="mol-preview">${html}</div>
+        </div>
+      </div>
+    `;
   }
-  applyTypeDefaults();
 
-  $('#mol-add') && ($('#mol-add').onclick = ()=> mol_addRow(tb));
-  $('#mol-preview') && ($('#mol-preview').onclick = mol_preview);
-  $('#mol-print') && ($('#mol-print').onclick = mol_print);
-  $('#mol-save-history') && ($('#mol-save-history').onclick = mol_saveHistory);
+  function mol_openPrintWindow(markup){
+    const css = `
+      @page { size: A4; margin: 10mm; }
+      html, body { height: 100%; }
+      body { margin: 0; font-family: Arial, Helvetica, sans-serif; }
 
-  typeSel && typeSel.addEventListener('change', ()=>{ applyTypeDefaults(); });
+      .mol-root { font-size: var(--mol-font, 11px); }
 
-  const hFilter = $('#mol-history-filter');
-  hFilter && hFilter.addEventListener('input', ()=> mol_hist_render());
-  $('#mol-history-clear') && ($('#mol-history-clear').onclick = ()=>{ if (confirm('Naozaj chcete vyčistiť celú históriu dávok?')){ mol_hist_clear(); mol_hist_render(); } });
+      .mol-page { page-break-after: always; }
+      .mol-page:last-child { page-break-after: auto; }
 
-  // auto preview debounce
-  let t = null;
-  const schedulePreview = ()=>{ clearTimeout(t); t = setTimeout(()=> mol_preview(), 250); };
-  ['mol-type','mol-company','mol-approval','mol-cuttext','mol-date-label','mol-rows-per-page','mol-date-format','mol-font-size'].forEach(id=>{
-    const el = $('#'+id);
-    el && el.addEventListener('change', schedulePreview);
-  });
-  tb.addEventListener('input', schedulePreview);
+      /* rovnomerné rozloženie na A4 + medzery na strihanie */
+      .mol-entry {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        column-gap: var(--mol-col-gap, 6mm);
+        margin-bottom: var(--mol-row-gap, 5mm);
 
-  mol_hist_render();
-}
+        /* výška jedného "riadku štítkov" aby sa pekne vyplnila strana */
+        height: calc((var(--mol-page-h, 275mm) - (var(--mol-rows, 6) - 1) * var(--mol-row-gap, 5mm)) / var(--mol-rows, 6));
+      }
+      .mol-page .mol-entry:last-child { margin-bottom: 0; }
 
-function attachSupplierAutocomplete(){
-    const input = $('#nb2b-name'); if (!input) return;
-    let popup = $('#nb2b-suggest');
-    if (!popup){ popup = doc.createElement('div'); popup.id='nb2b-suggest'; popup.style.cssText='position:absolute;z-index:1000;background:#fff;border:1px solid #e5e7eb;border-radius:8px;box-shadow:0 10px 30px rgba(0,0,0,.15);display:none;max-height:240px;overflow:auto'; doc.body.appendChild(popup); }
-    function position(){ const r = input.getBoundingClientRect(); popup.style.left=(window.scrollX+r.left)+'px'; popup.style.top=(window.scrollY+r.bottom+4)+'px'; popup.style.minWidth=r.width+'px'; }
-    input.addEventListener('input', async ()=>{
-      const q = input.value.trim(); if (q.length < 2){ popup.style.display='none'; return; }
-      position(); popup.innerHTML = '<div style="padding:.5rem" class="muted">Hľadám…</div>'; popup.style.display='block';
-      const list = await searchSuppliers(q);
-      if (!list.length){ popup.innerHTML = '<div style="padding:.5rem" class="muted">Žiadne výsledky</div>'; return; }
-      popup.innerHTML = list.map(x=>`<div data-id="${escapeHtml(String(x.id))}" data-json='${escapeHtml(JSON.stringify(x))}' style="padding:.4rem .6rem;cursor:pointer">${escapeHtml(x.name)} <span class="muted">(${escapeHtml(x.code||'')})</span></div>`).join('');
-      Array.from(popup.children).forEach(div=>{
-        div.onclick = async ()=>{
-          const data = JSON.parse(div.getAttribute('data-json')); __pickedCustomer = data; input.value = data.name; popup.style.display='none';
-          const box = $('#nb2b-pl-box') || (()=>{ const d = doc.createElement('div'); d.id='nb2b-pl-box'; d.className='muted'; d.style.margin='8px 0'; const body = $('#manual-b2b-form .card-body') || $('#leader-manual-b2b .card .card-body') || doc.body; body.insertBefore(d, body.firstChild); return d; })();
-          const pls = await fetchPricelists(data.id);
-          if (!pls.length){ box.innerHTML = '<div class="muted">Pre odberateľa nie sú evidované cenníky.</div>'; __pickedPricelist=null; __pricelistMapByEAN=Object.create(null); return; }
-          box.innerHTML = `<label>Vyber cenník:</label> <select id="nb2b-pl" style="min-width:260px">${pls.map(p=>`<option value="${escapeHtml(p.id)}">${escapeHtml(p.name||('Cenník '+String(p.id||'')))}</option>`).join('')}</select><div id="nb2b-pl-note" class="muted" style="margin-top:.25rem">Ceny položiek sa doplnia pri pridávaní EAN z vybraného cenníka.</div><div id="nb2b-pl-preview" style="margin-top:.5rem"></div>`;
-          __pickedPricelist = pls[0]||null; __pricelistMapByEAN = Object.create(null);
-          if (__pickedPricelist && Array.isArray(__pickedPricelist.items)){ __pickedPricelist.items.forEach(it=>{ if (it && it.ean != null) __pricelistMapByEAN[String(it.ean)] = toNum(it.price||it.cena_bez_dph||0,0); }); }
-          renderPricelistPreview(__pickedPricelist, box);
-          $('#nb2b-pl').onchange = (e)=>{
-            const pick = pls.find(x=> String(x.id) === e.target.value); __pickedPricelist = pick || null; __pricelistMapByEAN = Object.create(null);
+      .mol-label {
+        width: 100%;
+        height: 100%;
+        border-collapse: collapse;
+        table-layout: fixed;
+        border: 1px solid #000;
+      }
+      .mol-label td {
+        border: 1px solid #000;
+        padding: 2mm 2.2mm;
+        vertical-align: middle;
+      }
+
+      .mol-company, .mol-approval, .mol-title { text-align: center; font-weight: 700; }
+      .mol-company { font-size: 1.05em; }
+      .mol-title { font-size: 1.05em; }
+      .mol-lbl { font-weight: 700; white-space: nowrap; }
+      .mol-val { overflow: hidden; text-overflow: ellipsis; }
+    `;
+
+    const w = window.open('', '_blank');
+    if (!w){
+      showStatus('Prehliadač zablokoval tlačové okno (pop-up). Povoľte pop-up pre túto stránku.', true);
+      return null;
+    }
+    w.document.open();
+    w.document.write(`<!doctype html><html lang="sk"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Štítky pôvodu mäsa</title><style>${css}</style></head><body>${markup}</body></html>`);
+    w.document.close();
+    w.focus();
+    return w;
+  }
+
+  function mol_printCore(cfg, entries, opts){
+    const options = opts || {};
+    if (!entries.length){
+      showStatus('Zadajte aspoň 1 riadok (kód dávky, pôvod). Dátum je voliteľný.', true);
+      return;
+    }
+
+    const allOk = entries.every(it => safeStr(it.batch) && safeStr(it.origin));
+    if (!allOk){
+      showStatus('Niektoré riadky sú neúplné (chýba kód dávky alebo pôvod). Dátum môže byť prázdny.', true);
+      return;
+    }
+
+    const markup = mol_buildMarkup(cfg, entries);
+    const w = mol_openPrintWindow(markup);
+    if (!w) return;
+
+    setTimeout(()=>{ try{ w.print(); }catch(_){} }, 250);
+
+    if (options.afterPrint) {
+      try{ options.afterPrint(); }catch(_){ }
+    }
+  }
+
+  // ------------------ HISTÓRIA (localStorage) ------------------
+  function mol_hist_load(){
+    try{
+      const raw = localStorage.getItem(MOL_HISTORY_KEY);
+      const data = raw ? JSON.parse(raw) : [];
+      return Array.isArray(data) ? data : [];
+    }catch(_){ return []; }
+  }
+  function mol_hist_store(list){
+    try{ localStorage.setItem(MOL_HISTORY_KEY, JSON.stringify(Array.isArray(list) ? list : [])); }catch(_){ }
+  }
+  function mol_hist_makeId(){
+    return 'mol_' + Date.now() + '_' + Math.random().toString(16).slice(2);
+  }
+  function mol_hist_keyOf(item){
+    const cfg = item.cfg || {};
+    const row = item.row || {};
+    return [cfg.type, row.date, row.batch, row.origin, row.ref, cfg.cutText].map(x=> safeStr(x)).join('|');
+  }
+  function mol_hist_upsert(cfg, entries){
+    const nowIso = new Date().toISOString();
+    const cur = mol_hist_load();
+
+    const idxByKey = new Map();
+    cur.forEach((it, i)=>{ idxByKey.set(mol_hist_keyOf(it), i); });
+
+    (entries||[]).forEach(e=>{
+      const row = { date: safeStr(e.date), batch: safeStr(e.batch), origin: safeStr(e.origin), ref: safeStr(e.ref) };
+      const item = {
+        id: mol_hist_makeId(),
+        ts: nowIso,
+        cfg: {
+          type: safeStr(cfg.type),
+          company: safeStr(cfg.company),
+          approval: safeStr(cfg.approval),
+          dateLabel: safeStr(cfg.dateLabel),
+          rowsPerPage: Math.max(1, Math.min(12, Math.floor(toNum(cfg.rowsPerPage, 6)) || 6)),
+          dateFormat: safeStr(cfg.dateFormat),
+          fontSize: Math.max(8, Math.min(16, Math.floor(toNum(cfg.fontSize, 11)) || 11)),
+          cutText: safeStr(cfg.cutText)
+        },
+        row
+      };
+
+      const key = mol_hist_keyOf(item);
+      if (idxByKey.has(key)){
+        const i = idxByKey.get(key);
+        cur[i].ts = nowIso;
+        cur[i].cfg = item.cfg;
+        cur[i].row = item.row;
+      } else {
+        cur.unshift(item);
+      }
+    });
+
+    mol_hist_store(cur.slice(0, 200));
+  }
+  function mol_hist_delete(id){
+    const cur = mol_hist_load();
+    mol_hist_store(cur.filter(it => String(it.id) !== String(id)));
+  }
+  function mol_hist_clear(){ mol_hist_store([]); }
+
+  function mol_hist_typeLabel(type){
+    const t = String(type||'').toLowerCase();
+    if (t === 'poultry') return 'Hydina';
+    if (t === 'pork') return 'Ošípané';
+    return 'Hovädzie';
+  }
+  function mol_hist_fmtTs(iso){
+    const s = safeStr(iso);
+    if (!s) return '';
+    try{ return new Date(s).toLocaleString('sk-SK'); }catch(_){ return s; }
+  }
+
+  function mol_hist_render(){
+    const host = $('#mol-history-list');
+    if (!host) return;
+
+    const filter = safeStr($('#mol-history-filter')?.value || '').toLowerCase();
+    let items = mol_hist_load();
+    items.sort((a,b)=> String(b.ts||'').localeCompare(String(a.ts||'')));
+
+    if (filter){
+      items = items.filter(it=>{
+        const r = it.row || {};
+        const c = it.cfg || {};
+        const hay = [r.date, r.batch, r.origin, r.ref, c.type, c.cutText].map(x=> String(x||'').toLowerCase()).join(' | ');
+        return hay.includes(filter);
+      });
+    }
+
+    if (!items.length){
+      host.innerHTML = '<div class="muted" style="padding:8px 0">História je prázdna.</div>';
+      return;
+    }
+
+    host.innerHTML = `
+      <div class="table-container">
+        <table class="tbl" id="mol-history-table">
+          <thead>
+            <tr>
+              <th style="width:120px">Dátum</th>
+              <th style="width:140px">Kód dávky</th>
+              <th style="width:180px" class="mol-beef-only">Referenčné</th>
+              <th>Pôvod</th>
+              <th style="width:110px">Typ</th>
+              <th style="width:170px">Uložené</th>
+              <th style="width:220px"></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${items.map(it=>{
+              const r = it.row || {};
+              const c = it.cfg || {};
+              return `
+                <tr>
+                  <td>${escapeHtml(r.date || '')}</td>
+                  <td><span style="font-family:monospace">${escapeHtml(r.batch || '')}</span></td>
+                  <td class="mol-beef-only"><span style="font-family:monospace">${escapeHtml(r.ref || r.batch || '')}</span></td>
+                  <td>${escapeHtml(r.origin || '')}</td>
+                  <td>${escapeHtml(mol_hist_typeLabel(c.type))}</td>
+                  <td>${escapeHtml(mol_hist_fmtTs(it.ts))}</td>
+                  <td style="text-align:right; white-space:nowrap;">
+                    <button class="btn btn-sm btn-secondary" data-mol-hload="${escapeHtml(it.id)}">Vložiť</button>
+                    <button class="btn btn-sm btn-secondary" data-mol-hprint="${escapeHtml(it.id)}">Tlačiť (A4)</button>
+                    <button class="btn btn-sm" data-mol-hdel="${escapeHtml(it.id)}">×</button>
+                  </td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+      <div class="muted" style="margin-top:6px">
+        Poznámka: História je uložená v tomto prehliadači (localStorage). Dátum je voliteľný.
+      </div>
+    `;
+
+    host.querySelectorAll('[data-mol-hdel]').forEach(btn=>{
+      btn.onclick = ()=>{
+        const id = btn.getAttribute('data-mol-hdel');
+        mol_hist_delete(id);
+        mol_hist_render();
+      };
+    });
+
+    host.querySelectorAll('[data-mol-hprint]').forEach(btn=>{
+      btn.onclick = ()=>{
+        const id = btn.getAttribute('data-mol-hprint');
+        const it = mol_hist_load().find(x=> String(x.id) === String(id));
+        if (!it) return;
+
+        const cfg = Object.assign({}, it.cfg || {});
+        cfg.rowsPerPage = Math.max(1, Math.min(12, Math.floor(toNum(cfg.rowsPerPage, 6)) || 6));
+
+        const entries = [Object.assign({}, it.row || {})];
+        mol_applyBeefVisibility(cfg.type);
+        mol_printCore(cfg, entries, { afterPrint: null });
+      };
+    });
+
+    host.querySelectorAll('[data-mol-hload]').forEach(btn=>{
+      btn.onclick = ()=>{
+        const id = btn.getAttribute('data-mol-hload');
+        const it = mol_hist_load().find(x=> String(x.id) === String(id));
+        if (!it) return;
+
+        const cfg = it.cfg || {};
+        const row = it.row || {};
+
+        const typeSel = $('#mol-type');
+        if (typeSel && cfg.type){ typeSel.value = cfg.type; }
+        mol_applyBeefVisibility(cfg.type);
+
+        const companyEl = $('#mol-company');
+        if (companyEl) companyEl.value = cfg.company || companyEl.value;
+
+        const approvalEl = $('#mol-approval');
+        if (approvalEl) approvalEl.value = cfg.approval || approvalEl.value;
+
+        const dateLblSel = $('#mol-date-label');
+        if (dateLblSel && cfg.dateLabel){
+          if (Array.from(dateLblSel.options||[]).some(o=> String(o.value) === String(cfg.dateLabel))){
+            dateLblSel.value = cfg.dateLabel;
+          }
+        }
+
+        const rppEl = $('#mol-rows-per-page');
+        if (rppEl && cfg.rowsPerPage) rppEl.value = String(cfg.rowsPerPage);
+
+        const dfEl = $('#mol-date-format');
+        if (dfEl && cfg.dateFormat){
+          if (Array.from(dfEl.options||[]).some(o=> String(o.value) === String(cfg.dateFormat))){
+            dfEl.value = cfg.dateFormat;
+          }
+        }
+
+        const fsEl = $('#mol-font-size');
+        if (fsEl && cfg.fontSize) fsEl.value = String(cfg.fontSize);
+
+        const cutEl = $('#mol-cuttext');
+        if (cutEl && mol_isBeef(cfg.type)) cutEl.value = cfg.cutText || mol_defaultCutText();
+
+        const tb = $('#mol-items tbody');
+        mol_addRow(tb, { date: row.date, batch: row.batch, origin: row.origin, ref: row.ref });
+
+        mol_preview();
+      };
+    });
+
+    mol_applyBeefVisibility();
+  }
+
+  function mol_saveHistory(){
+    const { cfg, entries } = mol_collect();
+    if (!entries.length){
+      showStatus('Zadajte aspoň 1 riadok (kód dávky, pôvod). Dátum je voliteľný.', true);
+      return;
+    }
+    const ok = mol_validate(entries);
+    if (!ok){
+      showStatus('Niektoré riadky sú neúplné (chýba kód dávky alebo pôvod). Dátum môže byť prázdny.', true);
+      return;
+    }
+    mol_hist_upsert(cfg, entries);
+    mol_hist_render();
+    showStatus('Uložené do histórie dávok.', false);
+  }
+
+  function mol_print(){
+    const { cfg, entries } = mol_collect();
+    if (!entries.length){
+      showStatus('Zadajte aspoň 1 riadok (kód dávky, pôvod). Dátum je voliteľný.', true);
+      return;
+    }
+    const ok = mol_validate(entries);
+    if (!ok){
+      showStatus('Niektoré riadky sú neúplné (chýba kód dávky alebo pôvod). Dátum môže byť prázdny.', true);
+      return;
+    }
+
+    mol_hist_upsert(cfg, entries);
+    mol_hist_render();
+    mol_printCore(cfg, entries, {});
+  }
+
+  function initMeatOriginLabels(){
+    if (__mol_inited) return;
+    const tb = $('#mol-items tbody');
+    if (!tb) return;
+    __mol_inited = true;
+
+    for (let i=0; i<6; i++) mol_addRow(tb);
+
+    const typeSel = $('#mol-type');
+    const dateLblSel = $('#mol-date-label');
+
+    function applyTypeDefaults(){
+      const t = safeStr(typeSel?.value || 'beef');
+      const desired = mol_defaultDateLabel(t);
+      if (dateLblSel && Array.from(dateLblSel.options||[]).some(o=> String(o.value) === desired)) {
+        dateLblSel.value = desired;
+      }
+      mol_applyBeefVisibility(t);
+    }
+    applyTypeDefaults();
+
+    $('#mol-add') && ($('#mol-add').onclick = ()=> mol_addRow(tb));
+    $('#mol-preview') && ($('#mol-preview').onclick = mol_preview);
+    $('#mol-print') && ($('#mol-print').onclick = mol_print);
+    $('#mol-save-history') && ($('#mol-save-history').onclick = mol_saveHistory);
+
+    typeSel && typeSel.addEventListener('change', ()=>{ applyTypeDefaults(); });
+
+    const hFilter = $('#mol-history-filter');
+    hFilter && hFilter.addEventListener('input', ()=> mol_hist_render());
+    $('#mol-history-clear') && ($('#mol-history-clear').onclick = ()=>{ if (confirm('Naozaj chcete vyčistiť celú históriu dávok?')){ mol_hist_clear(); mol_hist_render(); } });
+
+    let t = null;
+    const schedulePreview = ()=>{ clearTimeout(t); t = setTimeout(()=> mol_preview(), 250); };
+    ['mol-type','mol-company','mol-approval','mol-cuttext','mol-date-label','mol-rows-per-page','mol-date-format','mol-font-size'].forEach(id=>{
+      const el = $('#'+id);
+      el && el.addEventListener('change', schedulePreview);
+    });
+    tb.addEventListener('input', schedulePreview);
+
+    mol_hist_render();
+  }
+
+  function attachSupplierAutocomplete(){
+      const input = $('#nb2b-name'); if (!input) return;
+      let popup = $('#nb2b-suggest');
+      if (!popup){ popup = doc.createElement('div'); popup.id='nb2b-suggest'; popup.style.cssText='position:absolute;z-index:1000;background:#fff;border:1px solid #e5e7eb;border-radius:8px;box-shadow:0 10px 30px rgba(0,0,0,.15);display:none;max-height:240px;overflow:auto'; doc.body.appendChild(popup); }
+      function position(){ const r = input.getBoundingClientRect(); popup.style.left=(window.scrollX+r.left)+'px'; popup.style.top=(window.scrollY+r.bottom+4)+'px'; popup.style.minWidth=r.width+'px'; }
+      input.addEventListener('input', async ()=>{
+        const q = input.value.trim(); if (q.length < 2){ popup.style.display='none'; return; }
+        position(); popup.innerHTML = '<div style="padding:.5rem" class="muted">Hľadám…</div>'; popup.style.display='block';
+        const list = await searchSuppliers(q);
+        if (!list.length){ popup.innerHTML = '<div style="padding:.5rem" class="muted">Žiadne výsledky</div>'; return; }
+        popup.innerHTML = list.map(x=>`<div data-id="${escapeHtml(String(x.id))}" data-json='${escapeHtml(JSON.stringify(x))}' style="padding:.4rem .6rem;cursor:pointer">${escapeHtml(x.name)} <span class="muted">(${escapeHtml(x.code||'')})</span></div>`).join('');
+        Array.from(popup.children).forEach(div=>{
+          div.onclick = async ()=>{
+            const data = JSON.parse(div.getAttribute('data-json')); __pickedCustomer = data; input.value = data.name; popup.style.display='none';
+            const box = $('#nb2b-pl-box') || (()=>{ const d = doc.createElement('div'); d.id='nb2b-pl-box'; d.className='muted'; d.style.margin='8px 0'; const body = $('#manual-b2b-form .card-body') || $('#leader-manual-b2b .card .card-body') || doc.body; body.insertBefore(d, body.firstChild); return d; })();
+            const pls = await fetchPricelists(data.id);
+            if (!pls.length){ box.innerHTML = '<div class="muted">Pre odberateľa nie sú evidované cenníky.</div>'; __pickedPricelist=null; __pricelistMapByEAN=Object.create(null); return; }
+            box.innerHTML = `<label>Vyber cenník:</label> <select id="nb2b-pl" style="min-width:260px">${pls.map(p=>`<option value="${escapeHtml(p.id)}">${escapeHtml(p.name||('Cenník '+String(p.id||'')))}</option>`).join('')}</select><div id="nb2b-pl-note" class="muted" style="margin-top:.25rem">Ceny položiek sa doplnia pri pridávaní EAN z vybraného cenníka.</div><div id="nb2b-pl-preview" style="margin-top:.5rem"></div>`;
+            __pickedPricelist = pls[0]||null; __pricelistMapByEAN = Object.create(null);
             if (__pickedPricelist && Array.isArray(__pickedPricelist.items)){ __pickedPricelist.items.forEach(it=>{ if (it && it.ean != null) __pricelistMapByEAN[String(it.ean)] = toNum(it.price||it.cena_bez_dph||0,0); }); }
             renderPricelistPreview(__pickedPricelist, box);
+            $('#nb2b-pl').onchange = (e)=>{
+              const pick = pls.find(x=> String(x.id) === e.target.value); __pickedPricelist = pick || null; __pricelistMapByEAN = Object.create(null);
+              if (__pickedPricelist && Array.isArray(__pickedPricelist.items)){ __pickedPricelist.items.forEach(it=>{ if (it && it.ean != null) __pricelistMapByEAN[String(it.ean)] = toNum(it.price||it.cena_bez_dph||0,0); }); }
+              renderPricelistPreview(__pickedPricelist, box);
+            };
           };
-        };
+        });
       });
-    });
-    window.addEventListener('resize', ()=>{ if(popup.style.display==='block') position(); }); document.addEventListener('click', (e)=>{ if (!popup.contains(e.target) && e.target!==input) popup.style.display='none'; });
+      window.addEventListener('resize', ()=>{ if(popup.style.display==='block') position(); }); document.addEventListener('click', (e)=>{ if (!popup.contains(e.target) && e.target!==input) popup.style.display='none'; });
   }
 
-// ========================= LOGISTIKA A TRASY (DEFINITÍVNA OPRAVA) =====================
-  
-  // Premenná pre cache trás
-  let _routesCache = [];
+  // =================================================================
+  // 🚛 LOGISTIKA & TRASY (Zrkadlenie z Kancelárie pre Vedúceho)
+  // =================================================================
 
-  // Hlavná funkcia na načítanie (zavesená na root)
+  window.leaderLogisticsState = { customers: [], stores: [], routeTemplates: [] };
+
+  window.openLeaderModal = function(html) {
+      let wrapper = document.getElementById('leader-modal-wrapper');
+      if (!wrapper) {
+          wrapper = document.createElement('div');
+          wrapper.id = 'leader-modal-wrapper';
+          document.body.appendChild(wrapper);
+      }
+      wrapper.innerHTML = `<div class="b2b-modal" style="position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:10000;display:flex;justify-content:center;align-items:center;">
+          <div class="b2b-modal-content" style="background:white;padding:25px;border-radius:12px;width:90%;max-width:800px;max-height:90vh;overflow-y:auto;box-shadow:0 20px 25px -5px rgba(0,0,0,0.1);">
+              <div style="text-align:right;margin-bottom:10px;"><span style="cursor:pointer;font-size:1.5rem;" onclick="window.closeLeaderModal()">&times;</span></div>
+              ${html}
+          </div>
+      </div>`;
+      wrapper.style.display = 'block';
+  };
+
+  window.closeLeaderModal = function() {
+      const w = document.getElementById('leader-modal-wrapper');
+      if(w) w.style.display = 'none';
+  };
+
   root.loadLogistics = async function() {
-      // 1. Prepnutie UI (aby bolo vidno kontajner)
       $$('.content-section').forEach(s => { s.classList.remove('active'); s.style.display = 'none'; });
       $$('.sidebar-link').forEach(l => l.classList.remove('active'));
       
@@ -1491,151 +1375,599 @@ function attachSupplierAutocomplete(){
           sec.style.display = 'block'; 
       }
       
-      // Zvýraznenie tlačidla v menu
       const btn = document.querySelector('.sidebar-link i.fa-truck')?.closest('a');
       if(btn) btn.classList.add('active');
 
-      // 2. Vykreslenie obsahu
       const box = $('#leader-logistics-container');
-      if (!box) { console.error("Chýba #leader-logistics-container"); return; }
-      
-      box.innerHTML = '<div class="muted p-4" style="text-align:center">Načítavam trasy...</div>';
-      
-      try {
-          // Voláme NOVÝ endpoint
-          const res = await apiRequest('/api/leader/routes/list');
-          _routesCache = res.routes || [];
+      if (!box) return;
 
-          let html = `
-              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
-                  <h3><i class="fas fa-truck"></i> Logistika & Trasy</h3>
-                  <button class="btn btn-primary" onclick="ldr_editRoute(null)">+ Nová trasa</button>
+      const today = todayISO();
+      
+      box.innerHTML = `
+          <div style="background:#f8fafc; padding:15px; border-radius:8px; border:1px solid #e2e8f0; margin-bottom:20px;">
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                  <div style="display:flex; align-items:center; gap:15px;">
+                      <h4 style="margin:0; color:#1e293b;">🚛 Plánovanie rozvozu</h4>
+                      <button class="btn btn-secondary btn-sm" onclick="window.manageManualRoutes()">📝 Manuálne šablóny</button>
+                      <button class="btn btn-primary btn-sm" onclick="window.manageStores()">🏢 Adresár prevádzok</button>
+                  </div>
+                  <div style="display:flex; gap:10px; align-items:center;">
+                      <label style="font-weight:bold;">Deň rozvozu (Dodania):</label>
+                      <input type="date" id="logistics-date" class="form-control" style="width:auto; display:inline-block;" value="${today}">
+                      <button id="logistics-load-btn" class="btn btn-success"><i class="fas fa-sync"></i> Načítať trasy</button>
+                  </div>
               </div>
-              <div class="card">
-                  <div class="card-body">
-                      <table class="tbl" style="width:100%">
-                          <thead>
-                              <tr><th>Názov trasy</th><th>Poznámka / Šofér</th><th style="text-align:right">Akcia</th></tr>
-                          </thead>
-                          <tbody>
-          `;
-
-          if (!_routesCache.length) {
-              html += `<tr><td colspan="3" class="muted" style="text-align:center; padding:1rem;">Zatiaľ žiadne trasy.</td></tr>`;
-          } else {
-              html += _routesCache.map(r => `<tr>
-                      <td><strong>${escapeHtml(r.template_name)}</strong></td>
-                      <td>${escapeHtml(r.note || '')}</td>
-                      <td style="text-align:right">
-                          <button class="btn btn-sm btn-secondary" onclick="ldr_editRoute(${r.id})">Upraviť</button>
-                          <button class="btn btn-sm btn-danger" onclick="ldr_deleteRoute(${r.id})" style="margin-left:5px">Zmazať</button>
-                      </td>
-                  </tr>`).join('');
-          }
-          
-          html += `</tbody></table></div></div>`;
-          box.innerHTML = html;
-
-      } catch (e) {
-          box.innerHTML = `<div class="error p-4">Chyba: ${escapeHtml(e.message)}</div>`;
-      }
-  };
-
-  // Editácia
-  root.ldr_editRoute = function(id) {
-      const route = id ? _routesCache.find(r => r.id == id) : { template_name: '', note: '' };
-      if (!route && id) return;
-
-      const title = id ? 'Upraviť trasu' : 'Nová trasa';
-      const html = `
-          <div class="form-group"><label>Názov trasy</label><input id="rt-name" class="form-control" value="${escapeHtml(route.template_name||'')}"></div>
-          <div class="form-group"><label>Poznámka / Šofér</label><input id="rt-note" class="form-control" value="${escapeHtml(route.note||'')}"></div>
-          <div style="text-align:right; margin-top:1rem;">
-              <button class="btn btn-secondary" onclick="closeModal()">Zrušiť</button>
-              <button class="btn btn-primary" id="rt-save">Uložiť</button>
+          </div>
+          <div id="logistics-content">
+              <p style="color:#666;">Kliknite na "Načítať trasy" pre zobrazenie zoznamu.</p>
           </div>
       `;
 
-      modal(title, html, (body) => {
-          body.querySelector('#rt-save').onclick = async () => {
-              const name = body.querySelector('#rt-name').value.trim();
-              const note = body.querySelector('#rt-note').value.trim();
-              if (!name) { showStatus('Zadajte názov.', true); return; }
+      document.getElementById('logistics-load-btn').onclick = async () => {
+          const date = document.getElementById('logistics-date').value;
+          const content = document.getElementById('logistics-content');
+          content.innerHTML = '<div style="padding:40px;text-align:center;color:#64748b;"><i class="fas fa-spinner fa-spin fa-2x"></i><br>Sťahujem dáta...</div>';
 
+          try {
+              const res = await apiRequest(`/api/leader/logistics/routes-data?date=${date}`);
+              const trasy = res.trasy || [];
+              
+              let vehicles = [];
               try {
-                  await apiRequest('/api/leader/routes/save', {
-                      method: 'POST', body: { id: id, name: name, note: note }
-                  });
-                  showStatus('Uložené.', false);
-                  closeModal();
-                  root.loadLogistics();
-              } catch (e) { showStatus(e.message, true); }
-          };
-      });
+                  const vRes = await apiRequest('/api/fleet/active-vehicles');
+                  vehicles = vRes.vehicles || [];
+              } catch(ve) { console.error("Autá sa nenačítali"); }
+
+              if (trasy.length === 0) {
+                  content.innerHTML = '<div style="padding:20px;text-align:center;font-weight:bold;color:#dc2626;">Na tento deň nie sú naplánované žiadne objednávky pre rozvoz.</div>';
+                  return;
+              }
+
+              let html = '';
+              trasy.forEach(t => {
+                  html += `
+                  <div style="margin-bottom: 25px; border: 1px solid #cbd5e1; border-radius:8px; overflow:hidden; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);">
+                      <div style="background:#f1f5f9; padding:15px; display:flex; justify-content:space-between; align-items:center; border-bottom: 2px solid #0284c7;">
+                          <h3 style="margin:0; color:#0f172a;">🚛 ${escapeHtml(t.nazov)}</h3>
+                          <div style="display:flex; gap:10px;">
+                              <button class="btn btn-warning btn-sm" style="color:#000; font-weight:bold;" onclick='window.printChecklist(${JSON.stringify(t).replace(/'/g, "&apos;")}, "${date}")'>📝 Nakládkový list</button>
+                              <button class="btn btn-dark btn-sm" onclick='window.printSummary(${JSON.stringify(t).replace(/'/g, "&apos;")}, "${date}")'>📦 Súhrn do auta</button>
+                          </div>
+                      </div>
+                      <div style="padding:15px; background:#fff; display:flex; gap:20px; flex-wrap:wrap;">
+                          
+                          <div style="flex:1; min-width:400px;">
+                              <h5 style="border-bottom:1px solid #e2e8f0; padding-bottom:8px; margin-top:0; color:#475569;">Poradie zastávok (Vykládka)</h5>
+                              <table style="width:100%; border-collapse:collapse; font-size:0.85rem;">
+                                  <thead>
+                                      <tr style="border-bottom:1px solid #e2e8f0; background:#f8fafc; text-align:left;">
+                                          <th style="width:60px; text-align:center; padding:8px;">Poradie</th>
+                                          <th style="padding:8px;">Odberateľ a Adresa</th>
+                                          <th style="padding:8px;">Objednávky</th>
+                                          <th style="text-align:center; padding:8px;">Uložiť</th>
+                                      </tr>
+                                  </thead>
+                                  <tbody>
+                                      ${t.zastavky.map((z) => `
+                                          <tr style="border-bottom:1px solid #f1f5f9;">
+                                              <td style="text-align:center; padding:8px;">
+                                                  <input type="number" value="${z.poradie}" style="width:60px; text-align:center; font-weight:bold; border:1px solid #ccc; padding:4px; border-radius:4px;" id="poradie_${z.zakaznik_id}">
+                                              </td>
+                                              <td style="padding:8px;">
+                                                  <strong style="font-size:1rem; color:#0f172a;">${escapeHtml(z.odberatel)}</strong><br>
+                                                  <small style="color:#64748b;">${escapeHtml(z.adresa)}</small>
+                                              </td>
+                                              <td style="padding:8px;">
+                                                  <span style="background:#e0f2fe; color:#0369a1; padding:2px 6px; border-radius:4px; font-weight:bold;">${z.pocet_objednavok} obj.</span><br>
+                                                  <small style="color:#94a3b8;">${z.cisla_objednavok.join(', ')}</small>
+                                              </td>
+                                              <td style="text-align:center; padding:8px;">
+                                                  <button class="btn btn-primary btn-sm" onclick="window.saveRouteOrder(${z.zakaznik_id})">💾</button>
+                                              </td>
+                                          </tr>
+                                      `).join('')}
+                                  </tbody>
+                              </table>
+                              
+                              <div style="margin-top: 15px; padding: 15px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; display:flex; gap:10px; align-items:center;">
+                                  <label style="font-weight:bold; color:#166534; margin:0;"><i class="fas fa-car"></i> Založiť knihu jázd:</label>
+                                  <select id="veh_${t.trasa_id}" class="form-control" style="flex:1; display:inline-block; width:auto;">
+                                      <option value="">-- Vyberte auto z Fleet modulu --</option>
+                                      ${vehicles.map(v => `<option value="${v.id}">${escapeHtml(v.name)} (${escapeHtml(v.license_plate)})</option>`).join('')}
+                                  </select>
+                                  <button class="btn btn-success btn-sm" onclick="window.assignVehicleToFleet('${escapeHtml(t.nazov)}', '${t.trasa_id}')">Založiť jazdu</button>
+                              </div>
+                          </div>
+                          
+                          <div style="width:350px; background:#f8fafc; padding:15px; border-radius:8px; border:1px solid #e2e8f0;">
+                              <h5 style="border-bottom:1px solid #cbd5e1; padding-bottom:8px; margin-top:0; color:#475569;">Čo naložiť do auta</h5>
+                              ${t.sumar.map(s => `
+                                  <div style="margin-bottom:12px;">
+                                      <strong style="color:#0369a1; display:block; border-bottom:1px dashed #cbd5e1; padding-bottom:3px;">${escapeHtml(s.kategoria)}</strong>
+                                      <ul style="margin:5px 0 0 0; padding-left:0; list-style:none; font-size:0.85rem;">
+                                          ${s.polozky.map(p => `
+                                              <li style="display:flex; justify-content:space-between; padding:3px 0;">
+                                                  <span>${escapeHtml(p.produkt)}</span>
+                                                  <b style="color:#1e293b;">${p.mnozstvo} ${p.mj}</b>
+                                              </li>
+                                          `).join('')}
+                                      </ul>
+                                  </div>
+                              `).join('')}
+                          </div>
+                      </div>
+                  </div>
+                  `;
+              });
+              content.innerHTML = html;
+          } catch (e) {
+              content.innerHTML = `<div class="alert alert-danger" style="padding:20px; font-weight:bold;">Kritická chyba: ${e.message}</div>`;
+          }
+      };
+      
+      document.getElementById('logistics-load-btn').click();
   };
 
-  // Mazanie
-  root.ldr_deleteRoute = async function(id) {
-      if (!confirm('Naozaj zmazať?')) return;
+  window.assignVehicleToFleet = async function(routeName, routeId) {
+      const date = document.getElementById('logistics-date').value;
+      const vehicleId = document.getElementById(`veh_${routeId}`).value;
+      if(!vehicleId) return showStatus("Najprv vyberte auto z rolovacieho zoznamu.", true);
       try {
-          await apiRequest('/api/leader/routes/delete', { method: 'POST', body: { id: id } });
-          showStatus('Zmazané.', false);
-          root.loadLogistics();
-      } catch (e) { showStatus(e.message, true); }
+          const res = await apiRequest('/api/leader/logistics/assign-vehicle', { method: 'POST', body: { date: date, route_name: routeName, vehicle_id: vehicleId } });
+          showStatus(res.message, false);
+      } catch(e) { showStatus("Chyba: " + e.message, true); }
   };
 
-function boot(){
-  $$('.sidebar-link').forEach(a=>{
-    a.onclick = ()=>{
-      if (a.getAttribute('onclick')) return; // ak má inline onclick, nechaj tak
-      
-      $$('.sidebar-link').forEach(x=> x.classList.remove('active')); a.classList.add('active');
-      const secId = a.getAttribute('data-section'); $$('.content-section').forEach(s=> s.classList.remove('active'));
-      const target = secId ? $('#'+secId) : null; if (target) target.classList.add('active');
-      
-      if (secId === 'leader-dashboard')  loadDashboard();
-      if (secId === 'leader-b2c')        loadB2C();
-      if (secId === 'leader-b2b')        loadB2B();
-      if (secId === 'leader-b2b-comm') {
-          if (typeof window.loadCommView === 'function') window.loadCommView();
+  window.saveRouteOrder = async function(custId) {
+      const poradie = document.getElementById(`poradie_${custId}`).value;
+      try {
+          await apiRequest('/api/leader/b2b/updateCustomerRouteOrder', { method: 'POST', body: { zakaznik_id: custId, poradie: poradie } });
+          showStatus('Poradie uložené.', false);
+          document.getElementById('logistics-load-btn').click();
+      } catch(e) { showStatus('Chyba: ' + e.message, true); }
+  };
+
+  window.manageStores = async function() {
+      window.openLeaderModal('<div style="padding:30px; text-align:center;">Načítavam adresár...</div>');
+      try {
+          const data = await apiRequest('/api/leader/b2b/getStores');
+          window.leaderLogisticsState.stores = data.stores || [];
+
+          let listHtml = `<table class="tbl" style="width:100%; border-collapse:collapse; text-align:left;"><thead><tr style="border-bottom:2px solid #ccc;"><th style="padding:10px;">Názov prevádzky</th><th>Poznámka / Adresa</th><th style="text-align:right;">Akcia</th></tr></thead><tbody>`;
+          if (window.leaderLogisticsState.stores.length === 0) {
+              listHtml += `<tr><td colspan="3" style="text-align:center; padding:20px;">Zatiaľ nemáte žiadne manuálne prevádzky.</td></tr>`;
+          } else {
+              window.leaderLogisticsState.stores.forEach(s => {
+                  listHtml += `<tr style="border-bottom:1px solid #eee;">
+                      <td style="padding:10px;"><strong>${escapeHtml(s.name)}</strong></td>
+                      <td style="color:#666;">${escapeHtml(s.note || '-')}</td>
+                      <td style="text-align:right;">
+                          <button class="btn btn-primary btn-sm" onclick="window.showStoreEditor(${s.id})">✏️ Upraviť</button>
+                          <button class="btn btn-danger btn-sm" onclick="window.deleteStore(${s.id}, '${escapeHtml(s.name)}')" style="margin-left:5px;">🗑️</button>
+                      </td>
+                  </tr>`;
+              });
+          }
+          listHtml += `</tbody></table>`;
+
+          let html = `
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                  <h3 style="margin:0; color:#1e293b;">🏢 Adresár manuálnych prevádzok</h3>
+                  <button class="btn btn-success" onclick="window.showStoreEditor(null)">+ Nová prevádzka</button>
+              </div>
+              <div style="max-height: 50vh; overflow-y: auto; border: 1px solid #cbd5e1; border-radius: 8px;">
+                ${listHtml}
+              </div>
+          `;
+          window.openLeaderModal(html);
+      } catch(e) { showStatus("Chyba: " + e.message, true); }
+  };
+
+  window.showStoreEditor = async function(id) {
+      let store = { id: null, name: '', note: '' };
+      if (id && window.leaderLogisticsState.stores) {
+          const found = window.leaderLogisticsState.stores.find(s => s.id === id);
+          if (found) store = found;
       }
-      if (secId === 'leader-meat-origin-labels') { initMeatOriginLabels(); mol_preview(); }
-      if (secId === 'leader-cut')        loadCutJobs();
-      if (secId === 'leader-lowstock')   loadLeaderLowStockDetail();
-      if (secId === 'leader-plan')       loadLeaderProductionCalendar();
-      if (secId === 'leader-logistics')  loadLogistics();
-    };
-  });
+      let html = `
+          <h3 style="margin-top:0;">${id ? '✏️ Úprava prevádzky' : '➕ Vytvorenie prevádzky'}</h3>
+          <div style="margin-bottom:15px;">
+              <label style="font-weight:bold;">Názov prevádzky *</label>
+              <input type="text" id="store-name" class="form-control" style="width:100%;" value="${escapeHtml(store.name)}">
+          </div>
+          <div style="margin-bottom:15px;">
+              <label>Poznámka / Adresa</label>
+              <input type="text" id="store-note" class="form-control" style="width:100%;" value="${escapeHtml(store.note)}">
+          </div>
+          <div style="text-align:right;">
+              <button class="btn btn-secondary" onclick="window.manageStores()" style="margin-right:10px;">Späť</button>
+              <button class="btn btn-success" onclick="window.saveStore(${id || 'null'})">💾 Uložiť</button>
+          </div>
+      `;
+      window.openLeaderModal(html);
+  };
 
-  // Init dates
-  $('#ldr-date') && ($('#ldr-date').value = todayISO());
-  $('#b2c-date') && ($('#b2c-date').value = todayISO());
-  $('#b2b-date') && ($('#b2b-date').value = todayISO());
-  $('#cut-date') && ($('#cut-date').value = todayISO());
-  $('#nb2b-date') && ($('#nb2b-date').value = todayISO());
+  window.saveStore = async function(id) {
+      const name = document.getElementById('store-name').value.trim();
+      const note = document.getElementById('store-note').value.trim();
+      if (!name) return showStatus("Názov prevádzky je povinný!", true);
+      try {
+          await apiRequest('/api/leader/b2b/saveStore', { method: 'POST', body: { id: id, name: name, note: note, b2b_customer_id: null } });
+          window.manageStores(); 
+      } catch(e) { showStatus("Chyba: " + e.message, true); }
+  };
 
-  // Handlers
-  $('#ldr-refresh') && ($('#ldr-refresh').onclick = loadDashboard);
-  $('#plan-commit') && ($('#plan-commit').onclick = commitPlan);
-  $('#b2c-refresh') && ($('#b2c-refresh').onclick = loadB2C);
-  $('#b2b-refresh') && ($('#b2b-refresh').onclick = loadB2B);
-  $('#leader-lowstock-refresh') && ($('#leader-lowstock-refresh').onclick = loadLeaderLowStockDetail);
-  
-  // --- NOVÉ FUNKCIE ---
-  attachProductSearch();
+  window.deleteStore = async function(id, name) {
+      if (!confirm(`Vymazať prevádzku "${name}"?`)) return;
+      try {
+          await apiRequest('/api/leader/b2b/deleteStore', { method: 'POST', body: { id: id } });
+          window.manageStores();
+      } catch(e) { showStatus("Chyba: " + e.message, true); }
+  };
 
-  attachSupplierAutocomplete();
-  $('#nb2b-add')  && ($('#nb2b-add').onclick  = ()=> addManualRow($('#nb2b-items tbody')));
-  $('#nb2b-save') && ($('#nb2b-save').onclick = saveManualB2B);
-  
-  // CUT JOBS LISTENERS
-  $('#cut-refresh') && ($('#cut-refresh').onclick = loadCutJobs);
-  $('#cut-new')     && ($('#cut-new').onclick     = openNewCutModal);
+  window.manageManualRoutes = async function() {
+      window.openLeaderModal('<div style="padding:30px; text-align:center;">Načítavam šablóny...</div>');
+      try {
+          const data = await apiRequest('/api/leader/b2b/getRouteTemplates');
+          window.leaderLogisticsState.routeTemplates = data.templates || [];
 
-  loadDashboard();
-}
+          let listHtml = `<table class="tbl" style="width:100%; border-collapse:collapse; text-align:left;"><thead><tr style="border-bottom:2px solid #ccc;"><th style="padding:10px;">Názov šablóny</th><th>Zastávky</th><th style="text-align:right;">Akcia</th></tr></thead><tbody>`;
+          if (window.leaderLogisticsState.routeTemplates.length === 0) {
+              listHtml += `<tr><td colspan="3" style="text-align:center; padding:20px;">Žiadne manuálne šablóny.</td></tr>`;
+          } else {
+              window.leaderLogisticsState.routeTemplates.forEach(t => {
+                  const stopsCount = Array.isArray(t.stops) ? t.stops.length : 0;
+                  listHtml += `<tr style="border-bottom:1px solid #eee;">
+                      <td style="padding:10px;"><strong>${escapeHtml(t.name)}</strong></td>
+                      <td><span style="background:#e0f2fe; color:#0369a1; padding:3px 8px; border-radius:12px; font-weight:bold; font-size:0.85rem;">${stopsCount} prevádzok</span></td>
+                      <td style="text-align:right;">
+                          <button class="btn btn-success btn-sm" onclick="window.showPrintManualRoute(${t.id})">🖨️ Tlačiť</button>
+                          <button class="btn btn-primary btn-sm" onclick="window.showManualRouteEditor(${t.id})" style="margin-left:5px;">✏️ Upraviť</button>
+                          <button class="btn btn-danger btn-sm" onclick="window.deleteManualRouteTemplate(${t.id}, '${escapeHtml(t.name)}')" style="margin-left:5px;">🗑️</button>
+                      </td>
+                  </tr>`;
+              });
+          }
+          listHtml += `</tbody></table>`;
 
-boot();
+          let html = `
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                  <h3 style="margin:0;">📝 Manuálne šablóny trás</h3>
+                  <button class="btn btn-success" onclick="window.showManualRouteEditor(null)">+ Nová šablóna</button>
+              </div>
+              <div style="background:#f8fafc; padding:12px; border-radius:6px; margin-bottom:15px; font-size:0.9rem; color:#475569; border:1px solid #e2e8f0;">
+                  ℹ️ Tu si môžete vytvoriť pevné rozvozové zoznamy pre zákazníkov. Pred tlačou jednoducho odkliknete tých, ktorí dnes tovar neberú.
+              </div>
+              <div style="max-height: 50vh; overflow-y: auto; border: 1px solid #cbd5e1; border-radius: 8px;">
+                ${listHtml}
+              </div>
+          `;
+          window.openLeaderModal(html);
+      } catch(e) { showStatus("Chyba: " + e.message, true); }
+  };
+
+  window.showManualRouteEditor = async function(id) {
+      let template = { id: null, name: '', stops: [] };
+      if (id) {
+          const found = window.leaderLogisticsState.routeTemplates.find(t => t.id === id);
+          if (found) template = found;
+      }
+
+      window.openLeaderModal('<div style="padding:30px; text-align:center;">Načítavam dáta...</div>');
+
+      try {
+          const sData = await apiRequest('/api/leader/b2b/getStores');
+          window.leaderLogisticsState.stores = sData.stores || [];
+      } catch(e) { window.leaderLogisticsState.stores = []; }
+
+      try {
+          const cData = await apiRequest('/api/leader/b2b/getCustomersAndPricelists');
+          window.leaderLogisticsState.customers = cData.customers || [];
+      } catch(e) { window.leaderLogisticsState.customers = []; }
+
+      let storeOptions = `<option value="">-- Vyberte prevádzku alebo B2B zákazníka --</option>`;
+      
+      storeOptions += `<optgroup label="🏢 B2B Zákazníci zo systému">`;
+      if (window.leaderLogisticsState.customers && window.leaderLogisticsState.customers.length > 0) {
+          window.leaderLogisticsState.customers.forEach(c => {
+              const addr = c.adresa_dorucenia || c.adresa || '';
+              storeOptions += `<option value="b2b_${c.id}" data-name="${escapeHtml(c.nazov_firmy)}" data-note="${escapeHtml(addr)}">${escapeHtml(c.nazov_firmy)}</option>`;
+          });
+      }
+      storeOptions += `</optgroup>`;
+
+      storeOptions += `<optgroup label="📝 Manuálne prevádzky z Adresára">`;
+      if (window.leaderLogisticsState.stores && window.leaderLogisticsState.stores.length > 0) {
+          window.leaderLogisticsState.stores.forEach(s => {
+              storeOptions += `<option value="man_${s.id}" data-name="${escapeHtml(s.name)}" data-note="${escapeHtml(s.note || '')}">${escapeHtml(s.name)} ${s.note ? ' ('+escapeHtml(s.note)+')' : ''}</option>`;
+          });
+      }
+      storeOptions += `</optgroup>`;
+
+      let html = `
+          <h3 style="margin-top:0; color:#1e3a8a;">${id ? '✏️ Úprava šablóny' : '➕ Vytvorenie novej šablóny'}</h3>
+          <div style="margin-bottom:15px;">
+              <label style="font-weight:bold;">Názov šablóny</label>
+              <input type="text" id="tpl-name" class="form-control" style="width:100%; border:2px solid #3b82f6;" value="${escapeHtml(template.name)}">
+          </div>
+          
+          <div style="background:#f0fdf4; border:1px solid #bbf7d0; padding:15px; border-radius:6px; margin-bottom:15px;">
+              <label style="font-weight:bold; display:block; margin-bottom:5px;">Vložiť zákazníka / prevádzku do zoznamu:</label>
+              <div style="display:flex; gap:10px;">
+                  <select id="tpl-add-store-select" class="form-control" style="flex:1;">${storeOptions}</select>
+                  <button class="btn btn-primary" onclick="window.addStoreToTemplate()">Vložiť ⬇️</button>
+              </div>
+          </div>
+          
+          <h4 style="border-bottom:1px solid #e2e8f0; padding-bottom:5px;">Poradie vykládky:</h4>
+          <div id="tpl-stops-container" style="max-height:35vh; overflow-y:auto; border:1px solid #cbd5e1; border-radius:6px; padding:10px; background:#f1f5f9; display:flex; flex-direction:column; gap:5px;">
+          </div>
+          
+          <div style="margin-top:20px; text-align:right;">
+              <button class="btn btn-secondary" onclick="window.manageManualRoutes()" style="margin-right:10px;">Späť</button>
+              <button class="btn btn-success" onclick="window.saveManualRouteTemplate(${id || 'null'})">💾 Uložiť šablónu</button>
+          </div>
+      `;
+      window.openLeaderModal(html);
+
+      const container = document.getElementById('tpl-stops-container');
+      
+      window.renderStopRow = function(name, note, storeId = '') {
+          const row = document.createElement('div');
+          row.className = 'tpl-stop-row';
+          row.dataset.storeId = storeId;
+          row.dataset.name = name;
+          row.style.cssText = 'display:flex; justify-content:space-between; align-items:center; background:#fff; padding:10px; border:1px solid #ccc; border-radius:4px;';
+          row.innerHTML = `
+              <div style="display:flex; align-items:center; gap:15px; flex:1;">
+                  <div style="display:flex; flex-direction:column; gap:2px;">
+                      <button type="button" class="btn btn-sm btn-light p-1" onclick="if(this.closest('.tpl-stop-row').previousElementSibling) this.closest('.tpl-stop-row').parentNode.insertBefore(this.closest('.tpl-stop-row'), this.closest('.tpl-stop-row').previousElementSibling)" title="Hore">⬆️</button>
+                      <button type="button" class="btn btn-sm btn-light p-1" onclick="if(this.closest('.tpl-stop-row').nextElementSibling) this.closest('.tpl-stop-row').parentNode.insertBefore(this.closest('.tpl-stop-row').nextElementSibling, this.closest('.tpl-stop-row'))" title="Dole">⬇️</button>
+                  </div>
+                  <div style="flex:1; display:flex; flex-direction:column; gap:4px;">
+                      <div style="font-weight:bold;">${escapeHtml(name)}</div>
+                      <input type="text" class="form-control stop-note-input" value="${escapeHtml(note)}" style="font-size:0.85rem; padding:4px; width:95%;">
+                  </div>
+              </div>
+              <button class="btn btn-danger btn-sm" onclick="this.parentElement.remove()">✖</button>
+          `;
+          container.appendChild(row);
+          container.scrollTop = container.scrollHeight;
+      };
+
+      window.addStoreToTemplate = function() {
+          const select = document.getElementById('tpl-add-store-select');
+          if (select.selectedIndex <= 0) return showStatus("Vyberte možnosť z roletky.", true);
+          const option = select.options[select.selectedIndex];
+          window.renderStopRow(option.dataset.name, option.dataset.note, option.value);
+          select.value = ''; 
+      };
+
+      if (template.stops && template.stops.length > 0) {
+          template.stops.forEach(s => window.renderStopRow(s.name, s.note, s.store_id || ''));
+      }
+  };
+
+  window.saveManualRouteTemplate = async function(id) {
+      const name = document.getElementById('tpl-name').value.trim();
+      if (!name) return showStatus("Názov šablóny nesmie byť prázdny!", true);
+
+      const stops = [];
+      document.querySelectorAll('.tpl-stop-row').forEach(row => {
+          const noteInput = row.querySelector('.stop-note-input');
+          stops.push({ 
+              store_id: row.dataset.storeId || '', 
+              name: row.dataset.name || '', 
+              note: noteInput ? noteInput.value.trim() : '' 
+          });
+      });
+
+      if (stops.length === 0) return showStatus("Šablóna musí obsahovať aspoň jednu prevádzku.", true);
+
+      try {
+          await apiRequest('/api/leader/b2b/saveRouteTemplate', { method: 'POST', body: { id: id, name: name, stops: stops } });
+          window.manageManualRoutes(); 
+      } catch(e) { showStatus("Chyba: " + e.message, true); }
+  };
+
+  window.deleteManualRouteTemplate = async function(id, name) {
+      if (!confirm(`Vymazať šablónu:\n"${name}"?`)) return;
+      try {
+          await apiRequest('/api/leader/b2b/deleteRouteTemplate', { method: 'POST', body: { id: id } });
+          window.manageManualRoutes(); 
+      } catch(e) { showStatus("Chyba: " + e.message, true); }
+  };
+
+  window.showPrintManualRoute = async function(id) {
+      const template = window.leaderLogisticsState.routeTemplates.find(t => t.id === id);
+      if (!template) return;
+
+      let vehicles = [];
+      try {
+          const vRes = await apiRequest('/api/fleet/active-vehicles');
+          vehicles = vRes.vehicles || [];
+      } catch(ve) {}
+
+      let stopsHtml = '';
+      template.stops.forEach((s, idx) => {
+          stopsHtml += `
+              <label style="display:flex; align-items:flex-start; padding:12px; border-bottom:1px solid #ccc; cursor:pointer; background:${idx % 2 === 0 ? '#fff' : '#f8fafc'};" class="print-row-label">
+                  <div style="padding-top:3px;">
+                      <input type="checkbox" class="print-stop-cb" value="${idx}" checked style="transform:scale(1.3); margin:0 15px 0 5px;">
+                  </div>
+                  <div style="width: 40px; font-weight:bold; color:#666;">${idx + 1}.</div>
+                  <div style="flex:1;">
+                      <div style="font-weight:bold; font-size:1.05rem;">${escapeHtml(s.name)}</div>
+                      ${s.note ? `<div style="font-size:0.85rem; color:#666; margin-top:4px;">📝 ${escapeHtml(s.note)}</div>` : ''}
+                  </div>
+                  <div style="width: 80px; text-align:right; font-weight:bold; font-size:0.85rem; color:#10b981;" class="status-badge">Zahrnuté</div>
+              </label>
+          `;
+      });
+
+      const today = todayISO();
+
+      let html = `
+          <h3 style="margin-top:0;">🖨️ Príprava tlače: <span style="color:#0ea5e9;">${escapeHtml(template.name)}</span></h3>
+          
+          <div style="margin-bottom: 15px; padding: 15px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px;">
+              <h4 style="margin:0 0 10px 0;"><i class="fas fa-car"></i> Založiť knihu jázd (Fleet)</h4>
+              <div style="display:flex; gap:10px; align-items:center;">
+                  <input type="date" id="manual-route-date" class="form-control" value="${today}" style="width:auto;">
+                  <select id="manual-veh-select" class="form-control" style="flex:1;">
+                      <option value="">-- Vyberte auto z Fleet modulu --</option>
+                      ${vehicles.map(v => `<option value="${v.id}">${escapeHtml(v.name)} (${escapeHtml(v.license_plate)})</option>`).join('')}
+                  </select>
+                  <button class="btn btn-success btn-sm" onclick="window.assignManualVehicle('${escapeHtml(template.name)}')">Založiť jazdu</button>
+              </div>
+          </div>
+          
+          <div style="background:#eff6ff; padding:10px; margin-bottom:15px; font-size:0.95rem; border-left:4px solid #3b82f6;">
+              Odškrtnite prevádzky, do ktorých sa dnes <b>nevezme tovar</b>.
+          </div>
+          
+          <div style="border:1px solid #ccc; max-height:40vh; overflow-y:auto; margin-bottom:20px;">
+              ${stopsHtml}
+          </div>
+
+          <div style="text-align:right;">
+              <button class="btn btn-secondary" onclick="window.manageManualRoutes()" style="margin-right:10px;">← Späť na zoznam</button>
+              <button class="btn btn-primary" onclick="window.executePrintManualRoute(${id})">🖨️ Vytlačiť</button>
+          </div>
+      `;
+      
+      window.openLeaderModal(html);
+
+      setTimeout(() => {
+          document.querySelectorAll('.print-stop-cb').forEach(cb => {
+              cb.addEventListener('change', function() {
+                  const label = this.closest('.print-row-label');
+                  const badge = label.querySelector('.status-badge');
+                  if (this.checked) {
+                      badge.textContent = 'Zahrnuté'; badge.style.color = '#10b981'; label.style.opacity = '1';
+                  } else {
+                      badge.textContent = 'Vynechané'; badge.style.color = '#ef4444'; label.style.opacity = '0.5';
+                  }
+              });
+          });
+      }, 100);
+  };
+
+  window.assignManualVehicle = async function(routeName) {
+      const dateVal = document.getElementById('manual-route-date').value;
+      const vehicleId = document.getElementById('manual-veh-select').value;
+      if(!vehicleId) return showStatus("Najprv vyberte auto z rolovacieho zoznamu.", true);
+
+      try {
+          const res = await apiRequest('/api/leader/logistics/assign-vehicle', { method: 'POST', body: { date: dateVal, route_name: routeName, vehicle_id: vehicleId } });
+          showStatus(res.message, false);
+      } catch(e) { showStatus("Chyba: " + e.message, true); }
+  };
+
+  window.executePrintManualRoute = async function(id) {
+      const template = window.leaderLogisticsState.routeTemplates.find(t => t.id === id);
+      if (!template) return;
+
+      const activeStops = [];
+      document.querySelectorAll('.print-stop-cb:checked').forEach(cb => {
+          const idx = parseInt(cb.value);
+          if (template.stops[idx]) activeStops.push(template.stops[idx]);
+      });
+
+      if (activeStops.length === 0) return showStatus("Musíte nechať zaškrtnutú aspoň jednu prevádzku na tlač.", true);
+
+      try {
+          const res = await fetch('/api/kancelaria/b2b/printManualRoute', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name: template.name, stops: activeStops })
+          });
+          if (!res.ok) throw new Error("Backend nevrátil správnu odpoveď.");
+          const htmlStr = await res.text();
+          const printWindow = window.open('', '_blank', 'width=900,height=800');
+          printWindow.document.write(htmlStr);
+          printWindow.document.close();
+          window.closeLeaderModal();
+      } catch(e) { showStatus("Chyba: " + e.message, true); }
+  };
+
+  window.printChecklist = function(routeObj, dateStr) {
+      const dateFormatted = dateStr.split('-').reverse().join('.');
+      let html = `<html><head><title>Nakládkový list - ${routeObj.nazov}</title><style>body { font-family: Arial; padding: 20px; font-size: 14px; } h1, h3 { text-align: center; } table { width: 100%; border-collapse: collapse; margin-top: 20px; } th, td { border: 1px solid #000; padding: 8px; text-align: left; } th { background-color: #f1f5f9; } .box { display: inline-block; width: 20px; height: 20px; border: 2px solid #000; } @media print { body { margin: 0; } }</style></head><body><h1>Nakládkový list / Itinerár</h1><h3>TRASA: ${escapeHtml(routeObj.nazov)} | DÁTUM: ${dateFormatted} | ŠOFÉR: __________________</h3><table><thead><tr><th>Por.</th><th>Odberateľ a Adresa</th><th>Objednávky</th><th style="text-align:center;">Pripravil</th><th style="text-align:center;">Naložil</th></tr></thead><tbody>`;
+      routeObj.zastavky.forEach((z, idx) => {
+          html += `<tr><td style="text-align:center; font-size:16px;"><strong>${idx + 1}.</strong></td><td><strong>${escapeHtml(z.odberatel)}</strong><br><span style="font-size:12px;">${escapeHtml(z.adresa)}</span></td><td style="font-size:12px;"><strong>${z.pocet_objednavok} obj.</strong><br>${z.cisla_objednavok.join('<br>')}</td><td style="text-align:center;"><div class="box"></div></td><td style="text-align:center;"><div class="box"></div></td></tr>`;
+      });
+      html += `</tbody></table><div style="margin-top: 30px; display: flex; justify-content: space-between;"><div>Podpis pripravil: _______________________</div><div>Podpis šoféra: _______________________</div></div><script>window.onload=function(){window.print(); setTimeout(function(){window.close();},500);}</script></body></html>`;
+      const win = window.open('', '_blank'); win.document.write(html); win.document.close();
+  };
+
+  window.printSummary = function(routeObj, dateStr) {
+      const dateFormatted = dateStr.split('-').reverse().join('.');
+      let html = `<html><head><title>Súhrn - ${routeObj.nazov}</title><style>body { font-family: Arial; padding: 20px; font-size: 14px; } h1, h3 { text-align: center; } .cat { background: #e2e8f0; padding: 8px; margin-top: 20px; font-weight: bold; border: 1px solid #000; border-bottom: none; } table { width: 100%; border-collapse: collapse; } th, td { border: 1px solid #000; padding: 8px; } .num { text-align: right; font-weight: bold; } @media print { body { margin: 0; } }</style></head><body><h1>Slepý list (Súhrn na naloženie)</h1><h3>TRASA: ${escapeHtml(routeObj.nazov)} | DÁTUM: ${dateFormatted}</h3>`;
+      routeObj.sumar.forEach(s => {
+          html += `<div class="cat">${escapeHtml(s.kategoria)}</div><table><tbody>`;
+          s.polozky.forEach(p => {
+              const val = parseFloat(p.mnozstvo);
+              const displayVal = Number.isInteger(val) ? val : val.toFixed(2);
+              html += `<tr><td>${escapeHtml(p.produkt)}</td><td class="num" style="width:120px;">${displayVal} ${p.mj}</td></tr>`;
+          });
+          html += `</tbody></table>`;
+      });
+      html += `<script>window.onload=function(){window.print(); setTimeout(function(){window.close();},500);}</script></body></html>`;
+      const win = window.open('', '_blank'); win.document.write(html); win.document.close();
+  };
+
+  function boot(){
+    $$('.sidebar-link').forEach(a=>{
+      a.onclick = ()=>{
+        if (a.getAttribute('onclick')) return; 
+        
+        $$('.sidebar-link').forEach(x=> x.classList.remove('active')); a.classList.add('active');
+        const secId = a.getAttribute('data-section'); $$('.content-section').forEach(s=> s.classList.remove('active'));
+        const target = secId ? $('#'+secId) : null; if (target) target.classList.add('active');
+        
+        if (secId === 'leader-dashboard')  loadDashboard();
+        if (secId === 'leader-b2c')        loadB2C();
+        if (secId === 'leader-b2b')        loadB2B();
+        if (secId === 'leader-b2b-comm') {
+            if (typeof window.loadCommView === 'function') window.loadCommView();
+        }
+        if (secId === 'leader-meat-origin-labels') { initMeatOriginLabels(); mol_preview(); }
+        if (secId === 'leader-cut')        loadCutJobs();
+        if (secId === 'leader-lowstock')   loadLeaderLowStockDetail();
+        if (secId === 'leader-plan')       loadLeaderProductionCalendar();
+        if (secId === 'leader-logistics')  root.loadLogistics();
+      };
+    });
+
+    // Init dates
+    $('#ldr-date') && ($('#ldr-date').value = todayISO());
+    $('#b2c-date') && ($('#b2c-date').value = todayISO());
+    $('#b2b-date') && ($('#b2b-date').value = todayISO());
+    $('#cut-date') && ($('#cut-date').value = todayISO());
+    $('#nb2b-date') && ($('#nb2b-date').value = todayISO());
+
+    // Handlers
+    $('#ldr-refresh') && ($('#ldr-refresh').onclick = loadDashboard);
+    $('#plan-commit') && ($('#plan-commit').onclick = commitPlan);
+    $('#b2c-refresh') && ($('#b2c-refresh').onclick = loadB2C);
+    $('#b2b-refresh') && ($('#b2b-refresh').onclick = loadB2B);
+    $('#leader-lowstock-refresh') && ($('#leader-lowstock-refresh').onclick = loadLeaderLowStockDetail);
+    
+    // --- NOVÉ FUNKCIE ---
+    attachProductSearch();
+
+    attachSupplierAutocomplete();
+    $('#nb2b-add')  && ($('#nb2b-add').onclick  = ()=> addManualRow($('#nb2b-items tbody')));
+    $('#nb2b-save') && ($('#nb2b-save').onclick = saveManualB2B);
+    
+    // CUT JOBS LISTENERS
+    $('#cut-refresh') && ($('#cut-refresh').onclick = loadCutJobs);
+    $('#cut-new')     && ($('#cut-new').onclick     = openNewCutModal);
+
+    loadDashboard();
+  }
+
+  boot();
 })(window, document);
 
 // =========================================================
@@ -1836,578 +2168,3 @@ function printExpeditionBreakdown() {
     printWindow.document.write(printContent);
     printWindow.document.close();
 }
-// =================================================================
-// 🚛 LOGISTIKA & TRASY (Zrkadlenie z Kancelárie pre Vedúceho)
-// =================================================================
-
-// Globálny state pre logistiku v Leader module
-window.leaderLogisticsState = { customers: [], stores: [], routeTemplates: [] };
-
-// Bezpečná funkcia na volanie API (nezávislá od iných modulov)
-window.leaderApiCall = async function(url, method = 'GET', body = null) {
-    const opts = { method, headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin' };
-    if (body) opts.body = JSON.stringify(body);
-    const res = await fetch(url, opts);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return res.json();
-};
-
-const escapeHtml = (s) => String(s ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
-
-// Univerzálne Modálne okno pre Vedúceho
-window.openLeaderModal = function(html) {
-    let wrapper = document.getElementById('leader-modal-wrapper');
-    wrapper.innerHTML = `<div class="b2b-modal" style="position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:10000;display:flex;justify-content:center;align-items:center;">
-        <div class="b2b-modal-content" style="background:white;padding:25px;border-radius:12px;width:90%;max-width:800px;max-height:90vh;overflow-y:auto;box-shadow:0 20px 25px -5px rgba(0,0,0,0.1);">
-            <div style="text-align:right;margin-bottom:10px;"><span style="cursor:pointer;font-size:1.5rem;" onclick="window.closeLeaderModal()">&times;</span></div>
-            ${html}
-        </div>
-    </div>`;
-    wrapper.style.display = 'block';
-};
-window.closeLeaderModal = function() {
-    document.getElementById('leader-modal-wrapper').style.display = 'none';
-};
-
-// ===================== 1. ZÁKLADNÝ POHĽAD LOGISTIKY =====================
-window.loadLogistics = async function() {
-    const box = document.getElementById('leader-logistics-container');
-    if (!box) return;
-
-    const today = new Date().toISOString().slice(0, 10);
-    
-    box.innerHTML = `
-        <div style="background:#f8fafc; padding:15px; border-radius:8px; border:1px solid #e2e8f0; margin-bottom:20px;">
-            <div style="display:flex; justify-content:space-between; align-items:center;">
-                <div style="display:flex; align-items:center; gap:15px;">
-                    <h4 style="margin:0; color:#1e293b;">🚛 Plánovanie rozvozu</h4>
-                    <button class="btn btn-secondary btn-sm" onclick="window.manageManualRoutes()">📝 Manuálne šablóny</button>
-                    <button class="btn btn-primary btn-sm" onclick="window.manageStores()">🏢 Adresár prevádzok</button>
-                </div>
-                <div style="display:flex; gap:10px; align-items:center;">
-                    <label style="font-weight:bold;">Deň rozvozu (Dodania):</label>
-                    <input type="date" id="logistics-date" class="form-control" style="width:auto; display:inline-block;" value="${today}">
-                    <button id="logistics-load-btn" class="btn btn-success"><i class="fas fa-sync"></i> Načítať trasy</button>
-                </div>
-            </div>
-        </div>
-        <div id="logistics-content">
-            <p style="color:#666;">Kliknite na "Načítať trasy" pre zobrazenie zoznamu.</p>
-        </div>
-    `;
-
-    document.getElementById('logistics-load-btn').onclick = async () => {
-        const date = document.getElementById('logistics-date').value;
-        const content = document.getElementById('logistics-content');
-        content.innerHTML = '<div style="padding:40px;text-align:center;color:#64748b;"><i class="fas fa-spinner fa-spin fa-2x"></i><br>Sťahujem dáta...</div>';
-
-        try {
-            const res = await window.leaderApiCall(`/api/logistics/v2/routes-data?date=${date}`);
-            const trasy = res.trasy || [];
-            
-            let vehicles = [];
-            try {
-                const vRes = await window.leaderApiCall('/api/fleet/active-vehicles');
-                vehicles = vRes.vehicles || [];
-            } catch(ve) { console.error("Autá sa nenačítali"); }
-
-            if (trasy.length === 0) {
-                content.innerHTML = '<div style="padding:20px;text-align:center;font-weight:bold;color:#dc2626;">Na tento deň nie sú naplánované žiadne objednávky pre rozvoz.</div>';
-                return;
-            }
-
-            let html = '';
-            trasy.forEach(t => {
-                html += `
-                <div style="margin-bottom: 25px; border: 1px solid #cbd5e1; border-radius:8px; overflow:hidden; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);">
-                    <div style="background:#f1f5f9; padding:15px; display:flex; justify-content:space-between; align-items:center; border-bottom: 2px solid #0284c7;">
-                        <h3 style="margin:0; color:#0f172a;">🚛 ${escapeHtml(t.nazov)}</h3>
-                        <div style="display:flex; gap:10px;">
-                            <button class="btn btn-warning btn-sm" style="color:#000; font-weight:bold;" onclick='window.printChecklist(${JSON.stringify(t).replace(/'/g, "&apos;")}, "${date}")'>📝 Nakládkový list</button>
-                            <button class="btn btn-dark btn-sm" onclick='window.printSummary(${JSON.stringify(t).replace(/'/g, "&apos;")}, "${date}")'>📦 Súhrn do auta</button>
-                        </div>
-                    </div>
-                    <div style="padding:15px; background:#fff; display:flex; gap:20px; flex-wrap:wrap;">
-                        
-                        <div style="flex:1; min-width:400px;">
-                            <h5 style="border-bottom:1px solid #e2e8f0; padding-bottom:8px; margin-top:0; color:#475569;">Poradie zastávok (Vykládka)</h5>
-                            <table style="width:100%; border-collapse:collapse; font-size:0.85rem;">
-                                <thead>
-                                    <tr style="border-bottom:1px solid #e2e8f0; background:#f8fafc; text-align:left;">
-                                        <th style="width:60px; text-align:center; padding:8px;">Poradie</th>
-                                        <th style="padding:8px;">Odberateľ a Adresa</th>
-                                        <th style="padding:8px;">Objednávky</th>
-                                        <th style="text-align:center; padding:8px;">Uložiť</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    ${t.zastavky.map((z) => `
-                                        <tr style="border-bottom:1px solid #f1f5f9;">
-                                            <td style="text-align:center; padding:8px;">
-                                                <input type="number" value="${z.poradie}" style="width:60px; text-align:center; font-weight:bold; border:1px solid #ccc; padding:4px; border-radius:4px;" id="poradie_${z.zakaznik_id}">
-                                            </td>
-                                            <td style="padding:8px;">
-                                                <strong style="font-size:1rem; color:#0f172a;">${escapeHtml(z.odberatel)}</strong><br>
-                                                <small style="color:#64748b;">${escapeHtml(z.adresa)}</small>
-                                            </td>
-                                            <td style="padding:8px;">
-                                                <span style="background:#e0f2fe; color:#0369a1; padding:2px 6px; border-radius:4px; font-weight:bold;">${z.pocet_objednavok} obj.</span><br>
-                                                <small style="color:#94a3b8;">${z.cisla_objednavok.join(', ')}</small>
-                                            </td>
-                                            <td style="text-align:center; padding:8px;">
-                                                <button class="btn btn-primary btn-sm" onclick="window.saveRouteOrder(${z.zakaznik_id})">💾</button>
-                                            </td>
-                                        </tr>
-                                    `).join('')}
-                                </tbody>
-                            </table>
-                            
-                            <div style="margin-top: 15px; padding: 15px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; display:flex; gap:10px; align-items:center;">
-                                <label style="font-weight:bold; color:#166534; margin:0;"><i class="fas fa-car"></i> Založiť knihu jázd:</label>
-                                <select id="veh_${t.trasa_id}" class="form-control" style="flex:1; display:inline-block; width:auto;">
-                                    <option value="">-- Vyberte auto z Fleet modulu --</option>
-                                    ${vehicles.map(v => `<option value="${v.id}">${escapeHtml(v.name)} (${escapeHtml(v.license_plate)})</option>`).join('')}
-                                </select>
-                                <button class="btn btn-success btn-sm" onclick="window.assignVehicleToFleet('${escapeHtml(t.nazov)}', '${t.trasa_id}')">Založiť jazdu</button>
-                            </div>
-                        </div>
-                        
-                        <div style="width:350px; background:#f8fafc; padding:15px; border-radius:8px; border:1px solid #e2e8f0;">
-                            <h5 style="border-bottom:1px solid #cbd5e1; padding-bottom:8px; margin-top:0; color:#475569;">Čo naložiť do auta</h5>
-                            ${t.sumar.map(s => `
-                                <div style="margin-bottom:12px;">
-                                    <strong style="color:#0369a1; display:block; border-bottom:1px dashed #cbd5e1; padding-bottom:3px;">${escapeHtml(s.kategoria)}</strong>
-                                    <ul style="margin:5px 0 0 0; padding-left:0; list-style:none; font-size:0.85rem;">
-                                        ${s.polozky.map(p => `
-                                            <li style="display:flex; justify-content:space-between; padding:3px 0;">
-                                                <span>${escapeHtml(p.produkt)}</span>
-                                                <b style="color:#1e293b;">${p.mnozstvo} ${p.mj}</b>
-                                            </li>
-                                        `).join('')}
-                                    </ul>
-                                </div>
-                            `).join('')}
-                        </div>
-                    </div>
-                </div>
-                `;
-            });
-            content.innerHTML = html;
-        } catch (e) {
-            content.innerHTML = `<div class="alert alert-danger" style="padding:20px; font-weight:bold;">Kritická chyba: ${e.message}</div>`;
-        }
-    };
-    
-    document.getElementById('logistics-load-btn').click();
-};
-
-window.assignVehicleToFleet = async function(routeName, routeId) {
-    const date = document.getElementById('logistics-date').value;
-    const vehicleId = document.getElementById(`veh_${routeId}`).value;
-    if(!vehicleId) return alert("Najprv vyberte auto z rolovacieho zoznamu.");
-    try {
-        const res = await window.leaderApiCall('/api/leader/logistics/assign-vehicle', 'POST', { date: date, route_name: routeName, vehicle_id: vehicleId });
-        alert(res.message);
-    } catch(e) { alert("Chyba: " + e.message); }
-};
-
-window.saveRouteOrder = async function(custId) {
-    const poradie = document.getElementById(`poradie_${custId}`).value;
-    try {
-        await window.leaderApiCall('/api/kancelaria/b2b/updateCustomerRouteOrder', 'POST', { zakaznik_id: custId, poradie: poradie });
-        document.getElementById('logistics-load-btn').click();
-    } catch(e) { alert('Chyba: ' + e.message); }
-};
-
-// ===================== 2. ADRESÁR PREVÁDZOK =====================
-window.manageStores = async function() {
-    window.openLeaderModal('<div style="padding:30px; text-align:center;">Načítavam adresár...</div>');
-    try {
-        const data = await window.leaderApiCall('/api/kancelaria/b2b/getStores');
-        window.leaderLogisticsState.stores = data.stores || [];
-
-        let listHtml = `<table style="width:100%; border-collapse:collapse; text-align:left;"><thead><tr style="border-bottom:2px solid #ccc;"><th style="padding:10px;">Názov prevádzky</th><th>Poznámka / Adresa</th><th style="text-align:right;">Akcia</th></tr></thead><tbody>`;
-        if (window.leaderLogisticsState.stores.length === 0) {
-            listHtml += `<tr><td colspan="3" style="text-align:center; padding:20px;">Zatiaľ nemáte žiadne manuálne prevádzky.</td></tr>`;
-        } else {
-            window.leaderLogisticsState.stores.forEach(s => {
-                listHtml += `<tr style="border-bottom:1px solid #eee;">
-                    <td style="padding:10px;"><strong>${escapeHtml(s.name)}</strong></td>
-                    <td style="color:#666;">${escapeHtml(s.note || '-')}</td>
-                    <td style="text-align:right;">
-                        <button class="btn btn-primary btn-sm" onclick="window.showStoreEditor(${s.id})">✏️ Upraviť</button>
-                        <button class="btn btn-danger btn-sm" onclick="window.deleteStore(${s.id}, '${escapeHtml(s.name)}')" style="margin-left:5px;">🗑️</button>
-                    </td>
-                </tr>`;
-            });
-        }
-        listHtml += `</tbody></table>`;
-
-        let html = `
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
-                <h3 style="margin:0; color:#1e293b;">🏢 Adresár manuálnych prevádzok</h3>
-                <button class="btn btn-success" onclick="window.showStoreEditor(null)">+ Nová prevádzka</button>
-            </div>
-            <div style="max-height: 50vh; overflow-y: auto; border: 1px solid #cbd5e1; border-radius: 8px;">
-              ${listHtml}
-            </div>
-            <div style="text-align:right; margin-top:20px;">
-                <button class="btn btn-secondary" onclick="window.closeLeaderModal()">Zavrieť</button>
-            </div>
-        `;
-        window.openLeaderModal(html);
-    } catch(e) { alert("Chyba: " + e.message); }
-};
-
-window.showStoreEditor = async function(id) {
-    let store = { id: null, name: '', note: '' };
-    if (id && window.leaderLogisticsState.stores) {
-        const found = window.leaderLogisticsState.stores.find(s => s.id === id);
-        if (found) store = found;
-    }
-    let html = `
-        <h3 style="margin-top:0;">${id ? '✏️ Úprava prevádzky' : '➕ Vytvorenie prevádzky'}</h3>
-        <div style="margin-bottom:15px;">
-            <label style="font-weight:bold;">Názov prevádzky *</label>
-            <input type="text" id="store-name" class="form-control" style="width:100%;" value="${escapeHtml(store.name)}">
-        </div>
-        <div style="margin-bottom:15px;">
-            <label>Poznámka / Adresa</label>
-            <input type="text" id="store-note" class="form-control" style="width:100%;" value="${escapeHtml(store.note)}">
-        </div>
-        <div style="text-align:right;">
-            <button class="btn btn-secondary" onclick="window.manageStores()" style="margin-right:10px;">Späť</button>
-            <button class="btn btn-success" onclick="window.saveStore(${id || 'null'})">💾 Uložiť</button>
-        </div>
-    `;
-    window.openLeaderModal(html);
-};
-
-window.saveStore = async function(id) {
-    const name = document.getElementById('store-name').value.trim();
-    const note = document.getElementById('store-note').value.trim();
-    if (!name) return alert("Názov prevádzky je povinný!");
-    try {
-        await window.leaderApiCall('/api/kancelaria/b2b/saveStore', 'POST', { id: id, name: name, note: note, b2b_customer_id: null });
-        window.manageStores(); 
-    } catch(e) { alert("Chyba: " + e.message); }
-};
-
-window.deleteStore = async function(id, name) {
-    if (!confirm(`Vymazať prevádzku "${name}"?`)) return;
-    try {
-        await window.leaderApiCall('/api/kancelaria/b2b/deleteStore', 'POST', { id: id });
-        window.manageStores();
-    } catch(e) { alert("Chyba: " + e.message); }
-};
-
-// ===================== 3. MANUÁLNE ŠABLÓNY TRÁS =====================
-window.manageManualRoutes = async function() {
-    window.openLeaderModal('<div style="padding:30px; text-align:center;">Načítavam šablóny...</div>');
-    try {
-        const data = await window.leaderApiCall('/api/kancelaria/b2b/getRouteTemplates');
-        window.leaderLogisticsState.routeTemplates = data.templates || [];
-
-        let listHtml = `<table style="width:100%; border-collapse:collapse; text-align:left;"><thead><tr style="border-bottom:2px solid #ccc;"><th style="padding:10px;">Názov šablóny</th><th>Zastávky</th><th style="text-align:right;">Akcia</th></tr></thead><tbody>`;
-        if (window.leaderLogisticsState.routeTemplates.length === 0) {
-            listHtml += `<tr><td colspan="3" style="text-align:center; padding:20px;">Žiadne manuálne šablóny.</td></tr>`;
-        } else {
-            window.leaderLogisticsState.routeTemplates.forEach(t => {
-                const stopsCount = Array.isArray(t.stops) ? t.stops.length : 0;
-                listHtml += `<tr style="border-bottom:1px solid #eee;">
-                    <td style="padding:10px;"><strong>${escapeHtml(t.name)}</strong></td>
-                    <td><span class="badge bg-info">${stopsCount} prevádzok</span></td>
-                    <td style="text-align:right;">
-                        <button class="btn btn-success btn-sm" onclick="window.showPrintManualRoute(${t.id})">🖨️ Tlačiť</button>
-                        <button class="btn btn-primary btn-sm" onclick="window.showManualRouteEditor(${t.id})" style="margin-left:5px;">✏️ Upraviť</button>
-                        <button class="btn btn-danger btn-sm" onclick="window.deleteManualRouteTemplate(${t.id}, '${escapeHtml(t.name)}')" style="margin-left:5px;">🗑️</button>
-                    </td>
-                </tr>`;
-            });
-        }
-        listHtml += `</tbody></table>`;
-
-        let html = `
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
-                <h3 style="margin:0;">📝 Manuálne šablóny trás</h3>
-                <button class="btn btn-success" onclick="window.showManualRouteEditor(null)">+ Nová šablóna</button>
-            </div>
-            <div style="max-height: 50vh; overflow-y: auto; border: 1px solid #cbd5e1; border-radius: 8px;">
-              ${listHtml}
-            </div>
-            <div style="text-align:right; margin-top:20px;">
-                <button class="btn btn-secondary" onclick="window.closeLeaderModal()">Zavrieť</button>
-            </div>
-        `;
-        window.openLeaderModal(html);
-    } catch(e) { alert("Chyba: " + e.message); }
-};
-
-window.showManualRouteEditor = async function(id) {
-    let template = { id: null, name: '', stops: [] };
-    if (id) {
-        const found = window.leaderLogisticsState.routeTemplates.find(t => t.id === id);
-        if (found) template = found;
-    }
-
-    window.openLeaderModal('<div style="padding:30px; text-align:center;">Načítavam dáta...</div>');
-
-    try {
-        const sData = await window.leaderApiCall('/api/kancelaria/b2b/getStores');
-        window.leaderLogisticsState.stores = sData.stores || [];
-    } catch(e) { window.leaderLogisticsState.stores = []; }
-
-    try {
-        const cData = await window.leaderApiCall('/api/kancelaria/b2b/getCustomersAndPricelists');
-        window.leaderLogisticsState.customers = cData.customers || [];
-    } catch(e) { window.leaderLogisticsState.customers = []; }
-
-    let storeOptions = `<option value="">-- Vyberte prevádzku alebo B2B zákazníka --</option>`;
-    
-    storeOptions += `<optgroup label="🏢 B2B Zákazníci zo systému">`;
-    if (window.leaderLogisticsState.customers && window.leaderLogisticsState.customers.length > 0) {
-        window.leaderLogisticsState.customers.forEach(c => {
-            const addr = c.adresa_dorucenia || c.adresa || '';
-            storeOptions += `<option value="b2b_${c.id}" data-name="${escapeHtml(c.nazov_firmy)}" data-note="${escapeHtml(addr)}">${escapeHtml(c.nazov_firmy)}</option>`;
-        });
-    }
-    storeOptions += `</optgroup>`;
-
-    storeOptions += `<optgroup label="📝 Manuálne prevádzky z Adresára">`;
-    if (window.leaderLogisticsState.stores && window.leaderLogisticsState.stores.length > 0) {
-        window.leaderLogisticsState.stores.forEach(s => {
-            storeOptions += `<option value="man_${s.id}" data-name="${escapeHtml(s.name)}" data-note="${escapeHtml(s.note || '')}">${escapeHtml(s.name)} ${s.note ? ' ('+escapeHtml(s.note)+')' : ''}</option>`;
-        });
-    }
-    storeOptions += `</optgroup>`;
-
-    let html = `
-        <h3 style="margin-top:0;">${id ? '✏️ Úprava šablóny' : '➕ Vytvorenie novej šablóny'}</h3>
-        <div style="margin-bottom:15px;">
-            <label style="font-weight:bold;">Názov šablóny</label>
-            <input type="text" id="tpl-name" class="form-control" style="width:100%;" value="${escapeHtml(template.name)}">
-        </div>
-        
-        <div style="background:#f0fdf4; border:1px solid #bbf7d0; padding:15px; border-radius:6px; margin-bottom:15px;">
-            <label style="font-weight:bold; display:block; margin-bottom:5px;">Vložiť zákazníka / prevádzku do zoznamu:</label>
-            <div style="display:flex; gap:10px;">
-                <select id="tpl-add-store-select" class="form-control" style="flex:1;">${storeOptions}</select>
-                <button class="btn btn-primary" onclick="window.addStoreToTemplate()">Vložiť ⬇️</button>
-            </div>
-        </div>
-        
-        <h4 style="border-bottom:1px solid #e2e8f0; padding-bottom:5px;">Poradie vykládky:</h4>
-        <div id="tpl-stops-container" style="max-height:35vh; overflow-y:auto; border:1px solid #cbd5e1; border-radius:6px; padding:10px; background:#f1f5f9; display:flex; flex-direction:column; gap:5px;">
-        </div>
-        
-        <div style="margin-top:20px; text-align:right;">
-            <button class="btn btn-secondary" onclick="window.manageManualRoutes()" style="margin-right:10px;">Späť</button>
-            <button class="btn btn-success" onclick="window.saveManualRouteTemplate(${id || 'null'})">💾 Uložiť šablónu</button>
-        </div>
-    `;
-    window.openLeaderModal(html);
-
-    const container = document.getElementById('tpl-stops-container');
-    
-    window.renderStopRow = function(name, note, storeId = '') {
-        const row = document.createElement('div');
-        row.className = 'tpl-stop-row';
-        row.dataset.storeId = storeId;
-        row.dataset.name = name;
-        row.style.cssText = 'display:flex; justify-content:space-between; align-items:center; background:#fff; padding:10px; border:1px solid #ccc; border-radius:4px;';
-        row.innerHTML = `
-            <div style="display:flex; align-items:center; gap:15px; flex:1;">
-                <div style="color:#999; font-size:1.2rem;">☰</div>
-                <div style="flex:1; display:flex; flex-direction:column; gap:4px;">
-                    <div style="font-weight:bold;">${escapeHtml(name)}</div>
-                    <input type="text" class="form-control stop-note-input" value="${escapeHtml(note)}" style="font-size:0.85rem; padding:4px; width:95%;">
-                </div>
-            </div>
-            <button class="btn btn-danger btn-sm" onclick="this.parentElement.remove()">✖</button>
-        `;
-        container.appendChild(row);
-        container.scrollTop = container.scrollHeight;
-    };
-
-    window.addStoreToTemplate = function() {
-        const select = document.getElementById('tpl-add-store-select');
-        if (select.selectedIndex <= 0) return alert("Vyberte možnosť z roletky.");
-        const option = select.options[select.selectedIndex];
-        window.renderStopRow(option.dataset.name, option.dataset.note, option.value);
-        select.value = ''; 
-    };
-
-    if (template.stops && template.stops.length > 0) {
-        template.stops.forEach(s => window.renderStopRow(s.name, s.note, s.store_id || ''));
-    }
-};
-
-window.saveManualRouteTemplate = async function(id) {
-    const name = document.getElementById('tpl-name').value.trim();
-    if (!name) return alert("Názov šablóny nesmie byť prázdny!");
-
-    const stops = [];
-    document.querySelectorAll('.tpl-stop-row').forEach(row => {
-        const noteInput = row.querySelector('.stop-note-input');
-        stops.push({ 
-            store_id: row.dataset.storeId || '', 
-            name: row.dataset.name || '', 
-            note: noteInput ? noteInput.value.trim() : '' 
-        });
-    });
-
-    if (stops.length === 0) return alert("Šablóna musí obsahovať aspoň jednu prevádzku.");
-
-    try {
-        await window.leaderApiCall('/api/kancelaria/b2b/saveRouteTemplate', 'POST', { id: id, name: name, stops: stops });
-        window.manageManualRoutes(); 
-    } catch(e) { alert("Chyba: " + e.message); }
-};
-
-window.deleteManualRouteTemplate = async function(id, name) {
-    if (!confirm(`Vymazať šablónu:\n"${name}"?`)) return;
-    try {
-        await window.leaderApiCall('/api/kancelaria/b2b/deleteRouteTemplate', 'POST', { id: id });
-        window.manageManualRoutes(); 
-    } catch(e) { alert("Chyba: " + e.message); }
-};
-
-// ===================== 4. TLAČ & FLEET PRE ŠABLÓNY =====================
-window.showPrintManualRoute = async function(id) {
-    const template = window.leaderLogisticsState.routeTemplates.find(t => t.id === id);
-    if (!template) return;
-
-    let vehicles = [];
-    try {
-        const vRes = await window.leaderApiCall('/api/fleet/active-vehicles');
-        vehicles = vRes.vehicles || [];
-    } catch(ve) {}
-
-    let stopsHtml = '';
-    template.stops.forEach((s, idx) => {
-        stopsHtml += `
-            <label style="display:flex; align-items:flex-start; padding:12px; border-bottom:1px solid #ccc; cursor:pointer; background:${idx % 2 === 0 ? '#fff' : '#f8fafc'};" class="print-row-label">
-                <div style="padding-top:3px;">
-                    <input type="checkbox" class="print-stop-cb" value="${idx}" checked style="transform:scale(1.3); margin:0 15px 0 5px;">
-                </div>
-                <div style="width: 40px; font-weight:bold; color:#666;">${idx + 1}.</div>
-                <div style="flex:1;">
-                    <div style="font-weight:bold; font-size:1.05rem;">${escapeHtml(s.name)}</div>
-                    ${s.note ? `<div style="font-size:0.85rem; color:#666; margin-top:4px;">📝 ${escapeHtml(s.note)}</div>` : ''}
-                </div>
-                <div style="width: 80px; text-align:right; font-weight:bold; font-size:0.85rem; color:#10b981;" class="status-badge">Zahrnuté</div>
-            </label>
-        `;
-    });
-
-    const today = new Date().toISOString().slice(0, 10);
-
-    let html = `
-        <h3 style="margin-top:0;">🖨️ Príprava tlače: <span style="color:#0ea5e9;">${escapeHtml(template.name)}</span></h3>
-        
-        <div style="margin-bottom: 15px; padding: 15px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px;">
-            <h4 style="margin:0 0 10px 0;"><i class="fas fa-car"></i> Založiť knihu jázd (Fleet)</h4>
-            <div style="display:flex; gap:10px; align-items:center;">
-                <input type="date" id="manual-route-date" class="form-control" value="${today}" style="width:auto;">
-                <select id="manual-veh-select" class="form-control" style="flex:1;">
-                    <option value="">-- Vyberte auto z Fleet modulu --</option>
-                    ${vehicles.map(v => `<option value="${v.id}">${escapeHtml(v.name)} (${escapeHtml(v.license_plate)})</option>`).join('')}
-                </select>
-                <button class="btn btn-success btn-sm" onclick="window.assignManualVehicle('${escapeHtml(template.name)}')">Založiť jazdu</button>
-            </div>
-        </div>
-        
-        <div style="background:#eff6ff; padding:10px; margin-bottom:15px; font-size:0.95rem; border-left:4px solid #3b82f6;">
-            Odškrtnite prevádzky, do ktorých sa dnes <b>nevezme tovar</b>.
-        </div>
-        
-        <div style="border:1px solid #ccc; max-height:40vh; overflow-y:auto; margin-bottom:20px;">
-            ${stopsHtml}
-        </div>
-
-        <div style="text-align:right;">
-            <button class="btn btn-secondary" onclick="window.manageManualRoutes()" style="margin-right:10px;">← Späť na zoznam</button>
-            <button class="btn btn-primary" onclick="window.executePrintManualRoute(${id})">🖨️ Vytlačiť</button>
-        </div>
-    `;
-    
-    window.openLeaderModal(html);
-
-    setTimeout(() => {
-        document.querySelectorAll('.print-stop-cb').forEach(cb => {
-            cb.addEventListener('change', function() {
-                const label = this.closest('.print-row-label');
-                const badge = label.querySelector('.status-badge');
-                if (this.checked) {
-                    badge.textContent = 'Zahrnuté'; badge.style.color = '#10b981'; label.style.opacity = '1';
-                } else {
-                    badge.textContent = 'Vynechané'; badge.style.color = '#ef4444'; label.style.opacity = '0.5';
-                }
-            });
-        });
-    }, 100);
-};
-
-window.assignManualVehicle = async function(routeName) {
-    const dateVal = document.getElementById('manual-route-date').value;
-    const vehicleId = document.getElementById('manual-veh-select').value;
-    if(!vehicleId) return alert("Najprv vyberte auto z rolovacieho zoznamu.");
-
-    try {
-        const res = await window.leaderApiCall('/api/leader/logistics/assign-vehicle', 'POST', { date: dateVal, route_name: routeName, vehicle_id: vehicleId });
-        alert(res.message);
-    } catch(e) { alert("Chyba: " + e.message); }
-};
-
-window.executePrintManualRoute = async function(id) {
-    const template = window.leaderLogisticsState.routeTemplates.find(t => t.id === id);
-    if (!template) return;
-
-    const activeStops = [];
-    document.querySelectorAll('.print-stop-cb:checked').forEach(cb => {
-        const idx = parseInt(cb.value);
-        if (template.stops[idx]) activeStops.push(template.stops[idx]);
-    });
-
-    if (activeStops.length === 0) return alert("Musíte nechať zaškrtnutú aspoň jednu prevádzku na tlač.");
-
-    try {
-        const res = await fetch('/api/kancelaria/b2b/printManualRoute', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name: template.name, stops: activeStops })
-        });
-        if (!res.ok) throw new Error("Backend nevrátil správnu odpoveď.");
-        const htmlStr = await res.text();
-        const printWindow = window.open('', '_blank', 'width=900,height=800');
-        printWindow.document.write(htmlStr);
-        printWindow.document.close();
-        window.closeLeaderModal();
-    } catch(e) { alert("Chyba: " + e.message); }
-};
-
-// Pomocné funkcie pre tlač z tabuľky automatických trás (Nakládkový / Slepý list)
-window.printChecklist = function(routeObj, dateStr) {
-    const dateFormatted = dateStr.split('-').reverse().join('.');
-    let html = `<html><head><title>Nakládkový list - ${routeObj.nazov}</title><style>body { font-family: Arial; padding: 20px; font-size: 14px; } h1, h3 { text-align: center; } table { width: 100%; border-collapse: collapse; margin-top: 20px; } th, td { border: 1px solid #000; padding: 8px; text-align: left; } th { background-color: #f1f5f9; } .box { display: inline-block; width: 20px; height: 20px; border: 2px solid #000; } @media print { body { margin: 0; } }</style></head><body><h1>Nakládkový list / Itinerár</h1><h3>TRASA: ${escapeHtml(routeObj.nazov)} | DÁTUM: ${dateFormatted} | ŠOFÉR: __________________</h3><table><thead><tr><th>Por.</th><th>Odberateľ a Adresa</th><th>Objednávky</th><th style="text-align:center;">Pripravil</th><th style="text-align:center;">Naložil</th></tr></thead><tbody>`;
-    routeObj.zastavky.forEach((z, idx) => {
-        html += `<tr><td style="text-align:center; font-size:16px;"><strong>${idx + 1}.</strong></td><td><strong>${escapeHtml(z.odberatel)}</strong><br><span style="font-size:12px;">${escapeHtml(z.adresa)}</span></td><td style="font-size:12px;"><strong>${z.pocet_objednavok} obj.</strong><br>${z.cisla_objednavok.join('<br>')}</td><td style="text-align:center;"><div class="box"></div></td><td style="text-align:center;"><div class="box"></div></td></tr>`;
-    });
-    html += `</tbody></table><div style="margin-top: 30px; display: flex; justify-content: space-between;"><div>Podpis pripravil: _______________________</div><div>Podpis šoféra: _______________________</div></div><script>window.onload=function(){window.print(); setTimeout(function(){window.close();},500);}</script></body></html>`;
-    const win = window.open('', '_blank'); win.document.write(html); win.document.close();
-};
-
-window.printSummary = function(routeObj, dateStr) {
-    const dateFormatted = dateStr.split('-').reverse().join('.');
-    let html = `<html><head><title>Súhrn - ${routeObj.nazov}</title><style>body { font-family: Arial; padding: 20px; font-size: 14px; } h1, h3 { text-align: center; } .cat { background: #e2e8f0; padding: 8px; margin-top: 20px; font-weight: bold; border: 1px solid #000; border-bottom: none; } table { width: 100%; border-collapse: collapse; } th, td { border: 1px solid #000; padding: 8px; } .num { text-align: right; font-weight: bold; } @media print { body { margin: 0; } }</style></head><body><h1>Slepý list (Súhrn na naloženie)</h1><h3>TRASA: ${escapeHtml(routeObj.nazov)} | DÁTUM: ${dateFormatted}</h3>`;
-    routeObj.sumar.forEach(s => {
-        html += `<div class="cat">${escapeHtml(s.kategoria)}</div><table><tbody>`;
-        s.polozky.forEach(p => {
-            const val = parseFloat(p.mnozstvo);
-            const displayVal = Number.isInteger(val) ? val : val.toFixed(2);
-            html += `<tr><td>${escapeHtml(p.produkt)}</td><td class="num" style="width:120px;">${displayVal} ${p.mj}</td></tr>`;
-        });
-        html += `</tbody></table>`;
-    });
-    html += `<script>window.onload=function(){window.print(); setTimeout(function(){window.close();},500);}</script></body></html>`;
-    const win = window.open('', '_blank'); win.document.write(html); win.document.close();
-};

@@ -10,6 +10,7 @@ import pdf_generator
 import notification_handler
 import expedition_handler
 import random
+import b2b_handler # IMPORT PRE ZRKADLENIE LOGISTIKY
 
 import db_connector
 from auth_handler import login_required
@@ -720,6 +721,7 @@ def leader_b2b_notify_order():
         return jsonify({'error': f'Expedičný e-mail zlyhal: {e}'}), 500
 
     return jsonify({'message':'Objednávka spracovaná, CSV uložené pre sync.', 'order_id': order_id})
+
 # =============================================================================
 # Výrobný plán
 # =============================================================================
@@ -753,7 +755,9 @@ def leader_production_plan():
         return jsonify({'error': f'Chýba tabuľka vyroba_plan alebo schéma – {e}'}), 400
 
 # =============================================================================
-# Krájačky / výroba – placeholder
+# Krájačky / výroba
+# =============================================================================
+
 @leader_bp.get('/get_slicable_products')
 @login_required(role=('veduci', 'admin'))
 def leader_get_slicable_products():
@@ -761,8 +765,7 @@ def leader_get_slicable_products():
     Vráti zoznam produktov na krájanie (typ_polozky LIKE '%KRAJAN%').
     Využíva existujúcu logiku z expedition_handler.
     """
-    return jsonify(expedition_handler.get_slicable_products())# =============================================================================
-
+    return jsonify(expedition_handler.get_slicable_products())
 
 @leader_bp.post('/cut_jobs')
 @login_required(role=('veduci','admin'))
@@ -777,8 +780,8 @@ def leader_cut_jobs_create():
         'ean': data.get('ean'),
         'quantity': data.get('quantity'),
         'unit': data.get('unit'),            # leaderexpedition.js posiela 'kg' alebo 'ks'
-        'customer': data.get('order_id'),    # Frontend posiela názov zákazníka v poli 'order_id' (label: Objednávka/Zákazník)
-        'order_id': '',                      # Ak by sme chceli separátne ID
+        'customer': data.get('order_id'),    # Frontend posiela názov zákazníka v poli 'order_id'
+        'order_id': '',                      
         'due_date': data.get('due_date')
     }
 
@@ -790,15 +793,12 @@ def leader_cut_jobs_create():
         
     return jsonify(result)
 
-# leader_handler.py
-
 @leader_bp.get('/cut_jobs')
 @login_required(role=('veduci','admin'))
 def leader_cut_jobs_list():
     # Dynamicky zistíme názov stĺpca (nazov_vyrobu vs nazov_vyrobku)
     zv = 'nazov_vyrobu' if _table_exists('zaznamy_vyroba') and 'nazov_vyrobu' in _table_cols('zaznamy_vyroba') else 'nazov_vyrobku'
     
-    # OPRAVA: Používame 'datum_spustenia' namiesto 'created_at'
     rows = db_connector.execute_query(
         f"""
         SELECT 
@@ -843,11 +843,9 @@ def leader_cut_jobs_list():
 
     return jsonify(out)
 
-# Pomocná funkcia pre leader_handler (ak ju tam nemáte)
 def _parse_num(x):
     try: return float(x)
     except: return 0
-
     
 @leader_bp.get('/search_customers')
 @login_required(role=('veduci', 'admin'))
@@ -884,8 +882,8 @@ def leader_search_customers():
 @login_required(role='veduci')
 def leader_cut_jobs_update(job_id: int):
     return jsonify({'error': 'Použi workflow v module expedícia (tieto endpointy sú placeholder).'}), 400
-@leader_bp.post('/cut_jobs/cancel')
 
+@leader_bp.post('/cut_jobs/cancel')
 @login_required(role=('veduci', 'admin'))
 def leader_cut_jobs_cancel():
     data = request.get_json(silent=True) or {}
@@ -897,6 +895,7 @@ def leader_cut_jobs_cancel():
     if result.get('error'):
         return jsonify(result), 400
     return jsonify(result)
+
 @leader_bp.get('/b2b/search_products')
 @login_required(role=('veduci', 'admin'))
 def leader_b2b_search_products():
@@ -908,9 +907,6 @@ def leader_b2b_search_products():
     if len(q) < 2:
         return jsonify([])
 
-    # Hľadáme v tabuľke 'produkty'. 
-    # Predpokladáme, že nákupná cena je v stĺpci 'nakupna_cena'.
-    # Ak je nákupná cena NULL, použijeme 0.
     sql = """
         SELECT 
             ean, 
@@ -926,8 +922,6 @@ def leader_b2b_search_products():
     try:
         rows = db_connector.execute_query(sql, (like_q, like_q), fetch='all') or []
     except Exception as e:
-        # Pre prípad, že by stĺpec nakupna_cena neexistoval v tabuľke produkty,
-        # skúsime fallback na tabuľku sklad (ak je to potrebné), alebo vrátime chybu.
         print(f"Chyba pri vyhľadávaní produktov: {e}")
         return jsonify([])
     
@@ -946,146 +940,53 @@ def leader_b2b_search_products():
         })
         
     return jsonify(out)
+
 # =============================================================================
-# LOGISTIKA & TRASY (Priamo v Leader Handler)
-# =============================================================================
-
-@leader_bp.get('/logistics/routes')
-@login_required(role=('veduci','admin'))
-def leader_get_routes():
-    # Načítanie trás z DB
-    try:
-        # Overíme, či tabuľka existuje (pre istotu)
-        if not _table_exists('b2b_route_templates'):
-            return jsonify({'routes': []}) # Vrátime prázdne, ak tabuľka nie je
-
-        rows = db_connector.execute_query(
-            "SELECT id, template_name, note FROM b2b_route_templates WHERE is_active=1 ORDER BY template_name",
-            fetch='all'
-        ) or []
-        
-        # Sformátujeme pre frontend
-        out = [{'id': r['id'], 'name': r['template_name'], 'note': r['note']} for r in rows]
-        return jsonify({'routes': out})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-@leader_bp.post('/logistics/routes/save')
-@login_required(role=('veduci','admin'))
-def leader_save_route():
-    data = request.get_json(silent=True) or {}
-    rid = data.get('id')
-    name = (data.get('name') or '').strip()
-    note = (data.get('note') or '').strip()
-
-    if not name:
-        return jsonify({'error': 'Názov trasy je povinný.'}), 400
-
-    try:
-        # Vytvoríme tabuľku, ak neexistuje (Self-healing)
-        db_connector.execute_query("""
-            CREATE TABLE IF NOT EXISTS b2b_route_templates (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                template_name VARCHAR(255) NOT NULL,
-                note TEXT,
-                is_active TINYINT DEFAULT 1
-            )
-        """, fetch=None)
-
-        if rid:
-            # Update
-            db_connector.execute_query(
-                "UPDATE b2b_route_templates SET template_name=%s, note=%s WHERE id=%s",
-                (name, note, rid), fetch=None
-            )
-        else:
-            # Insert
-            db_connector.execute_query(
-                "INSERT INTO b2b_route_templates (template_name, note, is_active) VALUES (%s, %s, 1)",
-                (name, note), fetch=None
-            )
-        return jsonify({'message': 'Trasa uložená.'})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-@leader_bp.post('/logistics/routes/delete')
-@login_required(role=('veduci','admin'))
-def leader_delete_route():
-    data = request.get_json(silent=True) or {}
-    rid = data.get('id')
-    
-    if not rid: return jsonify({'error': 'Chýba ID.'}), 400
-
-    try:
-        # Soft delete (alebo hard delete podľa preferencie)
-        db_connector.execute_query(
-            "DELETE FROM b2b_route_templates WHERE id=%s",
-            (rid,), fetch=None
-        )
-        return jsonify({'message': 'Trasa zmazaná.'})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-    # =============================================================================
-# DEFINITÍVNA OPRAVA: LOGISTIKA
+# ZRKADLENIE LOGISTIKY Z KANCELÁRIE (Volá priamo funkcie b2b_handler.py)
 # =============================================================================
 
-@leader_bp.get('/routes/list')
+@leader_bp.get('/logistics/routes-data')
 @login_required(role=('veduci','admin'))
-def leader_routes_list_fixed():
-    try:
-        # 1. Overíme, či tabuľka existuje, ak nie, vytvoríme ju (Self-healing)
-        db_connector.execute_query("""
-            CREATE TABLE IF NOT EXISTS b2b_route_templates (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                template_name VARCHAR(255) NOT NULL,
-                note TEXT,
-                is_active TINYINT DEFAULT 1
-            )
-        """, fetch=None)
+def leader_logistics_routes_data():
+    date_str = request.args.get('date')
+    return jsonify(b2b_handler.get_logistics_routes_data(date_str))
 
-        # 2. Načítame dáta
-        rows = db_connector.execute_query(
-            "SELECT id, template_name, note FROM b2b_route_templates WHERE is_active=1 ORDER BY template_name",
-            fetch='all'
-        ) or []
-        
-        return jsonify({'routes': rows})
-    except Exception as e:
-        return jsonify({'error': f"Chyba DB: {str(e)}"}), 500
-
-@leader_bp.post('/routes/save')
+@leader_bp.post('/b2b/updateCustomerRouteOrder')
 @login_required(role=('veduci','admin'))
-def leader_routes_save_fixed():
-    data = request.get_json(silent=True) or {}
-    rid = data.get('id')
-    name = (data.get('name') or '').strip()
-    note = (data.get('note') or '').strip()
+def leader_update_customer_route_order():
+    return jsonify(b2b_handler.update_customer_route_order(request.get_json(silent=True) or {}))
 
-    if not name:
-        return jsonify({'error': 'Názov trasy je povinný.'}), 400
-
-    try:
-        if rid:
-            db_connector.execute_query(
-                "UPDATE b2b_route_templates SET template_name=%s, note=%s WHERE id=%s",
-                (name, note, rid), fetch=None
-            )
-        else:
-            db_connector.execute_query(
-                "INSERT INTO b2b_route_templates (template_name, note, is_active) VALUES (%s, %s, 1)",
-                (name, note), fetch=None
-            )
-        return jsonify({'message': 'OK'})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-@leader_bp.post('/routes/delete')
+@leader_bp.get('/b2b/getStores')
 @login_required(role=('veduci','admin'))
-def leader_routes_delete_fixed():
-    data = request.get_json(silent=True) or {}
-    rid = data.get('id')
-    try:
-        db_connector.execute_query("DELETE FROM b2b_route_templates WHERE id=%s", (rid,), fetch=None)
-        return jsonify({'message': 'Deleted'})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+def leader_get_stores():
+    return jsonify(b2b_handler.get_stores())
+
+@leader_bp.post('/b2b/saveStore')
+@login_required(role=('veduci','admin'))
+def leader_save_store():
+    return jsonify(b2b_handler.save_store(request.get_json(silent=True) or {}))
+
+@leader_bp.post('/b2b/deleteStore')
+@login_required(role=('veduci','admin'))
+def leader_delete_store():
+    return jsonify(b2b_handler.delete_store(request.get_json(silent=True) or {}))
+
+@leader_bp.get('/b2b/getRouteTemplates')
+@login_required(role=('veduci','admin'))
+def leader_get_route_templates():
+    return jsonify(b2b_handler.get_route_templates())
+
+@leader_bp.post('/b2b/saveRouteTemplate')
+@login_required(role=('veduci','admin'))
+def leader_save_route_template():
+    return jsonify(b2b_handler.save_route_template(request.get_json(silent=True) or {}))
+
+@leader_bp.post('/b2b/deleteRouteTemplate')
+@login_required(role=('veduci','admin'))
+def leader_delete_route_template():
+    return jsonify(b2b_handler.delete_route_template(request.get_json(silent=True) or {}))
+
+@leader_bp.post('/logistics/assign-vehicle')
+@login_required(role=('veduci','admin'))
+def leader_assign_vehicle():
+    return jsonify(b2b_handler.assign_vehicle_to_route_and_fleet(request.get_json(silent=True) or {}))
