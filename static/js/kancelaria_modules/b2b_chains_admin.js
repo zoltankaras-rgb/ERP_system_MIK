@@ -95,16 +95,31 @@ const B2BChainsAdmin = {
             </div>
 
             <div v-show="activeTab === 'mapping'">
-                <div style="margin-bottom: 20px; padding: 15px; border: 1px solid #ddd; background: #fdfdfd; display: flex; gap: 10px; align-items: end;">
-                    <div>
-                        <label>EAN Reťazca (z CSV)</label>
-                        <input type="text" v-model="newMapping.edi_ean" class="form-control">
+                <div style="margin-bottom: 20px; padding: 15px; border: 1px solid #ddd; background: #fdfdfd; display: flex; gap: 15px; align-items: end; flex-wrap: wrap;">
+                    
+                    <div style="display: flex; gap: 10px; align-items: end;">
+                        <div>
+                            <label>EAN Reťazca (z CSV)</label>
+                            <input type="text" v-model="newMapping.edi_ean" class="form-control" style="width: 180px;">
+                        </div>
+                        <div>
+                            <label>Váš interný EAN</label>
+                            <input type="text" v-model="newMapping.interny_ean" class="form-control" style="width: 180px;">
+                        </div>
+                        <button @click="addMapping" class="btn btn-primary">Pridať preklad</button>
                     </div>
-                    <div>
-                        <label>Váš interný EAN</label>
-                        <input type="text" v-model="newMapping.interny_ean" class="form-control">
+
+                    <div style="border-left: 2px solid #ccc; margin: 0 10px; height: 40px;"></div>
+
+                    <div style="display: flex; gap: 10px; align-items: end; background: #f0fdf4; border: 1px solid #bbf7d0; padding: 10px; border-radius: 6px;">
+                        <div>
+                            <label style="color:#166534; font-weight:bold;">Hromadný import (CSV)</label>
+                            <input type="file" ref="mappingCsvFile" accept=".csv" class="form-control">
+                        </div>
+                        <button @click="importMappingCsv" class="btn btn-success" :disabled="isImportingMapping">
+                            <i class="fas fa-file-excel"></i> {{ isImportingMapping ? 'Spracovávam...' : 'Nahrať a spracovať CSV' }}
+                        </button>
                     </div>
-                    <button @click="addMapping" class="btn btn-primary">Pridať preklad</button>
                 </div>
 
                 <table class="table table-bordered">
@@ -208,6 +223,7 @@ const B2BChainsAdmin = {
             isImporting: false,
             isGenerating: false,
             isImportingOrders: false,
+            isImportingMapping: false,
             newMapping: { edi_ean: '', interny_ean: '' },
             reportParams: { date_from: '', date_to: '' },
             reportData: null
@@ -272,7 +288,6 @@ const B2BChainsAdmin = {
             }
         },
         async saveBranch(event, branch) {
-            // Zachytenie tlačidla do pamäte EŠTE PRED spustením await (server requestu)
             const btn = event.currentTarget;
             const originalHtml = btn.innerHTML;
 
@@ -295,7 +310,6 @@ const B2BChainsAdmin = {
                 if (result.error) {
                     alert(result.error);
                 } else {
-                    // Vizuálne potvrdenie na uloženom objekte
                     btn.innerHTML = '<i class="fas fa-check"></i> OK';
                     btn.classList.replace('btn-success', 'btn-outline-success');
                     setTimeout(() => {
@@ -362,6 +376,41 @@ const B2BChainsAdmin = {
                 }
             } catch (e) {
                 alert("Chyba pri pridávaní.");
+            }
+        },
+        async importMappingCsv() {
+            const fileInput = this.$refs.mappingCsvFile;
+            if (!fileInput.files.length) {
+                alert("Prosím, vyberte CSV súbor s prepojeniami EAN kódov.");
+                return;
+            }
+            
+            this.isImportingMapping = true;
+            const formData = new FormData();
+            formData.append("file", fileInput.files[0]);
+
+            try {
+                const res = await fetch(`/api/chains/${this.selectedChainId}/import_edi_mapping`, {
+                    method: 'POST',
+                    body: formData
+                });
+                const result = await res.json();
+                
+                if (result.error) {
+                    alert(result.error);
+                } else {
+                    let msg = result.message;
+                    if (result.errors && result.errors.length > 0) {
+                        msg += "\n\nUPOZORNENIA (Nenájdené v ERP):\n" + result.errors.join("\n");
+                    }
+                    alert(msg);
+                    this.loadMappings(); 
+                    fileInput.value = ""; 
+                }
+            } catch (e) {
+                alert("Kritická chyba pri importe mapovania: " + e.message);
+            } finally {
+                this.isImportingMapping = false;
             }
         },
         async deleteMapping(mappingId) {

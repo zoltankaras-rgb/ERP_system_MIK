@@ -320,7 +320,85 @@ def delete_edi_mapping(mapping_id):
         return jsonify({"message": "Mapovanie vymazané."})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+@chains_bp.route('/api/chains/<int:parent_id>/import_edi_mapping', methods=['POST'])
+@login_required(role=("kancelaria", "admin", "veduci"))
+def import_edi_mapping(parent_id):
+    if 'file' not in request.files:
+        return jsonify({"error": "Chýba súbor."}), 400
+        
+    file = request.files['file']
+    try:
+        raw_bytes = file.read()
+        try:
+            content = raw_bytes.decode('utf-8')
+        except UnicodeDecodeError:
+            content = raw_bytes.decode('cp1250', errors='replace')
+            
+        lines = content.splitlines()
+        
+        # Analytická detekcia oddelovača (čiarka vs bodkočiarka)
+        delimiter = ';'
+        for line in lines[:10]:
+            if line.count(';') > line.count(','):
+                delimiter = ';'
+                break
+            elif line.count(',') > line.count(';'):
+                delimiter = ','
+                break
+        
+        csv_reader = csv.reader(lines, delimiter=delimiter)
+        
+        conn = db_connector.get_connection()
+        cur = conn.cursor(dictionary=True)
+        
+        processed, updated = 0, 0
+        errors = []
 
+        for row in csv_reader:
+            # Preskočenie prázdnych riadkov a nekompletných záznamov
+            if not row or len(row) < 2:
+                continue 
+
+            # Tvrdé odstránenie neviditeľných a bielych znakov z oboch EAN kódov
+            edi_ean = str(row[0]).replace('\n', '').replace('\r', '').replace(' ', '').strip()
+            interny_ean = str(row[1]).replace('\n', '').replace('\r', '').replace(' ', '').strip()
+
+            # Ignorovanie hlavičiek v súbore alebo prázdnych buniek
+            if "EAN" in edi_ean.upper() or "PLU" in edi_ean.upper() or not edi_ean or not interny_ean:
+                continue 
+
+            # Kontrola: Existuje vôbec tento EAN vo vašej databáze produktov?
+            cur.execute("SELECT nazov_vyrobku FROM produkty WHERE ean=%s", (interny_ean,))
+            prod = cur.fetchone()
+            if not prod:
+                errors.append(f"Mimo ERP (Ignorované): Kód {interny_ean} (EDI: {edi_ean}) nebol nájdený v systéme MIK.")
+                continue
+
+            # Uloženie mapovania (ak EDI EAN už existuje, prepíše mu interný EAN)
+            sql = """
+                INSERT INTO edi_produkty_mapovanie (chain_parent_id, edi_ean, interny_ean) 
+                VALUES (%s, %s, %s)
+                ON DUPLICATE KEY UPDATE interny_ean=VALUES(interny_ean)
+            """
+            cur.execute(sql, (parent_id, edi_ean, interny_ean))
+            
+            if cur.rowcount == 1: 
+                processed += 1
+            elif cur.rowcount == 2: 
+                updated += 1 # MySQL pri ON DUPLICATE UPDATE vracia 2 zmenené riadky
+
+        conn.commit()
+        return jsonify({
+            "message": f"Import úspešný. Vytvorených: {processed}, Prepísaných mapovaní: {updated}.",
+            "errors": errors
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"Chyba importu mapovania: {str(e)}"}), 500
+    finally:
+        if 'cur' in locals(): cur.close()
+        if 'conn' in locals(): conn.close()
 # ==========================================
 # 4. REPORT AKCIOVÝCH PREDAJOV
 # ==========================================
