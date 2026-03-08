@@ -1974,6 +1974,8 @@ def delete_b2b_customer(data: dict):
 
 def get_customer_360_view(data: dict):
     cid = data.get("id")
+    time_filter = data.get("time_filter", "all")  # Prijatie filtra z frontendu (default: all)
+    
     if not cid:
         return {"error": "Chýba ID zákazníka."}
 
@@ -1987,19 +1989,31 @@ def get_customer_360_view(data: dict):
 
     login = cust["zakaznik_id"]
 
-    # 2. Celkové štatistiky (vynecháme zrušené objednávky)
-    stats_sql = """
+    # Generovanie časovej podmienky do SQL (podľa dátumu objednávky)
+    date_sql = ""
+    if time_filter == "year":
+        date_sql = " AND YEAR(o.datum_objednavky) = YEAR(CURDATE())"
+    elif time_filter == "month":
+        date_sql = " AND YEAR(o.datum_objednavky) = YEAR(CURDATE()) AND MONTH(o.datum_objednavky) = MONTH(CURDATE())"
+    elif time_filter == "week":
+        # YEARWEEK(..., 1) znamená, že týždeň začína v pondelok
+        date_sql = " AND YEARWEEK(o.datum_objednavky, 1) = YEARWEEK(CURDATE(), 1)"
+    elif time_filter == "day":
+        date_sql = " AND DATE(o.datum_objednavky) = CURDATE()"
+
+    # 2. Celkové štatistiky s aplikovaným časovým filtrom
+    stats_sql = f"""
         SELECT 
             COUNT(DISTINCT o.id) as total_orders,
             COALESCE(SUM(op.mnozstvo * op.cena_bez_dph), 0) as total_revenue
         FROM b2b_objednavky o
         JOIN b2b_objednavky_polozky op ON o.id = op.objednavka_id
-        WHERE o.zakaznik_id = %s AND o.stav NOT IN ('Zrušená', 'Zrusena', 'Stornovaná')
+        WHERE o.zakaznik_id = %s AND o.stav NOT IN ('Zrušená', 'Zrusena', 'Stornovaná'){date_sql}
     """
     stats = db_connector.execute_query(stats_sql, (login,), fetch="one") or {}
     
-    # 3. Detailná agregácia nákupov po produktoch
-    products_sql = """
+    # 3. Detailná agregácia nákupov po produktoch s aplikovaným filtrom
+    products_sql = f"""
         SELECT 
             op.ean_produktu as ean,
             op.nazov_vyrobku as name,
@@ -2010,7 +2024,7 @@ def get_customer_360_view(data: dict):
         FROM b2b_objednavky o
         JOIN b2b_objednavky_polozky op ON o.id = op.objednavka_id
         LEFT JOIN produkty p ON p.ean = op.ean_produktu
-        WHERE o.zakaznik_id = %s AND o.stav NOT IN ('Zrušená', 'Zrusena', 'Stornovaná')
+        WHERE o.zakaznik_id = %s AND o.stav NOT IN ('Zrušená', 'Zrusena', 'Stornovaná'){date_sql}
         GROUP BY op.ean_produktu, op.nazov_vyrobku, op.mj
         ORDER BY total_qty DESC
     """
@@ -2060,7 +2074,6 @@ def get_customer_360_view(data: dict):
         },
         "products": prod_list
     }
-
 def get_logistics_routes_data(target_date: str):
     if not target_date:
         return {"error": "Chýba parameter dátumu."}
