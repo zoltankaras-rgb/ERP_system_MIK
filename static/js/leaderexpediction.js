@@ -327,7 +327,116 @@
   }
 
   // =========================== Manuálna B2B ================================
-  async function searchSuppliers(q){ q = safeStr(q); if (q.length < 2) return []; try{ const all = await apiRequest('/api/leader/b2b/getCustomersAndPricelists'); const rows = (all && all.customers) ? all.customers : (Array.isArray(all)? all : []); return rows.filter(x=> ((x.name||'') + ' ' + (x.email||'')).toLowerCase().includes(q.toLowerCase())).map(x=>({ id:x.id, name:x.name, code:x.email||'' })); }catch(_){ return []; } }
+  
+window.showManualRouteEditor = async function(id) {
+    let template = { id: null, name: '', stops: [] };
+    if (id) {
+        const found = window.leaderLogisticsState.routeTemplates.find(t => t.id === id);
+        if (found) template = found;
+    }
+
+    window.openLeaderModal('<div style="padding:30px; text-align:center;"><i class="fas fa-spinner fa-spin fa-2x"></i><br>Načítavam zoznam zákazníkov a adresár pre trasy...</div>');
+
+    try {
+        const sData = await apiRequest('/api/leader/b2b/getStores');
+        window.leaderLogisticsState.stores = sData.stores || [];
+    } catch(e) { window.leaderLogisticsState.stores = []; }
+
+    try {
+        const cData = await apiRequest('/api/leader/b2b/getCustomersAndPricelists');
+        window.leaderLogisticsState.customers = cData.customers || [];
+    } catch(e) { window.leaderLogisticsState.customers = []; }
+
+    let availableStoresHtml = '';
+    
+    // Zákazníci z B2B systému
+    if (window.leaderLogisticsState.customers && window.leaderLogisticsState.customers.length > 0) {
+        window.leaderLogisticsState.customers.forEach(c => {
+            const custName = c.nazov_firmy || c.name || 'Neznámy zákazník';
+            const addr = c.adresa_dorucenia || c.adresa || '';
+            const searchStr = (custName + ' ' + addr + ' ' + (c.zakaznik_id || '')).toLowerCase();
+            
+            availableStoresHtml += `
+                <div class="tpl-store-item" data-search="${escapeHtml(searchStr)}" style="display:flex; justify-content:space-between; align-items:center; padding:10px; border-bottom:1px solid #e2e8f0; background:#fff; margin-bottom:2px; border-radius:4px;">
+                    <div>
+                        <strong style="color:#1e3a8a; font-size:0.95rem;">${escapeHtml(custName)}</strong> 
+                        <span style="font-size:0.7rem; background:#bfdbfe; color:#1e3a8a; padding:2px 5px; border-radius:4px; margin-left:5px;">B2B</span><br>
+                        <small style="color:#64748b;">${escapeHtml(addr)}</small>
+                    </div>
+                    <button class="btn btn-sm btn-outline-success" style="font-weight:bold; min-width:85px; border:1px solid #22c55e; background:transparent; color:#166534;" data-id="b2b_${c.id}" data-name="${escapeHtml(custName)}" data-note="${escapeHtml(addr)}" onclick="window.addStoreFromPanel(this)">+ Pridať</button>
+                </div>
+            `;
+        });
+    }
+
+    // Manuálne prevádzky z adresára
+    if (window.leaderLogisticsState.stores && window.leaderLogisticsState.stores.length > 0) {
+        window.leaderLogisticsState.stores.forEach(s => {
+            const searchStr = (s.name + ' ' + (s.note || '')).toLowerCase();
+            availableStoresHtml += `
+                <div class="tpl-store-item" data-search="${escapeHtml(searchStr)}" style="display:flex; justify-content:space-between; align-items:center; padding:10px; border-bottom:1px solid #e2e8f0; background:#f8fafc; margin-bottom:2px; border-radius:4px;">
+                    <div>
+                        <strong style="color:#0f172a; font-size:0.95rem;">${escapeHtml(s.name)}</strong> 
+                        <span style="font-size:0.7rem; background:#e2e8f0; color:#334155; padding:2px 5px; border-radius:4px; margin-left:5px;">Manuálna</span><br>
+                        <small style="color:#64748b;">${escapeHtml(s.note || 'Bez adresy')}</small>
+                    </div>
+                    <button class="btn btn-sm btn-outline-success" style="font-weight:bold; min-width:85px; border:1px solid #22c55e; background:transparent; color:#166534;" data-id="man_${s.id}" data-name="${escapeHtml(s.name)}" data-note="${escapeHtml(s.note || '')}" onclick="window.addStoreFromPanel(this)">+ Pridať</button>
+                </div>
+            `;
+        });
+    }
+
+    let html = `
+        <style>
+            #leader-modal-wrapper .b2b-modal-content { max-width: 1400px !important; width: 95% !important; height: 90vh !important; display: flex !important; flex-direction: column !important; }
+        </style>
+        
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px; flex-shrink: 0;">
+            <h3 style="margin:0; color:#1e3a8a;">${id ? '✏️ Úprava rozvozovej trasy' : '➕ Vytvorenie novej rozvozovej trasy'}</h3>
+        </div>
+        
+        <div style="display:flex; gap:20px; align-items:flex-start; flex: 1; min-height: 0;">
+            
+            <div style="flex: 1; background:#f1f5f9; padding:20px; border-radius:8px; border:1px solid #cbd5e1; display:flex; flex-direction:column; height: 100%;">
+                <div class="form-group" style="margin-bottom:15px; flex-shrink: 0;">
+                    <label style="font-weight:bold; color:#0f172a; font-size:1.1rem; margin-bottom:5px; display:block;">Názov rozvozovej trasy</label>
+                    <input type="text" id="tpl-name" class="form-control" style="width:100%; font-size:1.2rem; font-weight:bold; border:2px solid #3b82f6; border-radius:6px; padding:10px;" value="${escapeHtml(template.name)}" placeholder="Zadajte názov trasy...">
+                </div>
+                
+                <h4 style="color:#334155; margin-bottom:10px; font-size:1rem; border-bottom:1px solid #cbd5e1; padding-bottom:5px; flex-shrink: 0;">Zoznam zastávok (Vľavo/Vpravo presúva poradie):</h4>
+                <div id="tpl-stops-container" style="flex:1; overflow-y:auto; border:1px solid #94a3b8; border-radius:6px; padding:10px; background:#e2e8f0; display:flex; flex-direction:column; gap:5px;">
+                </div>
+                
+                <div style="margin-top:15px; display:flex; gap:10px; flex-shrink: 0;">
+                    <button class="btn btn-secondary" style="padding:12px; min-width:120px;" onclick="window.manageManualRoutes()">Zrušiť</button>
+                    <button class="btn btn-success" style="flex:1; padding:12px; font-weight:bold; font-size:1.1rem;" onclick="window.saveManualRouteTemplate(${id || 'null'})"><i class="fas fa-save"></i> Uložiť trasu</button>
+                </div>
+            </div>
+
+            <div style="flex: 1; background:#fff; padding:20px; border-radius:8px; border:1px solid #cbd5e1; display:flex; flex-direction:column; height: 100%;">
+                <h4 style="color:#0f172a; margin-top:0; margin-bottom:15px; font-size:1.1rem; flex-shrink: 0;">🔍 Pridať zastávky do trasy</h4>
+                
+                <div style="margin-bottom:15px; flex-shrink: 0;">
+                    <input type="text" oninput="window.filterAvailableStores(this.value)" class="form-control" style="width:100%; font-size:1rem; padding:10px; border:1px solid #94a3b8; border-radius:6px;" placeholder="Hľadať zákazníkov, mestá...">
+                </div>
+
+                <div style="display:flex; gap:10px; margin-bottom:15px; padding-bottom:15px; border-bottom:1px solid #e2e8f0; flex-shrink: 0;">
+                    <input type="text" id="tpl-custom-stop" class="form-control" style="flex:1; padding:8px; border-radius:4px; border:1px solid #cbd5e1;" placeholder="Pridať vlastný názov (napr. Sklad)">
+                    <button class="btn btn-primary" onclick="window.addCustomStorePanel()">Pridať ➕</button>
+                </div>
+                
+                <div id="tpl-available-stores" style="flex:1; overflow-y:auto; border:1px solid #cbd5e1; border-radius:6px; background:#f8fafc; padding:5px;">
+                    ${availableStoresHtml}
+                </div>
+            </div>
+        </div>
+    `;
+    window.openLeaderModal(html);
+
+    if (template.stops && template.stops.length > 0) {
+        template.stops.forEach(s => window.renderStopRow(s.name, s.note, s.store_id || ''));
+    }
+};
   async function fetchPricelists(customerId){ const r = await apiRequest(`/api/leader/b2b/get_pricelists?customer_id=${encodeURIComponent(customerId)}`); return Array.isArray(r) ? r : (r?.pricelists || r?.rows || []); }
   async function renderPricelistPreview(pricelist, mount){
     const items = Array.isArray(pricelist?.items) ? pricelist.items : []; await ensureNamesForEans(items.map(it => it && it.ean).filter(Boolean));
@@ -1691,111 +1800,6 @@
       } catch(e) { showStatus("Chyba: " + e.message, true); }
   };
 
-  window.showManualRouteEditor = async function(id) {
-      let template = { id: null, name: '', stops: [] };
-      if (id) {
-          const found = window.leaderLogisticsState.routeTemplates.find(t => t.id === id);
-          if (found) template = found;
-      }
-
-      window.openLeaderModal('<div style="padding:30px; text-align:center;"><i class="fas fa-spinner fa-spin fa-2x"></i><br>Načítavam zoznam zákazníkov a adresár pre trasy...</div>');
-
-      try {
-          const sData = await apiRequest('/api/leader/b2b/getStores');
-          window.leaderLogisticsState.stores = sData.stores || [];
-      } catch(e) { window.leaderLogisticsState.stores = []; }
-
-      try {
-          const cData = await apiRequest('/api/leader/b2b/getCustomersAndPricelists');
-          window.leaderLogisticsState.customers = cData.customers || [];
-      } catch(e) { window.leaderLogisticsState.customers = []; }
-
-      let availableStoresHtml = '';
-      
-      if (window.leaderLogisticsState.customers && window.leaderLogisticsState.customers.length > 0) {
-          window.leaderLogisticsState.customers.forEach(c => {
-              const addr = c.adresa_dorucenia || c.adresa || '';
-              const searchStr = (c.nazov_firmy + ' ' + addr + ' ' + (c.zakaznik_id || '')).toLowerCase();
-              availableStoresHtml += `
-                  <div class="tpl-store-item" data-search="${escapeHtml(searchStr)}" style="display:flex; justify-content:space-between; align-items:center; padding:10px; border-bottom:1px solid #e2e8f0; background:#fff; margin-bottom:2px; border-radius:4px;">
-                      <div>
-                          <strong style="color:#1e3a8a; font-size:0.95rem;">${escapeHtml(c.nazov_firmy)}</strong> 
-                          <span style="font-size:0.7rem; background:#bfdbfe; color:#1e3a8a; padding:2px 5px; border-radius:4px; margin-left:5px;">B2B</span><br>
-                          <small style="color:#64748b;">${escapeHtml(addr)}</small>
-                      </div>
-                      <button class="btn btn-sm btn-outline-success" style="font-weight:bold; min-width:85px; border:1px solid #22c55e; background:transparent; color:#166534;" data-id="b2b_${c.id}" data-name="${escapeHtml(c.nazov_firmy)}" data-note="${escapeHtml(addr)}" onclick="window.addStoreFromPanel(this)">+ Pridať</button>
-                  </div>
-              `;
-          });
-      }
-
-      if (window.leaderLogisticsState.stores && window.leaderLogisticsState.stores.length > 0) {
-          window.leaderLogisticsState.stores.forEach(s => {
-              const searchStr = (s.name + ' ' + (s.note || '')).toLowerCase();
-              availableStoresHtml += `
-                  <div class="tpl-store-item" data-search="${escapeHtml(searchStr)}" style="display:flex; justify-content:space-between; align-items:center; padding:10px; border-bottom:1px solid #e2e8f0; background:#f8fafc; margin-bottom:2px; border-radius:4px;">
-                      <div>
-                          <strong style="color:#0f172a; font-size:0.95rem;">${escapeHtml(s.name)}</strong> 
-                          <span style="font-size:0.7rem; background:#e2e8f0; color:#334155; padding:2px 5px; border-radius:4px; margin-left:5px;">Manuálna</span><br>
-                          <small style="color:#64748b;">${escapeHtml(s.note || 'Bez adresy')}</small>
-                      </div>
-                      <button class="btn btn-sm btn-outline-success" style="font-weight:bold; min-width:85px; border:1px solid #22c55e; background:transparent; color:#166534;" data-id="man_${s.id}" data-name="${escapeHtml(s.name)}" data-note="${escapeHtml(s.note || '')}" onclick="window.addStoreFromPanel(this)">+ Pridať</button>
-                  </div>
-              `;
-          });
-      }
-
-      let html = `
-          <style>
-              #leader-modal-wrapper .b2b-modal-content { max-width: 1400px !important; width: 95% !important; height: 90vh !important; display: flex !important; flex-direction: column !important; }
-          </style>
-          
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px; flex-shrink: 0;">
-              <h3 style="margin:0; color:#1e3a8a;">${id ? '✏️ Úprava rozvozovej trasy' : '➕ Vytvorenie novej rozvozovej trasy'}</h3>
-          </div>
-          
-          <div style="display:flex; gap:20px; align-items:flex-start; flex: 1; min-height: 0;">
-              
-              <div style="flex: 1; background:#f1f5f9; padding:20px; border-radius:8px; border:1px solid #cbd5e1; display:flex; flex-direction:column; height: 100%;">
-                  <div class="form-group" style="margin-bottom:15px; flex-shrink: 0;">
-                      <label style="font-weight:bold; color:#0f172a; font-size:1.1rem; margin-bottom:5px; display:block;">Názov rozvozovej trasy</label>
-                      <input type="text" id="tpl-name" class="form-control" style="width:100%; font-size:1.2rem; font-weight:bold; border:2px solid #3b82f6; border-radius:6px; padding:10px;" value="${escapeHtml(template.name)}" placeholder="Zadajte názov trasy...">
-                  </div>
-                  
-                  <h4 style="color:#334155; margin-bottom:10px; font-size:1rem; border-bottom:1px solid #cbd5e1; padding-bottom:5px; flex-shrink: 0;">Zoznam zastávok (Vľavo/Vpravo presúva poradie):</h4>
-                  <div id="tpl-stops-container" style="flex:1; overflow-y:auto; border:1px solid #94a3b8; border-radius:6px; padding:10px; background:#e2e8f0; display:flex; flex-direction:column; gap:5px;">
-                  </div>
-                  
-                  <div style="margin-top:15px; display:flex; gap:10px; flex-shrink: 0;">
-                      <button class="btn btn-secondary" style="padding:12px; min-width:120px;" onclick="window.manageManualRoutes()">Zrušiť</button>
-                      <button class="btn btn-success" style="flex:1; padding:12px; font-weight:bold; font-size:1.1rem;" onclick="window.saveManualRouteTemplate(${id || 'null'})"><i class="fas fa-save"></i> Uložiť trasu</button>
-                  </div>
-              </div>
-
-              <div style="flex: 1; background:#fff; padding:20px; border-radius:8px; border:1px solid #cbd5e1; display:flex; flex-direction:column; height: 100%;">
-                  <h4 style="color:#0f172a; margin-top:0; margin-bottom:15px; font-size:1.1rem; flex-shrink: 0;">🔍 Pridať zastávky do trasy</h4>
-                  
-                  <div style="margin-bottom:15px; flex-shrink: 0;">
-                      <input type="text" oninput="window.filterAvailableStores(this.value)" class="form-control" style="width:100%; font-size:1rem; padding:10px; border:1px solid #94a3b8; border-radius:6px;" placeholder="Hľadať zákazníkov, mestá...">
-                  </div>
-
-                  <div style="display:flex; gap:10px; margin-bottom:15px; padding-bottom:15px; border-bottom:1px solid #e2e8f0; flex-shrink: 0;">
-                      <input type="text" id="tpl-custom-stop" class="form-control" style="flex:1; padding:8px; border-radius:4px; border:1px solid #cbd5e1;" placeholder="Pridať vlastný názov (napr. Sklad)">
-                      <button class="btn btn-primary" onclick="window.addCustomStorePanel()">Pridať ➕</button>
-                  </div>
-                  
-                  <div id="tpl-available-stores" style="flex:1; overflow-y:auto; border:1px solid #cbd5e1; border-radius:6px; background:#f8fafc; padding:5px;">
-                      ${availableStoresHtml}
-                  </div>
-              </div>
-          </div>
-      `;
-      window.openLeaderModal(html);
-
-      if (template.stops && template.stops.length > 0) {
-          template.stops.forEach(s => window.renderStopRow(s.name, s.note, s.store_id || ''));
-      }
-  };
 
   window.saveManualRouteTemplate = async function(id) {
       const name = document.getElementById('tpl-name').value.trim();

@@ -194,7 +194,8 @@ def _read_pricelists_for_customer(customer_zkid: str):
 @leader_bp.get('/b2b/getCustomersAndPricelists')
 @login_required(role=('veduci','admin'))
 def leader_b2b_get_customers_and_pricelists():
-    return jsonify({'customers': _read_b2b_customers()})
+    import b2b_handler
+    return jsonify(b2b_handler.get_customers_and_pricelists())
 
 @leader_bp.get('/b2b/get_pricelists')
 @login_required(role=('veduci','admin'))
