@@ -190,73 +190,80 @@ def _register_fonts():
 # ──────────────── CSV (COOP štýl) ────────────────
 
 def _make_csv(order):
-    """
-    COOP-štýl CSV pre expedíciu.
-    Opravené: Načítanie množstva z rôznych kľúčov a formátovanie.
-    """
     sio = io.StringIO(newline="")
 
-    cust_name = order.get("customer_name") or ""
-    cust_addr = order.get("customer_address") or ""
+    cust_name = str(order.get("customer_name") or "").strip()
+    cust_addr = str(order.get("customer_address") or "").strip()
     cust_code = str(order.get("customer_code") or "").strip()
     date_str  = _date_simple(order.get("delivery_date"))
-    
-    order_no_val = str(order.get("order_no") or "").strip() 
-    if not order_no_val:
-        order_no_val = "000000"
 
+    addr_parts = [p.strip() for p in cust_addr.split(',')]
+    adresa1 = addr_parts[0] if len(addr_parts) > 0 else cust_addr
+    adresa2 = addr_parts[1] if len(addr_parts) > 1 else ""
+    adresa3 = addr_parts[2] if len(addr_parts) > 2 else ""
+    adresa4 = addr_parts[3] if len(addr_parts) > 3 else ""
+
+    cislo_trasy = str(order.get("route_number") or "").strip()
+    cislo_prevadzky = str(order.get("branch_number") or "").strip()
+
+    # Hlavička (9. pozícia: číslo odberateľa)
     header_cols = [
-        cust_name,   # názov odberateľa
-        cust_name,   # názov odberateľa
-        cust_addr,   # adresa
-        cust_name,   # mesto/názov
-        cust_name,   # prevádzka
-        "",          # PSČ
-        "",          
-        date_str,    # dátum dodania
-        "",          
+        cust_name,       
+        "",              
+        adresa1,         
+        adresa2,         
+        adresa3,         
+        adresa4,         
+        cislo_trasy,     
+        date_str,        
+        cust_code  
     ]
     sio.write(";".join(header_cols) + "\n")
 
-    konst = order_no_val 
-
-    prev_label = cust_name.strip()
-    if len(prev_label) > 25:
-        prev_label = prev_label[:25]
+    order_no_val = str(order.get("order_no") or "000000").strip()
 
     for it in order.get("items", []):
         ean   = str(it.get("ean") or "")
-        name  = (it.get("name") or "").strip()
-        
-        # OPRAVA: Skúsiť načítať 'qty' (nové) aj 'quantity' (staré)
+        name  = str(it.get("name") or "").strip()
         qty   = _to_float(it.get("qty") or it.get("quantity"))
         price = _to_float(it.get("price"))
 
-        code_field = ean[:13].ljust(13)
-        desc_field = name[:45].ljust(45)
-        
-        # Formátovanie množstva
-        qty_str    = f"{qty:.2f}"
-        qty_field  = qty_str.rjust(5)
-        
-        odb_field  = cust_code[:13].ljust(13) if cust_code else "".ljust(13)
+        # 1. EAN (13 znakov)
+        code_field = ean.rjust(13, '0')[:13] if ean.isdigit() else ean.ljust(13)[:13]
 
+        # 2. Názov (38 znakov)
+        desc_field = name[:38].ljust(38)
+
+        # 3. Množstvo (10 znakov zľava zarovnané medzerami)
+        qty_field  = f"{qty:.2f}".rjust(10)
+
+        # 4. Číslo objednávky (15 znakov)
+        konst = order_no_val[:15].ljust(15)
+
+        # 5. Číslo prevádzky (7 znakov)
+        branch_field = cislo_prevadzky[:7].ljust(7) if cislo_prevadzky else "       "
+
+        # 6. Číslo odberateľa namiesto GLN (13 znakov)
+        odb_field = cust_code[:13].ljust(13)
+
+        # 7. Cena
+        price_field = f"{price:.2f}"
+
+        # Výsledný riadok (117 znakov pred cenou)
         line = (
-            "  " +
+            "  " +                  
             code_field + " " +
-            desc_field +
+            desc_field + " " +      
             qty_field + " " +
             konst + " " +
-            prev_label + " " +
+            branch_field +          
             odb_field +
-            " " * 15 +
-            "0.00 " +
-            f"{price:.2f}"
+            " " * 15 +              
+            price_field
         )
         sio.write(line + "\n")
 
     return sio.getvalue().encode("cp1250", errors="replace")
-
 
 # ──────────────── PDF ────────────────
 

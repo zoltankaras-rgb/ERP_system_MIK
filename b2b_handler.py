@@ -1074,9 +1074,9 @@ def submit_b2b_order(data: dict):
         if not check:
             return {"error": "Neoprávnená objednávka na tento účet (neplatný vzťah)."}
 
-    # 3. Načítanie údajov CIEĽOVÉHO zákazníka
+    # 3. Načítanie údajov CIEĽOVÉHO zákazníka (PRIDANÉ: trasa_id, cislo_prevadzky)
     cust = db_connector.execute_query(
-        "SELECT id, zakaznik_id, nazov_firmy, adresa, adresa_dorucenia FROM b2b_zakaznici WHERE id=%s",
+        "SELECT id, zakaznik_id, nazov_firmy, adresa, adresa_dorucenia, trasa_id, cislo_prevadzky FROM b2b_zakaznici WHERE id=%s",
         (final_id,), fetch="one",
     )
     if not cust:
@@ -1133,6 +1133,7 @@ def submit_b2b_order(data: dict):
 
     total_gross = total_net + total_vat
 
+    # PRIDANÉ: route_number a branch_number
     order_payload = {
         "order_number": None, 
         "customerName": cust["nazov_firmy"],
@@ -1144,6 +1145,8 @@ def submit_b2b_order(data: dict):
         "totalVat": total_vat,
         "totalWithVat": total_gross,
         "customerCode": login_id, 
+        "route_number": cust.get("trasa_id"),
+        "branch_number": cust.get("cislo_prevadzky"),
     }
 
     # 6. Uloženie do databázy
@@ -1254,6 +1257,7 @@ def submit_b2b_order(data: dict):
         "order_data": order_payload,
     }
 
+    
 def create_b2b_branch(data: dict):
     """
     Vytvorí podúčet (pobočku) pre existujúceho zákazníka.
