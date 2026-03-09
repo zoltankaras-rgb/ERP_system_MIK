@@ -485,26 +485,35 @@ def setup_new_sales_channel(data):
     if not all([year, month, channel_name]):
         return {"error": "Chýbajú dáta."}
         
-    # AUTOMATICKÁ OPRAVA DATABÁZY: Vytvorenie stĺpca pre istotu aj tu
+    # 1. AUTOMATICKÁ OPRAVA DATABÁZY
     if not _has_col("b2b_zakaznici", "predajny_kanal"):
         try:
             db_connector.execute_query("ALTER TABLE b2b_zakaznici ADD COLUMN predajny_kanal VARCHAR(100) DEFAULT NULL", fetch="none")
         except Exception:
             pass
 
-    # 1. Prepojenie s reťazcom: Nastavíme predajny_kanal pre centrálu aj všetky jej pobočky
+    # 2. TVRDÝ UPDATE PREDAJNÉHO KANÁLU S COMMITOM PRE MATKU AJ POBOČKY
     if chain_id:
+        conn_upd = None
         try:
-            db_connector.execute_query(
+            conn_upd = db_connector.get_connection()
+            cur_upd = conn_upd.cursor()
+            cur_upd.execute(
                 "UPDATE b2b_zakaznici SET predajny_kanal = %s WHERE id = %s OR parent_id = %s",
-                (channel_name, chain_id, chain_id),
-                fetch="none"
+                (channel_name, int(chain_id), int(chain_id))
             )
+            conn_upd.commit()
         except Exception as e:
+            if conn_upd:
+                conn_upd.rollback()
             import traceback
             traceback.print_exc()
+        finally:
+            if conn_upd and conn_upd.is_connected():
+                cur_upd.close()
+                conn_upd.close()
 
-    # 2. Vytvorenie záznamov pre manuálny cenník
+    # 3. Vytvorenie záznamov pre manuálny cenník (aby sa ukázal v systéme)
     products_q = """
         SELECT ean, nazov_vyrobku
         FROM produkty
@@ -539,7 +548,6 @@ def setup_new_sales_channel(data):
         cur = conn.cursor()
         cur.executemany(query, records_to_insert)
         conn.commit()
-        rows_affected = cur.rowcount
     except Exception:
         if conn:
             conn.rollback()
@@ -554,7 +562,7 @@ def setup_new_sales_channel(data):
             conn.close()
 
     return {
-        "message": f"Kanál '{channel_name}' bol úspešne vytvorený a pobočky prepojené."
+        "message": f"Kanál '{channel_name}' bol úspešne vytvorený a všetky pobočky boli trvalo prepojené."
     }
 def save_sales_channel_data(data):
     year = int(data.get("year"))
