@@ -420,7 +420,6 @@ function renderSalesChannelsView(data){
                 V danom mesiaci neexistujú žiadne expedované objednávky ani vytvorené kanály.
              </div>`;
   } else {
-    // Vykreslenie kanálov
     for (const channel in data){
       const ch = data[channel]||{};
       const summary = ch.summary||{};
@@ -444,8 +443,8 @@ function renderSalesChannelsView(data){
             const unit = row.unit || 'kg';
             const qty  = Number(row.quantity || 0);
             
-            if (unit === 'kg') kgSum += qty;
-            if (unit === 'ks') ksSum += qty;
+            if (unit.toLowerCase() === 'kg') kgSum += qty;
+            if (unit.toLowerCase() === 'ks') ksSum += qty;
 
             const profitColorRow = row.total_profit_eur < 0 ? '#dc2626' : '#15803d';
 
@@ -467,10 +466,11 @@ function renderSalesChannelsView(data){
             
           <div style="background:#f1f5f9; padding:15px; border-bottom:2px solid #0ea5e9; display:flex; justify-content:space-between; align-items:center;">
               <h5 style="margin:0; font-size:1.2rem; color:#0f172a;">${escapeHtml(channel)}</h5>
-              <div style="display:flex; gap:20px; font-size:0.9rem;">
+              <div style="display:flex; gap:20px; font-size:0.9rem; align-items:center;">
                   <div><span style="color:#64748b;">Tržba:</span> <strong style="color:#1d4ed8; font-size:1.1rem;">${safeToFixed(trzba)} €</strong></div>
                   <div><span style="color:#64748b;">Zisk:</span> <strong style="color:${ziskColor}; font-size:1.1rem;">${zisk > 0 ? '+' : ''}${safeToFixed(zisk)} €</strong></div>
                   <div><span style="color:#64748b;">Marža:</span> <strong style="color:${marzaColor}; font-size:1.1rem;">${safeToFixed(marza, 1)} %</strong></div>
+                  ${channel !== 'Nezaradené' ? `<button class="btn btn-danger btn-sm" onclick="window.deleteSalesChannel('${escapeHtml(channel)}')"><i class="fas fa-trash"></i> Zmazať kanál</button>` : ''}
               </div>
           </div>
 
@@ -507,6 +507,20 @@ function renderSalesChannelsView(data){
   const addBtn = document.getElementById('add-sales-channel-btn');
   if (addBtn) addBtn.onclick = showAddSalesChannelModal;
 }
+
+window.deleteSalesChannel = async function(channelName) {
+    if (!confirm(`Naozaj chcete zmazať kanál "${channelName}"?\nZákazníci z tohto kanálu spadnú do kategórie "Nezaradené".`)) return;
+    try {
+        await apiP('/api/kancelaria/profitability/deleteSalesChannel', {
+            method: 'POST',
+            body: { channel: channelName }
+        });
+        showStatus("Kanál zmazaný");
+        loadAndRenderProfitabilityData();
+    } catch (e) {
+        showStatus("Chyba: " + e.message, true);
+    }
+};
 window.filterChannelOrders = function(channel) {
     const tbody = document.getElementById('chan-orders-tbody');
     if (!tbody || !window.currentChannelOrders) return;

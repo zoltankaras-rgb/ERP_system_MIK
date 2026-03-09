@@ -238,7 +238,6 @@ def get_profitability_data(year, month):
 def get_sales_channels_view(year, month):
     year, month = _ym_int(year, month)
     
-    # 1. AUTOMATICKÁ OPRAVA DATABÁZY
     if not _has_col("b2b_zakaznici", "predajny_kanal"):
         try:
             db_connector.execute_query("ALTER TABLE b2b_zakaznici ADD COLUMN predajny_kanal VARCHAR(100) DEFAULT NULL", fetch="none")
@@ -247,23 +246,23 @@ def get_sales_channels_view(year, month):
 
     sales_by_channel = {}
 
-    # 2. AGREGOVANIE REÁLNYCH PREDAJOV (OBJEDNÁVKY)
+    # 1. Agregácia objednávok (s maximálnou toleranciou na medzery a Collation)
     real_sales_sql = """
         SELECT 
             COALESCE(z.predajny_kanal, 'Nezaradené') AS kanal,
             op.ean_produktu,
-            p.nazov_vyrobku,
+            COALESCE(p.nazov_vyrobku, op.nazov_vyrobku) AS nazov_vyrobku,
             op.mj,
             SUM(op.mnozstvo) AS real_sales_qty,
             SUM(op.mnozstvo * op.cena_bez_dph) AS total_trzba,
             SUM(op.mnozstvo * COALESCE(p.nakupna_cena, 0)) AS total_naklad
         FROM b2b_objednavky o
-        JOIN b2b_zakaznici z ON CONVERT(o.zakaznik_id USING utf8mb4) COLLATE utf8mb4_general_ci = CONVERT(z.zakaznik_id USING utf8mb4) COLLATE utf8mb4_general_ci
-        JOIN b2b_objednavky_polozky op ON o.id = op.objednavka_id
-        LEFT JOIN produkty p ON CONVERT(op.ean_produktu USING utf8mb4) COLLATE utf8mb4_general_ci = CONVERT(p.ean USING utf8mb4) COLLATE utf8mb4_general_ci
+        LEFT JOIN b2b_zakaznici z ON CONVERT(TRIM(o.zakaznik_id) USING utf8mb4) COLLATE utf8mb4_general_ci = CONVERT(TRIM(z.zakaznik_id) USING utf8mb4) COLLATE utf8mb4_general_ci
+        LEFT JOIN b2b_objednavky_polozky op ON o.id = op.objednavka_id
+        LEFT JOIN produkty p ON CONVERT(TRIM(op.ean_produktu) USING utf8mb4) COLLATE utf8mb4_general_ci = CONVERT(TRIM(p.ean) USING utf8mb4) COLLATE utf8mb4_general_ci
         WHERE YEAR(o.pozadovany_datum_dodania) = %s AND MONTH(o.pozadovany_datum_dodania) = %s
-          AND o.stav NOT IN ('Zrušená', 'Stornovaná')
-        GROUP BY z.predajny_kanal, op.ean_produktu, p.nazov_vyrobku, op.mj
+          AND o.stav NOT IN ('Zrušená', 'Stornovaná', 'Zrusena')
+        GROUP BY z.predajny_kanal, op.ean_produktu, COALESCE(p.nazov_vyrobku, op.nazov_vyrobku), op.mj
         ORDER BY z.predajny_kanal, total_trzba DESC
     """
     real_sales = db_connector.execute_query(real_sales_sql, (year, month), fetch='all') or []
@@ -282,7 +281,6 @@ def get_sales_channels_view(year, month):
         naklad = float(r['total_naklad'] or 0)
         zisk = trzba - naklad
         
-        # Ošetrenie pre jednotkovú cenu (priemerná cena)
         avg_sell = (trzba / qty) if qty > 0 else 0
         avg_buy = (naklad / qty) if qty > 0 else 0
         
@@ -297,17 +295,14 @@ def get_sales_channels_view(year, month):
         })
         
         s = sales_by_channel[kanal]["summary"]
-        if r["mj"] == "kg":
+        if r["mj"] in ("kg", "KG"):
             s["total_kg"] += qty
         s["total_purchase"] += naklad
         s["total_sell"] += trzba
         s["total_profit"] += zisk
 
-    # 3. Ak nejaké kanály existujú iba ako ručné konfigurácie, pridáme aj tie (prázdne)
-    query_manual = """
-        SELECT DISTINCT sales_channel FROM profit_sales_monthly
-        WHERE report_year = %s AND report_month = %s
-    """
+    # 2. Pridanie prázdnych kanálov z definícií (ak by v mesiaci nebol žiadny predaj)
+    query_manual = "SELECT DISTINCT sales_channel FROM profit_sales_monthly WHERE report_year = %s AND report_month = %s"
     manual_channels = db_connector.execute_query(query_manual, (year, month)) or []
     for c in manual_channels:
         ch_name = c["sales_channel"]
@@ -1097,3 +1092,21 @@ h2{{margin:0 0 12px 0}}
 <body><h3>{title}</h3><p>Viacmesačný report typu <b>{rtype}</b> zatiaľ nie je dostupný. Zvoľte typ <b>summary</b> alebo tlačte po mesiacoch.</p>
 <script>window.print()</script></body></html>"""
     return make_response(html)
+
+def delete_sales_channel(data):
+    channel = data.get("channel")
+    if not channel:
+        return {"error": "Chýba názov kanálu."}
+    try:
+        conn = db_connector.get_connection()
+        cur = conn.cursor()
+        # Zmazanie fixných dát kanálu z daného modulu
+        cur.execute("DELETE FROM profit_sales_monthly WHERE sales_channel = %s", (channel,))
+        # Zmazanie väzby u zákazníkov v DB
+        cur.execute("UPDATE b2b_zakaznici SET predajny_kanal = NULL WHERE predajny_kanal = %s", (channel,))
+        conn.commit()
+        cur.close()
+        conn.close()
+        return {"message": f"Kanál '{channel}' bol trvalo odstránený a zákazníci odpojení."}
+    except Exception as e:
+        return {"error": str(e)}
