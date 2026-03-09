@@ -400,198 +400,112 @@ function renderProductionStrictHistory(prodData){
   c.insertAdjacentHTML('beforeend', html);
 }
 
-// ----- SALES CHANNELS (Nové zobrazenie + Súpis objednávok) ----------------------------------------------
+// ----- SALES CHANNELS (Sumarizácia reálnych predajov podľa produktov) ----------------------------------------------
 function renderSalesChannelsView(data){
   const c = document.getElementById('profitability-content');
   let html = `
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
-      <h4>Predajné kanály</h4>
+      <h4>Predajné kanály (Agregácia podľa odberných skupín)</h4>
       <div>
-        <button id="add-sales-channel-btn" class="btn-success" style="margin-right:.5rem;"><i class="fas fa-plus"></i> Nový kanál</button>
+        <button id="add-sales-channel-btn" class="btn-success" style="margin-right:.5rem;"><i class="fas fa-plus"></i> Pridať nový kanál</button>
         <button class="btn-info" onclick="handlePrintProfitabilityReport('sales_channels')"><i class="fas fa-print"></i> Tlačiť Report</button>
       </div>
     </div>
   `;
 
-  // Bezpečnostná kontrola, či sú vrátené akékoľvek dáta (manuálne kanály alebo reálne objednávky)
   const hasAnyData = data && Object.keys(data).length > 0;
 
   if (!hasAnyData){
-    html += `<p>Pre tento mesiac nie sú dáta. Môžete vytvoriť nový predajný kanál.</p>`;
-    // Vynulovanie globálnej premennej pre objednávky, ak nie sú dáta
-    window.currentChannelOrders = [];
+    html += `<div class="stat-card" style="text-align:center; padding:40px; color:#64748b;">
+                V danom mesiaci neexistujú žiadne expedované objednávky ani vytvorené kanály.
+             </div>`;
   } else {
-    html += '<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(250px, 1fr)); gap:15px; margin-bottom:20px;">';
-    let allOrdersList = [];
-    let channelsList = [];
-
-    // Prechádzanie všetkými kanálmi z backendu (vrátane dynamicky vytvorených z objednávok)
-    for (const channel in data){
-        const ch = data[channel] || {};
-        const orders = ch.orders || [];
-        
-        let totalTrzba = 0;
-        let totalNaklad = 0;
-        let pocetObj = orders.length;
-
-        // Sumarizácia reálnych objednávok
-        orders.forEach(o => {
-            totalTrzba += o.trzba;
-            totalNaklad += (o.trzba - o.zisk); 
-            allOrdersList.push(o);
-        });
-
-        // Ak kanál vznikol iba z ručných dát (bez objednávok), fallback na summary hodnoty z profit_sales_monthly
-        if (pocetObj === 0 && ch.summary) {
-            totalTrzba = ch.summary.total_sell || 0;
-            totalNaklad = ch.summary.total_purchase || 0;
-        }
-
-        const zisk = totalTrzba - totalNaklad;
-        const marza = totalTrzba > 0 ? (zisk / totalTrzba * 100) : 0;
-        
-        channelsList.push(channel);
-
-        const ziskColor = zisk < 0 ? '#dc2626' : '#15803d';
-        const marzaColor = marza < 10 ? '#dc2626' : (marza >= 20 ? '#16a34a' : '#d97706');
-        
-        html += `
-        <div class="stat-card" style="border-top:4px solid #0ea5e9;">
-            <div style="font-size:1.1rem; font-weight:bold; color:#1e293b; margin-bottom:10px;">${escapeHtml(channel)}</div>
-            <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
-                <span style="color:#64748b;">Objednávky:</span>
-                <strong style="color:#0f172a;">${pocetObj}</strong>
-            </div>
-            <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
-                <span style="color:#64748b;">Tržba:</span>
-                <strong style="color:#1d4ed8;">${safeToFixed(totalTrzba)} €</strong>
-            </div>
-            <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
-                <span style="color:#64748b;">Zisk:</span>
-                <strong style="color:${ziskColor};">${zisk > 0 ? '+' : ''}${safeToFixed(zisk)} €</strong>
-            </div>
-            <div style="display:flex; justify-content:space-between; margin-top:10px; padding-top:10px; border-top:1px solid #e2e8f0;">
-                <span style="font-weight:bold; color:#334155;">Priem. Marža:</span>
-                <strong style="font-size:1.1rem; color:${marzaColor};">${safeToFixed(marza, 1)} %</strong>
-            </div>
-        </div>`;
-    }
-    html += '</div>';
-
-    // Uloženie všetkých extrahovaných objednávok pre filter
-    window.currentChannelOrders = allOrdersList;
-
-    html += `
-        <div style="background:#fff; border:1px solid #e2e8f0; border-radius:8px; padding:15px; box-shadow:0 1px 3px rgba(0,0,0,0.05);">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
-                <h4 style="margin:0; color:#1e293b;">Kompletný súpis objednávok</h4>
-                <select id="chan-order-filter" style="width:250px; font-weight:bold; color:#0369a1; padding:5px; border:1px solid #cbd5e1; border-radius:4px;" onchange="window.filterChannelOrders(this.value)">
-                    <option value="all">Zobraziť všetky kanály</option>
-                    ${channelsList.map(ch => `<option value="${escapeHtml(ch)}">${escapeHtml(ch)}</option>`).join('')}
-                </select>
-            </div>
-            <div style="max-height: 500px; overflow-y: auto; border: 1px solid #cbd5e1; border-radius: 6px;">
-                <table style="width:100%; border-collapse: collapse; font-size: 0.9rem;">
-                    <thead style="position: sticky; top: 0; background: #f8fafc; z-index: 10; box-shadow: 0 1px 2px rgba(0,0,0,0.1);">
-                        <tr>
-                            <th style="padding:10px; border-bottom:1px solid #e2e8f0; text-align:left;">Dátum prijatia</th>
-                            <th style="padding:10px; border-bottom:1px solid #e2e8f0; text-align:left;">Číslo objednávky</th>
-                            <th style="padding:10px; border-bottom:1px solid #e2e8f0; text-align:left;">Zákazník</th>
-                            <th style="padding:10px; border-bottom:1px solid #e2e8f0; text-align:left;">Predajný kanál</th>
-                            <th style="padding:10px; border-bottom:1px solid #e2e8f0; text-align:right;">Tržba (bez DPH)</th>
-                            <th style="padding:10px; border-bottom:1px solid #e2e8f0; text-align:right;">Zisk</th>
-                            <th style="padding:10px; border-bottom:1px solid #e2e8f0; text-align:right;">Marža</th>
-                        </tr>
-                    </thead>
-                    <tbody id="chan-orders-tbody">
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    `;
-
-    // 3. Pôvodné ručné cenníky (zbalené do akordeónu) - Vykresľujú sa iba ak má kanál "items" (manuálne zadané produkty)
-    let hasManualItems = false;
-    let manualHtml = `
-        <details style="margin-top:20px; background:#f9fafb; border:1px solid #e5e7eb; border-radius:6px;">
-            <summary style="padding:10px 15px; font-weight:bold; cursor:pointer;">Zobraziť editor položiek podľa kanálov (Ručné cenotvorby)</summary>
-            <div style="padding:15px;">
-    `;
-
+    // Vykreslenie kanálov
     for (const channel in data){
       const ch = data[channel]||{};
-      if (!ch.items || ch.items.length === 0) continue; // Preskoč kanály vytvorené len z objednávok
-      
-      hasManualItems = true;
       const summary = ch.summary||{};
-      const rows = (ch.items||[]).map(row=>{
-        const unit = row.unit || 'kg';
-        const qty  = unit === 'kg' ? (row.sales_kg ?? row.quantity ?? '') : (row.quantity ?? '');
-        return `
-          <tr data-ean="${escapeHtml(row.product_ean)}">
-            <td>${escapeHtml(row.product_name)}</td>
-            <td><input type="number" class="sales-input sales-qty" data-field="quantity" value="${qty||''}" style="width:100px;"></td>
-            <td>
-              <select class="sales-input sales-unit" data-field="unit" style="width:80px;">
-                <option value="kg" ${unit==='kg'?'selected':''}>kg</option>
-                <option value="ks" ${unit==='ks'?'selected':''}>ks</option>
-              </select>
-            </td>
-            <td><input type="number" step="0.0001" class="sales-input" data-field="purchase_price_net" value="${row.purchase_price_net||''}" style="width:110px;"></td>
-            <td><input type="number" step="0.0001" class="sales-input" data-field="sell_price_net" value="${row.sell_price_net||''}" style="width:110px;"></td>
-            <td>${safeToFixed(row.total_profit_eur)} €</td>
-          </tr>
-        `;
-      }).join('');
+      const items = ch.items || [];
+      
+      const zisk = summary.total_profit || 0;
+      const trzba = summary.total_sell || 0;
+      const marza = trzba > 0 ? (zisk / trzba * 100) : 0;
+      
+      const ziskColor = zisk < 0 ? '#dc2626' : '#15803d';
+      const marzaColor = marza < 10 ? '#dc2626' : (marza >= 20 ? '#16a34a' : '#d97706');
 
-      const kgSum = (ch.items||[]).filter(i => (i.unit||'kg')==='kg').reduce((a,b)=>a + Number(b.sales_kg||b.quantity||0),0);
-      const ksSum = (ch.items||[]).filter(i => (i.unit||'kg')==='ks').reduce((a,b)=>a + Number(b.quantity||0),0);
+      let tableRows = '';
+      let ksSum = 0;
+      let kgSum = 0;
 
-      manualHtml += `
-        <div class="channel-card">
-          <h5 style="margin-top:1.2rem;">${escapeHtml(channel)}</h5>
-          <div class="table-container table-scroll">
-            <table class="sales-channel-table" data-channel="${escapeHtml(channel)}">
-              <thead>
-                <tr><th>Produkt</th><th>Množstvo</th><th>Jedn.</th><th>Nákup (€/jed)</th><th>Predaj (€/jed)</th><th>Zisk (€)</th></tr>
+      if (items.length === 0) {
+          tableRows = '<tr><td colspan="6" style="text-align:center; padding:20px; color:#64748b;">Tento kanál v danom mesiaci nemá žiadne odoberané produkty.</td></tr>';
+      } else {
+          tableRows = items.map(row => {
+            const unit = row.unit || 'kg';
+            const qty  = Number(row.quantity || 0);
+            
+            if (unit === 'kg') kgSum += qty;
+            if (unit === 'ks') ksSum += qty;
+
+            const profitColorRow = row.total_profit_eur < 0 ? '#dc2626' : '#15803d';
+
+            return `
+              <tr>
+                <td style="font-weight:600; color:#1e293b;">${escapeHtml(row.product_name)}<br><small style="color:#64748b; font-weight:normal;">EAN: ${escapeHtml(row.product_ean)}</small></td>
+                <td style="text-align:right; font-weight:bold; font-size:1.05rem;">${safeToFixed(qty, 2)}</td>
+                <td>${escapeHtml(unit)}</td>
+                <td style="text-align:right; color:#64748b;">${safeToFixed(row.purchase_price_net, 4)} €</td>
+                <td style="text-align:right; color:#1d4ed8; font-weight:bold;">${safeToFixed(row.sell_price_net, 4)} €</td>
+                <td style="text-align:right; font-weight:bold; color:${profitColorRow};">${row.total_profit_eur > 0 ? '+' : ''}${safeToFixed(row.total_profit_eur)} €</td>
+              </tr>
+            `;
+          }).join('');
+      }
+
+      html += `
+        <div class="channel-card" style="border:1px solid #cbd5e1; border-radius:8px; box-shadow:0 2px 4px rgba(0,0,0,0.05); margin-bottom: 2rem; background:#fff; overflow:hidden;">
+            
+          <div style="background:#f1f5f9; padding:15px; border-bottom:2px solid #0ea5e9; display:flex; justify-content:space-between; align-items:center;">
+              <h5 style="margin:0; font-size:1.2rem; color:#0f172a;">${escapeHtml(channel)}</h5>
+              <div style="display:flex; gap:20px; font-size:0.9rem;">
+                  <div><span style="color:#64748b;">Tržba:</span> <strong style="color:#1d4ed8; font-size:1.1rem;">${safeToFixed(trzba)} €</strong></div>
+                  <div><span style="color:#64748b;">Zisk:</span> <strong style="color:${ziskColor}; font-size:1.1rem;">${zisk > 0 ? '+' : ''}${safeToFixed(zisk)} €</strong></div>
+                  <div><span style="color:#64748b;">Marža:</span> <strong style="color:${marzaColor}; font-size:1.1rem;">${safeToFixed(marza, 1)} %</strong></div>
+              </div>
+          </div>
+
+          <div class="table-container table-scroll" style="max-height: 400px; padding: 0;">
+            <table style="width:100%; border-collapse: collapse;">
+              <thead style="position: sticky; top: 0; background: #f8fafc; z-index: 10;">
+                <tr>
+                    <th style="padding:10px; border-bottom:1px solid #e2e8f0; text-align:left;">Produkt</th>
+                    <th style="padding:10px; border-bottom:1px solid #e2e8f0; text-align:right;">Odobraté množstvo</th>
+                    <th style="padding:10px; border-bottom:1px solid #e2e8f0; text-align:left;">MJ</th>
+                    <th style="padding:10px; border-bottom:1px solid #e2e8f0; text-align:right;">Priem. Nákup/Výroba (€/MJ)</th>
+                    <th style="padding:10px; border-bottom:1px solid #e2e8f0; text-align:right;">Priem. Predajná (€/MJ)</th>
+                    <th style="padding:10px; border-bottom:1px solid #e2e8f0; text-align:right;">Celkový Zisk</th>
+                </tr>
               </thead>
-              <tbody>${rows}</tbody>
+              <tbody>${tableRows}</tbody>
               <tfoot>
-                <tr class="total-row">
-                  <td>SPOLU</td>
-                  <td colspan="2">${safeToFixed(kgSum,3)} kg ${ksSum>0?(' + ' + ksSum + ' ks'):''}</td>
-                  <td>${safeToFixed(summary.total_purchase,2)} €</td>
-                  <td>${safeToFixed(summary.total_sell,2)} €</td>
-                  <td>${safeToFixed(summary.total_profit,2)} €</td>
+                <tr style="background:#f8fafc; font-weight:bold; border-top:2px solid #e2e8f0;">
+                  <td style="padding:10px;">SPOLU ZA SKUPINU</td>
+                  <td colspan="2" style="text-align:right; padding:10px; color:#1e293b;">${safeToFixed(kgSum, 2)} kg ${ksSum > 0 ? (' + ' + safeToFixed(ksSum, 0) + ' ks') : ''}</td>
+                  <td style="text-align:right; padding:10px; color:#64748b;">${safeToFixed(summary.total_purchase)} €</td>
+                  <td style="text-align:right; padding:10px; color:#1d4ed8;">${safeToFixed(summary.total_sell)} €</td>
+                  <td style="text-align:right; padding:10px; color:${ziskColor};">${zisk > 0 ? '+' : ''}${safeToFixed(summary.total_profit)} €</td>
                 </tr>
               </tfoot>
             </table>
           </div>
-          <div class="channel-actions">
-            <button class="btn-success" onclick="saveSalesChannelData('${escapeHtml(channel)}')">Uložiť položky pre ${escapeHtml(channel)}</button>
-          </div>
         </div>
       `;
-    }
-    manualHtml += `</div></details>`;
-
-    if(hasManualItems) {
-        html += manualHtml;
     }
   }
 
   c.innerHTML = html;
-  
   const addBtn = document.getElementById('add-sales-channel-btn');
   if (addBtn) addBtn.onclick = showAddSalesChannelModal;
-  
-  // Vyvolanie filtra pre vykreslenie počiatočného stavu tabuľky, iba ak sú dáta
-  if (hasAnyData && window.currentChannelOrders && window.currentChannelOrders.length > 0) {
-      window.filterChannelOrders('all');
-  } else if (hasAnyData) {
-      const tbody = document.getElementById('chan-orders-tbody');
-      if (tbody) tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:30px; color:#64748b;">Nenašli sa žiadne objednávky pre zvolený mesiac.</td></tr>';
-  }
 }
 window.filterChannelOrders = function(channel) {
     const tbody = document.getElementById('chan-orders-tbody');

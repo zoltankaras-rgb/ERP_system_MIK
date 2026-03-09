@@ -232,115 +232,90 @@ def get_profitability_data(year, month):
             "total_profit": total_profit,
         },
     }
-
 # -----------------------------------------------------------------
 # Predajné kanály
 # -----------------------------------------------------------------
 def get_sales_channels_view(year, month):
     year, month = _ym_int(year, month)
     
-    # 1. AUTOMATICKÁ OPRAVA DATABÁZY: Vytvorenie stĺpca, ak neexistuje
+    # 1. AUTOMATICKÁ OPRAVA DATABÁZY
     if not _has_col("b2b_zakaznici", "predajny_kanal"):
         try:
             db_connector.execute_query("ALTER TABLE b2b_zakaznici ADD COLUMN predajny_kanal VARCHAR(100) DEFAULT NULL", fetch="none")
         except Exception:
             pass
-            
-    # 2. Načítanie definícií kanálov (ručné položky)
-    query = f"""
-        SELECT sc.*, p.nazov_vyrobku AS product_name
-        FROM profit_sales_monthly sc
-        LEFT JOIN produkty p
-          ON CONVERT(sc.product_ean USING utf8mb4) COLLATE utf8mb4_general_ci = CONVERT(p.ean USING utf8mb4) COLLATE utf8mb4_general_ci
-        WHERE sc.report_year = %s AND sc.report_month = %s
-        ORDER BY COALESCE(sc.sales_channel,'UNSPECIFIED'), p.nazov_vyrobku
-    """
-    sales_data = db_connector.execute_query(query, (year, month)) or []
 
     sales_by_channel = {}
-    for row in sales_data:
-        channel = row.get("sales_channel") or "UNSPECIFIED"
-        sales_by_channel.setdefault(
-            channel,
-            {
-                "items": [],
-                "orders": [],
-                "summary": {
-                    "total_kg": 0.0,
-                    "total_purchase": 0.0,
-                    "total_sell": 0.0,
-                    "total_profit": 0.0,
-                },
-            },
-        )
 
-        purchase_net = float(row.get("purchase_price_net") or 0.0)
-        sell_net = float(row.get("sell_price_net") or 0.0)
-        sales_kg = float(row.get("sales_kg") or 0.0)
-
-        row["purchase_price_net"] = purchase_net
-        row["sell_price_net"] = sell_net
-        row["sales_kg"] = sales_kg
-        row["total_profit_eur"] = (sell_net - purchase_net) * sales_kg
-        row["profit_per_kg"] = (
-            (sell_net - purchase_net) if (purchase_net > 0 or sell_net > 0) else 0.0
-        )
-
-        sales_by_channel[channel]["items"].append(row)
-
-        if sales_kg > 0:
-            s = sales_by_channel[channel]["summary"]
-            s["total_kg"] += sales_kg
-            s["total_purchase"] += purchase_net * sales_kg
-            s["total_sell"] += sell_net * sales_kg
-            s["total_profit"] += row["total_profit_eur"]
-
-    # 3. Načítanie skutočných objednávok pre daný mesiac s extrémnou bezpečnosťou proti Collation chybám
-    orders_sql = """
+    # 2. AGREGOVANIE REÁLNYCH PREDAJOV (OBJEDNÁVKY)
+    real_sales_sql = """
         SELECT 
-            o.id,
-            o.cislo_objednavky,
-            o.nazov_firmy,
-            o.pozadovany_datum_dodania AS datum,
             COALESCE(z.predajny_kanal, 'Nezaradené') AS kanal,
-            SUM(op.mnozstvo * op.cena_bez_dph) AS trzba,
-            SUM(op.mnozstvo * COALESCE(p.nakupna_cena, 0)) AS naklady
+            op.ean_produktu,
+            p.nazov_vyrobku,
+            op.mj,
+            SUM(op.mnozstvo) AS real_sales_qty,
+            SUM(op.mnozstvo * op.cena_bez_dph) AS total_trzba,
+            SUM(op.mnozstvo * COALESCE(p.nakupna_cena, 0)) AS total_naklad
         FROM b2b_objednavky o
-        LEFT JOIN b2b_zakaznici z ON CONVERT(o.zakaznik_id USING utf8mb4) COLLATE utf8mb4_general_ci = CONVERT(z.zakaznik_id USING utf8mb4) COLLATE utf8mb4_general_ci
-        LEFT JOIN b2b_objednavky_polozky op ON o.id = op.objednavka_id
+        JOIN b2b_zakaznici z ON CONVERT(o.zakaznik_id USING utf8mb4) COLLATE utf8mb4_general_ci = CONVERT(z.zakaznik_id USING utf8mb4) COLLATE utf8mb4_general_ci
+        JOIN b2b_objednavky_polozky op ON o.id = op.objednavka_id
         LEFT JOIN produkty p ON CONVERT(op.ean_produktu USING utf8mb4) COLLATE utf8mb4_general_ci = CONVERT(p.ean USING utf8mb4) COLLATE utf8mb4_general_ci
         WHERE YEAR(o.pozadovany_datum_dodania) = %s AND MONTH(o.pozadovany_datum_dodania) = %s
           AND o.stav NOT IN ('Zrušená', 'Stornovaná')
-        GROUP BY o.id, o.cislo_objednavky, o.nazov_firmy, o.pozadovany_datum_dodania, z.predajny_kanal
-        ORDER BY o.pozadovany_datum_dodania DESC
+        GROUP BY z.predajny_kanal, op.ean_produktu, p.nazov_vyrobku, op.mj
+        ORDER BY z.predajny_kanal, total_trzba DESC
     """
-    orders_rows = db_connector.execute_query(orders_sql, (year, month), fetch='all') or []
-    
-    for r in orders_rows:
+    real_sales = db_connector.execute_query(real_sales_sql, (year, month), fetch='all') or []
+
+    for r in real_sales:
         kanal = r["kanal"]
         
         if kanal not in sales_by_channel:
             sales_by_channel[kanal] = {
                 "items": [],
-                "orders": [],
                 "summary": {"total_kg": 0.0, "total_purchase": 0.0, "total_sell": 0.0, "total_profit": 0.0}
             }
             
-        trzba = float(r['trzba'] or 0)
-        naklady = float(r['naklady'] or 0)
-        zisk = trzba - naklady
-        marza = (zisk / trzba * 100) if trzba > 0 else 0
+        qty = float(r['real_sales_qty'] or 0)
+        trzba = float(r['total_trzba'] or 0)
+        naklad = float(r['total_naklad'] or 0)
+        zisk = trzba - naklad
         
-        sales_by_channel[kanal]["orders"].append({
-            "id": r["id"],
-            "cislo_objednavky": r["cislo_objednavky"],
-            "nazov_firmy": r["nazov_firmy"],
-            "datum": str(r["datum"]),
-            "kanal": kanal,
-            "trzba": trzba,
-            "zisk": zisk,
-            "marza": marza
+        # Ošetrenie pre jednotkovú cenu (priemerná cena)
+        avg_sell = (trzba / qty) if qty > 0 else 0
+        avg_buy = (naklad / qty) if qty > 0 else 0
+        
+        sales_by_channel[kanal]["items"].append({
+            "product_ean": r["ean_produktu"],
+            "product_name": r["nazov_vyrobku"] or "Neznámy produkt",
+            "unit": r["mj"] or "kg",
+            "quantity": qty,
+            "purchase_price_net": avg_buy,
+            "sell_price_net": avg_sell,
+            "total_profit_eur": zisk
         })
+        
+        s = sales_by_channel[kanal]["summary"]
+        if r["mj"] == "kg":
+            s["total_kg"] += qty
+        s["total_purchase"] += naklad
+        s["total_sell"] += trzba
+        s["total_profit"] += zisk
+
+    # 3. Ak nejaké kanály existujú iba ako ručné konfigurácie, pridáme aj tie (prázdne)
+    query_manual = """
+        SELECT DISTINCT sales_channel FROM profit_sales_monthly
+        WHERE report_year = %s AND report_month = %s
+    """
+    manual_channels = db_connector.execute_query(query_manual, (year, month)) or []
+    for c in manual_channels:
+        ch_name = c["sales_channel"]
+        if ch_name not in sales_by_channel:
+            sales_by_channel[ch_name] = {
+                "items": [],
+                "summary": {"total_kg": 0.0, "total_purchase": 0.0, "total_sell": 0.0, "total_profit": 0.0}
+            }
 
     return sales_by_channel
 # -----------------------------------------------------------------
