@@ -321,7 +321,7 @@ def get_sales_channels_view(year, month):
 def setup_new_sales_channel(data):
     channel_name = (data.get("channel_name") or "").strip()
     
-    # Hack na zmazanie v rámci existujúceho endpointu (vyrieši chybu 404)
+    # 1. Výnimka pre zmazanie kanálu
     if data.get("delete_channel"):
         try:
             db_connector.execute_query("DELETE FROM profit_sales_monthly WHERE sales_channel = %s", (channel_name,), fetch="none")
@@ -330,14 +330,19 @@ def setup_new_sales_channel(data):
         except Exception as e:
             return {"error": str(e)}
 
-    year = int(data.get("year"))
-    month = int(data.get("month"))
+    # 2. Bezpečné parsovanie dátumu (ochrana proti 500 Internal Server Error)
+    try:
+        year = int(data.get("year", 0))
+        month = int(data.get("month", 0))
+    except (TypeError, ValueError):
+        return {"error": "Chybný formát dátumu."}
+
     chain_id = data.get("chain_id")
 
-    if not all([year, month, channel_name]):
-        return {"error": "Chýbajú dáta."}
+    if not year or not month or not channel_name:
+        return {"error": "Chýbajú dáta na vytvorenie kanálu."}
 
-    # Nastavenie kanálu primárne na úroveň materskej spoločnosti
+    # 3. Nastavenie kanálu primárne na úroveň materskej spoločnosti
     if chain_id:
         try:
             conn_upd = db_connector.get_connection()
@@ -353,6 +358,7 @@ def setup_new_sales_channel(data):
             import traceback
             traceback.print_exc()
 
+    # 4. Generovanie nulových záznamov produktov pre nový kanál
     products_q = "SELECT ean, nazov_vyrobku FROM produkty WHERE typ_polozky LIKE 'VÝROBOK%%' OR typ_polozky LIKE 'TOVAR%%'"
     all_products = db_connector.execute_query(products_q) or []
     if not all_products:

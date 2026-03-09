@@ -511,10 +511,14 @@ function renderSalesChannelsView(data){
 window.deleteSalesChannel = async function(channelName) {
     if (!confirm(`Naozaj chcete zmazať kanál "${channelName}"?\nZákazníci z tohto kanálu spadnú do kategórie "Nezaradené".`)) return;
     try {
-        // Obchádzka pre zamedzenie chyby 404 (využíva endpoint, ktorý na 100% existuje)
         await apiP('/api/kancelaria/profitability/setupSalesChannel', {
             method: 'POST',
-            body: { channel_name: channelName, delete_channel: true }
+            body: { 
+                channel_name: channelName, 
+                delete_channel: true,
+                year: profitabilityState.year,
+                month: profitabilityState.month
+            }
         });
         showStatus("Kanál zmazaný");
         loadAndRenderProfitabilityData();
