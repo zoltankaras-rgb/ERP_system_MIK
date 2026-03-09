@@ -413,28 +413,39 @@ function renderSalesChannelsView(data){
     </div>
   `;
 
-  if (!data || Object.keys(data).length===0){
+  // Bezpečnostná kontrola, či sú vrátené akékoľvek dáta (manuálne kanály alebo reálne objednávky)
+  const hasAnyData = data && Object.keys(data).length > 0;
+
+  if (!hasAnyData){
     html += `<p>Pre tento mesiac nie sú dáta. Môžete vytvoriť nový predajný kanál.</p>`;
+    // Vynulovanie globálnej premennej pre objednávky, ak nie sú dáta
+    window.currentChannelOrders = [];
   } else {
-    // 1. Sumárne informácie do kartičiek podľa kanálov
     html += '<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(250px, 1fr)); gap:15px; margin-bottom:20px;">';
     let allOrdersList = [];
     let channelsList = [];
 
+    // Prechádzanie všetkými kanálmi z backendu (vrátane dynamicky vytvorených z objednávok)
     for (const channel in data){
-        const ch = data[channel]||{};
+        const ch = data[channel] || {};
         const orders = ch.orders || [];
         
-        // Agregácia z objednávok, aby údaje presne sedeli na realitu (a nie len na manuálne riadky v cenníkoch)
         let totalTrzba = 0;
         let totalNaklad = 0;
         let pocetObj = orders.length;
 
+        // Sumarizácia reálnych objednávok
         orders.forEach(o => {
             totalTrzba += o.trzba;
             totalNaklad += (o.trzba - o.zisk); 
             allOrdersList.push(o);
         });
+
+        // Ak kanál vznikol iba z ručných dát (bez objednávok), fallback na summary hodnoty z profit_sales_monthly
+        if (pocetObj === 0 && ch.summary) {
+            totalTrzba = ch.summary.total_sell || 0;
+            totalNaklad = ch.summary.total_purchase || 0;
+        }
 
         const zisk = totalTrzba - totalNaklad;
         const marza = totalTrzba > 0 ? (zisk / totalTrzba * 100) : 0;
@@ -467,15 +478,14 @@ function renderSalesChannelsView(data){
     }
     html += '</div>';
 
-    // Globálne dáta pre filter
+    // Uloženie všetkých extrahovaných objednávok pre filter
     window.currentChannelOrders = allOrdersList;
 
-    // 2. Kompletný súpis objednávok
     html += `
         <div style="background:#fff; border:1px solid #e2e8f0; border-radius:8px; padding:15px; box-shadow:0 1px 3px rgba(0,0,0,0.05);">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
                 <h4 style="margin:0; color:#1e293b;">Kompletný súpis objednávok</h4>
-                <select id="chan-order-filter" style="width:250px; font-weight:bold; color:#0369a1; padding:5px;" onchange="window.filterChannelOrders(this.value)">
+                <select id="chan-order-filter" style="width:250px; font-weight:bold; color:#0369a1; padding:5px; border:1px solid #cbd5e1; border-radius:4px;" onchange="window.filterChannelOrders(this.value)">
                     <option value="all">Zobraziť všetky kanály</option>
                     ${channelsList.map(ch => `<option value="${escapeHtml(ch)}">${escapeHtml(ch)}</option>`).join('')}
                 </select>
@@ -500,14 +510,19 @@ function renderSalesChannelsView(data){
         </div>
     `;
 
-    // 3. Pôvodné ručné cenníky (zbalené do akordeónu)
-    html += `
+    // 3. Pôvodné ručné cenníky (zbalené do akordeónu) - Vykresľujú sa iba ak má kanál "items" (manuálne zadané produkty)
+    let hasManualItems = false;
+    let manualHtml = `
         <details style="margin-top:20px; background:#f9fafb; border:1px solid #e5e7eb; border-radius:6px;">
             <summary style="padding:10px 15px; font-weight:bold; cursor:pointer;">Zobraziť editor položiek podľa kanálov (Ručné cenotvorby)</summary>
             <div style="padding:15px;">
     `;
+
     for (const channel in data){
       const ch = data[channel]||{};
+      if (!ch.items || ch.items.length === 0) continue; // Preskoč kanály vytvorené len z objednávok
+      
+      hasManualItems = true;
       const summary = ch.summary||{};
       const rows = (ch.items||[]).map(row=>{
         const unit = row.unit || 'kg';
@@ -532,7 +547,7 @@ function renderSalesChannelsView(data){
       const kgSum = (ch.items||[]).filter(i => (i.unit||'kg')==='kg').reduce((a,b)=>a + Number(b.sales_kg||b.quantity||0),0);
       const ksSum = (ch.items||[]).filter(i => (i.unit||'kg')==='ks').reduce((a,b)=>a + Number(b.quantity||0),0);
 
-      html += `
+      manualHtml += `
         <div class="channel-card">
           <h5 style="margin-top:1.2rem;">${escapeHtml(channel)}</h5>
           <div class="table-container table-scroll">
@@ -558,18 +573,26 @@ function renderSalesChannelsView(data){
         </div>
       `;
     }
-    html += `</div></details>`;
+    manualHtml += `</div></details>`;
+
+    if(hasManualItems) {
+        html += manualHtml;
+    }
   }
 
   c.innerHTML = html;
+  
   const addBtn = document.getElementById('add-sales-channel-btn');
   if (addBtn) addBtn.onclick = showAddSalesChannelModal;
   
-  if (window.currentChannelOrders) {
+  // Vyvolanie filtra pre vykreslenie počiatočného stavu tabuľky, iba ak sú dáta
+  if (hasAnyData && window.currentChannelOrders && window.currentChannelOrders.length > 0) {
       window.filterChannelOrders('all');
+  } else if (hasAnyData) {
+      const tbody = document.getElementById('chan-orders-tbody');
+      if (tbody) tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:30px; color:#64748b;">Nenašli sa žiadne objednávky pre zvolený mesiac.</td></tr>';
   }
 }
-
 window.filterChannelOrders = function(channel) {
     const tbody = document.getElementById('chan-orders-tbody');
     if (!tbody || !window.currentChannelOrders) return;
