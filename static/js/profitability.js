@@ -135,7 +135,6 @@ function initializeProfitabilityModule(){
     <div id="profitability-content" class="b2b-tab-content active" style="margin-top:1.5rem;"></div>
   `;
 
-  // rok/mesiac
   const yearSelect  = document.getElementById('profit-year-select');
   const monthSelect = document.getElementById('profit-month-select');
   const cy = new Date().getFullYear();
@@ -153,7 +152,6 @@ function initializeProfitabilityModule(){
   yearSelect.onchange  = loadData;
   monthSelect.onchange = loadData;
 
-  // prepínanie tabov – SOLO
   const buttons  = root.querySelectorAll('#profit-main-nav .b2b-tab-button');
   buttons.forEach(btn=>{
     btn.onclick = ()=>{
@@ -171,7 +169,6 @@ async function loadAndRenderProfitabilityData(){
   const c = document.getElementById('profitability-content');
   c.innerHTML = `<p>Načítavam dáta za ${profitabilityState.month}/${profitabilityState.year}…</p>`;
   try{
-    // server: profitability_handler.get_profitability_data -> route /getData
     const data = await apiP(`/api/kancelaria/profitability/getData?year=${profitabilityState.year}&month=${profitabilityState.month}`);
     profitabilityState.data = data || {};
     renderCurrentView();
@@ -226,7 +223,7 @@ async function saveDepartmentData(){
     year: profitabilityState.year, month: profitabilityState.month,
     exp_stock_prev: document.getElementById('exp_stock_prev')?.value,
     exp_from_butchering: document.getElementById('exp_from_butchering')?.value,
-    exp_from_prod: document.getElementById('exp_from_prod')?.value, // manuálny vstup – ponechávame
+    exp_from_prod: document.getElementById('exp_from_prod')?.value,
     exp_external: document.getElementById('exp_external')?.value,
     exp_returns: document.getElementById('exp_returns')?.value,
     exp_stock_current: document.getElementById('exp_stock_current')?.value,
@@ -250,10 +247,9 @@ function renderDepartmentsView(data, calculations){
   data = data || {};
   calculations = calculations || {};
 
-  // Info o zdroji pre „Príjem z výroby“ do expedície (strict/manual)
   const strictVal = Number(data.exp_from_prod_strict || 0);
   const usedVal   = Number(data.exp_from_prod_used   || 0);
-  const source    = String(data.exp_from_prod_source || '').toLowerCase(); // 'strict' | 'manual'
+  const source    = String(data.exp_from_prod_source || '').toLowerCase(); 
   const badge = (source === 'strict')
     ? `<span class="label-badge badge-green">Zdroj: PRÍSNY (expedícia → reálne prijaté)</span>`
     : `<span class="label-badge badge-gray">Zdroj: MANUÁLNY (pole „Príjem z výroby“)</span>`;
@@ -355,7 +351,6 @@ function renderProductionView(data){
     </tbody></table></div>
   `;
 
-  // ---- História "Prísneho" príjmu z výroby (Expedícia -> prijaté) ----------
   renderProductionStrictHistory(data);
 }
 
@@ -371,7 +366,6 @@ async function saveProductionProfitData(){
   loadAndRenderProfitabilityData();
 }
 
-// ---- "PRÍSNA" HISTÓRIA VÝROBY (z expedicia_prijmy) -------------------------
 function renderProductionStrictHistory(prodData){
   const c = document.getElementById('profitability-content');
   const items = (prodData && prodData.strict_items) || [];
@@ -406,7 +400,7 @@ function renderProductionStrictHistory(prodData){
   c.insertAdjacentHTML('beforeend', html);
 }
 
-// ----- SALES CHANNELS (kg/ks) ----------------------------------------------
+// ----- SALES CHANNELS (Nové zobrazenie + Súpis objednávok) ----------------------------------------------
 function renderSalesChannelsView(data){
   const c = document.getElementById('profitability-content');
   let html = `
@@ -422,6 +416,96 @@ function renderSalesChannelsView(data){
   if (!data || Object.keys(data).length===0){
     html += `<p>Pre tento mesiac nie sú dáta. Môžete vytvoriť nový predajný kanál.</p>`;
   } else {
+    // 1. Sumárne informácie do kartičiek podľa kanálov
+    html += '<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(250px, 1fr)); gap:15px; margin-bottom:20px;">';
+    let allOrdersList = [];
+    let channelsList = [];
+
+    for (const channel in data){
+        const ch = data[channel]||{};
+        const orders = ch.orders || [];
+        
+        // Agregácia z objednávok, aby údaje presne sedeli na realitu (a nie len na manuálne riadky v cenníkoch)
+        let totalTrzba = 0;
+        let totalNaklad = 0;
+        let pocetObj = orders.length;
+
+        orders.forEach(o => {
+            totalTrzba += o.trzba;
+            totalNaklad += (o.trzba - o.zisk); 
+            allOrdersList.push(o);
+        });
+
+        const zisk = totalTrzba - totalNaklad;
+        const marza = totalTrzba > 0 ? (zisk / totalTrzba * 100) : 0;
+        
+        channelsList.push(channel);
+
+        const ziskColor = zisk < 0 ? '#dc2626' : '#15803d';
+        const marzaColor = marza < 10 ? '#dc2626' : (marza >= 20 ? '#16a34a' : '#d97706');
+        
+        html += `
+        <div class="stat-card" style="border-top:4px solid #0ea5e9;">
+            <div style="font-size:1.1rem; font-weight:bold; color:#1e293b; margin-bottom:10px;">${escapeHtml(channel)}</div>
+            <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
+                <span style="color:#64748b;">Objednávky:</span>
+                <strong style="color:#0f172a;">${pocetObj}</strong>
+            </div>
+            <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
+                <span style="color:#64748b;">Tržba:</span>
+                <strong style="color:#1d4ed8;">${safeToFixed(totalTrzba)} €</strong>
+            </div>
+            <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
+                <span style="color:#64748b;">Zisk:</span>
+                <strong style="color:${ziskColor};">${zisk > 0 ? '+' : ''}${safeToFixed(zisk)} €</strong>
+            </div>
+            <div style="display:flex; justify-content:space-between; margin-top:10px; padding-top:10px; border-top:1px solid #e2e8f0;">
+                <span style="font-weight:bold; color:#334155;">Priem. Marža:</span>
+                <strong style="font-size:1.1rem; color:${marzaColor};">${safeToFixed(marza, 1)} %</strong>
+            </div>
+        </div>`;
+    }
+    html += '</div>';
+
+    // Globálne dáta pre filter
+    window.currentChannelOrders = allOrdersList;
+
+    // 2. Kompletný súpis objednávok
+    html += `
+        <div style="background:#fff; border:1px solid #e2e8f0; border-radius:8px; padding:15px; box-shadow:0 1px 3px rgba(0,0,0,0.05);">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                <h4 style="margin:0; color:#1e293b;">Kompletný súpis objednávok</h4>
+                <select id="chan-order-filter" style="width:250px; font-weight:bold; color:#0369a1; padding:5px;" onchange="window.filterChannelOrders(this.value)">
+                    <option value="all">Zobraziť všetky kanály</option>
+                    ${channelsList.map(ch => `<option value="${escapeHtml(ch)}">${escapeHtml(ch)}</option>`).join('')}
+                </select>
+            </div>
+            <div style="max-height: 500px; overflow-y: auto; border: 1px solid #cbd5e1; border-radius: 6px;">
+                <table style="width:100%; border-collapse: collapse; font-size: 0.9rem;">
+                    <thead style="position: sticky; top: 0; background: #f8fafc; z-index: 10; box-shadow: 0 1px 2px rgba(0,0,0,0.1);">
+                        <tr>
+                            <th style="padding:10px; border-bottom:1px solid #e2e8f0; text-align:left;">Dátum prijatia</th>
+                            <th style="padding:10px; border-bottom:1px solid #e2e8f0; text-align:left;">Číslo objednávky</th>
+                            <th style="padding:10px; border-bottom:1px solid #e2e8f0; text-align:left;">Zákazník</th>
+                            <th style="padding:10px; border-bottom:1px solid #e2e8f0; text-align:left;">Predajný kanál</th>
+                            <th style="padding:10px; border-bottom:1px solid #e2e8f0; text-align:right;">Tržba (bez DPH)</th>
+                            <th style="padding:10px; border-bottom:1px solid #e2e8f0; text-align:right;">Zisk</th>
+                            <th style="padding:10px; border-bottom:1px solid #e2e8f0; text-align:right;">Marža</th>
+                        </tr>
+                    </thead>
+                    <tbody id="chan-orders-tbody">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    `;
+
+    // 3. Pôvodné ručné cenníky (zbalené do akordeónu)
+    html += `
+        <details style="margin-top:20px; background:#f9fafb; border:1px solid #e5e7eb; border-radius:6px;">
+            <summary style="padding:10px 15px; font-weight:bold; cursor:pointer;">Zobraziť editor položiek podľa kanálov (Ručné cenotvorby)</summary>
+            <div style="padding:15px;">
+    `;
     for (const channel in data){
       const ch = data[channel]||{};
       const summary = ch.summary||{};
@@ -438,25 +522,23 @@ function renderSalesChannelsView(data){
                 <option value="ks" ${unit==='ks'?'selected':''}>ks</option>
               </select>
             </td>
-            <td><input type="number" step="0.0001" class="sales-input" data-field="purchase_price_net" value="${row.purchase_price_net||''}" style="width:110px;" title="nákup za jednotku"></td>
-            <td><input type="number" step="0.0001" class="sales-input" data-field="sell_price_net" value="${row.sell_price_net||''}" style="width:110px;" title="predaj za jednotku"></td>
+            <td><input type="number" step="0.0001" class="sales-input" data-field="purchase_price_net" value="${row.purchase_price_net||''}" style="width:110px;"></td>
+            <td><input type="number" step="0.0001" class="sales-input" data-field="sell_price_net" value="${row.sell_price_net||''}" style="width:110px;"></td>
             <td>${safeToFixed(row.total_profit_eur)} €</td>
           </tr>
         `;
       }).join('');
 
-      // sumar množstva – X kg + Y ks
       const kgSum = (ch.items||[]).filter(i => (i.unit||'kg')==='kg').reduce((a,b)=>a + Number(b.sales_kg||b.quantity||0),0);
       const ksSum = (ch.items||[]).filter(i => (i.unit||'kg')==='ks').reduce((a,b)=>a + Number(b.quantity||0),0);
 
       html += `
         <div class="channel-card">
           <h5 style="margin-top:1.2rem;">${escapeHtml(channel)}</h5>
-
           <div class="table-container table-scroll">
             <table class="sales-channel-table" data-channel="${escapeHtml(channel)}">
               <thead>
-                <tr><th>Produkt</th><th>Množstvo</th><th>Jedn.</th><th>Nákup (€/jed)</th><th>Predaj (€/jed)</th><th>Celkový zisk (€)</th></tr>
+                <tr><th>Produkt</th><th>Množstvo</th><th>Jedn.</th><th>Nákup (€/jed)</th><th>Predaj (€/jed)</th><th>Zisk (€)</th></tr>
               </thead>
               <tbody>${rows}</tbody>
               <tfoot>
@@ -470,20 +552,55 @@ function renderSalesChannelsView(data){
               </tfoot>
             </table>
           </div>
-
           <div class="channel-actions">
-            <button class="btn-success" onclick="saveSalesChannelData('${escapeHtml(channel)}')">
-              Uložiť dáta pre ${escapeHtml(channel)}
-            </button>
+            <button class="btn-success" onclick="saveSalesChannelData('${escapeHtml(channel)}')">Uložiť položky pre ${escapeHtml(channel)}</button>
           </div>
         </div>
       `;
     }
+    html += `</div></details>`;
   }
+
   c.innerHTML = html;
   const addBtn = document.getElementById('add-sales-channel-btn');
   if (addBtn) addBtn.onclick = showAddSalesChannelModal;
+  
+  if (window.currentChannelOrders) {
+      window.filterChannelOrders('all');
+  }
 }
+
+window.filterChannelOrders = function(channel) {
+    const tbody = document.getElementById('chan-orders-tbody');
+    if (!tbody || !window.currentChannelOrders) return;
+    
+    const filtered = window.currentChannelOrders.filter(o => channel === 'all' || o.kanal === channel);
+    
+    if (filtered.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:30px; color:#64748b;">Nenašli sa žiadne objednávky vyhovujúce filtru.</td></tr>';
+        return;
+    }
+
+    let html = '';
+    filtered.forEach(o => {
+        const dateStr = o.datum !== 'None' ? new Date(o.datum).toLocaleDateString('sk-SK') : '-';
+        const profitColor = o.zisk < 0 ? '#dc2626' : '#15803d';
+        const marginColor = o.marza < 10 ? '#dc2626' : (o.marza >= 20 ? '#16a34a' : '#d97706');
+        
+        html += `
+            <tr style="border-bottom:1px solid #e2e8f0;">
+                <td style="padding:8px 10px; color:#475569; font-size:0.85rem;">${dateStr}</td>
+                <td style="padding:8px 10px; font-weight:bold; color:#0f172a; font-family:monospace;">${escapeHtml(o.cislo_objednavky)}</td>
+                <td style="padding:8px 10px; font-weight:600;">${escapeHtml(o.nazov_firmy)}</td>
+                <td style="padding:8px 10px;"><span style="background:#e0f2fe; color:#0369a1; padding:2px 8px; border-radius:99px; font-size:0.75rem; font-weight:bold; border:1px solid #bae6fd;">${escapeHtml(o.kanal)}</span></td>
+                <td style="padding:8px 10px; text-align:right; color:#1d4ed8; font-weight:600;">${safeToFixed(o.trzba)} €</td>
+                <td style="padding:8px 10px; text-align:right; font-weight:bold; color:${profitColor};">${o.zisk > 0 ? '+' : ''}${safeToFixed(o.zisk)} €</td>
+                <td style="padding:8px 10px; text-align:right; font-weight:bold; color:${marginColor};">${safeToFixed(o.marza, 1)} %</td>
+            </tr>
+        `;
+    });
+    tbody.innerHTML = html;
+};
 
 function showAddSalesChannelModal(){
   showModal('Nový predajný kanál', () => Promise.resolve({
@@ -522,7 +639,7 @@ async function saveSalesChannelData(channel){
       unit,
       quantity: qty,
       sales_qty: qty,
-      sales_kg: qty,             // legacy – backend chce sales_kg; uloží si to
+      sales_kg: qty,
       purchase_price_vat: 0,
       sell_price_vat: 0
     };
@@ -566,7 +683,7 @@ function renderCalculationsView(data){
             <td>${escapeHtml(calc.name)}</td>
             <td>${(calc.items||[]).length}</td>
             <td>
-              <button class="btn-warning btn-xs" onclick='showCalculationModal(${JSON.stringify(calc)})'><i class="fas fa-edit"></i> Upraviť</button>
+              <button class="btn-warning btn-xs" onclick='showCalculationModal(${JSON.stringify(calc).replace(/'/g, "&#39;")})'><i class="fas fa-edit"></i> Upraviť</button>
               <button class="btn-secondary btn-xs" style="margin-left:.3rem;" onclick="openCalculationPrint(${calc.id})"><i class="fas fa-print"></i> Tlačiť</button>
               <button class="btn-danger btn-xs" style="margin-left:.3rem;" onclick="handleDeleteCalculation(${calc.id})"><i class="fas fa-trash"></i> Vymazať</button>
             </td>
@@ -635,7 +752,6 @@ function showCalculationModal(calc){
   }));
 }
 
-// ---- Tlač jednej kalkulácie -----------------------------------------------
 async function openCalculationPrint(calcId){
   let calc = null;
   const fromState = profitabilityState.data?.calculations_view?.calculations || [];
@@ -735,7 +851,6 @@ async function openCalculationPrint(calcId){
   }));
 }
 
-// Helper na tlač
 function printHTMLInIframe(html){
   const iframe = document.createElement('iframe');
   iframe.style.position = 'fixed';
@@ -758,12 +873,10 @@ function printHTMLInIframe(html){
   }, 60);
 }
 
-// ----------------- Nová/Upraviť kalkuláciu: data ---------------------------
 async function populateVehiclesAndCustomers(){
   const selV = document.getElementById('calc-vehicle');
   const selC = document.getElementById('calc-customer-ref');
 
-  // VEHICLES: (1) pamäť, (2) getData, (3) list
   let vehicles = null;
   if (window.fleetState && Array.isArray(window.fleetState.vehicles) && window.fleetState.vehicles.length){
     vehicles = window.fleetState.vehicles;
@@ -799,7 +912,6 @@ async function populateVehiclesAndCustomers(){
     selV.innerHTML = '<option value="">— nie je k dispozícii —</option>';
   }
 
-  // CUSTOMERS – len ak integrácia zapnutá
   if (PROFITABILITY_INTEGRATIONS.customers){
     const customers = await tryFetchJSON('/api/kancelaria/customers/list');
     if (Array.isArray(customers) && customers.length){
@@ -817,7 +929,6 @@ async function populateVehiclesAndCustomers(){
   }
 }
 
-// --- Produkty v kalkulácii -----------------------------------------------
 function buildProductHints(){
   const dl = document.getElementById('calc-product-hints');
   if (!dl) return;
@@ -847,7 +958,7 @@ function populateCalculationItems(items){
   (items||[]).forEach(it=> addCalculationRow(
     it.product_name || '', it.product_ean || '', (it.unit||'kg'), (it.qty ?? it.quantity ?? it.estimated_kg ?? ''), it.purchase_price_net, it.sell_price_net
   ));
-  addCalculationRow('', '', 'kg', '', '', ''); // prázdny riadok
+  addCalculationRow('', '', 'kg', '', '', '');
 }
 
 function addCalculationRow(name, ean, unit, qty, pBuy, pSell){
@@ -863,8 +974,8 @@ function addCalculationRow(name, ean, unit, qty, pBuy, pSell){
       </select>
     </td>
     <td><input type="number" step="${(unit==='kg')?'0.001':'1'}" class="calc-input" data-field="qty" value="${qty||''}" style="width:110px;"></td>
-    <td><input type="number" step="0.0001" class="calc-input" data-field="purchase_price_net" value="${pBuy||''}" style="width:110px;" title="nákup za jednotku"></td>
-    <td><input type="number" step="0.0001" class="calc-input" data-field="sell_price_net" value="${pSell||''}" style="width:110px;" title="predaj za jednotku"></td>
+    <td><input type="number" step="0.0001" class="calc-input" data-field="purchase_price_net" value="${pBuy||''}" style="width:110px;"></td>
+    <td><input type="number" step="0.0001" class="calc-input" data-field="sell_price_net" value="${pSell||''}" style="width:110px;"></td>
     <td class="row-profit">0.00</td>
     <td><button type="button" class="btn btn-danger btn-xs" style="padding:5px;" onclick="this.closest('tr').remove(); updateCalculationSummary();"><i class="fas fa-times"></i></button></td>
   `;
@@ -967,7 +1078,6 @@ async function handleDeleteCalculation(id){
   });
 }
 
-// ------ AUTO €/km z Fleet analýz -------------------------------------------
 function shiftMonth(year, month, delta){
   const d = new Date(year, month - 1 + delta, 1);
   return { year: d.getFullYear(), month: d.getMonth() + 1 };
@@ -1008,13 +1118,11 @@ async function handleVehicleChangeAndAutoKm(){
   updateCalculationSummary();
 }
 
-// ----- PRINT (celý modul) ---------------------------------------------------
 function handlePrintProfitabilityReport(type){
   const { year, month } = profitabilityState;
   window.open(`/report/profitability?year=${year}&month=${month}&type=${type}`, '_blank');
 }
 
-// ====== AUTO-REGISTRÁCIA ====================================================
 (function(){
   const s = document.getElementById('section-profitability');
   if (s) initializeProfitabilityModule();

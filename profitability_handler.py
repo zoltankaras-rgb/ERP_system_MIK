@@ -47,24 +47,8 @@ def _product_manuf_avg_col() -> str | None:
 # Striktný výnos z výroby – podľa reálne prijatých výrobkov v expedícii
 # -----------------------------------------------------------------
 def compute_strict_production_revenue(year: int, month: int) -> dict:
-    """
-    Výrobný „výnos“ strikne z reálne prijatých výrobkov v EXPEDÍCII (expedicia_prijmy),
-    ohodnotený výrobnou cenou:
-      - primárne podľa zaznamy_vyroba.cena_za_jednotku (€/kg alebo €/ks -> konverzia na €/kg),
-      - ak chýba, fallback na priemernú výrobnú cenu produktu v `produkty` (€/kg).
-
-    Počíta iba záznamy za daný rok/mesiac podľa expedicia_prijmy.datum_prijmu.
-
-    Výstup:
-      {
-        "total": float,
-        "items": [...],
-        "by_product": {...}
-      }
-    """
     y, m = int(year), int(month)
 
-    # ak tabuľka príjmov expedície nie je, vráť nuly
     try:
         t_exists = db_connector.execute_query(
             """
@@ -125,14 +109,12 @@ def compute_strict_production_revenue(year: int, month: int) -> dict:
         mj = (r.get("mj") or "kg").lower()
         wg = _num(r.get("vaha_balenia_g"))
 
-        # 1) množstvo v KG
         if unit == "kg":
             qty_kg = _num(r.get("prijem_kg"))
         else:
             pcs = _num(r.get("prijem_ks"))
             qty_kg = (pcs * wg) / 1000.0 if wg > 0 else 0.0
 
-        # 2) výrobná cena €/kg
         perkg = 0.0
         cju = r.get("cena_za_jednotku")
         if cju is not None:
@@ -147,7 +129,6 @@ def compute_strict_production_revenue(year: int, month: int) -> dict:
         value = qty_kg * perkg
         total += value
 
-        # položka pre históriu
         d = r.get("datum_prijmu")
         dstr = d.strftime("%Y-%m-%d") if hasattr(d, "strftime") else str(d)
         prod = r.get("product_name") or r.get("nazov_vyrobku") or ""
@@ -173,18 +154,13 @@ def compute_strict_production_revenue(year: int, month: int) -> dict:
     return {"total": round(total, 2), "items": items, "by_product": by_product}
 
 
-# Pomocné pretypovanie roka/mesiaca
 def _ym_int(year, month):
     return int(year), int(month)
 
 
-# -----------------------------------------------------------------
-# Hlavný handler: načíta všetky dáta pre modul Ziskovosť
-# -----------------------------------------------------------------
 def get_profitability_data(year, month):
     year, month = _ym_int(year, month)
 
-    # 1) Oddelenia (ručné vstupy)
     dept_data = (
         db_connector.execute_query(
             "SELECT * FROM profit_department_monthly WHERE report_year = %s AND report_month = %s",
@@ -194,35 +170,29 @@ def get_profitability_data(year, month):
         or {}
     )
 
-    # 2) Prehľady
     production_view_data = get_production_profit_view(year, month)
     sales_channels_data = get_sales_channels_view(year, month)
     calculations_data = get_calculations_view(year, month)
 
-    # 3) „Prísna“ výroba – len reálne prijaté z expedície v danom mesiaci
     strict_prod = compute_strict_production_revenue(year, month)
     strict_total = float(strict_prod.get("total") or 0.0)
 
-    # 4) Bezpečné čísla z Oddelení (fallback, ak prísna výroba je 0)
     exp_stock_prev = float(dept_data.get("exp_stock_prev", 0) or 0)
     exp_from_butchering = float(dept_data.get("exp_from_butchering", 0) or 0)
-    exp_from_prod_manual = float(dept_data.get("exp_from_prod", 0) or 0)  # pôvodný ručný vstup
+    exp_from_prod_manual = float(dept_data.get("exp_from_prod", 0) or 0) 
     exp_external = float(dept_data.get("exp_external", 0) or 0)
     exp_returns = float(dept_data.get("exp_returns", 0) or 0)
     exp_stock_current = float(dept_data.get("exp_stock_current", 0) or 0)
     exp_revenue = float(dept_data.get("exp_revenue", 0) or 0)
 
-    # 5) Zdroj pre „príjem z výroby“ do COGS (preferuj prísny)
     exp_from_prod_used = strict_total if strict_total > 0 else exp_from_prod_manual
     prod_source = "strict" if strict_total > 0 else "manual"
 
-    # 6) Expedícia – COGS & zisk
     cost_of_goods_sold = (
         exp_stock_prev + exp_from_butchering + exp_from_prod_used + exp_external
     ) - exp_returns - exp_stock_current
     exp_profit = exp_revenue - cost_of_goods_sold
 
-    # 7) Rozrábka
     butcher_profit = float(dept_data.get("butcher_meat_value", 0) or 0) - float(
         dept_data.get("butcher_paid_goods", 0) or 0
     )
@@ -230,7 +200,6 @@ def get_profitability_data(year, month):
         dept_data.get("butcher_returns_value", 0) or 0
     )
 
-    # 8) Celkový zisk (výrobný profit nechávame z production_view; „strict“ je výnos, nie profit)
     total_profit = (
         butcher_profit
         + exp_profit
@@ -238,7 +207,6 @@ def get_profitability_data(year, month):
         - float(dept_data.get("general_costs", 0) or 0)
     )
 
-    # 9) Rozšírené dáta pre FE a iné moduly
     dept_data_out = dict(dept_data)
     dept_data_out["exp_from_prod_strict"] = strict_total
     dept_data_out["exp_from_prod_used"] = exp_from_prod_used
@@ -255,7 +223,7 @@ def get_profitability_data(year, month):
         "sales_channels_view": sales_channels_data,
         "calculations_view": calculations_data,
         "production_view": production_view_data,
-        "production_strict": strict_prod,  # total/items/by_product
+        "production_strict": strict_prod, 
         "calculations": {
             "expedition_profit": exp_profit,
             "butchering_profit": butcher_profit,
@@ -265,12 +233,12 @@ def get_profitability_data(year, month):
         },
     }
 
-
 # -----------------------------------------------------------------
 # Predajné kanály
 # -----------------------------------------------------------------
 def get_sales_channels_view(year, month):
     year, month = _ym_int(year, month)
+    
     query = f"""
         SELECT sc.*, p.nazov_vyrobku AS product_name
         FROM profit_sales_monthly sc
@@ -288,6 +256,7 @@ def get_sales_channels_view(year, month):
             channel,
             {
                 "items": [],
+                "orders": [],
                 "summary": {
                     "total_kg": 0.0,
                     "total_purchase": 0.0,
@@ -297,7 +266,6 @@ def get_sales_channels_view(year, month):
             },
         )
 
-        # Bezpečné numerické typy
         purchase_net = float(row.get("purchase_price_net") or 0.0)
         sell_net = float(row.get("sell_price_net") or 0.0)
         sales_kg = float(row.get("sales_kg") or 0.0)
@@ -305,7 +273,6 @@ def get_sales_channels_view(year, month):
         row["purchase_price_net"] = purchase_net
         row["sell_price_net"] = sell_net
         row["sales_kg"] = sales_kg
-
         row["total_profit_eur"] = (sell_net - purchase_net) * sales_kg
         row["profit_per_kg"] = (
             (sell_net - purchase_net) if (purchase_net > 0 or sell_net > 0) else 0.0
@@ -319,6 +286,54 @@ def get_sales_channels_view(year, month):
             s["total_purchase"] += purchase_net * sales_kg
             s["total_sell"] += sell_net * sales_kg
             s["total_profit"] += row["total_profit_eur"]
+
+    # NOVÉ: Načítanie skutočných objednávok pre daný mesiac a zaradenie k predajnému kanálu
+    orders_sql = """
+        SELECT 
+            o.id,
+            o.cislo_objednavky,
+            o.nazov_firmy,
+            o.datum_objednavky,
+            COALESCE(z.predajny_kanal, 'Nezaradené') AS kanal,
+            SUM(op.mnozstvo * op.cena_bez_dph) AS trzba,
+            SUM(op.mnozstvo * p.nakupna_cena) AS naklady
+        FROM b2b_objednavky o
+        JOIN b2b_zakaznici z ON o.zakaznik_id = z.zakaznik_id
+        JOIN b2b_objednavky_polozky op ON o.id = op.objednavka_id
+        LEFT JOIN produkty p ON p.ean = op.ean_produktu
+        WHERE YEAR(o.datum_objednavky) = %s AND MONTH(o.datum_objednavky) = %s
+          AND o.stav NOT IN ('Zrušená', 'Stornovaná')
+        GROUP BY o.id, o.cislo_objednavky, o.nazov_firmy, o.datum_objednavky, z.predajny_kanal
+        ORDER BY o.datum_objednavky DESC
+    """
+    orders_rows = db_connector.execute_query(orders_sql, (year, month), fetch='all') or []
+    
+    for r in orders_rows:
+        kanal = r["kanal"]
+        
+        # Ak daný kanál ešte neexistuje z profit_sales_monthly, vytvoríme ho
+        if kanal not in sales_by_channel:
+            sales_by_channel[kanal] = {
+                "items": [],
+                "orders": [],
+                "summary": {"total_kg": 0.0, "total_purchase": 0.0, "total_sell": 0.0, "total_profit": 0.0}
+            }
+            
+        trzba = float(r['trzba'] or 0)
+        naklady = float(r['naklady'] or 0)
+        zisk = trzba - naklady
+        marza = (zisk / trzba * 100) if trzba > 0 else 0
+        
+        sales_by_channel[kanal]["orders"].append({
+            "id": r["id"],
+            "cislo_objednavky": r["cislo_objednavky"],
+            "nazov_firmy": r["nazov_firmy"],
+            "datum": str(r["datum_objednavky"]),
+            "kanal": kanal,
+            "trzba": trzba,
+            "zisk": zisk,
+            "marza": marza
+        })
 
     return sales_by_channel
 
@@ -347,7 +362,6 @@ def get_calculations_view(year, month):
             all_items = db_connector.execute_query(items_q, tuple(calc_ids)) or []
             items_by_calc_id = {c_id: [] for c_id in calc_ids}
             for item in all_items:
-                # float istoty
                 item["purchase_price_net"] = float(item.get("purchase_price_net") or 0)
                 item["sell_price_net"] = float(item.get("sell_price_net") or 0)
                 item["estimated_kg"] = float(item.get("estimated_kg") or 0)
@@ -355,7 +369,6 @@ def get_calculations_view(year, month):
             for calc in calculations:
                 calc["items"] = items_by_calc_id.get(calc["id"], [])
 
-    # Bezpečná náhrada za neexistujúci stĺpec 'zv.cena_za_jednotku'
     products_q = f"""
     SELECT 
         p.ean,
@@ -388,7 +401,6 @@ def get_calculations_view(year, month):
     all_vehicles = db_connector.execute_query(vehicles_q) or []
     all_customers = db_connector.execute_query(customers_q) or []
 
-    # doplň metriky z fleet analýzy (rok/mesiac môžu prísť ako str)
     for v in all_vehicles:
         analysis = fleet_handler.get_fleet_analysis(v["id"], year, month)
         v["cost_per_km"] = float(analysis.get("cost_per_km", 0) or 0)
@@ -402,7 +414,6 @@ def get_calculations_view(year, month):
 
 
 def save_calculation(data):
-    # roky/mesiace môžu prísť ako stringy
     data["year"] = int(data.get("year"))
     data["month"] = int(data.get("month"))
 
@@ -486,7 +497,6 @@ def delete_calculation(data):
 # Predajné kanály – uloženie
 # -----------------------------------------------------------------
 def setup_new_sales_channel(data):
-    # rok/mesiac ako int
     year = int(data.get("year"))
     month = int(data.get("month"))
     channel_name = (data.get("channel_name") or "").strip()
@@ -521,7 +531,6 @@ def setup_new_sales_channel(data):
             (report_year, report_month, sales_channel, product_ean, purchase_price_net)
         VALUES (%s, %s, %s, %s, %s)
     """
-    # db_connector.execute_query v tvojej verzii asi nepodporuje multi, tak to urobíme ručne:
     conn = db_connector.get_connection()
     cur = None
     try:
@@ -615,7 +624,6 @@ def save_department_data(data):
     if not year or not month:
         return {"error": "Chýba rok alebo mesiac."}
 
-    # všetky spravované polia v tabuľke
     fields = [
         "exp_stock_prev",
         "exp_from_butchering",
@@ -631,7 +639,6 @@ def save_department_data(data):
         "general_costs",
     ]
 
-    # načítaj existujúci riadok (ak je)
     existing = (
         db_connector.execute_query(
             """
@@ -688,19 +695,8 @@ def save_department_data(data):
 # Výroba – ziskovosť po výrobkoch
 # -----------------------------------------------------------------
 def get_production_profit_view(year, month):
-    """
-    Prehľad ziskovosti výroby po produktoch.
-
-    - Zásoba Exp. [kg] sa berie z centrálneho skladu (`produkty.aktualny_sklad_finalny_kg`)
-    - Výrobná cena [€/jed] = priemerná výrobná cena z `get_calculations_view(...).available_products[*].avg_cost`
-    - Príjem Exp. [€/jed] (transfer_price) má default: výrobné náklady * 1.2 (t.j. +20 %),
-      ale ak má daný produkt uloženú hodnotu v `profit_production_monthly.transfer_price_per_unit`,
-      použije sa táto hodnota.
-    - `expedition_sales_kg` sa berie z `profit_production_monthly` (ak je tam záznam), inak 0.
-    """
     year, month = _ym_int(year, month)
 
-    # Všetky výrobky (len typ VÝROBOK*)
     products_query = """
         SELECT
             ean,
@@ -715,7 +711,6 @@ def get_production_profit_view(year, month):
     """
     all_products = db_connector.execute_query(products_query) or []
 
-    # Ručné dáta pre daný mesiac (expedičný predaj + transfer price)
     prod_manual_rows = (
         db_connector.execute_query(
             "SELECT * FROM profit_production_monthly WHERE report_year = %s AND report_month = %s",
@@ -723,10 +718,8 @@ def get_production_profit_view(year, month):
         )
         or []
     )
-    # mapujeme podľa EAN-u (string)
     prod_manual_data = {str(row["product_ean"]): row for row in prod_manual_rows}
 
-    # Priemerné výrobné náklady z kalkulácií (avg_cost €/kg)
     available_products_with_costs = (
         get_calculations_view(year, month).get("available_products", []) or []
     )
@@ -758,10 +751,8 @@ def get_production_profit_view(year, month):
         manual = prod_manual_data.get(ean, {}) or {}
         sales_kg = float(manual.get("expedition_sales_kg") or 0.0)
 
-        # Výrobná cena €/kg
         prod_cost = float(prod_costs_by_name.get(name, 0.0) or 0.0)
 
-        # Default transfer price = cost * 1.2, ale ak je uložená hodnota, použijeme ju
         tp_raw = manual.get("transfer_price_per_unit")
         try:
             transfer_price = float(tp_raw) if tp_raw not in (None, "") else 0.0
@@ -771,7 +762,6 @@ def get_production_profit_view(year, month):
         if transfer_price <= 0.0 and prod_cost > 0.0:
             transfer_price = prod_cost * 1.2
 
-        # Zisk len z reálneho predaja a pozitívnych nákladov
         profit = (transfer_price - prod_cost) * sales_kg if (
             sales_kg > 0 and prod_cost > 0
         ) else 0.0
@@ -779,12 +769,10 @@ def get_production_profit_view(year, month):
         summary["total_profit"] += profit
         summary["total_kg"] += sales_kg
 
-        # Rozlíšenie "kusových/krajaných" výrobkov – do total_kg_no_pkg idú len nebalené
         is_packaged_or_sliced = typ in ("VÝROBOK_KUSOVY", "VÝROBOK_KRAJANY")
         if not is_packaged_or_sliced:
             summary["total_kg_no_pkg"] += sales_kg
 
-        # Počet pohárov/viečok pre paštéty podľa hmotnosti balenia
         if weight_g > 0 and sales_kg > 0:
             num_pieces = (sales_kg * 1000.0) / weight_g
             lowname = (name or "").lower()
@@ -811,17 +799,6 @@ def get_production_profit_view(year, month):
 
 
 def save_production_profit_data(data):
-    """
-    Uloží mesačné dáta pre ziskovosť výroby (expedičný predaj + transfer price).
-
-    Frontend posiela pre každý riadok:
-      - ean
-      - expedition_sales_kg
-      - transfer_price
-
-    Hodnoty sa ukladajú do profit_production_monthly s FK na produkty.ean.
-    Riadky s neexistujúcim EANom preskočíme, aby nespadol FK.
-    """
     year = int(data.get("year") or 0)
     month = int(data.get("month") or 0)
     rows = data.get("rows") or []
@@ -829,7 +806,6 @@ def save_production_profit_data(data):
     if not year or not month or not rows:
         return {"error": "Chýbajú dáta."}
 
-    # 1) zoznam EAN-ov z payloadu
     all_eans = []
     for row in rows:
         ean = str(row.get("ean") or "").strip()
@@ -839,7 +815,6 @@ def save_production_profit_data(data):
     if not all_eans:
         return {"error": "Žiadny EAN nebol odoslaný."}
 
-    # 2) z DB zistíme EAN-y, ktoré naozaj existujú v `produkty`
     placeholders = ",".join(["%s"] * len(all_eans))
     existing_rows = db_connector.execute_query(
         f"SELECT ean FROM produkty WHERE ean IN ({placeholders})",
@@ -847,7 +822,6 @@ def save_production_profit_data(data):
     ) or []
     existing_eans = {str(r["ean"]).strip() for r in existing_rows}
 
-    # 3) poskladať len validné riadky
     data_to_save = []
     skipped = 0
     for row in rows:
@@ -871,7 +845,6 @@ def save_production_profit_data(data):
     if not data_to_save:
         return {"error": "Nie je čo uložiť – žiadny riadok nemal platný EAN z katalógu."}
 
-    # 4) INSERT IGNORE – ak by aj niečo ešte bolo zlé, DB to ignoruje (nevypľuje 1452)
     query = """
         INSERT IGNORE INTO profit_production_monthly
           (report_year, report_month, product_ean, expedition_sales_kg, transfer_price_per_unit)
@@ -897,7 +870,6 @@ def save_production_profit_data(data):
     except Exception as e:
         if conn:
             conn.rollback()
-        # nech to vidíš v logu, ale FE dostane normálnu chybu
         raise e
     finally:
         if cur:
@@ -915,7 +887,6 @@ def get_profitability_report_html(year, month, report_type):
     year, month = _ym_int(year, month)
     full_data = get_profitability_data(year, month)
 
-    # Pretypovanie čísel v 'calculations' reporte (bezpečnosť pre šablónu)
     if report_type == "calculations":
         for calc in full_data.get("calculations_view", {}).get("calculations", []) or []:
             calc["distance_km"] = float(calc.get("distance_km") or 0)
@@ -963,7 +934,6 @@ def _iter_months(fy: int, fm: int, ty: int, tm: int):
 
 
 def _mk_summary_row(year: int, month: int, data: dict) -> dict:
-    # použijeme už vyrátané "calculations" z get_profitability_data
     c = data.get("calculations") or {}
     return {
         "year": year,
@@ -977,11 +947,9 @@ def _mk_summary_row(year: int, month: int, data: dict) -> dict:
 
 
 def get_profitability_history(args: dict):
-    """JSON história ziskovosti podľa rozsahu + typu. Primárne 'summary' tabuľka za mesiace."""
     scope = (args.get("scope") or "month").lower()
     rtype = (args.get("type") or "summary").lower()
 
-    # urči rozsah
     if scope == "year":
         y = int(args.get("year") or date.today().year)
         fy, fm, ty, tm = y, 1, y, 12
@@ -1001,7 +969,6 @@ def get_profitability_history(args: dict):
         "total_profit": 0.0,
     }
 
-    # Zatiaľ pripravíme históriu pre 'summary' (najdôležitejší use-case)
     if rtype == "summary":
         for y, m in _iter_months(fy, fm, ty, tm):
             d = get_profitability_data(y, m)
@@ -1020,7 +987,6 @@ def get_profitability_history(args: dict):
             "averages": averages,
         }
 
-    # iné typy – v1 vraciame len po mesiacoch total_profit (aby UI vedelo aspoň niečo zobraziť)
     for y, m in _iter_months(fy, fm, ty, tm):
         d = get_profitability_data(y, m)
         c = d.get("calculations") or {}
@@ -1041,13 +1007,6 @@ def get_profitability_history(args: dict):
 
 
 def get_profitability_report_html_ex(params: dict):
-    """
-    Rozšírený HTML report:
-      scope = 'month' | 'year' | 'range'
-      type  = 'summary' | 'departments' | 'production' | 'sales_channels' | 'calculations'
-      year, month  (pri scope=month)
-      from=YYYY-MM, to=YYYY-MM (pri scope=range)
-    """
     scope = (params.get("scope") or "month").lower()
     rtype = (params.get("type") or "summary").lower()
 
@@ -1065,11 +1024,9 @@ def get_profitability_report_html_ex(params: dict):
         fy, fm, ty, tm = y, m, y, m
         title = f"Ziskovosť – Report {y}-{m:02d}"
 
-    # MONTH: použijeme tvoju existujúcu šablónu profitability_report_template.html
     if scope == "month":
         return get_profitability_report_html(y, m, rtype)
 
-    # YEAR/RANGE: v1 – kompaktná tabuľka "summary" (mesiace v riadkoch)
     if rtype == "summary":
         rows_html = ""
         totals = {
@@ -1128,7 +1085,6 @@ h2{{margin:0 0 12px 0}}
 </body></html>"""
         return make_response(html)
 
-    # Iné typy pri YEAR/RANGE – zatiaľ fallback s poznámkou (môžeme dopracovať na želanie)
     html = f"""<!doctype html><html><head><meta charset="utf-8"><title>{title}</title></head>
 <body><h3>{title}</h3><p>Viacmesačný report typu <b>{rtype}</b> zatiaľ nie je dostupný. Zvoľte typ <b>summary</b> alebo tlačte po mesiacoch.</p>
 <script>window.print()</script></body></html>"""
