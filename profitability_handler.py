@@ -290,7 +290,7 @@ def get_sales_channels_view(year, month):
 
     # 2. Načítanie skutočných objednávok pre daný mesiac (podľa Dátumu Dodania)
     # Používame LEFT JOIN, aby sme o objednávku neprišli, ani keď sa náhodou zmaže produkt
-    orders_sql = """
+    orders_sql = f"""
         SELECT 
             o.id,
             o.cislo_objednavky,
@@ -300,9 +300,9 @@ def get_sales_channels_view(year, month):
             SUM(op.mnozstvo * op.cena_bez_dph) AS trzba,
             SUM(op.mnozstvo * COALESCE(p.nakupna_cena, 0)) AS naklady
         FROM b2b_objednavky o
-        LEFT JOIN b2b_zakaznici z ON o.zakaznik_id = z.zakaznik_id
+        LEFT JOIN b2b_zakaznici z ON o.zakaznik_id COLLATE {COLL} = z.zakaznik_id COLLATE {COLL}
         LEFT JOIN b2b_objednavky_polozky op ON o.id = op.objednavka_id
-        LEFT JOIN produkty p ON p.ean = op.ean_produktu
+        LEFT JOIN produkty p ON op.ean_produktu COLLATE {COLL} = p.ean COLLATE {COLL}
         WHERE YEAR(o.pozadovany_datum_dodania) = %s AND MONTH(o.pozadovany_datum_dodania) = %s
           AND o.stav NOT IN ('Zrušená', 'Stornovaná')
         GROUP BY o.id, o.cislo_objednavky, o.nazov_firmy, o.pozadovany_datum_dodania, z.predajny_kanal
