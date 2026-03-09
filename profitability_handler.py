@@ -233,7 +233,7 @@ def get_profitability_data(year, month):
         },
     }
 # -----------------------------------------------------------------
-# Predajné kanály
+# Predajné kanály – spracovanie a vizualizácia
 # -----------------------------------------------------------------
 def get_sales_channels_view(year, month):
     year, month = _ym_int(year, month)
@@ -246,7 +246,7 @@ def get_sales_channels_view(year, month):
 
     sales_by_channel = {}
 
-    # SQL využíva dynamické dedenie (COALESCE): Ak pobočka nemá kanál, zoberie sa kanál matky (parent.predajny_kanal)
+    # SQL bezpečne sčíta dáta podľa prideleného kanálu k zákazníkovi alebo jeho matke
     real_sales_sql = """
         SELECT 
             COALESCE(z.predajny_kanal, parent.predajny_kanal, 'Nezaradené') AS kanal,
@@ -259,18 +259,17 @@ def get_sales_channels_view(year, month):
         FROM b2b_objednavky o
         LEFT JOIN b2b_zakaznici z ON CONVERT(TRIM(o.zakaznik_id) USING utf8mb4) COLLATE utf8mb4_general_ci = CONVERT(TRIM(z.zakaznik_id) USING utf8mb4) COLLATE utf8mb4_general_ci
         LEFT JOIN b2b_zakaznici parent ON z.parent_id = parent.id
-        LEFT JOIN b2b_objednavky_polozky op ON o.id = op.objednavka_id
+        JOIN b2b_objednavky_polozky op ON o.id = op.objednavka_id
         LEFT JOIN produkty p ON CONVERT(TRIM(op.ean_produktu) USING utf8mb4) COLLATE utf8mb4_general_ci = CONVERT(TRIM(p.ean) USING utf8mb4) COLLATE utf8mb4_general_ci
         WHERE YEAR(o.pozadovany_datum_dodania) = %s AND MONTH(o.pozadovany_datum_dodania) = %s
           AND o.stav NOT IN ('Zrušená', 'Stornovaná', 'Zrusena')
-        GROUP BY kanal, op.ean_produktu, COALESCE(p.nazov_vyrobku, op.nazov_vyrobku), op.mj
+        GROUP BY kanal, op.ean_produktu, nazov_vyrobku, op.mj
         ORDER BY kanal, total_trzba DESC
     """
     real_sales = db_connector.execute_query(real_sales_sql, (year, month), fetch='all') or []
 
     for r in real_sales:
         kanal = r["kanal"]
-        
         if kanal not in sales_by_channel:
             sales_by_channel[kanal] = {
                 "items": [],
@@ -281,13 +280,12 @@ def get_sales_channels_view(year, month):
         trzba = float(r['total_trzba'] or 0)
         naklad = float(r['total_naklad'] or 0)
         zisk = trzba - naklad
-        
         avg_sell = (trzba / qty) if qty > 0 else 0
         avg_buy = (naklad / qty) if qty > 0 else 0
         
         sales_by_channel[kanal]["items"].append({
             "product_ean": r["ean_produktu"],
-            "product_name": r["nazov_vyrobku"] or "Neznámy produkt",
+            "product_name": r["nazov_vyrobku"],
             "unit": r["mj"] or "kg",
             "quantity": qty,
             "purchase_price_net": avg_buy,
@@ -296,7 +294,7 @@ def get_sales_channels_view(year, month):
         })
         
         s = sales_by_channel[kanal]["summary"]
-        if r["mj"] in ("kg", "KG"):
+        if str(r["mj"]).lower() == "kg":
             s["total_kg"] += qty
         s["total_purchase"] += naklad
         s["total_sell"] += trzba
@@ -313,6 +311,84 @@ def get_sales_channels_view(year, month):
             }
 
     return sales_by_channel
+
+
+# -----------------------------------------------------------------
+# Predajné kanály – uloženie a integrované mazanie
+# -----------------------------------------------------------------
+def setup_new_sales_channel(data):
+    channel_name = str(data.get("channel_name") or "").strip()
+    
+    # === MAZANIE KANÁLU ===
+    if data.get("delete_channel"):
+        try:
+            db_connector.execute_query("DELETE FROM profit_sales_monthly WHERE sales_channel = %s", (channel_name,), fetch="none")
+            db_connector.execute_query("UPDATE b2b_zakaznici SET predajny_kanal = NULL WHERE predajny_kanal = %s", (channel_name,), fetch="none")
+            return {"message": f"Kanál '{channel_name}' bol trvalo odstránený."}
+        except Exception as e:
+            return {"error": str(e)}
+
+    # === VYTVORENIE KANÁLU ===
+    try:
+        year = int(data.get("year", 0))
+        month = int(data.get("month", 0))
+    except (TypeError, ValueError):
+        return {"error": "Chybný formát dátumu."}
+
+    chain_id = data.get("chain_id")
+
+    if not year or not month or not channel_name:
+        return {"error": "Chýbajú dáta pre vytvorenie."}
+
+    if not _has_col("b2b_zakaznici", "predajny_kanal"):
+        try:
+            db_connector.execute_query("ALTER TABLE b2b_zakaznici ADD COLUMN predajny_kanal VARCHAR(100) DEFAULT NULL", fetch="none")
+        except: pass
+
+    # Explicitná aktualizácia zákazníkov - matka aj VŠETKY jej dcéry
+    if chain_id and str(chain_id).strip():
+        try:
+            db_connector.execute_query(
+                "UPDATE b2b_zakaznici SET predajny_kanal = %s WHERE id = %s OR parent_id = %s",
+                (channel_name, int(chain_id), int(chain_id)), fetch="none"
+            )
+        except Exception as e:
+            print("UPDATE DB ERROR:", e)
+    else:
+        # Fallback pre istotu, ak chýba chain_id
+        try:
+            db_connector.execute_query(
+                "UPDATE b2b_zakaznici SET predajny_kanal = %s WHERE nazov_firmy LIKE %s",
+                (channel_name, f"%{channel_name}%"), fetch="none"
+            )
+        except: pass
+
+    products_q = "SELECT ean, nazov_vyrobku FROM produkty WHERE typ_polozky LIKE 'VÝROBOK%%' OR typ_polozky LIKE 'TOVAR%%'"
+    all_products = db_connector.execute_query(products_q) or []
+    
+    if all_products:
+        available_products_with_costs = get_calculations_view(year, month).get("available_products", [])
+        prod_costs = {p["ean"]: p.get("avg_cost", 0) for p in available_products_with_costs}
+
+        records_to_insert = [
+            (year, month, channel_name, p["ean"], float(prod_costs.get(p["ean"], 0) or 0)) 
+            for p in all_products
+        ]
+        query = """
+            INSERT IGNORE INTO profit_sales_monthly
+                (report_year, report_month, sales_channel, product_ean, purchase_price_net)
+            VALUES (%s, %s, %s, %s, %s)
+        """
+        try:
+            conn = db_connector.get_connection()
+            cur = conn.cursor()
+            cur.executemany(query, records_to_insert)
+            conn.commit()
+            cur.close()
+            conn.close()
+        except: pass
+
+    return {"message": f"Kanál '{channel_name}' úspešne vytvorený a prepojený."}
 
 
 # -----------------------------------------------------------------

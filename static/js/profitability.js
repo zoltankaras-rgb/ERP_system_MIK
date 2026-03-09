@@ -169,7 +169,9 @@ async function loadAndRenderProfitabilityData(){
   const c = document.getElementById('profitability-content');
   c.innerHTML = `<p>Načítavam dáta za ${profitabilityState.month}/${profitabilityState.year}…</p>`;
   try{
-    const data = await apiP(`/api/kancelaria/profitability/getData?year=${profitabilityState.year}&month=${profitabilityState.month}`);
+    // ANTI-CACHE TIMESTAMP: Zabráni prehliadaču ukazovať staré zmazané/nezmazané dáta
+    const ts = new Date().getTime();
+    const data = await apiP(`/api/kancelaria/profitability/getData?year=${profitabilityState.year}&month=${profitabilityState.month}&_=${ts}`);
     profitabilityState.data = data || {};
     renderCurrentView();
   }catch(e){
@@ -178,6 +180,26 @@ async function loadAndRenderProfitabilityData(){
   }
 }
 
+// ----- MAZANIE KANÁLU -----
+window.deleteSalesChannel = async function(channelName) {
+    if (!confirm(`Naozaj chcete zmazať kanál "${channelName}"?\nZákazníci z tohto kanálu spadnú do kategórie "Nezaradené".`)) return;
+    try {
+        await apiP('/api/kancelaria/profitability/setupSalesChannel', {
+            method: 'POST',
+            body: { 
+                channel_name: channelName, 
+                delete_channel: true
+            }
+        });
+        showStatus("Kanál bol zmazaný");
+        // Pol sekundový delay, aby databáza stihla commitnúť zmenu pred novým načítaním
+        setTimeout(() => {
+            loadAndRenderProfitabilityData();
+        }, 500);
+    } catch (e) {
+        showStatus("Chyba pri mazaní: " + e.message, true);
+    }
+};
 // ====== RENDER: pohľady =====================================================
 function renderCurrentView(){
   const active = document.querySelector('#profit-main-nav .b2b-tab-button.active')?.dataset.view || 'summary';
