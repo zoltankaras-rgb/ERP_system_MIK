@@ -90,7 +90,6 @@ def create_parent_chain():
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
-
 @chains_bp.route('/api/chains/<int:parent_id>/branches', methods=['GET'])
 @login_required(role=("kancelaria", "admin", "veduci"))
 def get_branches(parent_id):
@@ -113,8 +112,6 @@ def update_branch(branch_id):
         cislo_pj = data.get('cislo_prevadzky', '').strip()
         nazov_firmy = data.get('nazov_firmy', '').strip()
         
-        # Automatické zlúčenie: Ak názov firmy ešte nezačína číslom prevádzky, prilepí ho na začiatok.
-        # Toto zabezpečí, že číslo bude okamžite viditeľné v Logistike a na trasách.
         if cislo_pj and not nazov_firmy.startswith(cislo_pj):
             nazov_firmy = f"{cislo_pj} {nazov_firmy}"
 
@@ -140,6 +137,88 @@ def update_branch(branch_id):
         return jsonify({"error": str(e)}), 500
 
 # ==========================================
+# MANUÁLNE PRIDANIE PREVÁDZKY
+# ==========================================
+@chains_bp.route('/api/chains/<int:parent_id>/add_store', methods=['POST'])
+@login_required(role=("admin", "kancelaria", "veduci"))
+def add_chain_store(parent_id):
+    data = request.json or {}
+    cislo_pj = (data.get('cislo_pj') or '').strip()
+    nazov = (data.get('nazov') or '').strip()
+    adresa = (data.get('adresa') or '').strip()
+    gln = (data.get('gln') or '').strip()
+    erp_id = (data.get('erp_id') or '').strip()
+    kontakt = (data.get('kontakt') or '').strip()
+
+    if not nazov or not erp_id:
+        return jsonify({"error": "Názov a Interné ERP ID sú povinné."}), 400
+
+    try:
+        exists = db_connector.execute_query("SELECT id FROM b2b_zakaznici WHERE zakaznik_id=%s", (erp_id,), fetch="one")
+        if exists:
+            return jsonify({"error": f"Zákaznícke číslo (ERP ID) '{erp_id}' už existuje."}), 400
+
+        parent = db_connector.execute_query("SELECT email FROM b2b_zakaznici WHERE id=%s", (parent_id,), fetch="one")
+        if not parent:
+            return jsonify({"error": "Materská spoločnosť neexistuje."}), 404
+        
+        parent_email = parent.get("email") or ""
+
+        import secrets, hashlib, os
+        dummy_salt = os.urandom(16).hex()
+        dummy_hash = hashlib.pbkdf2_hmac("sha256", secrets.token_hex(16).encode("utf-8"), bytes.fromhex(dummy_salt), 250000).hex()
+        
+        if cislo_pj and not nazov.startswith(cislo_pj):
+            nazov = f"{cislo_pj} {nazov}"
+
+        cols_info = db_connector.execute_query(
+            "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'b2b_zakaznici'", 
+            fetch="all"
+        ) or []
+        db_cols = {r.get('COLUMN_NAME', r.get('column_name', '')).lower() for r in cols_info}
+
+        cols = ['parent_id', 'zakaznik_id', 'nazov_firmy', 'adresa_dorucenia', 'cislo_prevadzky', 'edi_kod', 'telefon', 'email', 'typ', 'je_schvaleny']
+        vals = [parent_id, erp_id, nazov, adresa, cislo_pj, gln, kontakt, parent_email, 'B2B', 1]
+
+        if 'password_hash_hex' in db_cols:
+            cols.append('password_hash_hex')
+            vals.append(dummy_hash)
+        if 'password_salt_hex' in db_cols:
+            cols.append('password_salt_hex')
+            vals.append(dummy_salt)
+        if 'heslo_hash' in db_cols:
+            cols.append('heslo_hash')
+            vals.append(dummy_hash)
+        if 'heslo_salt' in db_cols:
+            cols.append('heslo_salt')
+            vals.append(dummy_salt)
+
+        placeholders = ', '.join(['%s'] * len(cols))
+        sql = f"INSERT INTO b2b_zakaznici ({', '.join(cols)}) VALUES ({placeholders})"
+        db_connector.execute_query(sql, tuple(vals), fetch="none")
+
+        parent_pls = db_connector.execute_query(
+            "SELECT cennik_id FROM b2b_zakaznik_cennik WHERE zakaznik_id=(SELECT zakaznik_id FROM b2b_zakaznici WHERE id=%s LIMIT 1)", 
+            (parent_id,), fetch="all"
+        )
+        
+        if parent_pls:
+            conn = db_connector.get_connection()
+            cur = conn.cursor()
+            map_data = [(erp_id, pl["cennik_id"]) for pl in parent_pls]
+            cur.executemany("INSERT IGNORE INTO b2b_zakaznik_cennik (zakaznik_id, cennik_id) VALUES (%s, %s)", map_data)
+            conn.commit()
+            cur.close()
+            conn.close()
+
+        return jsonify({"message": "Prevádzka bola úspešne pridaná."})
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+# ==========================================
 # 2. IMPORT PREVÁDZOK Z CSV
 # ==========================================
 
@@ -159,7 +238,6 @@ def import_coop_stores(parent_id):
             
         lines = content.splitlines()
         
-        # Analytická detekcia oddelovača
         delimiter = ';'
         for line in lines[:10]:
             if line.count(';') > line.count(','):
@@ -204,6 +282,8 @@ def import_coop_stores(parent_id):
             email = clean_excel_val(row[9])[:100]
 
             nazov_firmy = f"{retazec} - {mesto}"[:255]
+            if cislo_pj and not nazov_firmy.startswith(cislo_pj):
+                nazov_firmy = f"{cislo_pj} {nazov_firmy}"
             
             import secrets, hashlib, os
             salt = os.urandom(16)
@@ -212,7 +292,6 @@ def import_coop_stores(parent_id):
             
             temp_zakaznik_id = f"PENDING-{secrets.token_hex(4).upper()}"
 
-            # Základné polia
             insert_fields = ['parent_id', 'typ', 'nazov_firmy', 'adresa_dorucenia', 'telefon', 'email', 'edi_kod', 'cislo_prevadzky', 'je_schvaleny', 'zakaznik_id']
             insert_vals = [parent_id, 'B2B', nazov_firmy, adresa_dorucenia, mobil, email, gln, cislo_pj, 1, temp_zakaznik_id]
             
@@ -224,13 +303,11 @@ def import_coop_stores(parent_id):
                 'cislo_prevadzky=VALUES(cislo_prevadzky)'
             ]
 
-            # Pridanie poznámky ak existuje v DB
             if has_poznamka:
                 insert_fields.append('poznamka')
                 insert_vals.append(f"Vedúca: {veduca}"[:500])
                 update_fields.append('poznamka=VALUES(poznamka)')
 
-            # PLNE DYNAMICKÉ pridanie všetkých možných variácií hesiel (riešenie pre váš duplicitný stĺpec v DB)
             if 'password_hash_hex' in db_cols:
                 insert_fields.append('password_hash_hex')
                 insert_vals.append(hash_hex)
@@ -264,6 +341,7 @@ def import_coop_stores(parent_id):
     finally:
         if 'cur' in locals(): cur.close()
         if 'conn' in locals(): conn.close()
+
 # ==========================================
 # 3. EDI MAPOVANIE PRODUKTOV
 # ==========================================
@@ -272,7 +350,6 @@ def import_coop_stores(parent_id):
 @login_required(role=("kancelaria", "admin", "veduci"))
 def get_edi_mapping(parent_id):
     try:
-        # OPRAVA: Pretypovanie COLLATE aby nedochádzalo k "Illegal mix of collations" pri LEFT JOIN
         sql = """
             SELECT m.id, m.edi_ean, m.interny_ean, p.nazov_vyrobku 
             FROM edi_produkty_mapovanie m
@@ -313,7 +390,7 @@ def add_edi_mapping(parent_id):
         return jsonify({"error": str(e)}), 500
 
 @chains_bp.route('/api/chains/edi_mapping/<int:mapping_id>', methods=['DELETE'])
-@login_required(role=("kancelaria", "admin", "veduci")) # <- OPRAVA: Pridaná rola Kancelária
+@login_required(role=("kancelaria", "admin", "veduci"))
 def delete_edi_mapping(mapping_id):
     try:
         db_connector.execute_query("DELETE FROM edi_produkty_mapovanie WHERE id=%s", (mapping_id,), fetch='none')
@@ -364,7 +441,6 @@ def import_edi_mapping(parent_id):
             if "EAN" in edi_ean.upper() or "PLU" in edi_ean.upper() or not edi_ean or not interny_ean:
                 continue 
 
-            # Inteligentná kontrola, ktorá ignoruje nuly na začiatku pri hľadaní zhody
             cur.execute("""
                 SELECT ean, nazov_vyrobku 
                 FROM produkty 
@@ -377,7 +453,6 @@ def import_edi_mapping(parent_id):
                 errors.append(f"Mimo ERP (Ignorované): Kód {interny_ean} (EDI: {edi_ean}) nebol nájdený v systéme MIK.")
                 continue
 
-            # Zoberieme reálny formát z databázy (s nulami), aby EDI objednávky fungovali na 100%
             real_interny_ean = prod['ean']
 
             sql = """
@@ -404,6 +479,7 @@ def import_edi_mapping(parent_id):
     finally:
         if 'cur' in locals(): cur.close()
         if 'conn' in locals(): conn.close()
+
 # ==========================================
 # 4. REPORT AKCIOVÝCH PREDAJOV
 # ==========================================
@@ -474,10 +550,8 @@ def import_edi_orders(parent_id):
         if not lines:
             return jsonify({"error": "Súbor je prázdny."}), 400
 
-        # RÝCHLA DETEKCIA ODDELOVAČA A HLAVIČKY (Dôležité pre toleranciu iných EDI exportov)
         delimiter = ';' if ';' in lines[0] else ' '
         
-        # Detekcia dátumu dodania z prvého riadku (ak je tam vložený)
         header_parts = lines[0].split(delimiter)
         if len(header_parts) >= 8 and "202" in header_parts[7]:
             date_str = header_parts[7].strip() 
@@ -491,7 +565,6 @@ def import_edi_orders(parent_id):
         conn = db_connector.get_connection()
         cur = conn.cursor(dictionary=True)
 
-        # 1. FAZA: Priprava a zoskupenie poloziek do fiktivnych objednavok podla predajni
         orders_grouped = {}
         for line in lines[1:]:
             if not line.strip(): continue
@@ -499,7 +572,6 @@ def import_edi_orders(parent_id):
             if len(parts) < 6: continue
             
             raw_ean = parts[0].strip()
-            # Ignorujeme "slepé" predpony pre matchovanie s mapovaním
             stripped_ean = raw_ean.lstrip('0') or raw_ean 
             
             try:
@@ -523,12 +595,10 @@ def import_edi_orders(parent_id):
         if not orders_grouped:
             return jsonify({"error": "Súbor neobsahuje žiadne platné dáta na import."}), 400
 
-        # 2. FAZA: Vytvorenie objednavok pre kazdu spoznanu predajnu
         processed_orders = 0
         errors = []
 
         for branch_id, items in orders_grouped.items():
-            # Najdenie konkretnej prevadzky v nasej databaze
             cur.execute("""
                 SELECT id, zakaznik_id, nazov_firmy, adresa_dorucenia 
                 FROM b2b_zakaznici 
@@ -545,7 +615,6 @@ def import_edi_orders(parent_id):
             order_items = []
             total_gross = 0.0
             
-            # Prehladavanie produktov podla EDI mapovania
             for item in items:
                 cur.execute("""
                     SELECT interny_ean FROM edi_produkty_mapovanie 
@@ -569,7 +638,6 @@ def import_edi_orders(parent_id):
                     errors.append(f"Neznámy interný EAN: {interny_ean} (mapované z EDI {item['raw_ean']})")
                     continue
 
-                # Zistenie beznej cennikovej ceny (AKCIE su docasne vypnute kvoli chybe 1146)
                 cur.execute("""
                     SELECT cp.cena FROM b2b_zakaznik_cennik zc
                     JOIN b2b_cennik_polozky cp ON cp.cennik_id = zc.cennik_id
@@ -606,7 +674,6 @@ def import_edi_orders(parent_id):
                 errors.append(f"PJ {branch_id}: Žiadna položka sa nespárovala (Objednávka ignorovaná).")
                 continue
 
-            # Ulozenie hlavicky objednavky
             cur.execute("""
                 INSERT INTO b2b_objednavky (
                     cislo_objednavky, zakaznik_id, nazov_firmy, adresa, pozadovany_datum_dodania, 
@@ -619,7 +686,6 @@ def import_edi_orders(parent_id):
             
             new_order_id = cur.lastrowid
             
-            # Ulozenie vsetkych sparovanych poloziek k objednavke
             for oi in order_items:
                 cur.execute("""
                     INSERT INTO b2b_objednavky_polozky (

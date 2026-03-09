@@ -50,6 +50,10 @@ const B2BChainsAdmin = {
             </ul>
 
             <div v-show="activeTab === 'branches'">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                    <h4 style="margin:0; color:#0f172a;">Prevádzky (Odberné miesta)</h4>
+                    <button class="btn btn-success btn-sm" @click="showAddStoreModal(selectedChainId)"><i class="fas fa-plus"></i> Pridať prevádzku</button>
+                </div>
                 <div style="margin-bottom: 20px; padding: 15px; border: 1px solid #ddd; background: #fdfdfd;">
                     <h4>Import prevádzok z CSV</h4>
                     <input type="file" ref="csvFile" accept=".csv" />
@@ -479,6 +483,97 @@ const B2BChainsAdmin = {
             } finally {
                 this.isImportingOrders = false;
             }
+        },
+        showAddStoreModal(chainId) {
+            const html = `
+                <h3 style="margin-top:0; color:#1e3a8a;">➕ Pridať novú prevádzku do reťazca</h3>
+                <div class="form-group" style="margin-top:15px;">
+                    <label>Interné ERP ID <span style="color:red">*</span></label>
+                    <input type="text" id="new-store-erp" class="form-control" style="width:100%; font-weight:bold;" placeholder="Unikátne číslo, napr. 063_BA">
+                </div>
+                <div class="form-group">
+                    <label>Číslo PJ (Prevádzkovej jednotky)</label>
+                    <input type="text" id="new-store-pj" class="form-control" style="width:100%;" placeholder="napr. 063">
+                </div>
+                <div class="form-group">
+                    <label>Názov prevádzky <span style="color:red">*</span></label>
+                    <input type="text" id="new-store-name" class="form-control" style="width:100%;" placeholder="napr. COOP Jednota BA">
+                </div>
+                <div class="form-group">
+                    <label>Adresa doručenia</label>
+                    <input type="text" id="new-store-address" class="form-control" style="width:100%;" placeholder="Ulica, Mesto, PSČ">
+                </div>
+                <div class="form-group">
+                    <label>EDI Kód (GLN)</label>
+                    <input type="text" id="new-store-gln" class="form-control" style="width:100%;" placeholder="napr. 8589000032058">
+                </div>
+                <div class="form-group">
+                    <label>Kontakt (Telefón / Meno)</label>
+                    <input type="text" id="new-store-contact" class="form-control" style="width:100%;">
+                </div>
+                <div style="margin-top:20px; text-align:right;">
+                    <button class="btn btn-secondary" onclick="document.getElementById('b2b-chains-submodal').style.display='none'">Zrušiť</button>
+                    <button class="btn btn-success" onclick="window.submitNewStore(${chainId})">Uložiť prevádzku</button>
+                </div>
+            `;
+
+            let wrap = document.getElementById('b2b-chains-submodal');
+            if (!wrap) {
+                wrap = document.createElement('div');
+                wrap.id = 'b2b-chains-submodal';
+                document.body.appendChild(wrap);
+            }
+            wrap.innerHTML = `
+                <div class="b2b-modal" style="z-index: 10001; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); display: flex; justify-content: center; align-items: center;">
+                    <div class="b2b-modal-content" style="background: white; padding: 25px; border-radius: 12px; width: 90%; max-width: 500px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.2);">
+                        ${html}
+                    </div>
+                </div>
+            `;
+            wrap.style.display = 'block';
         }
     }
 };
+
+window.submitNewStore = async function(chainId) {
+    const erpId = document.getElementById('new-store-erp').value.trim();
+    const name = document.getElementById('new-store-name').value.trim();
+
+    if (!erpId || !name) {
+        alert("Interné ERP ID a Názov prevádzky sú povinné.");
+        return;
+    }
+
+    const payload = {
+        erp_id: erpId,
+        cislo_pj: document.getElementById('new-store-pj').value.trim(),
+        nazov: name,
+        adresa: document.getElementById('new-store-address').value.trim(),
+        gln: document.getElementById('new-store-gln').value.trim(),
+        kontakt: document.getElementById('new-store-contact').value.trim()
+    };
+
+    try {
+        const res = await fetch(`/api/chains/${chainId}/add_store`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const result = await res.json();
+        
+        if (result.error) {
+            alert(result.error);
+        } else {
+            alert(result.message);
+            document.getElementById('b2b-chains-submodal').style.display = 'none';
+            // Zavolanie metódy na refresh z Vue inštancie (hack cez dispatchEvent)
+            document.querySelector('.chains-admin-container select').dispatchEvent(new Event('change'));
+        }
+    } catch (err) {
+        alert("Chyba pri ukladaní: " + err.message);
+    }
+};
+
+(function (g) {
+    g.B2BChainsAdmin = B2BChainsAdmin;
+})(typeof window !== 'undefined' ? window : this);
