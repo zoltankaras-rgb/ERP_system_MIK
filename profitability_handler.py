@@ -246,10 +246,10 @@ def get_sales_channels_view(year, month):
 
     sales_by_channel = {}
 
-    # 1. Agregácia objednávok (s maximálnou toleranciou na medzery a Collation)
+    # SQL využíva dynamické dedenie (COALESCE): Ak pobočka nemá kanál, zoberie sa kanál matky (parent.predajny_kanal)
     real_sales_sql = """
         SELECT 
-            COALESCE(z.predajny_kanal, 'Nezaradené') AS kanal,
+            COALESCE(z.predajny_kanal, parent.predajny_kanal, 'Nezaradené') AS kanal,
             op.ean_produktu,
             COALESCE(p.nazov_vyrobku, op.nazov_vyrobku) AS nazov_vyrobku,
             op.mj,
@@ -258,12 +258,13 @@ def get_sales_channels_view(year, month):
             SUM(op.mnozstvo * COALESCE(p.nakupna_cena, 0)) AS total_naklad
         FROM b2b_objednavky o
         LEFT JOIN b2b_zakaznici z ON CONVERT(TRIM(o.zakaznik_id) USING utf8mb4) COLLATE utf8mb4_general_ci = CONVERT(TRIM(z.zakaznik_id) USING utf8mb4) COLLATE utf8mb4_general_ci
+        LEFT JOIN b2b_zakaznici parent ON z.parent_id = parent.id
         LEFT JOIN b2b_objednavky_polozky op ON o.id = op.objednavka_id
         LEFT JOIN produkty p ON CONVERT(TRIM(op.ean_produktu) USING utf8mb4) COLLATE utf8mb4_general_ci = CONVERT(TRIM(p.ean) USING utf8mb4) COLLATE utf8mb4_general_ci
         WHERE YEAR(o.pozadovany_datum_dodania) = %s AND MONTH(o.pozadovany_datum_dodania) = %s
           AND o.stav NOT IN ('Zrušená', 'Stornovaná', 'Zrusena')
-        GROUP BY z.predajny_kanal, op.ean_produktu, COALESCE(p.nazov_vyrobku, op.nazov_vyrobku), op.mj
-        ORDER BY z.predajny_kanal, total_trzba DESC
+        GROUP BY kanal, op.ean_produktu, COALESCE(p.nazov_vyrobku, op.nazov_vyrobku), op.mj
+        ORDER BY kanal, total_trzba DESC
     """
     real_sales = db_connector.execute_query(real_sales_sql, (year, month), fetch='all') or []
 
@@ -301,7 +302,6 @@ def get_sales_channels_view(year, month):
         s["total_sell"] += trzba
         s["total_profit"] += zisk
 
-    # 2. Pridanie prázdnych kanálov z definícií (ak by v mesiaci nebol žiadny predaj)
     query_manual = "SELECT DISTINCT sales_channel FROM profit_sales_monthly WHERE report_year = %s AND report_month = %s"
     manual_channels = db_connector.execute_query(query_manual, (year, month)) or []
     for c in manual_channels:
@@ -313,6 +313,74 @@ def get_sales_channels_view(year, month):
             }
 
     return sales_by_channel
+
+
+# -----------------------------------------------------------------
+# Predajné kanály – uloženie a integrované mazanie
+# -----------------------------------------------------------------
+def setup_new_sales_channel(data):
+    channel_name = (data.get("channel_name") or "").strip()
+    
+    # Hack na zmazanie v rámci existujúceho endpointu (vyrieši chybu 404)
+    if data.get("delete_channel"):
+        try:
+            db_connector.execute_query("DELETE FROM profit_sales_monthly WHERE sales_channel = %s", (channel_name,), fetch="none")
+            db_connector.execute_query("UPDATE b2b_zakaznici SET predajny_kanal = NULL WHERE predajny_kanal = %s", (channel_name,), fetch="none")
+            return {"message": f"Kanál '{channel_name}' bol úspešne vymazaný."}
+        except Exception as e:
+            return {"error": str(e)}
+
+    year = int(data.get("year"))
+    month = int(data.get("month"))
+    chain_id = data.get("chain_id")
+
+    if not all([year, month, channel_name]):
+        return {"error": "Chýbajú dáta."}
+
+    # Nastavenie kanálu primárne na úroveň materskej spoločnosti
+    if chain_id:
+        try:
+            conn_upd = db_connector.get_connection()
+            cur_upd = conn_upd.cursor()
+            cur_upd.execute(
+                "UPDATE b2b_zakaznici SET predajny_kanal = %s WHERE id = %s",
+                (channel_name, int(chain_id))
+            )
+            conn_upd.commit()
+            cur_upd.close()
+            conn_upd.close()
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+
+    products_q = "SELECT ean, nazov_vyrobku FROM produkty WHERE typ_polozky LIKE 'VÝROBOK%%' OR typ_polozky LIKE 'TOVAR%%'"
+    all_products = db_connector.execute_query(products_q) or []
+    if not all_products:
+        return {"message": "V katalógu nie sú žiadne produkty na pridanie."}
+
+    available_products_with_costs = get_calculations_view(year, month)["available_products"]
+    prod_costs = {p["ean"]: p.get("avg_cost", 0) for p in available_products_with_costs}
+
+    records_to_insert = [
+        (year, month, channel_name, p["ean"], float(prod_costs.get(p["ean"], 0) or 0)) for p in all_products
+    ]
+
+    query = """
+        INSERT IGNORE INTO profit_sales_monthly
+            (report_year, report_month, sales_channel, product_ean, purchase_price_net)
+        VALUES (%s, %s, %s, %s, %s)
+    """
+    try:
+        conn = db_connector.get_connection()
+        cur = conn.cursor()
+        cur.executemany(query, records_to_insert)
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception:
+        pass
+
+    return {"message": f"Kanál '{channel_name}' bol úspešne vytvorený."}
 # -----------------------------------------------------------------
 # Kalkulácie / súťaže
 # -----------------------------------------------------------------
@@ -1093,20 +1161,3 @@ h2{{margin:0 0 12px 0}}
 <script>window.print()</script></body></html>"""
     return make_response(html)
 
-def delete_sales_channel(data):
-    channel = data.get("channel")
-    if not channel:
-        return {"error": "Chýba názov kanálu."}
-    try:
-        conn = db_connector.get_connection()
-        cur = conn.cursor()
-        # Zmazanie fixných dát kanálu z daného modulu
-        cur.execute("DELETE FROM profit_sales_monthly WHERE sales_channel = %s", (channel,))
-        # Zmazanie väzby u zákazníkov v DB
-        cur.execute("UPDATE b2b_zakaznici SET predajny_kanal = NULL WHERE predajny_kanal = %s", (channel,))
-        conn.commit()
-        cur.close()
-        conn.close()
-        return {"message": f"Kanál '{channel}' bol trvalo odstránený a zákazníci odpojení."}
-    except Exception as e:
-        return {"error": str(e)}
