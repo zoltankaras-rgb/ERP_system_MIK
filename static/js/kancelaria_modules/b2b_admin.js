@@ -350,9 +350,16 @@
 
                   const formatVytvorenia = o.datum_objednavky ? new Date(o.datum_objednavky).toLocaleString('sk-SK') : '-';
 
+                  // OPRAVA TU: Formátovanie názvu firmy s číslom prevádzky (odstránenie prípadnej duplicity)
+                  let zobrazenyNazov = escapeHtml(o.nazov_firmy);
+                  if (o.cislo_prevadzky) {
+                      let cistyNazov = o.nazov_firmy.replace(new RegExp('^' + o.cislo_prevadzky + '\\s*-?\\s*'), '');
+                      zobrazenyNazov = `<strong>[${escapeHtml(o.cislo_prevadzky)}]</strong> ${escapeHtml(cistyNazov)}`;
+                  }
+
                   html += `<tr>
                     <td>${o.cislo_objednavky}</td>
-                    <td>${escapeHtml(o.nazov_firmy)}</td>
+                    <td>${zobrazenyNazov}</td>
                     <td>${formatVytvorenia}</td>
                     <td><strong>${formatDodania}</strong></td>
                     <td>${Number(o.celkova_suma_s_dph).toFixed(2)} €</td>

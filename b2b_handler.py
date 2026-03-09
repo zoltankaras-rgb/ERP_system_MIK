@@ -1349,9 +1349,9 @@ def get_all_b2b_orders(filters=None):
     params: List[Any] = []
     
     # Rozhodnutie, podľa ktorého stĺpca sa filtruje
-    date_col = "datum_objednavky" # Default: Dátum prijatia/vytvorenia
+    date_col = "o.datum_objednavky" # Default: Dátum prijatia/vytvorenia
     if filters.get("date_type") == "delivery":
-        date_col = "pozadovany_datum_dodania" # Novinka: Dátum dodania
+        date_col = "o.pozadovany_datum_dodania" # Novinka: Dátum dodania
 
     if filters.get("from_date"):
         where.append(f"{date_col} >= %s")
@@ -1360,21 +1360,37 @@ def get_all_b2b_orders(filters=None):
         where.append(f"{date_col} < %s")
         params.append(filters["to_date"])
     if filters.get("customer"):
-        where.append("zakaznik_id=%s")
+        where.append("o.zakaznik_id=%s")
         params.append(filters["customer"])
         
-    q = "SELECT id, cislo_objednavky, zakaznik_id, nazov_firmy, datum_objednavky, pozadovany_datum_dodania, stav, celkova_suma_s_dph FROM b2b_objednavky"
+    # OPRAVA: Pridaný alias o. a z. + LEFT JOIN na b2b_zakaznici
+    q = """
+        SELECT 
+            o.id, 
+            o.cislo_objednavky, 
+            o.zakaznik_id, 
+            o.nazov_firmy, 
+            o.datum_objednavky, 
+            o.pozadovany_datum_dodania, 
+            o.stav, 
+            o.celkova_suma_s_dph,
+            z.cislo_prevadzky
+        FROM b2b_objednavky o
+        LEFT JOIN b2b_zakaznici z ON o.zakaznik_id = z.zakaznik_id
+    """
+    
     if where:
         q += " WHERE " + " AND ".join(where)
         
     # Ak filtrujeme podľa dodania, zotriedime to od najbližších dodaní. Inak radíme od najnovšie prijatých.
     if filters.get("date_type") == "delivery":
-        q += " ORDER BY pozadovany_datum_dodania ASC, datum_objednavky DESC"
+        q += " ORDER BY o.pozadovany_datum_dodania ASC, o.datum_objednavky DESC"
     else:
-        q += " ORDER BY datum_objednavky DESC"
+        q += " ORDER BY o.datum_objednavky DESC"
         
     rows = db_connector.execute_query(q, tuple(params) if params else None) or []
     return {"orders": rows}
+
 def get_b2b_order_details(data_or_id):
     if isinstance(data_or_id, dict):
         oid = data_or_id.get("id")
