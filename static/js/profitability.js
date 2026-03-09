@@ -625,25 +625,79 @@ window.filterChannelOrders = function(channel) {
     tbody.innerHTML = html;
 };
 
-function showAddSalesChannelModal(){
+async function showAddSalesChannelModal(){
+  // Načítanie existujúcich reťazcov (Centrál) z API
+  let chainsOptions = '<option value="">-- Vlastný názov (Bez väzby na reťazec) --</option>';
+  try {
+      const res = await apiP('/api/chains'); 
+      if (res && res.chains) {
+          res.chains.forEach(c => {
+              chainsOptions += `<option value="${c.id}">${escapeHtml(c.nazov_firmy)}</option>`;
+          });
+      }
+  } catch (e) {
+      console.warn("Nepodarilo sa načítať reťazce:", e);
+  }
+
   showModal('Nový predajný kanál', () => Promise.resolve({
     html: `
       <form id="new-channel-form">
-        <div class="form-group"><label>Názov kanálu</label><input type="text" id="new-channel-name" required placeholder="napr. Coop Jednota"></div>
-        <button class="btn btn-success" style="width:100%; margin-top:.5rem;">Vytvoriť kanál</button>
+        <div class="form-group" style="margin-bottom:15px; background:#f0fdf4; padding:15px; border:1px solid #bbf7d0; border-radius:6px;">
+            <label style="color:#166534; font-size:1.05rem;"><strong>1. Prepojiť s reťazcom z EDI modulu (Odporúčané)</strong></label>
+            <select id="new-channel-chain" class="filter-input" style="width:100%; font-weight:bold; margin-top:8px;">
+                ${chainsOptions}
+            </select>
+            <small style="color:#15803d; display:block; margin-top:5px;">Všetky pobočky tohto reťazca sa automaticky združia do jedného kanálu.</small>
+        </div>
+        
+        <div class="form-group" style="padding:0 5px;">
+            <label><strong>2. Názov kanálu</strong></label>
+            <input type="text" id="new-channel-name" class="filter-input" style="width:100%; font-size:1.1rem;" placeholder="Napr. COOP Jednota, Väznice, Maloobchod...">
+        </div>
+        
+        <button class="btn btn-success" style="width:100%; margin-top:1.5rem; padding:12px; font-size:1.1rem; font-weight:bold;">Vytvoriť predajný kanál</button>
       </form>
     `,
     onReady: ()=>{
+      const selChain = document.getElementById('new-channel-chain');
+      const inpName = document.getElementById('new-channel-name');
+      
+      // Auto-vyplnenie textového poľa podľa výberu z dropdownu
+      selChain.addEventListener('change', (e) => {
+          if (e.target.value) {
+              inpName.value = e.target.options[e.target.selectedIndex].text;
+          } else {
+              inpName.value = '';
+          }
+      });
+
       const f = document.getElementById('new-channel-form');
       f.onsubmit = async (e)=>{
         e.preventDefault();
-        const name = (document.getElementById('new-channel-name').value||'').trim();
-        if (!name) return;
+        const name = inpName.value.trim();
+        const chainId = selChain.value;
+        
+        if (!name) {
+            showStatus("Zadajte názov kanálu alebo vyberte reťazec.", true);
+            return;
+        }
+        
         try{
-          await apiP('/api/kancelaria/profitability/setupSalesChannel', { method:'POST', body:{ year:profitabilityState.year, month:profitabilityState.month, channel_name:name } });
+          await apiP('/api/kancelaria/profitability/setupSalesChannel', { 
+              method:'POST', 
+              body:{ 
+                  year: profitabilityState.year, 
+                  month: profitabilityState.month, 
+                  channel_name: name,
+                  chain_id: chainId || null
+              } 
+          });
           document.getElementById('modal-container').style.display='none';
+          showStatus(`Kanál ${name} úspešne vytvorený a prevádzky boli prepojené.`);
           loadAndRenderProfitabilityData();
-        }catch(_){}
+        }catch(err){
+            showStatus("Chyba pri vytváraní: " + err.message, true);
+        }
       };
     }
   }));

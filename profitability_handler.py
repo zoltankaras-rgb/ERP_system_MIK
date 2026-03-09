@@ -500,9 +500,24 @@ def setup_new_sales_channel(data):
     year = int(data.get("year"))
     month = int(data.get("month"))
     channel_name = (data.get("channel_name") or "").strip()
+    chain_id = data.get("chain_id") # NOVÉ: ID reťazca z EDI modulu
+
     if not all([year, month, channel_name]):
         return {"error": "Chýbajú dáta."}
 
+    # 1. Prepojenie s reťazcom: Nastavíme predajny_kanal pre centrálu aj všetky jej pobočky
+    if chain_id:
+        try:
+            db_connector.execute_query(
+                "UPDATE b2b_zakaznici SET predajny_kanal = %s WHERE id = %s OR parent_id = %s",
+                (channel_name, chain_id, chain_id),
+                fetch="none"
+            )
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+
+    # 2. Vytvorenie záznamov pre manuálny cenník a historické dáta
     products_q = """
         SELECT ean, nazov_vyrobku
         FROM produkty
@@ -552,7 +567,7 @@ def setup_new_sales_channel(data):
             conn.close()
 
     return {
-        "message": f"Kanál '{channel_name}' bol pripravený. Pridaných {rows_affected} produktov."
+        "message": f"Kanál '{channel_name}' bol úspešne vytvorený a pobočky boli prepojené."
     }
 
 
