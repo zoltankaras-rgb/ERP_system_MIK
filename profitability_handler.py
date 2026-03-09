@@ -239,10 +239,11 @@ def get_profitability_data(year, month):
 def get_sales_channels_view(year, month):
     year, month = _ym_int(year, month)
     
+    # 1. Načítanie definícií kanálov (ručné položky)
     query = f"""
         SELECT sc.*, p.nazov_vyrobku AS product_name
         FROM profit_sales_monthly sc
-        JOIN produkty p
+        LEFT JOIN produkty p
           ON sc.product_ean COLLATE {COLL} = p.ean COLLATE {COLL}
         WHERE sc.report_year = %s AND sc.report_month = %s
         ORDER BY COALESCE(sc.sales_channel,'UNSPECIFIED'), p.nazov_vyrobku
@@ -287,31 +288,32 @@ def get_sales_channels_view(year, month):
             s["total_sell"] += sell_net * sales_kg
             s["total_profit"] += row["total_profit_eur"]
 
-    # NOVÉ: Načítanie skutočných objednávok pre daný mesiac a zaradenie k predajnému kanálu
+    # 2. Načítanie skutočných objednávok pre daný mesiac (podľa Dátumu Dodania)
+    # Používame LEFT JOIN, aby sme o objednávku neprišli, ani keď sa náhodou zmaže produkt
     orders_sql = """
         SELECT 
             o.id,
             o.cislo_objednavky,
             o.nazov_firmy,
-            o.datum_objednavky,
+            o.pozadovany_datum_dodania AS datum,
             COALESCE(z.predajny_kanal, 'Nezaradené') AS kanal,
             SUM(op.mnozstvo * op.cena_bez_dph) AS trzba,
-            SUM(op.mnozstvo * p.nakupna_cena) AS naklady
+            SUM(op.mnozstvo * COALESCE(p.nakupna_cena, 0)) AS naklady
         FROM b2b_objednavky o
-        JOIN b2b_zakaznici z ON o.zakaznik_id = z.zakaznik_id
-        JOIN b2b_objednavky_polozky op ON o.id = op.objednavka_id
+        LEFT JOIN b2b_zakaznici z ON o.zakaznik_id = z.zakaznik_id
+        LEFT JOIN b2b_objednavky_polozky op ON o.id = op.objednavka_id
         LEFT JOIN produkty p ON p.ean = op.ean_produktu
-        WHERE YEAR(o.datum_objednavky) = %s AND MONTH(o.datum_objednavky) = %s
+        WHERE YEAR(o.pozadovany_datum_dodania) = %s AND MONTH(o.pozadovany_datum_dodania) = %s
           AND o.stav NOT IN ('Zrušená', 'Stornovaná')
-        GROUP BY o.id, o.cislo_objednavky, o.nazov_firmy, o.datum_objednavky, z.predajny_kanal
-        ORDER BY o.datum_objednavky DESC
+        GROUP BY o.id, o.cislo_objednavky, o.nazov_firmy, o.pozadovany_datum_dodania, z.predajny_kanal
+        ORDER BY o.pozadovany_datum_dodania DESC
     """
     orders_rows = db_connector.execute_query(orders_sql, (year, month), fetch='all') or []
     
     for r in orders_rows:
         kanal = r["kanal"]
         
-        # Ak daný kanál ešte neexistuje z profit_sales_monthly, vytvoríme ho
+        # Ak daný kanál ešte neexistuje (nebol ručne pridaný), vytvoríme mu štruktúru
         if kanal not in sales_by_channel:
             sales_by_channel[kanal] = {
                 "items": [],
@@ -328,7 +330,7 @@ def get_sales_channels_view(year, month):
             "id": r["id"],
             "cislo_objednavky": r["cislo_objednavky"],
             "nazov_firmy": r["nazov_firmy"],
-            "datum": str(r["datum_objednavky"]),
+            "datum": str(r["datum"]),
             "kanal": kanal,
             "trzba": trzba,
             "zisk": zisk,
@@ -336,8 +338,6 @@ def get_sales_channels_view(year, month):
         })
 
     return sales_by_channel
-
-
 # -----------------------------------------------------------------
 # Kalkulácie / súťaže
 # -----------------------------------------------------------------
