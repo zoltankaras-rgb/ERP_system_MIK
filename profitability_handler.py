@@ -239,12 +239,19 @@ def get_profitability_data(year, month):
 def get_sales_channels_view(year, month):
     year, month = _ym_int(year, month)
     
-    # 1. Načítanie definícií kanálov (ručné položky)
+    # 1. AUTOMATICKÁ OPRAVA DATABÁZY: Vytvorenie stĺpca, ak neexistuje
+    if not _has_col("b2b_zakaznici", "predajny_kanal"):
+        try:
+            db_connector.execute_query("ALTER TABLE b2b_zakaznici ADD COLUMN predajny_kanal VARCHAR(100) DEFAULT NULL", fetch="none")
+        except Exception:
+            pass
+            
+    # 2. Načítanie definícií kanálov (ručné položky)
     query = f"""
         SELECT sc.*, p.nazov_vyrobku AS product_name
         FROM profit_sales_monthly sc
         LEFT JOIN produkty p
-          ON sc.product_ean COLLATE {COLL} = p.ean COLLATE {COLL}
+          ON CONVERT(sc.product_ean USING utf8mb4) COLLATE utf8mb4_general_ci = CONVERT(p.ean USING utf8mb4) COLLATE utf8mb4_general_ci
         WHERE sc.report_year = %s AND sc.report_month = %s
         ORDER BY COALESCE(sc.sales_channel,'UNSPECIFIED'), p.nazov_vyrobku
     """
@@ -288,9 +295,8 @@ def get_sales_channels_view(year, month):
             s["total_sell"] += sell_net * sales_kg
             s["total_profit"] += row["total_profit_eur"]
 
-    # 2. Načítanie skutočných objednávok pre daný mesiac (podľa Dátumu Dodania)
-    # Používame LEFT JOIN, aby sme o objednávku neprišli, ani keď sa náhodou zmaže produkt
-    orders_sql = f"""
+    # 3. Načítanie skutočných objednávok pre daný mesiac s extrémnou bezpečnosťou proti Collation chybám
+    orders_sql = """
         SELECT 
             o.id,
             o.cislo_objednavky,
@@ -300,9 +306,9 @@ def get_sales_channels_view(year, month):
             SUM(op.mnozstvo * op.cena_bez_dph) AS trzba,
             SUM(op.mnozstvo * COALESCE(p.nakupna_cena, 0)) AS naklady
         FROM b2b_objednavky o
-        LEFT JOIN b2b_zakaznici z ON o.zakaznik_id COLLATE {COLL} = z.zakaznik_id COLLATE {COLL}
+        LEFT JOIN b2b_zakaznici z ON CONVERT(o.zakaznik_id USING utf8mb4) COLLATE utf8mb4_general_ci = CONVERT(z.zakaznik_id USING utf8mb4) COLLATE utf8mb4_general_ci
         LEFT JOIN b2b_objednavky_polozky op ON o.id = op.objednavka_id
-        LEFT JOIN produkty p ON op.ean_produktu COLLATE {COLL} = p.ean COLLATE {COLL}
+        LEFT JOIN produkty p ON CONVERT(op.ean_produktu USING utf8mb4) COLLATE utf8mb4_general_ci = CONVERT(p.ean USING utf8mb4) COLLATE utf8mb4_general_ci
         WHERE YEAR(o.pozadovany_datum_dodania) = %s AND MONTH(o.pozadovany_datum_dodania) = %s
           AND o.stav NOT IN ('Zrušená', 'Stornovaná')
         GROUP BY o.id, o.cislo_objednavky, o.nazov_firmy, o.pozadovany_datum_dodania, z.predajny_kanal
@@ -313,7 +319,6 @@ def get_sales_channels_view(year, month):
     for r in orders_rows:
         kanal = r["kanal"]
         
-        # Ak daný kanál ešte neexistuje (nebol ručne pridaný), vytvoríme mu štruktúru
         if kanal not in sales_by_channel:
             sales_by_channel[kanal] = {
                 "items": [],
@@ -500,10 +505,17 @@ def setup_new_sales_channel(data):
     year = int(data.get("year"))
     month = int(data.get("month"))
     channel_name = (data.get("channel_name") or "").strip()
-    chain_id = data.get("chain_id") # NOVÉ: ID reťazca z EDI modulu
+    chain_id = data.get("chain_id")
 
     if not all([year, month, channel_name]):
         return {"error": "Chýbajú dáta."}
+        
+    # AUTOMATICKÁ OPRAVA DATABÁZY: Vytvorenie stĺpca pre istotu aj tu
+    if not _has_col("b2b_zakaznici", "predajny_kanal"):
+        try:
+            db_connector.execute_query("ALTER TABLE b2b_zakaznici ADD COLUMN predajny_kanal VARCHAR(100) DEFAULT NULL", fetch="none")
+        except Exception:
+            pass
 
     # 1. Prepojenie s reťazcom: Nastavíme predajny_kanal pre centrálu aj všetky jej pobočky
     if chain_id:
@@ -517,7 +529,7 @@ def setup_new_sales_channel(data):
             import traceback
             traceback.print_exc()
 
-    # 2. Vytvorenie záznamov pre manuálny cenník a historické dáta
+    # 2. Vytvorenie záznamov pre manuálny cenník
     products_q = """
         SELECT ean, nazov_vyrobku
         FROM produkty
@@ -567,10 +579,8 @@ def setup_new_sales_channel(data):
             conn.close()
 
     return {
-        "message": f"Kanál '{channel_name}' bol úspešne vytvorený a pobočky boli prepojené."
+        "message": f"Kanál '{channel_name}' bol úspešne vytvorený a pobočky prepojené."
     }
-
-
 def save_sales_channel_data(data):
     year = int(data.get("year"))
     month = int(data.get("month"))
