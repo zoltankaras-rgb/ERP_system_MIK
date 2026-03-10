@@ -2253,7 +2253,229 @@ async function loadExpeditionBreakdown() {
         container.innerHTML = `<div class="alert alert-danger mb-0">Kritická chyba pripojenia na server pri sťahovaní rozpisu.</div>`;
     }
 }
+// ================= MANUÁLNE OBJEDNÁVKY (NEREGISTROVANÍ) =================
+  
+  function initManualOrdersUI() {
+      const custSearch = $('#manual-customer-search');
+      const custResults = $('#manual-customer-results');
+      const prodSearch = $('#man-product-search');
+      const prodResults = $('#man-product-results');
+      const submitBtn = $('#man-order-submit');
+      const saveCustBtn = $('#man-cust-save');
+      
+      if(!custSearch || !prodSearch) return;
 
+      // Dátum dodania default
+      $('#man-order-date').value = todayISO();
+
+      // Vyhľadávanie zákazníkov
+      let custTimer;
+      custSearch.addEventListener('input', () => {
+          clearTimeout(custTimer);
+          const q = custSearch.value.trim();
+          if(q.length < 2) { custResults.style.display = 'none'; return; }
+          
+          custTimer = setTimeout(async () => {
+              custResults.style.display = 'block';
+              custResults.innerHTML = '<div style="padding:10px;color:#666;">Hľadám...</div>';
+              try {
+                  const data = await apiRequest(`/api/leader/manual_customers/search?q=${encodeURIComponent(q)}`);
+                  if(!data.length) { custResults.innerHTML = '<div style="padding:10px;color:#999;">Zákazník nenájdený.</div>'; return; }
+                  
+                  custResults.innerHTML = data.map(c => `
+                      <div class="product-search-item" data-json='${escapeHtml(JSON.stringify(c))}'>
+                          <div>
+                              <strong>${escapeHtml(c.nazov_firmy)}</strong><br>
+                              <small style="color:#64748b;">${escapeHtml(c.adresa || '')}</small>
+                          </div>
+                          <div><span style="background:#e2e8f0; padding:2px 6px; border-radius:4px; font-size:0.8rem;">${escapeHtml(c.interne_cislo)}</span></div>
+                      </div>
+                  `).join('');
+                  
+                  custResults.querySelectorAll('.product-search-item').forEach(el => {
+                      el.onclick = () => {
+                          const c = JSON.parse(el.getAttribute('data-json'));
+                          $('#man-cust-id').value = c.interne_cislo;
+                          $('#man-cust-name').value = c.nazov_firmy;
+                          $('#man-cust-addr').value = c.adresa || '';
+                          $('#man-cust-contact').value = c.kontakt || '';
+                          custSearch.value = '';
+                          custResults.style.display = 'none';
+                      };
+                  });
+              } catch(e) { custResults.innerHTML = '<div style="padding:10px;color:red;">Chyba API.</div>'; }
+          }, 300);
+      });
+
+      // Uloženie zákazníka do manuálneho adresára
+      saveCustBtn.onclick = async () => {
+          const payload = {
+              interne_cislo: $('#man-cust-id').value.trim(),
+              nazov_firmy: $('#man-cust-name').value.trim(),
+              adresa: $('#man-cust-addr').value.trim(),
+              kontakt: $('#man-cust-contact').value.trim()
+          };
+          if(!payload.interne_cislo || !payload.nazov_firmy) return showStatus("Interné číslo a názov sú povinné.", true);
+          try {
+              await apiRequest('/api/leader/manual_customers/save', {method: 'POST', body: payload});
+              showStatus("Zákazník uložený do adresára.", false);
+          } catch(e) { showStatus("Chyba uloženia: " + e.message, true); }
+      };
+
+      // Vyhľadávanie produktov bez fixnej marže
+      let prodTimer;
+      prodSearch.addEventListener('input', () => {
+          clearTimeout(prodTimer);
+          const q = prodSearch.value.trim();
+          if(q.length < 2) { prodResults.style.display = 'none'; return; }
+          
+          prodTimer = setTimeout(async () => {
+              prodResults.style.display = 'block';
+              prodResults.innerHTML = '<div style="padding:10px;color:#666;">Hľadám produkt...</div>';
+              try {
+                  const data = await apiRequest(`/api/leader/products_standard/search?q=${encodeURIComponent(q)}`);
+                  if(!data.length) { prodResults.innerHTML = '<div style="padding:10px;color:#999;">Produkt nenájdený.</div>'; return; }
+                  
+                  prodResults.innerHTML = data.map(p => `
+                      <div class="product-search-item" data-json='${escapeHtml(JSON.stringify(p))}'>
+                          <div>
+                              <strong>${escapeHtml(p.name)}</strong><br>
+                              <span class="meta">EAN: ${escapeHtml(p.ean)} | DPH: ${p.dph}%</span>
+                          </div>
+                          <div><span style="color:#2563eb; font-weight:bold;">${escapeHtml(p.mj)}</span></div>
+                      </div>
+                  `).join('');
+                  
+                  prodResults.querySelectorAll('.product-search-item').forEach(el => {
+                      el.onclick = () => {
+                          const p = JSON.parse(el.getAttribute('data-json'));
+                          addManualOrderRow(p);
+                          prodSearch.value = '';
+                          prodResults.style.display = 'none';
+                      };
+                  });
+              } catch(e) { prodResults.innerHTML = '<div style="padding:10px;color:red;">Chyba API.</div>'; }
+          }, 300);
+      });
+
+      // Skrytie autocomplete boxov pri kliknutí mimo
+      document.addEventListener('click', (e) => {
+          if (!custSearch.contains(e.target) && !custResults.contains(e.target)) custResults.style.display = 'none';
+          if (!prodSearch.contains(e.target) && !prodResults.contains(e.target)) prodResults.style.display = 'none';
+      });
+
+      // Odoslanie celej objednávky
+      submitBtn.onclick = async () => {
+          const payload = {
+              customer: {
+                  interne_cislo: $('#man-cust-id').value.trim(),
+                  nazov_firmy: $('#man-cust-name').value.trim(),
+                  adresa: $('#man-cust-addr').value.trim(),
+                  kontakt: $('#man-cust-contact').value.trim()
+              },
+              delivery_date: $('#man-order-date').value,
+              note: $('#man-order-note').value.trim(),
+              items: []
+          };
+
+          if(!payload.customer.interne_cislo || !payload.customer.nazov_firmy) {
+              return showStatus("Vyplňte údaje zákazníka (Číslo a Názov).", true);
+          }
+
+          const trs = $$('#man-order-items tbody tr:not(#man-empty-row)');
+          trs.forEach(tr => {
+              const qty = toNum(tr.querySelector('.mo-qty').value);
+              const price = toNum(tr.querySelector('.mo-price').value);
+              if(qty > 0) {
+                  payload.items.push({
+                      ean: tr.dataset.ean,
+                      name: tr.dataset.name,
+                      unit: tr.querySelector('.mo-unit').value,
+                      dph: tr.dataset.dph,
+                      quantity: qty,
+                      price: price
+                  });
+              }
+          });
+
+          if(!payload.items.length) return showStatus("Objednávka musí obsahovať položky s množstvom > 0.", true);
+
+          submitBtn.disabled = true;
+          submitBtn.textContent = "Spracúvam...";
+
+          try {
+              const res = await apiRequest('/api/leader/manual_order/submit', {method: 'POST', body: payload});
+              showStatus(res.message, false);
+              
+              // Otvorenie PDF
+              const pdfUrl = `/api/kancelaria/b2b/print_order_pdf/${res.order_id}`;
+              window.open(pdfUrl, '_blank');
+              
+              // Reset formulára
+              $('#man-order-items tbody').innerHTML = '<tr id="man-empty-row"><td colspan="6" style="text-align:center;" class="muted">Zatiaľ neboli pridané žiadne položky.</td></tr>';
+              $('#man-cust-id').value = '';
+              $('#man-cust-name').value = '';
+              $('#man-cust-addr').value = '';
+              $('#man-cust-contact').value = '';
+              $('#man-order-note').value = '';
+              
+              // Osvieženie hlavného zoznamu objednávok ak je viditelný
+              if(typeof loadB2B === 'function') loadB2B();
+
+          } catch(e) {
+              showStatus("Chyba odoslania: " + e.message, true);
+          } finally {
+              submitBtn.disabled = false;
+              submitBtn.innerHTML = '<i class="fas fa-check-circle"></i> Vytvoriť a odoslať objednávku';
+          }
+      };
+  }
+
+  function addManualOrderRow(p) {
+      const tbody = $('#man-order-items tbody');
+      const empty = $('#man-empty-row');
+      if(empty) empty.remove();
+
+      const tr = document.createElement('tr');
+      tr.dataset.ean = p.ean;
+      tr.dataset.name = p.name;
+      tr.dataset.dph = p.dph;
+
+      tr.innerHTML = `
+          <td>${escapeHtml(p.ean)}</td>
+          <td><strong>${escapeHtml(p.name)}</strong><br><small style="color:#666">DPH: ${p.dph}%</small></td>
+          <td><input type="number" class="form-control mo-qty" step="0.01" value="0.00" style="padding:6px;"></td>
+          <td>
+            <select class="form-control mo-unit" style="padding:6px;">
+                <option value="kg" ${p.mj==='kg'?'selected':''}>kg</option>
+                <option value="ks" ${p.mj==='ks'?'selected':''}>ks</option>
+            </select>
+          </td>
+          <td><input type="number" class="form-control mo-price" step="0.01" value="0.00" style="padding:6px;"></td>
+          <td style="text-align:right;"><button class="btn btn-sm btn-danger mo-del">✖</button></td>
+      `;
+
+      tbody.insertBefore(tr, tbody.firstChild);
+      
+      tr.querySelector('.mo-del').onclick = () => {
+          tr.remove();
+          if(!tbody.children.length) tbody.innerHTML = '<tr id="man-empty-row"><td colspan="6" style="text-align:center;" class="muted">Zatiaľ neboli pridané žiadne položky.</td></tr>';
+      };
+      
+      tr.querySelector('.mo-qty').select();
+  }
+
+  // Pridať inicializáciu do existujúcej boot() funkcie
+  const origBoot = root.boot;
+  if(origBoot) {
+      // Ak bola funkcia už niekde definovaná
+  }
+  
+  // Zabezpečenie spustenia
+  setTimeout(() => {
+      initManualOrdersUI();
+  }, 500);
+  
 function printExpeditionBreakdown() {
     if (!currentBreakdownData.grouped || Object.keys(currentBreakdownData.grouped).length === 0) return;
 

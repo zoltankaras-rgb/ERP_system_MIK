@@ -991,3 +991,204 @@ def leader_delete_route_template():
 @login_required(role=('veduci','admin'))
 def leader_assign_vehicle():
     return jsonify(b2b_handler.assign_vehicle_to_route_and_fleet(request.get_json(silent=True) or {}))
+
+# =============================================================================
+# MANUÁLNE OBJEDNÁVKY PRE NEREGISTROVANÝCH ZÁKAZNÍKOV
+# =============================================================================
+
+def _ensure_manual_customers_table():
+    db_connector.execute_query("""
+        CREATE TABLE IF NOT EXISTS b2b_manual_zakaznici (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            interne_cislo VARCHAR(64) UNIQUE,
+            nazov_firmy VARCHAR(255) NOT NULL,
+            adresa VARCHAR(255),
+            kontakt VARCHAR(255),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_slovak_ci
+    """, fetch='none')
+
+@leader_bp.get('/manual_customers/search')
+@login_required(role=('veduci', 'admin'))
+def search_manual_customers():
+    _ensure_manual_customers_table()
+    q = request.args.get('q', '').strip()
+    if not q:
+        return jsonify([])
+    
+    sql = """
+        SELECT id, interne_cislo, nazov_firmy, adresa, kontakt 
+        FROM b2b_manual_zakaznici 
+        WHERE nazov_firmy LIKE %s OR interne_cislo LIKE %s 
+        LIMIT 20
+    """
+    rows = db_connector.execute_query(sql, (f"%{q}%", f"%{q}%"), fetch='all') or []
+    return jsonify(rows)
+
+@leader_bp.post('/manual_customers/save')
+@login_required(role=('veduci', 'admin'))
+def save_manual_customer():
+    _ensure_manual_customers_table()
+    data = request.get_json() or {}
+    interne_cislo = data.get('interne_cislo', '').strip()
+    nazov_firmy = data.get('nazov_firmy', '').strip()
+    adresa = data.get('adresa', '').strip()
+    kontakt = data.get('kontakt', '').strip()
+
+    if not interne_cislo or not nazov_firmy:
+        return jsonify({'error': 'Interné číslo a názov firmy sú povinné.'}), 400
+
+    try:
+        db_connector.execute_query("""
+            INSERT INTO b2b_manual_zakaznici (interne_cislo, nazov_firmy, adresa, kontakt)
+            VALUES (%s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE nazov_firmy=%s, adresa=%s, kontakt=%s
+        """, (interne_cislo, nazov_firmy, adresa, kontakt, nazov_firmy, adresa, kontakt), fetch='none')
+        return jsonify({'message': 'Zákazník uložený.'})
+    except Exception as e:
+        return jsonify({'error': f'Chyba uloženia: {str(e)}'}), 500
+
+@leader_bp.get('/products_standard/search')
+@login_required(role=('veduci', 'admin'))
+def search_standard_products():
+    q = request.args.get('q', '').strip()
+    if len(q) < 2:
+        return jsonify([])
+
+    sql = """
+        SELECT ean, nazov_vyrobku as name, mj, COALESCE(dph, 20) as dph
+        FROM produkty 
+        WHERE LOWER(nazov_vyrobku) LIKE %s OR ean LIKE %s
+        LIMIT 30
+    """
+    rows = db_connector.execute_query(sql, (f"%{q.lower()}%", f"%{q.lower()}%"), fetch='all') or []
+    return jsonify(rows)
+
+@leader_bp.post('/manual_order/submit')
+@login_required(role=('veduci', 'admin'))
+def submit_manual_order():
+    data = request.get_json() or {}
+    customer = data.get('customer', {})
+    items = data.get('items', [])
+    delivery_date = data.get('delivery_date')
+    note = data.get('note', '')
+
+    if not customer.get('interne_cislo') or not customer.get('nazov_firmy'):
+        return jsonify({'error': 'Chýba zákazník.'}), 400
+    if not items:
+        return jsonify({'error': 'Objednávka neobsahuje položky.'}), 400
+
+    login_id = customer['interne_cislo']
+    order_number = f"B2B-{login_id}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+    
+    total_net = 0.0
+    total_vat = 0.0
+    pdf_items = []
+
+    for it in items:
+        qty = float(it.get('quantity', 0))
+        price = float(it.get('price', 0))
+        dph = float(it.get('dph', 20))
+        
+        line_net = price * qty
+        line_vat = line_net * (dph / 100.0)
+        total_net += line_net
+        total_vat += line_vat
+
+        pdf_items.append({
+            "ean": str(it.get("ean")),
+            "name": it.get("name"),
+            "unit": it.get("unit", "kg"),
+            "quantity": qty,
+            "price": price,
+            "dph": dph,
+            "line_net": line_net,
+            "line_vat": line_vat,
+            "line_gross": line_net + line_vat
+        })
+
+    total_gross = total_net + total_vat
+
+    conn = db_connector.get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO b2b_objednavky
+              (cislo_objednavky, zakaznik_id, nazov_firmy, adresa, pozadovany_datum_dodania, poznamka, celkova_suma_s_dph, stav)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,'Prijatá')
+        """, (order_number, login_id, customer['nazov_firmy'], customer.get('adresa', ''), _iso(delivery_date), note, total_gross))
+        
+        oid = cur.lastrowid
+        
+        lines = []
+        for i in pdf_items:
+            lines.append((
+            oid, i["ean"], i["name"], i["quantity"], i["unit"], i["dph"], i["price"], _iso(delivery_date)
+        ))
+            
+        cur.executemany("""
+            INSERT INTO b2b_objednavky_polozky
+              (objednavka_id, ean_produktu, nazov_vyrobku, mnozstvo, mj, dph, cena_bez_dph, pozadovany_datum_dodania)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+        """, lines)
+        conn.commit()
+    except Exception as e:
+        if conn: conn.rollback()
+        return jsonify({'error': f'Databázová chyba: {str(e)}'}), 500
+    finally:
+        if conn and conn.is_connected():
+            cur.close()
+            conn.close()
+
+    # Generovanie identického CSV a PDF
+    import copy
+    order_payload = {
+        "order_number": order_number,
+        "customerName": customer['nazov_firmy'],
+        "customerAddress": customer.get('adresa', ''),
+        "deliveryDate": delivery_date,
+        "note": note,
+        "items": pdf_items,
+        "totalNet": total_net,
+        "totalVat": total_vat,
+        "totalWithVat": total_gross,
+        "customerCode": login_id,
+        "route_number": "",
+        "branch_number": ""
+    }
+
+    try:
+        import pdf_generator
+        # 1. Štandardné PDF
+        pdf_bytes, _, csv_filename = pdf_generator.create_order_files(order_payload)
+
+        # 2. Mapovanie EAN pre CSV (identické s e-shopom)
+        csv_payload = copy.deepcopy(order_payload)
+        mapping_db = db_connector.execute_query("SELECT interny_ean, objednavkovy_kod FROM b2b_ean_mapovanie", fetch='all') or []
+        ean_map = {str(m['interny_ean']).strip().lstrip('0'): str(m['objednavkovy_kod']).strip() for m in mapping_db if m.get('interny_ean')}
+
+        for item in csv_payload.get("items", []):
+            orig_ean = str(item.get("ean", "")).strip().lstrip('0')
+            if orig_ean in ean_map:
+                item["ean"] = ean_map[orig_ean]
+
+        _, csv_bytes, _ = pdf_generator.create_order_files(csv_payload)
+
+        # 3. Zápis CSV na server
+        export_dir = os.getenv("B2B_CSV_EXPORT_DIR", "/var/app/data/b2bobjednavky")
+        os.makedirs(export_dir, exist_ok=True)
+        file_name = csv_filename or f"objednavka_{order_number}.csv"
+        file_path = os.path.join(export_dir, file_name)
+        
+        if csv_bytes:
+            with open(file_path, "wb") as f:
+                f.write(csv_bytes)
+                
+    except Exception as e:
+        print(f"Chyba pri generovaní súborov: {e}")
+
+    return jsonify({
+        'message': 'Objednávka úspešne vytvorená. CSV bolo odoslané.',
+        'order_id': oid,
+        'order_number': order_number
+    })
