@@ -2246,7 +2246,7 @@ def get_logistics_routes_data(target_date: str):
             s_list.sort(key=lambda x: x["kategoria"])
 
             final_routes.append({ "trasa_id": tid, "nazov": data["nazov"], "zastavky": z_list, "sumar": s_list })
-            
+
         final_routes.sort(key=lambda x: x["nazov"])
         vehicles = db_connector.execute_query("SELECT id, license_plate, name FROM fleet_vehicles WHERE is_active=1 ORDER BY name", fetch='all') or []
         return {"trasy": final_routes, "vehicles": vehicles, "all_routes": all_routes}
@@ -2255,15 +2255,35 @@ def get_logistics_routes_data(target_date: str):
 
 def bulk_assign_route(data: dict):
     customer_ids = data.get('customer_ids', [])
-    trasa_id = data.get('trasa_id')
+    trasa_id = str(data.get('trasa_id', '')).strip()
+    
     if not customer_ids: return {"error": "Neboli vybraní žiadni zákazníci."}
-    trasa_val = None if str(trasa_id).strip() in ["", "unassigned", "null", "None"] else int(trasa_id)
-        
+    
     import db_connector
     conn = db_connector.get_connection()
     try:
         cur = conn.cursor()
         _ensure_logistics_name_routes()
+
+        trasa_val = None
+        if trasa_id.lower() in ["", "unassigned", "null", "none"]:
+            trasa_val = None
+        elif trasa_id.isdigit():
+            # Použili sme rolovacie menu (prišlo číselné ID)
+            trasa_val = int(trasa_id)
+        else:
+            # Použili sme textové pole (zadali sme nový názov trasy)
+            # 1. Pozrieme, či taká trasa už náhodou neexistuje
+            existujuca = db_connector.execute_query(
+                "SELECT id FROM logistika_trasy WHERE LOWER(nazov) = LOWER(%s) LIMIT 1", 
+                (trasa_id,), fetch='one'
+            )
+            if existujuca:
+                trasa_val = int(existujuca['id'])
+            else:
+                # 2. Ak neexistuje, vytvoríme ju za behu
+                cur.execute("INSERT INTO logistika_trasy (nazov, is_active) VALUES (%s, 1)", (trasa_id,))
+                trasa_val = cur.lastrowid
 
         reg_ids = [int(cid[4:]) for cid in customer_ids if str(cid).startswith('REG_')]
         man_ids = [int(cid[4:]) for cid in customer_ids if str(cid).startswith('MAN_')]

@@ -1536,13 +1536,14 @@ window.showManualRouteEditor = async function(id) {
                           
                           <div style="flex:1; min-width:400px;">
                               <div style="background:#e0f2fe; padding:10px; margin-bottom:15px; border-radius:6px; display:flex; gap:10px; align-items:center; flex-wrap:wrap; border:1px solid #bae6fd;">
-                                  <span style="font-weight:bold; color:#0369a1;"><i class="fas fa-random"></i> Presunúť označených do trasy:</span>
-                                  <select id="bulk-route-sel-${t.trasa_id}" class="form-control form-control-sm" style="width:auto; flex:1; max-width:250px;">
+                                  <span style="font-weight:bold; color:#0369a1;"><i class="fas fa-random"></i> Presunúť do:</span>
+                                  <select id="bulk-route-sel-${t.trasa_id}" class="form-control form-control-sm" style="width:auto; flex:1; min-width:150px; max-width:200px;">
                                       <option value="">-- Vyber trasu --</option>
                                       ${routeOptions}
                                       <option value="unassigned">Zrušiť trasu (Nezaradené)</option>
                                   </select>
-                                  <button class="btn btn-primary btn-sm" onclick="window.bulkAssignRoute('${t.trasa_id}')"><i class="fas fa-check"></i> Vykonať presun</button>
+                                  <input type="text" id="bulk-route-new-${t.trasa_id}" class="form-control form-control-sm" placeholder="...alebo napíš novú trasu" style="width:auto; flex:1; min-width:180px; max-width:250px;">
+                                  <button class="btn btn-primary btn-sm" onclick="window.bulkAssignRoute('${t.trasa_id}')"><i class="fas fa-check"></i> Vykonať</button>
                               </div>
 
                               <table style="width:100%; border-collapse:collapse; font-size:0.85rem;">
@@ -2090,8 +2091,13 @@ window.showManualRouteEditor = async function(id) {
       const cbs = document.querySelectorAll('.route-cb-' + trasaId + ':checked');
       if(cbs.length === 0) return showStatus('Zaškrtnite aspoň jedného zákazníka na presun.', true);
       
-      const targetRoute = document.getElementById('bulk-route-sel-' + trasaId).value;
-      if(!targetRoute) return showStatus('Zvoľte cieľovú trasu z rolovacieho menu.', true);
+      const selectVal = document.getElementById('bulk-route-sel-' + trasaId).value;
+      const newVal = document.getElementById('bulk-route-new-' + trasaId).value.trim();
+      
+      // Ak je zadaný text v poli "Nová trasa", použije sa ten. Inak sa použije ID z rolovacieho menu.
+      const targetRoute = newVal ? newVal : selectVal;
+      
+      if(!targetRoute) return showStatus('Zvoľte cieľovú trasu z menu alebo napíšte novú.', true);
       
       const customerIds = Array.from(cbs).map(cb => cb.value);
       
@@ -2107,7 +2113,6 @@ window.showManualRouteEditor = async function(id) {
           });
           showStatus(res.message || 'Zákazníci boli presunutí.', false);
           
-          // Ihneď aktualizuje stránku a ukáže zmeny!
           document.getElementById('logistics-load-btn').click(); 
       } catch(e) {
           showStatus('Chyba pri presune: ' + e.message, true);
