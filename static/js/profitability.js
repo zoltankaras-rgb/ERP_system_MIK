@@ -472,7 +472,7 @@ function renderSalesChannelsView(data){
                   <div><span style="color:#64748b;">Tržba:</span> <strong style="color:#1d4ed8; font-size:1.1rem;">${safeToFixed(trzba)} €</strong></div>
                   <div><span style="color:#64748b;">Zisk:</span> <strong style="color:${ziskColor}; font-size:1.1rem;">${zisk > 0 ? '+' : ''}${safeToFixed(zisk)} €</strong></div>
                   <div><span style="color:#64748b;">Marža:</span> <strong style="color:${marzaColor}; font-size:1.1rem;">${safeToFixed(marza, 1)} %</strong></div>
-                  ${channel !== 'Nezaradené' ? `<button class="btn btn-danger btn-sm" onclick="window.deleteSalesChannel('${escapeHtml(channel)}')"><i class="fas fa-trash"></i> Zmazať kanál</button>` : ''}
+                  ${channel !== 'Nezaradené' ? `<button class="btn btn-danger btn-sm" data-channel="${escapeHtml(channel)}" onclick="window.deleteSalesChannel(this.dataset.channel)"><i class="fas fa-trash"></i> Zmazať kanál</button>` : ''}
               </div>
           </div>
 

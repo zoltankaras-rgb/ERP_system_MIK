@@ -397,23 +397,24 @@ def setup_new_sales_channel(data):
 def setup_new_sales_channel(data):
     channel_name = str(data.get("channel_name") or "").strip()
     
-    # === 1. MAZANIE KANÁLU (Opravený commit) ===
+    # === 1. MAZANIE KANÁLU (Garantovaný Commit cez wrapper) ===
     if data.get("delete_channel"):
-        conn_del = None
         try:
-            conn_del = db_connector.get_connection()
-            cur_del = conn_del.cursor()
-            cur_del.execute("DELETE FROM profit_sales_monthly WHERE sales_channel = %s", (channel_name,))
-            cur_del.execute("UPDATE b2b_zakaznici SET predajny_kanal = NULL WHERE predajny_kanal = %s", (channel_name,))
-            conn_del.commit() # TOTO chýbalo, ukladá zmazanie napevno
-            return {"message": f"Kanál '{channel_name}' bol trvalo odstránený."}
+            # Zmazanie štatistík pre daný kanál
+            db_connector.execute_query(
+                "DELETE FROM profit_sales_monthly WHERE TRIM(sales_channel) = %s", 
+                (channel_name,), fetch="none"
+            )
+            # Odpojenie zákazníkov od tohto kanálu (vrátia sa do Nezaradené)
+            db_connector.execute_query(
+                "UPDATE b2b_zakaznici SET predajny_kanal = NULL WHERE TRIM(predajny_kanal) = %s", 
+                (channel_name,), fetch="none"
+            )
+            return {"message": f"Kanál '{channel_name}' bol natrvalo odstránený."}
         except Exception as e:
-            if conn_del: conn_del.rollback()
-            return {"error": str(e)}
-        finally:
-            if conn_del and conn_del.is_connected():
-                cur_del.close()
-                conn_del.close()
+            import traceback
+            traceback.print_exc()
+            return {"error": f"Chyba DB pri mazaní: {str(e)}"}
 
     # === 2. VYTVORENIE KANÁLU ===
     try:
@@ -432,40 +433,28 @@ def setup_new_sales_channel(data):
             db_connector.execute_query("ALTER TABLE b2b_zakaznici ADD COLUMN predajny_kanal VARCHAR(100) DEFAULT NULL", fetch="none")
         except: pass
 
-    # === 3. PREPOJENIE MATKY AJ DCÉR (Opravené) ===
+    # === 3. PREPOJENIE MATKY AJ DCÉR ===
     if chain_id and str(chain_id).strip():
-        conn_upd = None
         try:
-            conn_upd = db_connector.get_connection()
-            cur_upd = conn_upd.cursor()
-            # Updatne matku (id) aj jej pobočky (parent_id)
-            cur_upd.execute(
+            # Prepojí centrálu (id = chain_id) a VŠETKY jej pobočky (parent_id = chain_id)
+            db_connector.execute_query(
                 "UPDATE b2b_zakaznici SET predajny_kanal = %s WHERE id = %s OR parent_id = %s",
-                (channel_name, int(chain_id), int(chain_id))
+                (channel_name, int(chain_id), int(chain_id)), 
+                fetch="none"
             )
-            conn_upd.commit()
         except Exception as e:
-            if conn_upd: conn_upd.rollback()
             print("UPDATE DB ERROR:", e)
-        finally:
-            if conn_upd and conn_upd.is_connected():
-                cur_upd.close()
-                conn_upd.close()
     else:
-        # Fallback pre istotu, ak sa nevyberie reťazec, ale zadá sa len názov
+        # Fallback ak sa zakladá kanál bez priradenia z číselníka
         try:
-            conn_upd = db_connector.get_connection()
-            cur_upd = conn_upd.cursor()
-            cur_upd.execute(
-                "UPDATE b2b_zakaznici SET predajny_kanal = %s WHERE nazov_firmy LIKE %s",
-                (channel_name, f"%{channel_name}%")
+            db_connector.execute_query(
+                "UPDATE b2b_zakaznici SET predajny_kanal = %s WHERE TRIM(nazov_firmy) = %s",
+                (channel_name, channel_name), 
+                fetch="none"
             )
-            conn_upd.commit()
-            cur_upd.close()
-            conn_upd.close()
         except: pass
 
-    # === 4. Vygenerovanie riadkov produktov ===
+    # === 4. Vygenerovanie produktov v tabuľke (aby sa dala upravovať cena) ===
     products_q = "SELECT ean, nazov_vyrobku FROM produkty WHERE typ_polozky LIKE 'VÝROBOK%%' OR typ_polozky LIKE 'TOVAR%%'"
     all_products = db_connector.execute_query(products_q) or []
     
