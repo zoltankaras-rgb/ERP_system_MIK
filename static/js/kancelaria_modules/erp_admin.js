@@ -108,7 +108,8 @@
           <button id="erp-btn-minstock" class="btn-secondary"><i class="fas fa-layer-group"></i> Min. Zásoby</button>
           <button id="erp-btn-newrecipe" class="btn-primary"><i class="fas fa-plus"></i> Nový Recept</button>
           <button id="erp-btn-editrecipe" class="btn-secondary"><i class="fas fa-edit"></i> Upraviť Recept</button>
-          <button id="erp-btn-slicing" class="btn-secondary" style="grid-column: span 2;"><i class="fas fa-cut"></i> Krájané Produkty</button>
+          <button id="erp-btn-slicing" class="btn-secondary"><i class="fas fa-cut"></i> Krájané Produkty</button>
+          <button id="erp-btn-eanmap" class="btn-secondary"><i class="fas fa-barcode"></i> Mapovanie EAN</button>
         </div>
       </div>
       <div id="erp-admin-content"></div>
@@ -118,10 +119,10 @@
     $('#erp-btn-slicing').onclick   = ()=> window.erpMount(viewSlicingManagement);
     $('#erp-btn-newrecipe').onclick = ()=> window.erpMount(viewCreateRecipeInline);
     $('#erp-btn-editrecipe').onclick= ()=> window.erpMount(viewEditRecipeListInline);
+    $('#erp-btn-eanmap').onclick    = ()=> window.erpMount(viewEanMappingManagement);
+    
     $('#erp-btn-catalog').click();
   }
-
-  
   // =================================================================
   // === 1. SPRÁVA KATALÓGU (RECEPTY + SKLADOVÁ KARTA) ===
   // =================================================================
@@ -1593,6 +1594,168 @@ async function openStockCard(ean, name) {
 
     return { html, onReady };
   }
+
+async function viewEanMappingManagement(){
+    let pairs = [];
+    try {
+        const resp = await apiRequest('/api/kancelaria/getEanMapping');
+        pairs = Array.isArray(resp) ? resp : [];
+    } catch(e) { console.warn("API error:", e); }
+
+    const html = `
+      <div class="stat-card">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+            <h3 style="margin:0;">Mapovanie EAN (Pre B2B Váhový terminál)</h3>
+            <div style="display:flex; gap:10px;">
+                <button id="btn-import-ean-csv" class="btn-success btn-sm"><i class="fas fa-file-import"></i> Import CSV (COOP Cenník)</button>
+                <input id="file-import-ean-csv" type="file" accept=".csv,text/csv" style="display:none;" />
+                <button id="btn-add-ean-map" class="btn-primary btn-sm"><i class="fas fa-plus"></i> Nové mapovanie</button>
+            </div>
+        </div>
+        <p class="text-muted" style="margin-top:5px;">
+            Prekóduje interný EAN na zákaznícky objednávkový kód v exportovanom CSV súbore do výroby. <b>Dĺžka kódov a pôvodný rozostup v CSV súbore zostane zachovaný. PDF zostáva nezmenené.</b>
+        </p>
+
+        <div class="table-container" style="max-height: 60vh;">
+            <table class="tbl" id="ean-map-table">
+                <thead>
+                    <tr>
+                        <th>Názov produktu</th>
+                        <th>Interný EAN (MIK)</th>
+                        <th>Objednávkový EAN (CSV Výstup)</th>
+                        <th style="width:100px;">Akcia</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${pairs.length === 0 ? '<tr><td colspan="4" style="text-align:center; padding:20px;" class="text-muted">Žiadne definované mapovania.</td></tr>' : ''}
+                </tbody>
+            </table>
+        </div>
+      </div>
+    `;
+
+    const onReady = () => {
+        const tbody = document.querySelector('#ean-map-table tbody');
+        if (pairs.length > 0) {
+            tbody.innerHTML = pairs.map(item => `
+                <tr>
+                    <td>${escapeHtml(item.nazov_vyrobku || 'Neznámy produkt (mimo DB)')}</td>
+                    <td style="font-family:monospace; color:#64748b;">${escapeHtml(item.interny_ean)}</td>
+                    <td style="font-family:monospace; font-weight:bold; color:#1e3a8a;">${escapeHtml(item.objednavkovy_kod)}</td>
+                    <td>
+                        <button class="btn-danger btn-sm btn-del-ean-map" data-id="${item.id}">Zmazať</button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        // Mazanie mapovania
+        tbody.querySelectorAll('.btn-del-ean-map').forEach(btn => {
+            btn.onclick = async () => {
+                if(!confirm('Naozaj zmazať toto mapovanie?')) return;
+                try {
+                    await apiRequest('/api/kancelaria/deleteEanMapping', { method: 'POST', body: { id: btn.dataset.id } });
+                    window.erpMount(viewEanMappingManagement);
+                } catch(e) { alert('Chyba: ' + e.message); }
+            };
+        });
+
+        // Spracovanie Importu CSV v prehliadači
+        const btnImport = document.getElementById('btn-import-ean-csv');
+        const fileImport = document.getElementById('file-import-ean-csv');
+        if(btnImport && fileImport) {
+            btnImport.onclick = () => fileImport.click();
+            fileImport.onchange = async (e) => {
+                const file = e.target.files[0]; 
+                if (!file) return;
+                
+                const reader = new FileReader();
+                reader.onload = async function(evt) {
+                    const text = evt.target.result;
+                    const delim = text.includes(';') ? ';' : ',';
+                    const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
+                    
+                    if (lines.length < 2) { alert("Súbor je prázdny alebo chybný."); return; }
+                    
+                    const headers = lines[0].toLowerCase().split(delim).map(h => h.trim().replace(/"/g, ''));
+                    // Detekcia stĺpcov podľa názvu z promptu
+                    let idxExt = headers.findIndex(h => h.includes('nové') || h.includes('nove') || h.includes('plu'));
+                    let idxInt = headers.findIndex(h => h.includes('mik') || h.includes('kody'));
+                    
+                    // Fallback pre prípad chyby v hlavičke
+                    if (idxExt < 0 || idxInt < 0) { idxExt = 0; idxInt = 1; }
+                    
+                    const items = [];
+                    for (let i = 1; i < lines.length; i++) {
+                        const cols = lines[i].split(delim).map(c => c.trim().replace(/"/g, ''));
+                        if (cols.length <= Math.max(idxExt, idxInt)) continue;
+                        
+                        let extEan = cols[idxExt];
+                        let intEan = cols[idxInt];
+                        
+                        if (extEan && intEan && !extEan.toUpperCase().includes('EAN') && !intEan.toUpperCase().includes('KODY')) {
+                            // Konverzia formátu Excel čísel (232348.0 -> 232348)
+                            if(extEan.endsWith('.0')) extEan = extEan.slice(0, -2);
+                            if(intEan.endsWith('.0')) intEan = intEan.slice(0, -2);
+                            items.push({ interny_ean: intEan, objednavkovy_kod: extEan });
+                        }
+                    }
+                    
+                    if (items.length === 0) { alert("Nenašli sa žiadne platné riadky na import."); return; }
+                    
+                    showStatus(`Spracovávam ${items.length} riadkov...`);
+                    try {
+                        const res = await apiRequest('/api/kancelaria/importEanMappingBulk', { method: 'POST', body: { items: items } });
+                        if(res.error) throw new Error(res.error);
+                        alert(res.message);
+                        window.erpMount(viewEanMappingManagement);
+                    } catch (err) { alert("Chyba: " + err.message); }
+                };
+                reader.readAsText(file, 'windows-1250');
+                fileImport.value = '';
+            };
+        }
+
+        // Manuálne pridanie jedného kódu
+        const btnAdd = document.getElementById('btn-add-ean-map');
+        if (btnAdd) {
+            btnAdd.onclick = async () => {
+                showStatus('Načítavam produkty...', false);
+                let products = [];
+                try {
+                    const catData = await apiRequest('/api/kancelaria/getCatalogManagementData');
+                    products = catData.products || [];
+                } catch(e) { alert('Chyba: ' + e.message); return; }
+
+                products.sort((a,b) => (a.nazov_vyrobku||'').localeCompare(b.nazov_vyrobku||''));
+                const optionsHtml = products.map(p => `<option value="${p.ean}">${escapeHtml(p.nazov_vyrobku)} (${p.ean})</option>`).join('');
+
+                openModalCompat('Nové EAN mapovanie', {
+                    html: `
+                    <div class="form-group"><label>Zdrojový produkt (Interný EAN)</label>
+                        <select id="map-internal-ean" style="width:100%; padding:8px;" class="select-search">
+                            <option value="">-- Vyberte produkt --</option>${optionsHtml}
+                        </select></div>
+                    <div class="form-group" style="margin-top:15px;"><label>Objednávkový EAN zákazníka</label>
+                        <input id="map-external-ean" type="text" style="width:100%; padding:8px;"></div>
+                    <div style="margin-top:20px; text-align:right;"><button id="map-save-btn" class="btn-primary">Uložiť</button></div>`,
+                    onReady: () => {
+                        document.getElementById('map-save-btn').onclick = async () => {
+                            const interny_ean = document.getElementById('map-internal-ean').value;
+                            const objednavkovy_kod = document.getElementById('map-external-ean').value.trim();
+                            if (!interny_ean || !objednavkovy_kod) return;
+                            await apiRequest('/api/kancelaria/saveEanMapping', { method: 'POST', body: { interny_ean, objednavkovy_kod }});
+                            hideModalCompat();
+                            window.erpMount(viewEanMappingManagement);
+                        };
+                    }
+                });
+            };
+        }
+    };
+    return { html, onReady };
+  }
+
   // ------------------ Export init do globálu -----------------------
   window.initializeErpAdminModule = initializeErpAdminModule;
 

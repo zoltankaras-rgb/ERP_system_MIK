@@ -4368,6 +4368,67 @@ def kanc_update_b2c_order_status():
     payload = request.get_json(silent=True) or {}
     return handle_request(office_handler.update_b2c_order_status, payload)
 
+@app.route('/api/kancelaria/getEanMapping', methods=['GET'])
+def get_ean_mapping():
+    sql = """
+        SELECT m.id, m.interny_ean, m.objednavkovy_kod, p.nazov_vyrobku 
+        FROM b2b_ean_mapovanie m
+        LEFT JOIN produkty p ON m.interny_ean = p.ean
+        ORDER BY p.nazov_vyrobku
+    """
+    rows = db_connector.execute_query(sql, fetch='all') or []
+    return jsonify(rows)
+
+@app.route('/api/kancelaria/saveEanMapping', methods=['POST'])
+def save_ean_mapping():
+    data = request.json
+    int_ean = data.get('interny_ean')
+    ext_ean = data.get('objednavkovy_kod')
+    if not int_ean or not ext_ean:
+        return jsonify({"error": "Oba kódy sú povinné."}), 400
+    db_connector.execute_query(
+        "INSERT INTO b2b_ean_mapovanie (interny_ean, objednavkovy_kod) VALUES (%s, %s) ON DUPLICATE KEY UPDATE objednavkovy_kod=VALUES(objednavkovy_kod)", 
+        (int_ean, ext_ean), fetch='none'
+    )
+    return jsonify({"message": "Uložené."})
+
+@app.route('/api/kancelaria/deleteEanMapping', methods=['POST'])
+def delete_ean_mapping():
+    mapping_id = request.json.get('id')
+    db_connector.execute_query("DELETE FROM b2b_ean_mapovanie WHERE id=%s", (mapping_id,), fetch='none')
+    return jsonify({"message": "Zmazané."})
+
+@app.route('/api/kancelaria/importEanMappingBulk', methods=['POST'])
+def import_ean_mapping_bulk():
+    items = (request.json or {}).get("items", [])
+    if not items:
+        return jsonify({"error": "Žiadne dáta na import."}), 400
+        
+    conn = db_connector.get_connection()
+    cur = conn.cursor()
+    processed, updated = 0, 0
+    try:
+        for item in items:
+            int_ean = item.get("interny_ean")
+            ext_ean = item.get("objednavkovy_kod")
+            if not int_ean or not ext_ean:
+                continue
+            cur.execute(
+                "INSERT INTO b2b_ean_mapovanie (interny_ean, objednavkovy_kod) VALUES (%s, %s) ON DUPLICATE KEY UPDATE objednavkovy_kod=VALUES(objednavkovy_kod)", 
+                (int_ean, ext_ean)
+            )
+            if cur.rowcount == 1: processed += 1
+            elif cur.rowcount == 2: updated += 1
+        conn.commit()
+        return jsonify({"message": f"Import úspešný. Vytvorených: {processed}, Aktualizovaných: {updated}."})
+    except Exception as e:
+        if conn: conn.rollback()
+        return jsonify({"error": str(e)}), 500
+    finally:
+        if conn and conn.is_connected():
+            cur.close()
+            conn.close()
+
 # =================================================================
 # === FLEET (Kancelária) – doplnené všetky 404 z fleet.js =========
 # =================================================================
