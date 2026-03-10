@@ -12,7 +12,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const backToLoginLinks = document.querySelectorAll('.back-to-login-link');
   const logoutLink = document.getElementById('logout-link');
 
-  console.log('✅ b2b_app.js bol úspešne načítaný');
+  console.log('✅ b2b_app.js bol úspešne načítaný a opravený');
 
   let appState = { currentUser: null, products: {}, order: {} };
   let commInited = false;
@@ -249,38 +249,29 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // =================================================================
-// 5. FRONTEND LOGIKA PRE B2B (Parent-Child / Pobočky)
-// =================================================================
+  // FRONTEND LOGIKA PRE B2B (Parent-Child / Pobočky)
+  // =================================================================
 
-// 1. Upravený handler po prihlásení
-function handleLoginSuccess(user) {
+  function handleLoginSuccess(user) {
     appState.currentUser = user;
     sessionStorage.setItem('b2bUser', JSON.stringify(user));
 
-    // Ak je admin, končíme (presmerovanie rieši backend alebo iná logika)
     if (user.role === 'admin') {
         showNotification('Admin prihlásenie úspešné.', 'success');
         return;
     }
 
-    // === KĽÚČOVÁ ZMENA: Kontrola pobočiek ===
-    // Ak má používateľ podúčty (pobočky), musíme mu dať vybrať
     if (user.sub_accounts && user.sub_accounts.length > 0) {
         showBranchSelector(user);
     } else {
-        // Ak nemá pobočky, pokračujeme štandardne (objednáva sám na seba)
         initializeCustomerPortal(user, user.zakaznik_id, user.nazov_firmy, user.adresa);
     }
-}
+  }
 
-// 2. Modálne okno na výber pobočky
-function showBranchSelector(user) {
-    // Skryjeme loader, ak beží
+  function showBranchSelector(user) {
     hideLoader();
-
     const mc = document.getElementById('modal-container');
     
-    // Tlačidlo pre "Hlavný účet" (matka)
     let buttonsHtml = `
         <button class="button secondary" style="width:100%; margin-bottom:10px; text-align:left; padding:15px; border:1px solid #ccc;" 
             onclick="selectBranch('${user.zakaznik_id}', '${user.nazov_firmy.replace(/'/g, "\\'")}', '${(user.adresa || '').replace(/'/g, "\\'")}')">
@@ -289,10 +280,8 @@ function showBranchSelector(user) {
         </button>
     `;
 
-    // Tlačidlá pre každú pobočku (dieťa)
     if (user.sub_accounts) {
         user.sub_accounts.forEach(sub => {
-            // Ošetrenie úvodzoviek v názvoch
             const safeName = sub.nazov_firmy.replace(/'/g, "\\'");
             const safeAddr = (sub.adresa_dorucenia || sub.adresa || '').replace(/'/g, "\\'");
             
@@ -307,7 +296,7 @@ function showBranchSelector(user) {
     }
 
     mc.innerHTML = `
-        <div class="modal-backdrop" style="background:rgba(0,0,0,0.8);"></div>
+        <div class="modal-backdrop" style="background:rgba(0,0,0,0.8);" onclick="closeModal('modal-container')"></div>
         <div class="modal-content" style="max-width:500px; width:95%;">
             <div class="modal-header">
                 <h3>Vyberte prevádzku</h3>
@@ -319,24 +308,20 @@ function showBranchSelector(user) {
         </div>
     `;
     mc.style.display = 'flex';
-}
+  }
 
-// 3. Spracovanie výberu pobočky
-window.selectBranch = function(loginId, name, address) {
-    // Zatvoríme okno
+  window.selectBranch = function(loginId, name, address) {
     const mc = document.getElementById('modal-container');
     mc.style.display = 'none';
     mc.innerHTML = '';
 
-    // Uložíme si aktívnu pobočku do stavu aplikácie
     appState.activeBranch = {
-        loginId: loginId, // String (napr. "000005")
+        loginId: loginId,
         name: name,
         address: address,
-        internalId: null // Doplníme nižšie
+        internalId: null
     };
 
-    // Nájdeme interné DB ID pre API (pretože backend potrebuje ID z tabuľky pre kontrolu, nie len string)
     if (loginId === appState.currentUser.zakaznik_id) {
         appState.activeBranch.internalId = appState.currentUser.id;
     } else {
@@ -344,15 +329,12 @@ window.selectBranch = function(loginId, name, address) {
         appState.activeBranch.internalId = sub ? sub.id : null;
     }
 
-    // Inicializujeme portál s údajmi vybranej pobočky
     initializeCustomerPortal(appState.currentUser, loginId, name, address);
-};
+  };
 
-// 4. Inicializácia portálu (Pôvodná logika z handleLoginSuccess, teraz parametrizovaná)
-function initializeCustomerPortal(user, activeLoginId, activeName, activeAddress) {
+  function initializeCustomerPortal(user, activeLoginId, activeName, activeAddress) {
     showMainView('customer');
 
-    // Zobrazíme meno AKTÍVNEJ pobočky v hlavičke
     const nameEl = document.getElementById('customer-name');
     nameEl.innerHTML = `
         <div style="line-height:1.2;">
@@ -364,14 +346,12 @@ function initializeCustomerPortal(user, activeLoginId, activeName, activeAddress
             : ''}
     `;
 
-    // Oznam
     const bar = document.getElementById('announcement-bar');
     if (user.announcement) {
         bar.textContent = user.announcement;
         bar.classList.remove('hidden');
     } else bar.classList.add('hidden');
 
-    // Reset UI prvkov
     const sel = document.getElementById('pricelist-select');
     const stepProducts = document.getElementById('step-products');
     const productsContainer = document.getElementById('products-container');
@@ -383,7 +363,6 @@ function initializeCustomerPortal(user, activeLoginId, activeName, activeAddress
     appState.order = {};
     appState.products = {};
 
-    // Naplnenie cenníkov (zatiaľ používame cenníky rodiča, keďže sa dedia)
     sel.innerHTML = '<option value="">-- Vyberte cenník --</option>';
     (user.pricelists || []).forEach(p => {
         const o = document.createElement('option');
@@ -392,7 +371,6 @@ function initializeCustomerPortal(user, activeLoginId, activeName, activeAddress
         sel.appendChild(o);
     });
 
-    // Event listener na zmenu cenníka
     sel.onchange = async () => {
         const id = sel.value;
         if (!id) {
@@ -406,11 +384,10 @@ function initializeCustomerPortal(user, activeLoginId, activeName, activeAddress
         const res = await apiCall('/api/b2b/get-products', { pricelist_id: id });
         if (!res) return;
         appState.products = res.productsByCategory || {};
-        renderProducts(); // Táto funkcia ostáva nezmenená v b2b_app.js
+        renderProducts();
         stepProducts.classList.remove('hidden');
     };
 
-    // Tlačidlo Späť
     document.getElementById('btn-back-to-pricelist').onclick = () => {
         sel.value = '';
         stepProducts.classList.add('hidden');
@@ -420,39 +397,36 @@ function initializeCustomerPortal(user, activeLoginId, activeName, activeAddress
         appState.products = {};
     };
 
-    // Tlačidlo Odoslať (pripájame našu novú submit funkciu)
     document.getElementById('btn-submit-order').onclick = submitOrder;
-}
+  }
 
-// Export do window objektu, aby boli funkcie dostupné v HTML (ak treba)
-window.handleLoginSuccess = handleLoginSuccess;
-window.submitOrder = async function() {
+  window.handleLoginSuccess = handleLoginSuccess;
+  
+  window.submitOrder = async function() {
     const d = document.getElementById('delivery-date').value;
     if (!d) return showNotification('Zadajte požadovaný dátum dodania.', 'error');
     
-    const items = Object.values(appState.order);
-    if (!items.length) return showNotification('Nemáte v objednávke žiadne položky.', 'error');
+    // Vyfiltrujeme len položky, ktoré majú zadané množstvo väčšie ako 0
+    const items = Object.values(appState.order).filter(i => i.quantity > 0);
+    if (!items.length) return showNotification('Nemáte v objednávke žiadne položky s vyplneným množstvom.', 'error');
 
-    // === Zistíme ID cieľového zákazníka (pobočky) ===
     const targetId = (appState.activeBranch && appState.activeBranch.internalId) 
         ? appState.activeBranch.internalId 
         : appState.currentUser.id;
 
-    // Zistíme meno pre koho sa objednáva (pre zobrazenie v správe o úspechu)
     const custName = (appState.activeBranch && appState.activeBranch.name)
         ? appState.activeBranch.name
         : appState.currentUser.nazov_firmy;
 
-    // === NAČÍTANIE KÓPIÍ E-MAILOV ===
     const ccEmailsInput = document.getElementById('cc-emails');
     const ccEmails = ccEmailsInput ? ccEmailsInput.value : '';
 
     const out = await apiCall('/api/b2b/submit-order', {
-      userId: appState.currentUser.id,       // Kto je prihlásený (Rodič) - pre overenie
-      targetCustomerId: targetId,            // Pre koho objednávame (Pobočka/Rodič) - pre fakturáciu
-      customerName: custName,                // Meno prevádzky (pre PDF/Email)
+      userId: appState.currentUser.id,
+      targetCustomerId: targetId,
+      customerName: custName,
       customerEmail: appState.currentUser.email,
-      ccEmails: ccEmails,                    // ODOŠLE SA NA BACKEND
+      ccEmails: ccEmails,
       items: items, 
       deliveryDate: d,
       note: document.getElementById('order-note').value
@@ -460,22 +434,19 @@ window.submitOrder = async function() {
 
     if (!out) return;
 
-    // Úspech - vyčistíme košík a formuláre
     appState.order = {};
     document.querySelectorAll('.quantity-input').forEach(i => i.value = '');
     document.getElementById('order-note').value = '';
     document.getElementById('delivery-date').value = '';
-    if (ccEmailsInput) ccEmailsInput.value = ''; // Vymazanie poľa po odoslaní
+    if (ccEmailsInput) ccEmailsInput.value = '';
     updateTotals();
 
-    // Zobrazíme potvrdenie s menom konkrétnej prevádzky
     document.getElementById('products-container').innerHTML =
       `<h3>Ďakujeme!</h3>
        <p style="font-size:1.2rem;text-align:center;">Objednávka pre <strong>${custName}</strong> bola prijatá.</p>
        <p style="text-align:center;">${out.message}</p>
        <p style="text-align:center; font-size:0.9rem; color:#666;">Potvrdenie bolo odoslané na e-mail centrály${ccEmails ? ' a na zadané kópie.' : '.'}</p>`;
 
-    // Reset UI po 3 sekundách
     setTimeout(() => {
       const sel = document.getElementById('pricelist-select');
       const stepProducts = document.getElementById('step-products');
@@ -484,10 +455,10 @@ window.submitOrder = async function() {
       document.getElementById('products-container').innerHTML = '';
       document.getElementById('order-form-details').classList.add('hidden');
     }, 3000);
-};
+  };
 
   // =========================
-  // PRODUKTY + OBJEDNÁVKA
+  // PRODUKTY + OBJEDNÁVKA + POZNÁMKY
   // =========================
   function renderProducts() {
     const container = document.getElementById('products-container');
@@ -535,7 +506,7 @@ window.submitOrder = async function() {
               <div style="display:flex;align-items:center;gap:6px;">
                 <input type="checkbox" id="isPiece_${ean}" class="by-piece-checkbox" style="cursor:pointer;width:18px;height:18px;">
                 <label for="isPiece_${ean}" style="font-size:.9rem;cursor:pointer;">KS</label>
-                <button id="noteBtn_${ean}" class="item-note-button hidden" title="Pridať poznámku" style="border:none;background:none;cursor:pointer;">
+                <button id="noteBtn_${ean}" class="item-note-button hidden" title="Pridať poznámku" style="border:none;background:none;cursor:pointer;font-size:1.1rem;">
                   📝
                 </button>
               </div>` : '<div></div>'}
@@ -563,65 +534,84 @@ window.submitOrder = async function() {
     return null;
   }
 
-function onQty(e) {
-  const input = e.target;
-  const ean = input.dataset.ean;
-  const v = (input.value || '').replace(',', '.');
-  const q = parseFloat(v);
-  
-  if (!isNaN(q) && q > 0) {
-    const p = findByEan(ean);
+  function onQty(e) {
+    const input = e.target;
+    const ean = input.dataset.ean;
+    const v = (input.value || '').replace(',', '.');
+    const q = parseFloat(v);
     
-    // NOVÉ: Zisťovanie jednotky podľa checkboxu "KS"
-    const isPieceChecked = document.getElementById(`isPiece_${ean}`)?.checked;
-    const finalUnit = isPieceChecked ? 'ks' : (p.mj || 'kg');
-
-    appState.order[ean] = {
-      ean,
-      name: p.nazov_vyrobku,
-      price: Number(p.cena || 0),
-      dph: Math.abs(Number(p.dph || 0)),
-      unit: finalUnit, // <--- Uložíme dynamickú jednotku
-      quantity: q,
-      item_note: appState.order[ean]?.item_note || ''
-    };
-  } else {
-    delete appState.order[ean];
-  }
-  updateTotals();
-}
-
-function togglePiece(chk) {
-  const ean = chk.id.replace('isPiece_', '');
-  const btn = document.getElementById(`noteBtn_${ean}`);
-  
-  if (chk.checked) {
-    btn?.classList.remove('hidden');
-    // Ak už je v objednávke, zmeníme jednotku na 'ks'
-    if (appState.order[ean]) {
-      appState.order[ean].unit = 'ks';
-    }
-  } else {
-    btn?.classList.add('hidden');
-    // Ak už je v objednávke, vrátime jednotku z pôvodného produktu
-    if (appState.order[ean]) {
+    if (!isNaN(q) && q > 0) {
       const p = findByEan(ean);
-      appState.order[ean].unit = p.mj || 'kg';
-      appState.order[ean].item_note = '';
+      const isPieceChecked = document.getElementById(`isPiece_${ean}`)?.checked;
+      const finalUnit = isPieceChecked ? 'ks' : (p.mj || 'kg');
+
+      // Ak objekt neexistuje, vytvoríme ho
+      if (!appState.order[ean]) {
+        appState.order[ean] = {
+          ean,
+          name: p.nazov_vyrobku,
+          price: Number(p.cena || 0),
+          dph: Math.abs(Number(p.dph || 0)),
+          item_note: '',
+          poznamka: ''
+        };
+      }
+      
+      // Aktualizujeme iba meniace sa dáta
+      appState.order[ean].unit = finalUnit;
+      appState.order[ean].quantity = q;
+
+    } else {
+      // Ak používateľ vymaže množstvo, nastavíme ho na 0
+      if (appState.order[ean]) {
+        appState.order[ean].quantity = 0;
+        
+        // Ak položka nemá ani poznámku, úplne ju vymažeme z pamäte
+        const note = appState.order[ean].poznamka || appState.order[ean].item_note || '';
+        if (note.trim() === '') {
+          delete appState.order[ean];
+        }
+      }
     }
+    updateTotals();
   }
-  updateTotals();
-}
+
+  function togglePiece(chk) {
+    const ean = chk.id.replace('isPiece_', '');
+    const btn = document.getElementById(`noteBtn_${ean}`);
+    
+    if (chk.checked) {
+      btn?.classList.remove('hidden');
+      if (appState.order[ean]) {
+        appState.order[ean].unit = 'ks';
+      }
+    } else {
+      btn?.classList.add('hidden');
+      if (appState.order[ean]) {
+        const p = findByEan(ean);
+        appState.order[ean].unit = p.mj || 'kg';
+        appState.order[ean].item_note = '';
+        appState.order[ean].poznamka = '';
+        
+        // Zrušenie zafarbenia ikonky po odškrtnutí
+        if(btn) {
+            btn.style.color = 'inherit';
+            btn.style.transform = 'none';
+        }
+      }
+    }
+    updateTotals();
+  }
 
   function openItemNoteModal(ean) {
     const p = findByEan(ean);
-    const cur = appState.order[ean]?.item_note || '';
+    const cur = appState.order[ean]?.poznamka || appState.order[ean]?.item_note || '';
     const mc = document.getElementById('modal-container');
-    mc.innerHTML = `<div class="modal-backdrop" onclick="closeModal()"></div>
+    mc.innerHTML = `<div class="modal-backdrop" onclick="closeModal('modal-container')"></div>
       <div class="modal-content">
         <div class="modal-header">
           <h4>Poznámka k položke: ${p?.nazov_vyrobku || ean}</h4>
-          <button class="close-button" onclick="closeModal()">&times;</button>
+          <button class="close-button" onclick="closeModal('modal-container')">&times;</button>
         </div>
         <div class="form-group">
           <label for="item-note-input">Zadajte požiadavku (napr. 150g balenia):</label>
@@ -634,26 +624,61 @@ function togglePiece(chk) {
 
   window.saveItemNote = function (ean) {
     const note = document.getElementById('item-note-input').value;
-    if (appState.order[ean]) appState.order[ean].item_note = note;
-    else {
+    
+    if (!appState.order[ean]) {
       const p = findByEan(ean);
+      const isPieceChecked = document.getElementById(`isPiece_${ean}`)?.checked;
+      
       appState.order[ean] = {
         ean,
         name: p.nazov_vyrobku,
         price: Number(p.cena || 0),
         dph: Math.abs(Number(p.dph || 0)),
-        unit: p.mj,
-        quantity: 0,
-        item_note: note
+        unit: isPieceChecked ? 'ks' : (p.mj || 'kg'),
+        quantity: 0
       };
     }
-    closeModal();
+    
+    appState.order[ean].item_note = note;
+    appState.order[ean].poznamka = note;
+
+    // Zvýraznenie tlačidla pre lepšie UX
+    const btn = document.getElementById(`noteBtn_${ean}`);
+    if (btn) {
+        if (note.trim() !== '') {
+            btn.style.color = '#b91c1c';
+            btn.style.transform = 'scale(1.2)';
+        } else {
+            btn.style.color = 'inherit';
+            btn.style.transform = 'none';
+        }
+    }
+    
+    closeModal('modal-container');
   };
 
-  window.closeModal = function () {
-    const mc = document.getElementById('modal-container');
-    mc.style.display = 'none';
-    mc.innerHTML = '';
+  // UNIFIKOVANÁ FUNKCIA NA ZATVÁRANIE VŠETKÝCH MODALOV
+  window.closeModal = function(modalId) {
+      if (modalId) {
+          const el = document.getElementById(modalId);
+          if (el) {
+              el.classList.remove('visible');
+              el.style.display = 'none';
+              if (modalId === 'modal-container') el.innerHTML = '';
+          }
+      } else {
+          // Ak nepríde ID, zatvoríme oba
+          const pm = document.getElementById('product-info-modal');
+          if (pm) {
+              pm.classList.remove('visible');
+              pm.style.display = 'none';
+          }
+          const mc = document.getElementById('modal-container');
+          if (mc) {
+              mc.style.display = 'none';
+              mc.innerHTML = '';
+          }
+      }
   };
 
   function updateTotals() {
@@ -681,7 +706,7 @@ function togglePiece(chk) {
   }
 
   // =========================
-  // História objednávok – upravené UI
+  // História objednávok
   // =========================
 
   window.loadB2BOrderHistory = async function () {
@@ -731,7 +756,7 @@ function togglePiece(chk) {
   };
 
   // =========================
-  // KOMUNIKÁCIA – text sa zalamuje, prílohy
+  // KOMUNIKÁCIA
   // =========================
 
   async function initCommunicationView() {
@@ -960,10 +985,8 @@ function togglePiece(chk) {
       }
     }
 
-    // auth režim
     showMainView('auth');
 
-    // ak prišiel z linku s tokenom (napr. /b2b?token=...), ukáž formulár na nové heslo
     try {
       const params = new URLSearchParams(window.location.search);
       const urlToken = params.get('token') || params.get('reset_token');
@@ -978,7 +1001,6 @@ function togglePiece(chk) {
       showAuthView('view-auth');
     }
 
-    // prepínanie login/registrácia
     document.querySelectorAll('.tab-button[data-tab]')?.forEach(btn => {
       btn.addEventListener('click', (e) => {
         const tab = e.currentTarget.dataset.tab;
@@ -987,47 +1009,39 @@ function togglePiece(chk) {
         document.querySelectorAll('.tab-button').forEach(b => b.classList.remove('active'));
         e.currentTarget.classList.add('active');
         
-        // === PRIDANÉ: Ak prepneme na registráciu, vygeneruj CAPTCHA ===
         if (tab === 'register') {
             generateCaptcha();
         }
       });
     });
 
-    // helper tab a view
     ensureHelpView();
     ensureHelpTab();
   })();
 });
 
 // =========================================================
-// === OPRAVA: ZATVÁRANIE OKIEN (AUTOMATICKÁ) ===
+// === ZATVÁRANIE OKIEN A OVERLAY===
 // =========================================================
 document.addEventListener('DOMContentLoaded', () => {
-    // 1. Oživenie všetkých krížikov (tlačidiel s triedou .modal-close)
     const closeButtons = document.querySelectorAll('.modal-close');
     closeButtons.forEach(btn => {
-        // Odstránime staré eventy, aby sa nebili
         btn.replaceWith(btn.cloneNode(true));
     });
 
-    // Znova nájdeme tlačidlá (lebo sme ich nahradili) a pridáme funkčnosť
     document.querySelectorAll('.modal-close').forEach(btn => {
         btn.addEventListener('click', function(e) {
             e.preventDefault();
             e.stopPropagation();
-            // Nájde najbližšie okno (rodiča) a zatvorí ho
             const modal = this.closest('.modal-overlay');
             if (modal) {
                 modal.classList.remove('visible');
                 modal.style.display = 'none';
             }
         });
-        // Zmeníme kurzor, aby bolo jasné, že sa na to dá kliknúť
         btn.style.cursor = 'pointer'; 
     });
 
-    // 2. Zatváranie kliknutím na tmavé pozadie
     document.querySelectorAll('.modal-overlay').forEach(modal => {
         modal.addEventListener('click', (event) => {
             if (event.target === modal) {
@@ -1053,7 +1067,6 @@ window.openProductInfo = function(title, imgUrl, desc) {
   if (titleEl) titleEl.textContent = title;
   
   if (descEl) {
-      // Ak je popis prázdny, zobrazíme predvolenú hlášku
       descEl.textContent = desc || 'Zloženie a pôvod sú v súlade so súťažnými podkladmi.';
   }
 
@@ -1072,25 +1085,6 @@ window.openProductInfo = function(title, imgUrl, desc) {
   m.style.display = 'flex';
 };
 
-// Funkcia na zatvorenie okna (volaná cez onclick="window.closeModal(...)")
-window.closeModal = function(modalId) {
-    // Ak nezadáme ID, skúsime nájsť product-info-modal
-    const id = modalId || 'product-info-modal';
-    const el = document.getElementById(id);
-    if (el) {
-        el.classList.remove('visible');
-        el.style.display = 'none';
-    }
-};
-
-// Zatvorenie kliknutím na tmavé pozadie (Global fallback)
-document.addEventListener('click', function(event) {
-    if (event.target.classList.contains('modal-overlay')) {
-        event.target.classList.remove('visible');
-        event.target.style.display = 'none';
-    }
-});
-
 // =========================================================
 // === COOKIE CONSENT & ANALYTICS (B2B) ===
 // =========================================================
@@ -1103,51 +1097,39 @@ function initCookieBanner() {
     const banner = document.getElementById('cookie-banner');
     if (!banner) return;
 
-    // Skontrolujeme, či už máme rozhodnutie (uložené v localStorage)
     const consent = localStorage.getItem('mik_cookie_consent');
 
-    // Ak ešte nemáme rozhodnutie, ukážeme lištu
     if (!consent) {
         banner.classList.remove('hidden');
     } else {
-        // Tu by sa spustili skripty podľa súhlasu (napr. Google Analytics)
         if (consent === 'all') {
             enableAnalytics(); 
         }
     }
 
-    // Tlačidlo "Súhlasím so všetkým"
     document.getElementById('cookie-accept')?.addEventListener('click', () => {
         localStorage.setItem('mik_cookie_consent', 'all');
         banner.classList.add('hidden');
         enableAnalytics();
     });
 
-    // Tlačidlo "Len nevyhnutné"
     document.getElementById('cookie-reject')?.addEventListener('click', () => {
         localStorage.setItem('mik_cookie_consent', 'necessary');
         banner.classList.add('hidden');
-        // Nespustíme analytiku
     });
 }
 
 function enableAnalytics() {
     console.log('Spúšťam Google Analytics (GA4) pre B2B...');
-    
-    // ID merania (z B2C)
     const GA_MEASUREMENT_ID = 'G-S399B7ZDCT'; 
 
-    // 1. Dynamické vloženie <script> tagu pre Google Tag Manager
     const script = document.createElement('script');
     script.src = `https://www.googletagmanager.com/gtag/js?id=${GA_MEASUREMENT_ID}`;
     script.async = true;
     document.head.appendChild(script);
 
-    // 2. Inicializácia gtag funkcie
     window.dataLayer = window.dataLayer || [];
     function gtag(){dataLayer.push(arguments);}
     gtag('js', new Date());
-
-    // 3. Konfigurácia s vaším ID
     gtag('config', GA_MEASUREMENT_ID);
 }
