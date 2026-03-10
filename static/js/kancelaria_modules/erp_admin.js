@@ -1613,7 +1613,7 @@ async function viewEanMappingManagement(){
             </div>
         </div>
         <p class="text-muted" style="margin-top:5px;">
-            Prekóduje interný EAN na zákaznícky objednávkový kód v exportovanom CSV súbore do výroby. <b>Dĺžka kódov a pôvodný rozostup v CSV súbore zostane zachovaný. PDF zostáva nezmenené.</b>
+            Prekóduje interný EAN na zákaznícky objednávkový kód v exportovanom CSV súbore do výroby. <b>Párovanie ignoruje úvodné nuly.</b>
         </p>
 
         <div class="table-container" style="max-height: 60vh;">
@@ -1664,10 +1664,22 @@ async function viewEanMappingManagement(){
         const btnImport = document.getElementById('btn-import-ean-csv');
         const fileImport = document.getElementById('file-import-ean-csv');
         if(btnImport && fileImport) {
-            btnImport.onclick = () => fileImport.click();
+            btnImport.onclick = async () => {
+                showStatus('Načítavam databázu produktov pre presné spárovanie EAN...', false);
+                try {
+                    const catData = await apiRequest('/api/kancelaria/getCatalogManagementData');
+                    window.__tempEanProducts = catData.products || [];
+                    fileImport.click();
+                } catch(e) {
+                    alert('Chyba pri načítaní katalógu: ' + e.message);
+                }
+            };
+            
             fileImport.onchange = async (e) => {
                 const file = e.target.files[0]; 
                 if (!file) return;
+                
+                const products = window.__tempEanProducts || [];
                 
                 const reader = new FileReader();
                 reader.onload = async function(evt) {
@@ -1692,14 +1704,20 @@ async function viewEanMappingManagement(){
                         let intEan = cols[idxInt];
                         
                         if (extEan && intEan && !extEan.toUpperCase().includes('EAN') && !intEan.toUpperCase().includes('KODY')) {
-                            // Konverzia formátu Excel čísel (232348.0 -> 232348)
                             if(extEan.endsWith('.0')) extEan = extEan.slice(0, -2);
                             if(intEan.endsWith('.0')) intEan = intEan.slice(0, -2);
                             
-                            // ===== DOPLNENIE 0 PRE INTERNÝ EAN NA 13 ZNAKOV =====
-                            intEan = String(intEan).padStart(13, '0');
+                            // Normalizácia: Odstránime nuly pre porovnanie
+                            let rawIntEan = String(intEan).replace(/^0+/, '');
+                            if (rawIntEan === '') rawIntEan = '0';
                             
-                            items.push({ interny_ean: intEan, objednavkovy_kod: extEan });
+                            // Hľadáme zhodu v databáze (ignorujeme nuly)
+                            let matchedProduct = products.find(p => String(p.ean).replace(/^0+/, '') === rawIntEan);
+                            
+                            // Ak nájdeme, použijeme presný kód z databázy (zachová pôvodný tvar). Ak nie, fallback na CSV hodnotu.
+                            let finalIntEan = matchedProduct ? matchedProduct.ean : String(intEan);
+                            
+                            items.push({ interny_ean: finalIntEan, objednavkovy_kod: extEan });
                         }
                     }
                     
@@ -1718,7 +1736,7 @@ async function viewEanMappingManagement(){
             };
         }
 
-        // Manuálne pridanie jedného kódu
+        // Manuálne pridanie
         const btnAdd = document.getElementById('btn-add-ean-map');
         if (btnAdd) {
             btnAdd.onclick = async () => {
@@ -1734,7 +1752,7 @@ async function viewEanMappingManagement(){
 
                 openModalCompat('Nové EAN mapovanie', {
                     html: `
-                    <div class="form-group"><label>Zdrojový produkt (Interný EAN)</label>
+                    <div class="form-group"><label>Zdrojový produkt (Interný EAN z DB)</label>
                         <select id="map-internal-ean" style="width:100%; padding:8px;" class="select-search">
                             <option value="">-- Vyberte produkt --</option>${optionsHtml}
                         </select></div>
@@ -1743,12 +1761,9 @@ async function viewEanMappingManagement(){
                     <div style="margin-top:20px; text-align:right;"><button id="map-save-btn" class="btn-primary">Uložiť</button></div>`,
                     onReady: () => {
                         document.getElementById('map-save-btn').onclick = async () => {
-                            let interny_ean = document.getElementById('map-internal-ean').value;
+                            let interny_ean = document.getElementById('map-internal-ean').value; // Príde presný string z databázy
                             const objednavkovy_kod = document.getElementById('map-external-ean').value.trim();
                             if (!interny_ean || !objednavkovy_kod) return;
-                            
-                            // Ak sa to pridá manuálne, tiež to poistíme
-                            interny_ean = String(interny_ean).padStart(13, '0');
                             
                             await apiRequest('/api/kancelaria/saveEanMapping', { method: 'POST', body: { interny_ean, objednavkovy_kod }});
                             hideModalCompat();
