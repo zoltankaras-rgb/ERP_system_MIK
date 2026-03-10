@@ -1678,11 +1678,9 @@ async function viewEanMappingManagement(){
                     if (lines.length < 2) { alert("Súbor je prázdny alebo chybný."); return; }
                     
                     const headers = lines[0].toLowerCase().split(delim).map(h => h.trim().replace(/"/g, ''));
-                    // Detekcia stĺpcov podľa názvu z promptu
                     let idxExt = headers.findIndex(h => h.includes('nové') || h.includes('nove') || h.includes('plu'));
                     let idxInt = headers.findIndex(h => h.includes('mik') || h.includes('kody'));
                     
-                    // Fallback pre prípad chyby v hlavičke
                     if (idxExt < 0 || idxInt < 0) { idxExt = 0; idxInt = 1; }
                     
                     const items = [];
@@ -1697,6 +1695,10 @@ async function viewEanMappingManagement(){
                             // Konverzia formátu Excel čísel (232348.0 -> 232348)
                             if(extEan.endsWith('.0')) extEan = extEan.slice(0, -2);
                             if(intEan.endsWith('.0')) intEan = intEan.slice(0, -2);
+                            
+                            // ===== DOPLNENIE 0 PRE INTERNÝ EAN NA 13 ZNAKOV =====
+                            intEan = String(intEan).padStart(13, '0');
+                            
                             items.push({ interny_ean: intEan, objednavkovy_kod: extEan });
                         }
                     }
@@ -1741,9 +1743,13 @@ async function viewEanMappingManagement(){
                     <div style="margin-top:20px; text-align:right;"><button id="map-save-btn" class="btn-primary">Uložiť</button></div>`,
                     onReady: () => {
                         document.getElementById('map-save-btn').onclick = async () => {
-                            const interny_ean = document.getElementById('map-internal-ean').value;
+                            let interny_ean = document.getElementById('map-internal-ean').value;
                             const objednavkovy_kod = document.getElementById('map-external-ean').value.trim();
                             if (!interny_ean || !objednavkovy_kod) return;
+                            
+                            // Ak sa to pridá manuálne, tiež to poistíme
+                            interny_ean = String(interny_ean).padStart(13, '0');
+                            
                             await apiRequest('/api/kancelaria/saveEanMapping', { method: 'POST', body: { interny_ean, objednavkovy_kod }});
                             hideModalCompat();
                             window.erpMount(viewEanMappingManagement);
