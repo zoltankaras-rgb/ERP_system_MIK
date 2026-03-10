@@ -4368,24 +4368,50 @@ def kanc_update_b2c_order_status():
     payload = request.get_json(silent=True) or {}
     return handle_request(office_handler.update_b2c_order_status, payload)
 
+# --- EAN MAPOVANIE PRE CSV (B2B) ---
+
+def _ensure_ean_mapping_table():
+    import db_connector
+    sql = """
+    CREATE TABLE IF NOT EXISTS b2b_ean_mapovanie (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        interny_ean VARCHAR(64) NOT NULL UNIQUE,
+        objednavkovy_kod VARCHAR(64) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_slovak_ci;
+    """
+    try:
+        db_connector.execute_query(sql, fetch='none')
+    except Exception as e:
+        print(f"Chyba pri vytvarani tabulky b2b_ean_mapovanie: {e}")
+
 @app.route('/api/kancelaria/getEanMapping', methods=['GET'])
 def get_ean_mapping():
+    _ensure_ean_mapping_table()
+    import db_connector
     sql = """
         SELECT m.id, m.interny_ean, m.objednavkovy_kod, p.nazov_vyrobku 
         FROM b2b_ean_mapovanie m
         LEFT JOIN produkty p ON m.interny_ean = p.ean
         ORDER BY p.nazov_vyrobku
     """
-    rows = db_connector.execute_query(sql, fetch='all') or []
-    return jsonify(rows)
+    try:
+        rows = db_connector.execute_query(sql, fetch='all') or []
+        return jsonify(rows)
+    except Exception as e:
+        print(f"DB Error getEanMapping: {e}")
+        return jsonify([])
 
 @app.route('/api/kancelaria/saveEanMapping', methods=['POST'])
 def save_ean_mapping():
+    _ensure_ean_mapping_table()
     data = request.json
     int_ean = data.get('interny_ean')
     ext_ean = data.get('objednavkovy_kod')
     if not int_ean or not ext_ean:
         return jsonify({"error": "Oba kódy sú povinné."}), 400
+    
+    import db_connector
     db_connector.execute_query(
         "INSERT INTO b2b_ean_mapovanie (interny_ean, objednavkovy_kod) VALUES (%s, %s) ON DUPLICATE KEY UPDATE objednavkovy_kod=VALUES(objednavkovy_kod)", 
         (int_ean, ext_ean), fetch='none'
@@ -4394,16 +4420,20 @@ def save_ean_mapping():
 
 @app.route('/api/kancelaria/deleteEanMapping', methods=['POST'])
 def delete_ean_mapping():
+    _ensure_ean_mapping_table()
     mapping_id = request.json.get('id')
+    import db_connector
     db_connector.execute_query("DELETE FROM b2b_ean_mapovanie WHERE id=%s", (mapping_id,), fetch='none')
     return jsonify({"message": "Zmazané."})
 
 @app.route('/api/kancelaria/importEanMappingBulk', methods=['POST'])
 def import_ean_mapping_bulk():
+    _ensure_ean_mapping_table()
     items = (request.json or {}).get("items", [])
     if not items:
         return jsonify({"error": "Žiadne dáta na import."}), 400
         
+    import db_connector
     conn = db_connector.get_connection()
     cur = conn.cursor()
     processed, updated = 0, 0
