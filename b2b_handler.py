@@ -2228,7 +2228,15 @@ def get_logistics_routes_data(target_date: str):
         for tid, data in routes_data.items():
             z_list = []
             for odb, zdata in data["zastavky"].items():
-                z_list.append({**zdata, "pocet_objednavok": len(zdata["objednavky_set"]), "cisla_objednavok": list(zdata["objednavky_set"])})
+                # OPRAVA: Mapujeme atribúty explicitne, aby sa do JSONu nedostal Python 'set'
+                z_list.append({
+                    "zakaznik_id": zdata["zakaznik_id"],
+                    "odberatel": zdata["odberatel"],
+                    "adresa": zdata["adresa"],
+                    "poradie": zdata["poradie"],
+                    "pocet_objednavok": len(zdata["objednavky_set"]),
+                    "cisla_objednavok": list(zdata["objednavky_set"])
+                })
             z_list.sort(key=lambda x: x["poradie"])
 
             s_list = []
@@ -2238,7 +2246,7 @@ def get_logistics_routes_data(target_date: str):
             s_list.sort(key=lambda x: x["kategoria"])
 
             final_routes.append({ "trasa_id": tid, "nazov": data["nazov"], "zastavky": z_list, "sumar": s_list })
-
+            
         final_routes.sort(key=lambda x: x["nazov"])
         vehicles = db_connector.execute_query("SELECT id, license_plate, name FROM fleet_vehicles WHERE is_active=1 ORDER BY name", fetch='all') or []
         return {"trasy": final_routes, "vehicles": vehicles, "all_routes": all_routes}
