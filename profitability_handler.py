@@ -313,22 +313,39 @@ def get_sales_channels_view(year, month):
     return sales_by_channel
 
 
-# -----------------------------------------------------------------
-# Predajné kanály – uloženie a integrované mazanie
-# -----------------------------------------------------------------
 def setup_new_sales_channel(data):
     channel_name = str(data.get("channel_name") or "").strip()
     
-    # === MAZANIE KANÁLU ===
+    # =========================================================
+    # 1. MAZANIE KANÁLU (GARANTOVANÝ COMMIT CEZ RAW CURSOR)
+    # =========================================================
     if data.get("delete_channel"):
+        conn_del = None
         try:
-            db_connector.execute_query("DELETE FROM profit_sales_monthly WHERE sales_channel = %s", (channel_name,), fetch="none")
-            db_connector.execute_query("UPDATE b2b_zakaznici SET predajny_kanal = NULL WHERE predajny_kanal = %s", (channel_name,), fetch="none")
-            return {"message": f"Kanál '{channel_name}' bol trvalo odstránený."}
+            conn_del = db_connector.get_connection()
+            cur_del = conn_del.cursor()
+            
+            # 1. Zmaže štatistiky pre daný kanál
+            cur_del.execute("DELETE FROM profit_sales_monthly WHERE sales_channel = %s", (channel_name,))
+            
+            # 2. Odpojenie zákazníkov od tohto kanálu (matky aj dcéry naraz)
+            cur_del.execute("UPDATE b2b_zakaznici SET predajny_kanal = NULL WHERE predajny_kanal = %s", (channel_name,))
+            
+            # TOTO JE NAJDÔLEŽITEJŠÍ KROK PRE MAZANIE
+            conn_del.commit() 
+            
+            return {"message": f"Kanál '{channel_name}' bol natrvalo odstránený."}
         except Exception as e:
-            return {"error": str(e)}
+            if conn_del: conn_del.rollback()
+            return {"error": f"Chyba DB pri mazaní: {str(e)}"}
+        finally:
+            if conn_del and conn_del.is_connected():
+                cur_del.close()
+                conn_del.close()
 
-    # === VYTVORENIE KANÁLU ===
+    # =========================================================
+    # 2. VYTVORENIE KANÁLU A NAPOJENIE POBOČIEK
+    # =========================================================
     try:
         year = int(data.get("year", 0))
         month = int(data.get("month", 0))
@@ -345,24 +362,40 @@ def setup_new_sales_channel(data):
             db_connector.execute_query("ALTER TABLE b2b_zakaznici ADD COLUMN predajny_kanal VARCHAR(100) DEFAULT NULL", fetch="none")
         except: pass
 
-    # Explicitná aktualizácia zákazníkov - matka aj VŠETKY jej dcéry
+    # --- PREPOJENIE MATKY AJ DCÉR (Raw connection) ---
     if chain_id and str(chain_id).strip():
+        conn_upd = None
         try:
-            db_connector.execute_query(
+            conn_upd = db_connector.get_connection()
+            cur_upd = conn_upd.cursor()
+            # Zmení kanál pre firmu, kde je ID = chain_id (Matka), alebo kde parent_id = chain_id (Dcéry)
+            cur_upd.execute(
                 "UPDATE b2b_zakaznici SET predajny_kanal = %s WHERE id = %s OR parent_id = %s",
-                (channel_name, int(chain_id), int(chain_id)), fetch="none"
+                (channel_name, int(chain_id), int(chain_id))
             )
+            conn_upd.commit() # TVRDÝ COMMIT PRE ZÁPIS KANÁLU
         except Exception as e:
+            if conn_upd: conn_upd.rollback()
             print("UPDATE DB ERROR:", e)
+        finally:
+            if conn_upd and conn_upd.is_connected():
+                cur_upd.close()
+                conn_upd.close()
     else:
-        # Fallback pre istotu, ak chýba chain_id
+        # Fallback, ak niekto založí kanál bez výberu z dropdownu
         try:
-            db_connector.execute_query(
-                "UPDATE b2b_zakaznici SET predajny_kanal = %s WHERE nazov_firmy LIKE %s",
-                (channel_name, f"%{channel_name}%"), fetch="none"
+            conn_upd = db_connector.get_connection()
+            cur_upd = conn_upd.cursor()
+            cur_upd.execute(
+                "UPDATE b2b_zakaznici SET predajny_kanal = %s WHERE TRIM(nazov_firmy) = %s",
+                (channel_name, channel_name)
             )
+            conn_upd.commit()
+            cur_upd.close()
+            conn_upd.close()
         except: pass
 
+    # --- Vygenerovanie produktov do tabuľky pre kalkulácie ---
     products_q = "SELECT ean, nazov_vyrobku FROM produkty WHERE typ_polozky LIKE 'VÝROBOK%%' OR typ_polozky LIKE 'TOVAR%%'"
     all_products = db_connector.execute_query(products_q) or []
     
@@ -388,8 +421,7 @@ def setup_new_sales_channel(data):
             conn.close()
         except: pass
 
-    return {"message": f"Kanál '{channel_name}' úspešne vytvorený a prepojený."}
-
+    return {"message": f"Kanál '{channel_name}' úspešne vytvorený a prepojený na všetky prevádzky."}
 
 # -----------------------------------------------------------------
 # Predajné kanály – uloženie a integrované mazanie

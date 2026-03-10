@@ -524,10 +524,9 @@ window.deleteSalesChannel = async function(channelName) {
         });
         showStatus("Kanál bol úspešne zmazaný.");
         
-        // Zabezpečí, že sa UI obnoví až keď DB dokončí proces zmazania
-        setTimeout(() => {
-            loadAndRenderProfitabilityData();
-        }, 500);
+        // Okamžitý vizuálny reload bez cache delayu
+        profitabilityState.data = {};
+        loadAndRenderProfitabilityData();
     } catch (e) {
         showStatus("Chyba pri mazaní: " + e.message, true);
     }
