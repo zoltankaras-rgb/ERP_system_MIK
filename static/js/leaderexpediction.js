@@ -2065,7 +2065,7 @@ window.showManualRouteEditor = async function(id) {
       const win = window.open('', '_blank'); win.document.write(html); win.document.close();
   };
 
-// ================= MANUÁLNE OBJEDNÁVKY (NEREGISTROVANÍ) =================
+// ================= MANUÁLNE OBJEDNÁVKY (NEREGISTROVANÍ AJ REGISTROVANÍ) =================
   function initManualOrdersUI() {
       const custSearch = $('#manual-customer-search');
       const custResults = $('#manual-customer-results');
@@ -2073,10 +2073,14 @@ window.showManualRouteEditor = async function(id) {
       const prodResults = $('#man-product-results');
       const submitBtn = $('#man-order-submit');
       const saveCustBtn = $('#man-cust-save');
+      const plContainer = $('#manual-pricelist-container');
+      const plSelect = $('#manual-pricelist-select');
       
       if(!custSearch || !prodSearch) return;
 
-      $('#man-order-date').value = todayISO(); // Tu už todayISO bude fungovať
+      $('#man-order-date').value = todayISO();
+      
+      let activePricelistItems = {}; // Do tohto si uložíme položky vybraného cenníka
 
       let custTimer;
       custSearch.addEventListener('input', () => {
@@ -2088,28 +2092,72 @@ window.showManualRouteEditor = async function(id) {
               custResults.style.display = 'block';
               custResults.innerHTML = '<div style="padding:10px;color:#666;">Hľadám...</div>';
               try {
-                  const data = await apiRequest(`/api/leader/manual_customers/search?q=${encodeURIComponent(q)}`);
+                  const data = await apiRequest(`/api/leader/manual_customers/search_all?q=${encodeURIComponent(q)}`);
                   if(!data.length) { custResults.innerHTML = '<div style="padding:10px;color:#999;">Zákazník nenájdený.</div>'; return; }
                   
-                  custResults.innerHTML = data.map(c => `
+                  custResults.innerHTML = data.map(c => {
+                      const isReg = c.is_registered === '1';
+                      const badge = isReg ? '<span style="background:#dcfce7; color:#166534; padding:2px 6px; border-radius:4px; font-size:0.7rem; margin-right:5px;">E-SHOP</span>' : '<span style="background:#f1f5f9; color:#475569; padding:2px 6px; border-radius:4px; font-size:0.7rem; margin-right:5px;">MANUÁLNY</span>';
+                      
+                      return `
                       <div class="product-search-item" data-json='${escapeHtml(JSON.stringify(c))}'>
                           <div>
                               <strong>${escapeHtml(c.nazov_firmy)}</strong><br>
                               <small style="color:#64748b;">${escapeHtml(c.adresa || '')}</small>
                           </div>
-                          <div><span style="background:#e2e8f0; padding:2px 6px; border-radius:4px; font-size:0.8rem;">${escapeHtml(c.interne_cislo)}</span></div>
+                          <div style="text-align:right;">
+                              ${badge}<br>
+                              <span style="font-weight:bold; color:#0369a1;">${escapeHtml(c.interne_cislo)}</span>
+                          </div>
                       </div>
-                  `).join('');
+                      `;
+                  }).join('');
                   
                   custResults.querySelectorAll('.product-search-item').forEach(el => {
-                      el.onclick = () => {
+                      el.onclick = async () => {
                           const c = JSON.parse(el.getAttribute('data-json'));
                           $('#man-cust-id').value = c.interne_cislo;
                           $('#man-cust-name').value = c.nazov_firmy;
                           $('#man-cust-addr').value = c.adresa || '';
                           $('#man-cust-contact').value = c.kontakt || '';
+                          $('#man-cust-is-registered').value = c.is_registered;
                           custSearch.value = '';
                           custResults.style.display = 'none';
+                          
+                          saveCustBtn.style.display = (c.is_registered === '1') ? 'none' : 'inline-block';
+                          activePricelistItems = {}; // Reset cenníka
+                          
+                          // Ak je registrovaný, stiahneme cenníky
+                          if(c.is_registered === '1') {
+                              plContainer.style.display = 'block';
+                              plSelect.innerHTML = '<option>Načítavam cenníky...</option>';
+                              try {
+                                  const pls = await apiRequest(`/api/leader/b2b/get_pricelists?customer_id=${encodeURIComponent(c.interne_cislo)}`);
+                                  if(pls && pls.length > 0) {
+                                      plSelect.innerHTML = pls.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
+                                      
+                                      // Funkcia na stiahnutie konkrétneho cenníka do pamäte
+                                      const loadPricelist = async (plId) => {
+                                          const targetPl = pls.find(x => String(x.id) === String(plId));
+                                          activePricelistItems = {};
+                                          if(targetPl && targetPl.items) {
+                                              targetPl.items.forEach(it => {
+                                                  if(it.ean) activePricelistItems[String(it.ean)] = toNum(it.price, 0);
+                                              });
+                                          }
+                                      };
+                                      
+                                      await loadPricelist(pls[0].id);
+                                      plSelect.onchange = (e) => loadPricelist(e.target.value);
+                                  } else {
+                                      plSelect.innerHTML = '<option>Zákazník nemá priradený cenník</option>';
+                                  }
+                              } catch(e) {
+                                  plSelect.innerHTML = '<option>Chyba pri načítaní cenníkov</option>';
+                              }
+                          } else {
+                              plContainer.style.display = 'none';
+                          }
                       };
                   });
               } catch(e) { custResults.innerHTML = '<div style="padding:10px;color:red;">Chyba API.</div>'; }
@@ -2117,6 +2165,7 @@ window.showManualRouteEditor = async function(id) {
       });
 
       saveCustBtn.onclick = async () => {
+          if($('#man-cust-is-registered').value === '1') return; // Poistka
           const payload = {
               interne_cislo: $('#man-cust-id').value.trim(),
               nazov_firmy: $('#man-cust-name').value.trim(),
@@ -2126,7 +2175,7 @@ window.showManualRouteEditor = async function(id) {
           if(!payload.interne_cislo || !payload.nazov_firmy) return showStatus("Interné číslo a názov sú povinné.", true);
           try {
               await apiRequest('/api/leader/manual_customers/save', {method: 'POST', body: payload});
-              showStatus("Zákazník uložený do adresára.", false);
+              showStatus("Neregistrovaný zákazník uložený do adresára.", false);
           } catch(e) { showStatus("Chyba uloženia: " + e.message, true); }
       };
 
@@ -2143,15 +2192,31 @@ window.showManualRouteEditor = async function(id) {
                   const data = await apiRequest(`/api/leader/products_standard/search?q=${encodeURIComponent(q)}`);
                   if(!data.length) { prodResults.innerHTML = '<div style="padding:10px;color:#999;">Produkt nenájdený.</div>'; return; }
                   
-                  prodResults.innerHTML = data.map(p => `
+                  prodResults.innerHTML = data.map(p => {
+                      // Ak máme aktívny cenník a produkt v ňom je, prepíšeme cenu!
+                      let currentPrice = 0.00;
+                      let priceBadge = '';
+                      if(activePricelistItems[String(p.ean)] !== undefined) {
+                          currentPrice = activePricelistItems[String(p.ean)];
+                          priceBadge = `<span style="background:#fef08a; color:#166534; padding:2px; border-radius:3px; font-size:0.75rem;">Z CENNÍKA: ${currentPrice.toFixed(2)} €</span>`;
+                      }
+                      
+                      // Aktualizujeme p.price pre neskoršie použitie
+                      p.price = currentPrice;
+
+                      return `
                       <div class="product-search-item" data-json='${escapeHtml(JSON.stringify(p))}'>
                           <div>
                               <strong>${escapeHtml(p.name)}</strong><br>
                               <span class="meta">EAN: ${escapeHtml(p.ean)} | DPH: ${p.dph}%</span>
                           </div>
-                          <div><span style="color:#2563eb; font-weight:bold;">${escapeHtml(p.mj)}</span></div>
+                          <div style="text-align:right;">
+                              ${priceBadge}<br>
+                              <span style="color:#2563eb; font-weight:bold;">${escapeHtml(p.mj)}</span>
+                          </div>
                       </div>
-                  `).join('');
+                      `;
+                  }).join('');
                   
                   prodResults.querySelectorAll('.product-search-item').forEach(el => {
                       el.onclick = () => {
@@ -2176,7 +2241,8 @@ window.showManualRouteEditor = async function(id) {
                   interne_cislo: $('#man-cust-id').value.trim(),
                   nazov_firmy: $('#man-cust-name').value.trim(),
                   adresa: $('#man-cust-addr').value.trim(),
-                  kontakt: $('#man-cust-contact').value.trim()
+                  kontakt: $('#man-cust-contact').value.trim(),
+                  is_registered: $('#man-cust-is-registered').value
               },
               delivery_date: $('#man-order-date').value,
               note: $('#man-order-note').value.trim(),
@@ -2220,7 +2286,10 @@ window.showManualRouteEditor = async function(id) {
               $('#man-cust-name').value = '';
               $('#man-cust-addr').value = '';
               $('#man-cust-contact').value = '';
+              $('#man-cust-is-registered').value = '0';
               $('#man-order-note').value = '';
+              plContainer.style.display = 'none';
+              activePricelistItems = {};
               
               if(typeof loadB2B === 'function') loadB2B();
 
@@ -2253,7 +2322,7 @@ window.showManualRouteEditor = async function(id) {
                 <option value="ks" ${p.mj==='ks'?'selected':''}>ks</option>
             </select>
           </td>
-          <td><input type="number" class="form-control mo-price" step="0.01" value="0.00" style="padding:6px;width:100%"></td>
+          <td><input type="number" class="form-control mo-price" step="0.01" value="${p.price.toFixed(2)}" style="padding:6px;width:100%"></td>
           <td style="text-align:right;"><button class="btn btn-sm btn-danger mo-del">✖</button></td>
       `;
 
@@ -2264,8 +2333,6 @@ window.showManualRouteEditor = async function(id) {
       };
       tr.querySelector('.mo-qty').select();
   }
-
-  // Pôvodná funkcia boot upravená o inicializáciu manuálnych objednávok
   function boot(){
     $$('.sidebar-link').forEach(a=>{
       a.onclick = ()=>{

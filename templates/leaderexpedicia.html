@@ -243,10 +243,14 @@
       <div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px;">
         
         <div style="border: 1px solid #e2e8f0; padding:15px; border-radius:8px;">
-          <h4 style="margin-top:0; color:#0369a1;">Hľadať existujúceho</h4>
+          <h4 style="margin-top:0; color:#0369a1;">Vyhľadať odberateľa</h4>
           <div class="form-group product-search-wrapper">
-              <input id="manual-customer-search" class="form-control" placeholder="Názov firmy alebo interné číslo..." autocomplete="off">
+              <input id="manual-customer-search" class="form-control" placeholder="Názov firmy alebo interné číslo (hľadá všade)..." autocomplete="off">
               <div id="manual-customer-results" class="product-search-results"></div>
+          </div>
+          <div id="manual-pricelist-container" style="display:none; margin-top:15px; padding-top:15px; border-top:1px dashed #ccc;">
+              <label style="font-weight:bold; color:#16a34a;">Tento zákazník má cenníky:</label>
+              <select id="manual-pricelist-select" class="form-control"></select>
           </div>
         </div>
 
@@ -256,9 +260,10 @@
               <div class="form-group"><label>Interné číslo (Odberné)</label><input id="man-cust-id" class="form-control"></div>
               <div class="form-group"><label>Názov firmy / prevádzky</label><input id="man-cust-name" class="form-control"></div>
               <div class="form-group"><label>Adresa</label><input id="man-cust-addr" class="form-control"></div>
-              <div class="form-group"><label>Kontakt / Poznámka</label><input id="man-cust-contact" class="form-control"></div>
+              <div class="form-group"><label>Kontakt (E-mail / Tel)</label><input id="man-cust-contact" class="form-control"></div>
           </div>
-          <button id="man-cust-save" class="btn btn-sm btn-outline-success mt-2">Uložiť údaje do adresára</button>
+          <input type="hidden" id="man-cust-is-registered" value="0">
+          <button id="man-cust-save" class="btn btn-sm btn-outline-success mt-2">Uložiť neregistrovaného do adresára</button>
         </div>
 
       </div>

@@ -993,7 +993,7 @@ def leader_assign_vehicle():
     return jsonify(b2b_handler.assign_vehicle_to_route_and_fleet(request.get_json(silent=True) or {}))
 
 # =============================================================================
-# MANUÁLNE OBJEDNÁVKY PRE NEREGISTROVANÝCH ZÁKAZNÍKOV
+# MANUÁLNE OBJEDNÁVKY (ZJEDNOTENÉ PRE REGISTROVANÝCH AJ NEREGISTROVANÝCH)
 # =============================================================================
 
 def _ensure_manual_customers_table():
@@ -1007,23 +1007,42 @@ def _ensure_manual_customers_table():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_slovak_ci
     """, fetch='none')
+    
+    # Odstránime obmedzenie, aby objednávky mohli prechádzať aj od manuálnych zákazníkov
+    try:
+        db_connector.execute_query("ALTER TABLE b2b_objednavky DROP FOREIGN KEY fk_b2bo_zakaznik", fetch='none')
+    except Exception:
+        pass
 
-@leader_bp.get('/manual_customers/search')
+@leader_bp.get('/manual_customers/search_all')
 @login_required(role=('veduci', 'admin'))
-def search_manual_customers():
+def search_all_customers():
     _ensure_manual_customers_table()
     q = request.args.get('q', '').strip()
-    if not q:
+    if len(q) < 2:
         return jsonify([])
     
-    sql = """
-        SELECT id, interne_cislo, nazov_firmy, adresa, kontakt 
-        FROM b2b_manual_zakaznici 
-        WHERE nazov_firmy LIKE %s OR interne_cislo LIKE %s 
-        LIMIT 20
+    like_q = f"%{q}%"
+
+    # 1. Hľadáme v registrovaných zákazníkoch (E-shop)
+    sql_reg = """
+        SELECT id as db_id, zakaznik_id as interne_cislo, nazov_firmy, adresa, email as kontakt, '1' as is_registered 
+        FROM b2b_zakaznici 
+        WHERE typ='B2B' AND (nazov_firmy LIKE %s OR zakaznik_id LIKE %s)
+        LIMIT 10
     """
-    rows = db_connector.execute_query(sql, (f"%{q}%", f"%{q}%"), fetch='all') or []
-    return jsonify(rows)
+    reg_rows = db_connector.execute_query(sql_reg, (like_q, like_q), fetch='all') or []
+
+    # 2. Hľadáme v neregistrovaných (Manuálnych)
+    sql_man = """
+        SELECT id as db_id, interne_cislo, nazov_firmy, adresa, kontakt, '0' as is_registered 
+        FROM b2b_manual_zakaznici 
+        WHERE nazov_firmy LIKE %s OR interne_cislo LIKE %s
+        LIMIT 10
+    """
+    man_rows = db_connector.execute_query(sql_man, (like_q, like_q), fetch='all') or []
+
+    return jsonify(reg_rows + man_rows)
 
 @leader_bp.post('/manual_customers/save')
 @login_required(role=('veduci', 'admin'))
@@ -1056,7 +1075,7 @@ def search_standard_products():
         return jsonify([])
 
     sql = """
-        SELECT ean, nazov_vyrobku as name, mj, COALESCE(dph, 20) as dph
+        SELECT ean, nazov_vyrobku as name, mj, COALESCE(dph, 20) as dph, 0 as price
         FROM produkty 
         WHERE LOWER(nazov_vyrobku) LIKE %s OR ean LIKE %s
         LIMIT 30
@@ -1067,6 +1086,7 @@ def search_standard_products():
 @leader_bp.post('/manual_order/submit')
 @login_required(role=('veduci', 'admin'))
 def submit_manual_order():
+    _ensure_manual_customers_table()
     data = request.get_json() or {}
     customer = data.get('customer', {})
     items = data.get('items', [])
@@ -1079,6 +1099,9 @@ def submit_manual_order():
         return jsonify({'error': 'Objednávka neobsahuje položky.'}), 400
 
     login_id = customer['interne_cislo']
+    is_registered = customer.get('is_registered') == '1'
+    cust_email = customer.get('kontakt') if is_registered else None
+    
     order_number = f"B2B-{login_id}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
     
     total_net = 0.0
@@ -1108,6 +1131,7 @@ def submit_manual_order():
         })
 
     total_gross = total_net + total_vat
+    del_iso = _iso(delivery_date)
 
     conn = db_connector.get_connection()
     try:
@@ -1116,15 +1140,15 @@ def submit_manual_order():
             INSERT INTO b2b_objednavky
               (cislo_objednavky, zakaznik_id, nazov_firmy, adresa, pozadovany_datum_dodania, poznamka, celkova_suma_s_dph, stav)
             VALUES (%s,%s,%s,%s,%s,%s,%s,'Prijatá')
-        """, (order_number, login_id, customer['nazov_firmy'], customer.get('adresa', ''), _iso(delivery_date), note, total_gross))
+        """, (order_number, login_id, customer['nazov_firmy'], customer.get('adresa', ''), del_iso, note, total_gross))
         
         oid = cur.lastrowid
         
         lines = []
         for i in pdf_items:
             lines.append((
-            oid, i["ean"], i["name"], i["quantity"], i["unit"], i["dph"], i["price"], _iso(delivery_date)
-        ))
+                oid, i["ean"], i["name"], i["quantity"], i["unit"], i["dph"], i["price"], del_iso
+            ))
             
         cur.executemany("""
             INSERT INTO b2b_objednavky_polozky
@@ -1159,6 +1183,8 @@ def submit_manual_order():
 
     try:
         import pdf_generator
+        import notification_handler
+        
         # 1. Štandardné PDF
         pdf_bytes, _, csv_filename = pdf_generator.create_order_files(order_payload)
 
@@ -1184,11 +1210,31 @@ def submit_manual_order():
             with open(file_path, "wb") as f:
                 f.write(csv_bytes)
                 
+        # 4. Odosielanie emailov
+        expedition_email = os.getenv("B2B_EXPEDITION_EMAIL") or "miksroexpedicia@gmail.com"
+        
+        # Pre expedíciu s CSV
+        try:
+            notification_handler.send_order_confirmation_email(
+                to=expedition_email, order_number=order_number, pdf_content=pdf_bytes, csv_content=csv_bytes, csv_filename=file_name
+            )
+        except Exception as e:
+            print(f"Chyba pri maili na expediciu: {e}")
+
+        # Pre ZÁKAZNÍKA (iba ak je registrovaný a má email)
+        if is_registered and cust_email and '@' in cust_email:
+            try:
+                notification_handler.send_order_confirmation_email(
+                    to=cust_email, order_number=order_number, pdf_content=pdf_bytes, csv_content=None
+                )
+            except Exception as e:
+                print(f"Chyba pri maili zákazníkovi: {e}")
+
     except Exception as e:
         print(f"Chyba pri generovaní súborov: {e}")
 
     return jsonify({
-        'message': 'Objednávka úspešne vytvorená. CSV bolo odoslané.',
+        'message': 'Objednávka úspešne vytvorená. CSV bolo odoslané na sklad.',
         'order_id': oid,
         'order_number': order_number
     })
