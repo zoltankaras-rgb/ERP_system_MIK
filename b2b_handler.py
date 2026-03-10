@@ -1196,40 +1196,38 @@ def submit_b2b_order(data: dict):
         except: pass
 
   # 7. Generovanie PDF/CSV a odoslanie e-mailov
-    import pdf_generator
     import copy
     
     order_payload["order_number"] = order_number
     try:
-        # A) Vygenerovanie standardneho PDF s internymi kodmi
+        # A) Vygenerovanie štandardného PDF s tvojimi pôvodnými internými kódmi
         pdf_bytes, _, csv_filename = pdf_generator.create_order_files(order_payload)
 
-        # B) Prepis kodov specialne len pre CSV na ucely vahoveho terminalu
+        # B) Prepis kódov špeciálne len pre CSV na účely váhového terminálu
         csv_bytes = None
         try:
-            # Nacitanie EAN mapovania z databazy
+            # Načítanie EAN mapovania z databázy
             mapping_db = db_connector.execute_query("SELECT interny_ean, objednavkovy_kod FROM b2b_ean_mapovanie", fetch='all') or []
-            ean_map = {str(m['interny_ean']): str(m['objednavkovy_kod']) for m in mapping_db}
+            
+            # Odstránime nuly zľava pre stopercentne presnú zhodu kľúčov z databázy
+            ean_map = {str(m['interny_ean']).strip().lstrip('0'): str(m['objednavkovy_kod']).strip() for m in mapping_db if m.get('interny_ean')}
 
-            # Kopia dat, kde upravime len parameter 'ean'
+            # Kópia dát, kde upravíme len parameter 'ean' na zákaznícke
             csv_payload = copy.deepcopy(order_payload)
             for item in csv_payload.get("items", []):
-                orig_ean = str(item.get("ean", ""))
+                orig_ean = str(item.get("ean", "")).strip().lstrip('0')
                 if orig_ean in ean_map:
                     item["ean"] = ean_map[orig_ean]
 
-            # OPRAVA: Nepouzivame priamo _make_csv. Volame hlavnu funkciu, ktora zabezpeci
-            # preklad klucov (customerName -> customer_name) a garantuje identicky vypis:
+            # Vygenerovanie nového CSV (cez tvoju pôvodnú funkciu, takže sa aplikujú nuly a dĺžka 13 znakov presne ako chceš)
             _, csv_bytes, _ = pdf_generator.create_order_files(csv_payload)
             
         except Exception as map_err:
-            import traceback
-            traceback.print_exc()
-            print(f"Chyba pri aplikacii mapovania na CSV: {str(map_err)}")
-            # Fallback na povodne CSV v pripade akejkolvek inej chyby
+            print(f"Chyba pri aplikacii mapovania na CSV: {map_err}")
+            # Núdzový fallback na pôvodné CSV v prípade zlyhania
             _, csv_bytes, _ = pdf_generator.create_order_files(order_payload)
 
-        # C) Zapis CSV na disk
+        # C) Zápis CSV na disk pre tvoju históriu
         try:
             export_dir = os.getenv("B2B_CSV_EXPORT_DIR", "/var/app/data/b2bobjednavky")
             os.makedirs(export_dir, exist_ok=True)
@@ -1238,20 +1236,18 @@ def submit_b2b_order(data: dict):
             if csv_bytes:
                 with open(file_path, "wb") as f:
                     f.write(csv_bytes)
-        except Exception:
-            import traceback
-            traceback.print_exc()
+        except Exception as e:
+            print(f"Chyba pri ukladani CSV na disk: {e}")
         
-        # A) Hlavny e-mail zakaznikovi (Rodic)
+        # A) Hlavný e-mail zákazníkovi (Rodič) - Ide iba PDF s internými kódmi
         try:
             notification_handler.send_order_confirmation_email(
                 to=customer_email, order_number=order_number, pdf_content=pdf_bytes, csv_content=None
             )
-        except Exception:
-            import traceback
-            traceback.print_exc()
+        except Exception as e:
+            print(f"Chyba emailu zakaznikovi: {e}")
 
-        # B) KOPIE podla pola z frontendu
+        # B) KÓPIE e-mailu podľa poľa z frontendu
         if cc_emails_raw:
             cc_list = [e.strip() for e in cc_emails_raw.replace(';', ',').split(',') if e.strip()]
             for cc_mail in cc_list:
@@ -1261,9 +1257,9 @@ def submit_b2b_order(data: dict):
                             to=cc_mail, order_number=order_number, pdf_content=pdf_bytes, csv_content=None
                         )
                     except Exception as e:
-                        print(f"Nepodarilo sa odoslat kopiu na {cc_mail}: {e}")
+                        print(f"Nepodarilo sa odoslať kópiu na {cc_mail}: {e}")
         
-        # C) Email expedicii
+        # C) Email expedícii - Tu ide PDF a aj nové PREMAPOVANÉ CSV (s nulami) pre váhový terminál
         try:
             notification_handler.send_order_confirmation_email(
                 to=EXPEDITION_EMAIL, 
@@ -1279,13 +1275,12 @@ def submit_b2b_order(data: dict):
                 )
             except: pass
 
-    except Exception:
-        import traceback
-        traceback.print_exc()
+    except Exception as e:
+        print(f"Fatalna chyba generatora: {e}")
 
     return {
         "status": "success",
-        "message": f"Objednávka {order_number} bola prijatá.",
+        "message": f"Objednávka {order_number} pre {cust['nazov_firmy']} bola prijatá.",
         "order_data": order_payload,
     }
 def create_b2b_branch(data: dict):
