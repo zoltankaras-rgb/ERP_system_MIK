@@ -1195,13 +1195,13 @@ def submit_b2b_order(data: dict):
             cur.close(); conn.close()
         except: pass
 
-   # 7. Generovanie PDF/CSV a odoslanie e-mailov
-    import pdf_generator  # Zabezpecime import modulu
+  # 7. Generovanie PDF/CSV a odoslanie e-mailov
+    import pdf_generator
     import copy
     
     order_payload["order_number"] = order_number
     try:
-        # A) Vygenerovanie standardneho PDF s internymi kodmi (a povodneho CSV)
+        # A) Vygenerovanie standardneho PDF s internymi kodmi
         pdf_bytes, _, csv_filename = pdf_generator.create_order_files(order_payload)
 
         # B) Prepis kodov specialne len pre CSV na ucely vahoveho terminalu
@@ -1218,13 +1218,15 @@ def submit_b2b_order(data: dict):
                 if orig_ean in ean_map:
                     item["ean"] = ean_map[orig_ean]
 
-            # Priame volanie povodnej CSV formatovacej funkcie (zachova fixed-width)
-            csv_bytes = pdf_generator._make_csv(csv_payload)
+            # OPRAVA: Nepouzivame priamo _make_csv. Volame hlavnu funkciu, ktora zabezpeci
+            # preklad klucov (customerName -> customer_name) a garantuje identicky vypis:
+            _, csv_bytes, _ = pdf_generator.create_order_files(csv_payload)
+            
         except Exception as map_err:
             import traceback
             traceback.print_exc()
             print(f"Chyba pri aplikacii mapovania na CSV: {str(map_err)}")
-            # Fallback
+            # Fallback na povodne CSV v pripade akejkolvek inej chyby
             _, csv_bytes, _ = pdf_generator.create_order_files(order_payload)
 
         # C) Zapis CSV na disk
@@ -1283,10 +1285,9 @@ def submit_b2b_order(data: dict):
 
     return {
         "status": "success",
-        "message": f"Objednávka {order_number} pre {cust['nazov_firmy']} bola prijatá.",
+        "message": f"Objednávka {order_number} bola prijatá.",
         "order_data": order_payload,
     }
-    
 def create_b2b_branch(data: dict):
     """
     Vytvorí podúčet (pobočku) pre existujúceho zákazníka.
