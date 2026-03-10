@@ -1196,41 +1196,38 @@ def submit_b2b_order(data: dict):
         except: pass
 
    # 7. Generovanie PDF/CSV a odoslanie e-mailov
+    import pdf_generator  # Zabezpecime import modulu
+    import copy
+    
     order_payload["order_number"] = order_number
     try:
-        # Najprv vygenerujeme PDF a pôvodné CSV z originálnych dát
+        # A) Vygenerovanie standardneho PDF s internymi kodmi (a povodneho CSV)
         pdf_bytes, _, csv_filename = pdf_generator.create_order_files(order_payload)
 
-        # === APLIKÁCIA MAPOVANIA EAN IBA PRE CSV ===
+        # B) Prepis kodov specialne len pre CSV na ucely vahoveho terminalu
+        csv_bytes = None
         try:
-            import copy
-            import pdf_generator
-            
-            # 1. Načítanie existujúcich mapovaní z databázy
+            # Nacitanie EAN mapovania z databazy
             mapping_db = db_connector.execute_query("SELECT interny_ean, objednavkovy_kod FROM b2b_ean_mapovanie", fetch='all') or []
             ean_map = {str(m['interny_ean']): str(m['objednavkovy_kod']) for m in mapping_db}
 
-            # 2. Vytvoríme hlbokú kópiu dát, aby sme nepokazili pôvodné dáta
+            # Kopia dat, kde upravime len parameter 'ean'
             csv_payload = copy.deepcopy(order_payload)
-            
-            # 3. Prepíšeme EANy len pre tento CSV export
             for item in csv_payload.get("items", []):
                 orig_ean = str(item.get("ean", ""))
                 if orig_ean in ean_map:
                     item["ean"] = ean_map[orig_ean]
 
-            # 4. Zavoláme TVOJU EXISTUJÚCU funkciu pre formátovanie (zachová všetky medzery a fixed-width)
+            # Priame volanie povodnej CSV formatovacej funkcie (zachova fixed-width)
             csv_bytes = pdf_generator._make_csv(csv_payload)
-            
         except Exception as map_err:
             import traceback
             traceback.print_exc()
             print(f"Chyba pri aplikacii mapovania na CSV: {str(map_err)}")
-            # Fallback na pôvodné CSV ak to zlyhá
+            # Fallback
             _, csv_bytes, _ = pdf_generator.create_order_files(order_payload)
-        # ============================================
 
-        # Export CSV na disk
+        # C) Zapis CSV na disk
         try:
             export_dir = os.getenv("B2B_CSV_EXPORT_DIR", "/var/app/data/b2bobjednavky")
             os.makedirs(export_dir, exist_ok=True)
@@ -1240,17 +1237,19 @@ def submit_b2b_order(data: dict):
                 with open(file_path, "wb") as f:
                     f.write(csv_bytes)
         except Exception:
+            import traceback
             traceback.print_exc()
         
-        # A) Hlavný e-mail zákazníkovi (Rodič) - Ide iba PDF
+        # A) Hlavny e-mail zakaznikovi (Rodic)
         try:
             notification_handler.send_order_confirmation_email(
                 to=customer_email, order_number=order_number, pdf_content=pdf_bytes, csv_content=None
             )
         except Exception:
+            import traceback
             traceback.print_exc()
 
-        # B) KÓPIE podľa poľa z frontendu - Ide iba PDF
+        # B) KOPIE podla pola z frontendu
         if cc_emails_raw:
             cc_list = [e.strip() for e in cc_emails_raw.replace(';', ',').split(',') if e.strip()]
             for cc_mail in cc_list:
@@ -1260,9 +1259,9 @@ def submit_b2b_order(data: dict):
                             to=cc_mail, order_number=order_number, pdf_content=pdf_bytes, csv_content=None
                         )
                     except Exception as e:
-                        print(f"Nepodarilo sa odoslať kópiu na {cc_mail}: {e}")
+                        print(f"Nepodarilo sa odoslat kopiu na {cc_mail}: {e}")
         
-        # C) Email expedícii - Tu ide PDF aj NOVÉ PREMAPOVANÉ CSV pre váhový terminál
+        # C) Email expedicii
         try:
             notification_handler.send_order_confirmation_email(
                 to=EXPEDITION_EMAIL, 
@@ -1279,6 +1278,7 @@ def submit_b2b_order(data: dict):
             except: pass
 
     except Exception:
+        import traceback
         traceback.print_exc()
 
     return {

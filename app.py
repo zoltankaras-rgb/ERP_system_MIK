@@ -4389,10 +4389,12 @@ def _ensure_ean_mapping_table():
 def get_ean_mapping():
     _ensure_ean_mapping_table()
     import db_connector
+    
+    # Všimni si zmenu v riadku LEFT JOIN - pridali sme COLLATE pre obe strany
     sql = """
         SELECT m.id, m.interny_ean, m.objednavkovy_kod, p.nazov_vyrobku 
         FROM b2b_ean_mapovanie m
-        LEFT JOIN produkty p ON m.interny_ean = p.ean
+        LEFT JOIN produkty p ON (m.interny_ean COLLATE utf8mb4_slovak_ci) = (p.ean COLLATE utf8mb4_slovak_ci)
         ORDER BY p.nazov_vyrobku
     """
     try:
@@ -4400,8 +4402,11 @@ def get_ean_mapping():
         return jsonify(rows)
     except Exception as e:
         print(f"DB Error getEanMapping: {e}")
-        return jsonify([])
-
+        # V prípade zlyhania JOINu vrátime aspoň hrubé dáta bez názvu produktu, aby to na webe fungovalo
+        backup_sql = "SELECT id, interny_ean, objednavkovy_kod, 'Neznámy produkt' as nazov_vyrobku FROM b2b_ean_mapovanie"
+        backup_rows = db_connector.execute_query(backup_sql, fetch='all') or []
+        return jsonify(backup_rows)
+    
 @app.route('/api/kancelaria/saveEanMapping', methods=['POST'])
 def save_ean_mapping():
     _ensure_ean_mapping_table()
