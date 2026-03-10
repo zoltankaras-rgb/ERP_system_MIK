@@ -747,25 +747,32 @@ def update_customer_details(data: dict):
     return {"message": "Zákazník bol aktualizovaný a cenník sa úspešne aplikoval aj na všetky jeho pobočky."}
 
 def update_customer_route_order(data: dict):
-    cid = data.get("zakaznik_id")
+    cid = str(data.get("zakaznik_id", ""))
     poradie = data.get("poradie")
-    
-    if not cid or poradie is None:
-        return {"error": "Chýba ID zákazníka alebo poradie."}
+    if not cid or poradie is None: return {"error": "Chýba ID zákazníka alebo poradie."}
         
     import db_connector
     conn = db_connector.get_connection()
     try:
         cur = conn.cursor()
-        cur.execute("UPDATE b2b_zakaznici SET trasa_poradie=%s WHERE id=%s", (int(poradie), int(cid)))
-        conn.commit()  # TVRDÝ COMMIT
-        return {"message": "Poradie bolo úspešne uložené."}
+        _ensure_logistics_name_routes()
+
+        if cid.startswith('REG_'):
+            cur.execute("UPDATE b2b_zakaznici SET trasa_poradie=%s WHERE id=%s", (int(poradie), int(cid[4:])))
+        elif cid.startswith('MAN_'):
+            cur.execute("UPDATE b2b_manual_zakaznici SET trasa_poradie=%s WHERE id=%s", (int(poradie), int(cid[4:])))
+        elif cid.startswith('NAME_'):
+            cur.execute("INSERT INTO logistika_name_routes (odberatel, trasa_poradie) VALUES (%s, %s) ON DUPLICATE KEY UPDATE trasa_poradie=%s", (cid[5:], int(poradie), int(poradie)))
+        else:
+            cur.execute("UPDATE b2b_zakaznici SET trasa_poradie=%s WHERE id=%s", (int(poradie), int(cid)))
+
+        conn.commit() 
+        return {"message": "Poradie uložené."}
     except Exception as e:
         if conn: conn.rollback()
         return {"error": str(e)}
     finally:
-        if conn and conn.is_connected():
-            conn.close()
+        if conn and conn.is_connected(): conn.close()
 
 def get_pricelists_and_products():
     _ensure_pricelist_tables()
@@ -2119,181 +2126,159 @@ def get_customer_360_view(data: dict):
         },
         "products": prod_list
     }
-def get_logistics_routes_data(target_date: str):
-    if not target_date:
-        return {"error": "Chýba parameter dátumu."}
+def _ensure_logistics_name_routes():
+    import db_connector
+    db_connector.execute_query("""
+        CREATE TABLE IF NOT EXISTS logistika_name_routes (
+            odberatel VARCHAR(255) PRIMARY KEY,
+            trasa_id INT NULL,
+            trasa_poradie INT DEFAULT 999
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_slovak_ci
+    """, fetch='none')
 
+def get_logistics_routes_data(target_date: str):
+    if not target_date: return {"error": "Chýba parameter dátumu."}
     try:
         import db_connector
+        _ensure_logistics_name_routes()
         
-        # 1. Načítanie trás
         trasy_db = db_connector.execute_query("SELECT id, nazov FROM logistika_trasy WHERE is_active=1 ORDER BY nazov", fetch='all') or []
         trasy_map = {str(t['id']): t['nazov'] for t in trasy_db}
         trasy_map['unassigned'] = 'Zatiaľ nepriradená trasa (Zákazníci bez trasy)'
-        
-        # Pripravíme si zoznam všetkých trás pre rolovacie menu na frontende
         all_routes = [{"id": str(t['id']), "nazov": t['nazov']} for t in trasy_db]
 
-        # 2. Načítanie VŠETKÝCH zákazníkov do pamäte (obídenie MySQL JOIN)
         customers = db_connector.execute_query("SELECT id, zakaznik_id, nazov_firmy, trasa_id, trasa_poradie, cislo_prevadzky FROM b2b_zakaznici", fetch='all') or []
-        
-        # Vytvorenie vyhľadávacích indexov pre Python
+        try:
+            manual_customers = db_connector.execute_query("SELECT id, interne_cislo as zakaznik_id, nazov_firmy, trasa_id, trasa_poradie, NULL as cislo_prevadzky FROM b2b_manual_zakaznici", fetch='all') or []
+        except Exception:
+            manual_customers = []
+
+        name_mappings = db_connector.execute_query("SELECT odberatel, trasa_id, trasa_poradie FROM logistika_name_routes", fetch='all') or []
+        name_map = {m['odberatel'].strip().lower(): m for m in name_mappings}
+
         cust_by_erp = {}
         cust_by_name = {}
+        
         for c in customers:
-            if c.get('zakaznik_id'):
-                cust_by_erp[str(c['zakaznik_id']).strip().lower()] = c
-            if c.get('nazov_firmy'):
-                cust_by_name[str(c['nazov_firmy']).strip().lower()] = c
+            c['route_entity_type'] = 'REG'
+            if c.get('zakaznik_id'): cust_by_erp[str(c['zakaznik_id']).strip().lower()] = c
+            if c.get('nazov_firmy'): cust_by_name[str(c['nazov_firmy']).strip().lower()] = c
 
-        # 3. Načítanie objednávok samostatne
+        for c in manual_customers:
+            c['route_entity_type'] = 'MAN'
+            if c.get('zakaznik_id'): cust_by_erp[str(c['zakaznik_id']).strip().lower()] = c
+            if c.get('nazov_firmy'): cust_by_name[str(c['nazov_firmy']).strip().lower()] = c
+
         sql = """
         SELECT 
-            o.cislo_objednavky,
-            o.nazov_firmy AS odberatel,
-            o.adresa,
-            o.zakaznik_id AS erp_id,
-            pol.nazov_vyrobku AS produkt,
-            pol.mnozstvo,
-            pol.mj,
-            p.predajna_kategoria
+            o.cislo_objednavky, o.nazov_firmy AS odberatel, o.adresa, o.zakaznik_id AS erp_id,
+            pol.nazov_vyrobku AS produkt, pol.mnozstvo, pol.mj, p.predajna_kategoria
         FROM b2b_objednavky o
         JOIN b2b_objednavky_polozky pol ON o.id = pol.objednavka_id
-        LEFT JOIN produkty p ON (
-             (p.ean IS NOT NULL AND pol.ean_produktu IS NOT NULL AND p.ean = pol.ean_produktu)
-          OR (p.nazov_vyrobku = pol.nazov_vyrobku)
-        )
-        WHERE o.stav NOT IN ('Hotová', 'Zrušená', 'Expedovaná')
-          AND DATE(o.pozadovany_datum_dodania) = %s
+        LEFT JOIN produkty p ON ((p.ean IS NOT NULL AND pol.ean_produktu IS NOT NULL AND p.ean = pol.ean_produktu) OR (p.nazov_vyrobku = pol.nazov_vyrobku))
+        WHERE o.stav NOT IN ('Hotová', 'Zrušená', 'Expedovaná') AND DATE(o.pozadovany_datum_dodania) = %s
         """
-        
         polozky = db_connector.execute_query(sql, (target_date,), fetch='all') or []
 
         routes_data = {}
 
-        # 4. Manuálne spracovanie a prepájanie v Pythone
         for p in polozky:
             erp_id_val = str(p['erp_id']).strip().lower() if p['erp_id'] else ""
-            name_val = str(p['odberatel']).strip().lower() if p['odberatel'] else ""
+            odberatel_raw = p['odberatel'] or "Neznámy"
+            name_val = str(odberatel_raw).strip().lower()
             
-            matched_cust = None
-            
-            if erp_id_val in cust_by_erp:
-                matched_cust = cust_by_erp[erp_id_val]
-            elif name_val in cust_by_name:
-                matched_cust = cust_by_name[name_val]
-            
-            odberatel = p['odberatel']
+            matched_cust = cust_by_erp.get(erp_id_val) or cust_by_name.get(name_val)
+            odberatel_zobrazenie = odberatel_raw
 
             if matched_cust:
-                db_id = str(matched_cust['id'])
+                db_id = f"{matched_cust['route_entity_type']}_{matched_cust['id']}"
                 tid = str(matched_cust['trasa_id']) if matched_cust['trasa_id'] is not None else 'unassigned'
                 poradie = matched_cust['trasa_poradie'] if matched_cust['trasa_poradie'] is not None else 999
-                
-                # ZMENA: Zobrazenie čísla prevádzky v názve
                 cislo_prevadzky = str(matched_cust.get('cislo_prevadzky') or '').strip()
-                if cislo_prevadzky and not str(odberatel).startswith(f"[{cislo_prevadzky}]"):
-                    odberatel = f"[{cislo_prevadzky}] {odberatel}"
+                if cislo_prevadzky and not str(odberatel_zobrazenie).startswith(f"[{cislo_prevadzky}]"):
+                    odberatel_zobrazenie = f"[{cislo_prevadzky}] {odberatel_zobrazenie}"
             else:
-                db_id = '0'
-                tid = 'unassigned'
-                poradie = 999
-
-            adresa = p['adresa']
-            obj_cislo = p['cislo_objednavky']
-            kategoria = str(p['predajna_kategoria'] or 'Nezaradené').strip()
-            produkt = p['produkt']
-            mnozstvo = float(p['mnozstvo'] or 0)
-            mj = p['mj']
+                db_id = f"NAME_{odberatel_raw}"
+                nm = name_map.get(name_val)
+                if nm:
+                    tid = str(nm['trasa_id']) if nm['trasa_id'] is not None else 'unassigned'
+                    poradie = nm['trasa_poradie'] if nm['trasa_poradie'] is not None else 999
+                else:
+                    tid = 'unassigned'
+                    poradie = 999
 
             if tid not in routes_data:
                 routes_data[tid] = { "id": tid, "nazov": trasy_map.get(tid, 'Neznáma trasa'), "zastavky": {}, "sumar": {} }
 
-            if odberatel not in routes_data[tid]["zastavky"]:
-                routes_data[tid]["zastavky"][odberatel] = {
-                    "zakaznik_id": db_id, 
-                    "odberatel": odberatel, 
-                    "adresa": adresa,
-                    "poradie": int(poradie), 
-                    "objednavky_set": set()
+            if odberatel_zobrazenie not in routes_data[tid]["zastavky"]:
+                routes_data[tid]["zastavky"][odberatel_zobrazenie] = {
+                    "zakaznik_id": db_id, "odberatel": odberatel_zobrazenie, "adresa": p['adresa'],
+                    "poradie": int(poradie), "objednavky_set": set()
                 }
-            routes_data[tid]["zastavky"][odberatel]["objednavky_set"].add(obj_cislo)
+            routes_data[tid]["zastavky"][odberatel_zobrazenie]["objednavky_set"].add(p['cislo_objednavky'])
 
-            if kategoria not in routes_data[tid]["sumar"]:
-                routes_data[tid]["sumar"][kategoria] = {}
-            
-            prod_key = f"{produkt}|{mj}"
-            if prod_key not in routes_data[tid]["sumar"][kategoria]:
-                routes_data[tid]["sumar"][kategoria][prod_key] = { "produkt": produkt, "mnozstvo": 0, "mj": mj }
-            routes_data[tid]["sumar"][kategoria][prod_key]["mnozstvo"] += mnozstvo
+            kat = str(p['predajna_kategoria'] or 'Nezaradené').strip()
+            if kat not in routes_data[tid]["sumar"]: routes_data[tid]["sumar"][kat] = {}
+            prod_key = f"{p['produkt']}|{p['mj']}"
+            if prod_key not in routes_data[tid]["sumar"][kat]:
+                routes_data[tid]["sumar"][kat][prod_key] = { "produkt": p['produkt'], "mnozstvo": 0, "mj": p['mj'] }
+            routes_data[tid]["sumar"][kat][prod_key]["mnozstvo"] += float(p['mnozstvo'] or 0)
 
         final_routes = []
         for tid, data in routes_data.items():
-            zastavky_list = []
+            z_list = []
             for odb, zdata in data["zastavky"].items():
-                obj_list = list(zdata["objednavky_set"])
-                zastavky_list.append({
-                    "zakaznik_id": zdata["zakaznik_id"], 
-                    "odberatel": odb, 
-                    "adresa": zdata["adresa"],
-                    "poradie": zdata["poradie"], 
-                    "pocet_objednavok": len(obj_list), 
-                    "cisla_objednavok": obj_list
-                })
-            zastavky_list.sort(key=lambda x: x["poradie"])
+                z_list.append({**zdata, "pocet_objednavok": len(zdata["objednavky_set"]), "cisla_objednavok": list(zdata["objednavky_set"])})
+            z_list.sort(key=lambda x: x["poradie"])
 
-            sumar_list = []
-            for kat, produkty in data["sumar"].items():
-                prod_list = list(produkty.values())
-                prod_list.sort(key=lambda x: x["produkt"])
-                sumar_list.append({ "kategoria": kat, "polozky": prod_list })
-            sumar_list.sort(key=lambda x: x["kategoria"])
+            s_list = []
+            for k, prods in data["sumar"].items():
+                p_list = sorted(list(prods.values()), key=lambda x: x["produkt"])
+                s_list.append({ "kategoria": k, "polozky": p_list })
+            s_list.sort(key=lambda x: x["kategoria"])
 
-            final_routes.append({ "trasa_id": tid, "nazov": data["nazov"], "zastavky": zastavky_list, "sumar": sumar_list })
+            final_routes.append({ "trasa_id": tid, "nazov": data["nazov"], "zastavky": z_list, "sumar": s_list })
 
         final_routes.sort(key=lambda x: x["nazov"])
-        
         vehicles = db_connector.execute_query("SELECT id, license_plate, name FROM fleet_vehicles WHERE is_active=1 ORDER BY name", fetch='all') or []
-        
-        # ZMENA: Vraciam aj všetky trasy pre hromadný presun
         return {"trasy": final_routes, "vehicles": vehicles, "all_routes": all_routes}
-        
     except Exception as e:
-        import traceback
-        traceback.print_exc()
         return {"error": str(e)}
 
-# ZMENA: Nová funkcia na hromadný presun zákazníkov do trás
 def bulk_assign_route(data: dict):
     customer_ids = data.get('customer_ids', [])
     trasa_id = data.get('trasa_id')
-    
-    if not customer_ids:
-        return {"error": "Neboli vybraní žiadni zákazníci."}
-        
-    # Ak zvolí "unassigned", nastavíme trasu v DB na NULL
-    if str(trasa_id).strip() in ["", "unassigned", "null", "None"]:
-        trasa_val = None
-    else:
-        trasa_val = int(trasa_id)
+    if not customer_ids: return {"error": "Neboli vybraní žiadni zákazníci."}
+    trasa_val = None if str(trasa_id).strip() in ["", "unassigned", "null", "None"] else int(trasa_id)
         
     import db_connector
     conn = db_connector.get_connection()
     try:
         cur = conn.cursor()
-        format_strings = ','.join(['%s'] * len(customer_ids))
-        
-        # Resetneme aj poradie na 999, aby sa zaradili na koniec novej trasy
-        cur.execute(f"UPDATE b2b_zakaznici SET trasa_id=%s, trasa_poradie=999 WHERE id IN ({format_strings})", 
-                    [trasa_val] + [int(cid) for cid in customer_ids])
+        _ensure_logistics_name_routes()
+
+        reg_ids = [int(cid[4:]) for cid in customer_ids if str(cid).startswith('REG_')]
+        man_ids = [int(cid[4:]) for cid in customer_ids if str(cid).startswith('MAN_')]
+        names = [str(cid[5:]) for cid in customer_ids if str(cid).startswith('NAME_')]
+
+        if reg_ids:
+            cur.execute(f"UPDATE b2b_zakaznici SET trasa_id=%s, trasa_poradie=999 WHERE id IN ({','.join(['%s']*len(reg_ids))})", [trasa_val] + reg_ids)
+        if man_ids:
+            cur.execute(f"UPDATE b2b_manual_zakaznici SET trasa_id=%s, trasa_poradie=999 WHERE id IN ({','.join(['%s']*len(man_ids))})", [trasa_val] + man_ids)
+        if names:
+            for n in names:
+                cur.execute("""
+                    INSERT INTO logistika_name_routes (odberatel, trasa_id, trasa_poradie) VALUES (%s, %s, 999)
+                    ON DUPLICATE KEY UPDATE trasa_id=%s, trasa_poradie=999
+                """, (n, trasa_val, trasa_val))
+
         conn.commit()
-        return {"message": f"Zákazníci boli úspešne presunutí."}
+        return {"message": "Zákazníci boli úspešne presunutí."}
     except Exception as e:
         if conn: conn.rollback()
         return {"error": str(e)}
     finally:
-        if conn and conn.is_connected():
-            conn.close()
+        if conn and conn.is_connected(): conn.close()
     
 def get_routes_list():
     try:

@@ -997,6 +997,7 @@ def leader_assign_vehicle():
 # =============================================================================
 
 def _ensure_manual_customers_table():
+    import db_connector
     db_connector.execute_query("""
         CREATE TABLE IF NOT EXISTS b2b_manual_zakaznici (
             id INT AUTO_INCREMENT PRIMARY KEY,
@@ -1004,11 +1005,18 @@ def _ensure_manual_customers_table():
             nazov_firmy VARCHAR(255) NOT NULL,
             adresa VARCHAR(255),
             kontakt VARCHAR(255),
+            trasa_id INT NULL,
+            trasa_poradie INT DEFAULT 999,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_slovak_ci
     """, fetch='none')
     
-    # Odstránime obmedzenie, aby objednávky mohli prechádzať aj od manuálnych zákazníkov
+    try:
+        db_connector.execute_query("ALTER TABLE b2b_manual_zakaznici ADD COLUMN trasa_id INT NULL", fetch='none')
+        db_connector.execute_query("ALTER TABLE b2b_manual_zakaznici ADD COLUMN trasa_poradie INT DEFAULT 999", fetch='none')
+    except Exception:
+        pass
+    
     try:
         db_connector.execute_query("ALTER TABLE b2b_objednavky DROP FOREIGN KEY fk_b2bo_zakaznik", fetch='none')
     except Exception:

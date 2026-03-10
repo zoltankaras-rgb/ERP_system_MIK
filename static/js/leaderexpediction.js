@@ -1557,9 +1557,9 @@ window.showManualRouteEditor = async function(id) {
                                   </thead>
                                   <tbody>
                                       ${t.zastavky.map((z) => `
-                                          <tr style="border-bottom:1px solid #f1f5f9; ${z.zakaznik_id === '0' ? 'opacity:0.6; background:#fef2f2;' : ''}">
+                                          <tr style="border-bottom:1px solid #f1f5f9;">
                                               <td style="text-align:center; padding:8px;">
-                                                  ${z.zakaznik_id !== '0' ? `<input type="checkbox" class="route-cb-${t.trasa_id}" value="${z.zakaznik_id}" style="transform:scale(1.2); cursor:pointer;">` : `<i class="fas fa-ban text-danger" title="Tento zákazník nemá ID a nedá sa presunúť."></i>`}
+                                                  <input type="checkbox" class="route-cb-${t.trasa_id}" value="${z.zakaznik_id}" style="transform:scale(1.2); cursor:pointer;">
                                               </td>
                                               <td style="text-align:center; padding:8px;">
                                                   <input type="number" value="${z.poradie}" style="width:60px; text-align:center; font-weight:bold; border:1px solid #ccc; padding:4px; border-radius:4px;" id="poradie_${z.zakaznik_id}">
@@ -1573,7 +1573,7 @@ window.showManualRouteEditor = async function(id) {
                                                   <small style="color:#94a3b8;">${z.cisla_objednavok.join(', ')}</small>
                                               </td>
                                               <td style="text-align:center; padding:8px;">
-                                                  <button class="btn btn-secondary btn-sm" onclick="window.saveRouteOrder(${z.zakaznik_id})">💾</button>
+                                                  <button class="btn btn-secondary btn-sm" onclick="window.saveRouteOrder('${z.zakaznik_id}')">💾</button>
                                               </td>
                                           </tr>
                                       `).join('')}
