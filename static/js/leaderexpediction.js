@@ -2465,16 +2465,14 @@ async function loadExpeditionBreakdown() {
       tr.querySelector('.mo-qty').select();
   }
 
-  // Pridať inicializáciu do existujúcej boot() funkcie
-  const origBoot = root.boot;
-  if(origBoot) {
-      // Ak bola funkcia už niekde definovaná
-  }
-  
-  // Zabezpečenie spustenia
-  setTimeout(() => {
-      initManualOrdersUI();
-  }, 500);
+  // Zabezpečenie spustenia po načítaní DOM štruktúry
+  document.addEventListener('DOMContentLoaded', () => {
+      setTimeout(() => {
+          if (typeof initManualOrdersUI === 'function') {
+              initManualOrdersUI();
+          }
+      }, 500);
+  });
   
 function printExpeditionBreakdown() {
     if (!currentBreakdownData.grouped || Object.keys(currentBreakdownData.grouped).length === 0) return;
