@@ -1298,3 +1298,10 @@ def manual_order_history():
 def leader_bulk_assign_route():
     import b2b_handler
     return jsonify(b2b_handler.bulk_assign_route(request.get_json(silent=True) or {}))
+
+@leader_bp.get('/logistics/daily-summary')
+@login_required(role=('veduci','admin'))
+def leader_daily_summary():
+    date_str = request.args.get('date')
+    import b2b_handler
+    return jsonify(b2b_handler.get_daily_items_summary({'date': date_str}))

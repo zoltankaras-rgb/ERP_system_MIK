@@ -1490,6 +1490,7 @@ window.showManualRouteEditor = async function(id) {
                       <label style="font-weight:bold;">Deň rozvozu (Dodania):</label>
                       <input type="date" id="logistics-date" class="form-control" style="width:auto; display:inline-block;" value="${today}">
                       <button id="logistics-load-btn" class="btn btn-success"><i class="fas fa-sync"></i> Načítať trasy</button>
+                      <button class="btn btn-dark" onclick="window.printDailySummary()"><i class="fas fa-print"></i> Slepý list dňa</button>
                   </div>
               </div>
           </div>
@@ -1730,7 +1731,53 @@ window.showManualRouteEditor = async function(id) {
           }
       });
   };
+window.printDailySummary = async function() {
+      const date = document.getElementById('logistics-date').value;
+      if (!date) return showStatus("Zvoľte dátum na vytlačenie slepého listu.", true);
+      
+      try {
+          showStatus("Generujem celkový súhrn na prípravu...", false);
+          const res = await apiRequest(`/api/leader/logistics/daily-summary?date=${date}`);
+          
+          if (!res.kategorie || res.kategorie.length === 0) {
+              return showStatus("Na tento deň nie sú prijaté žiadne objednávky.", true);
+          }
 
+          const dateFormatted = date.split('-').reverse().join('.');
+          let html = `<html><head><title>Celkový Slepý List - ${dateFormatted}</title>
+          <style>
+              body { font-family: Arial, sans-serif; padding: 20px; font-size: 14px; } 
+              h1, h3 { text-align: center; margin:0 0 10px 0; } 
+              .info-box { background: #eff6ff; border: 1px solid #bfdbfe; padding: 10px 15px; margin-bottom: 15px; font-size: 14px; border-radius: 4px; text-align:center;}
+              .cat { background: #e2e8f0; padding: 8px; margin-top: 20px; font-weight: bold; border: 1px solid #000; border-bottom: none; text-transform: uppercase; font-size: 16px;} 
+              table { width: 100%; border-collapse: collapse; margin-bottom: 20px;} 
+              th, td { border: 1px solid #000; padding: 8px; } 
+              .num { text-align: right; font-weight: bold; width: 150px; font-size:16px;} 
+              @media print { body { margin: 0; padding: 10mm; } }
+          </style></head><body>
+          <h1>CELKOVÝ SLEPÝ LIST PRE EXPEDÍCIU / VÝROBU</h1>
+          <div class="info-box"><strong>DÁTUM DODANIA: ${dateFormatted}</strong><br>Tento list obsahuje súhrn položiek zo všetkých prijatých objednávok dokopy bez ohľadu na trasu.</div>`;
+          
+          res.kategorie.forEach(kat => {
+              html += `<div class="cat">${escapeHtml(kat.kategoria)}</div><table><tbody>`;
+              kat.polozky.forEach(p => {
+                  const val = parseFloat(p.qty);
+                  const displayVal = Number.isInteger(val) ? val : val.toFixed(2);
+                  html += `<tr><td>${escapeHtml(p.name)}</td><td class="num">${displayVal} ${p.unit}</td></tr>`;
+              });
+              html += `</tbody></table>`;
+          });
+          
+          html += `<script>window.onload=function(){window.print(); setTimeout(function(){window.close();},500);}</script></body></html>`;
+          
+          const win = window.open('', '_blank'); 
+          win.document.write(html); 
+          win.document.close();
+          
+      } catch (e) {
+          showStatus("Chyba pri generovaní listu: " + e.message, true);
+      }
+  };
   window.renderStopRow = function(name, note, storeId) {
       const container = document.getElementById('tpl-stops-container');
       const row = document.createElement('div');

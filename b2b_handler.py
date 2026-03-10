@@ -1825,41 +1825,47 @@ def admin_messages_reply(req):
 def get_daily_items_summary(data: dict):
     """
     Vráti zoznam všetkých produktov objednaných na konkrétny deň dodania.
-    Zgrupuje B2B objednávky podľa EAN/Názvu.
+    Zoskupené podľa predajnej kategórie pre celkový slepý list expedície.
     """
     target_date = data.get('date')
     if not target_date:
         return {"error": "Chýba dátum."}
 
-    # SQL: Vyberieme položky z B2B objednávok, ktoré nie sú zrušené
-    # a majú požadovaný dátum dodania.
+    import db_connector
     sql = """
         SELECT 
-            p.nazov_vyrobku, 
-            p.ean_produktu, 
-            p.mj, 
-            SUM(p.mnozstvo) as total_qty
-        FROM b2b_objednavky_polozky p
-        JOIN b2b_objednavky o ON o.id = p.objednavka_id
-        WHERE o.pozadovany_datum_dodania = %s
-          AND o.stav != 'Zrušená'
-        GROUP BY p.ean_produktu, p.nazov_vyrobku, p.mj
-        ORDER BY p.nazov_vyrobku
+            pol.nazov_vyrobku as produkt, 
+            pol.mj, 
+            SUM(pol.mnozstvo) as total_qty,
+            COALESCE(p.predajna_kategoria, 'Nezaradené') as kategoria
+        FROM b2b_objednavky_polozky pol
+        JOIN b2b_objednavky o ON o.id = pol.objednavka_id
+        LEFT JOIN produkty p ON (
+             (p.ean IS NOT NULL AND pol.ean_produktu IS NOT NULL AND p.ean = pol.ean_produktu)
+          OR (p.nazov_vyrobku = pol.nazov_vyrobku)
+        )
+        WHERE DATE(o.pozadovany_datum_dodania) = %s
+          AND o.stav NOT IN ('Zrušená', 'Zrusena', 'Stornovaná')
+        GROUP BY pol.nazov_vyrobku, pol.mj, p.predajna_kategoria
+        ORDER BY kategoria, produkt
     """
-    
     rows = db_connector.execute_query(sql, (target_date,), fetch='all') or []
     
-    # Prevedieme decimal na float pre JSON
-    results = []
+    summary = {}
     for r in rows:
-        results.append({
-            "name": r['nazov_vyrobku'],
-            "ean": r['ean_produktu'],
+        kat = str(r['kategoria']).strip()
+        if kat not in summary:
+            summary[kat] = []
+        
+        summary[kat].append({
+            "name": r['produkt'],
             "qty": float(r['total_qty'] or 0),
             "unit": r['mj']
         })
         
-    return {"items": results, "date": target_date}
+    results = [{"kategoria": k, "polozky": summary[k]} for k in sorted(summary.keys())]
+        
+    return {"kategorie": results, "date": target_date}
 
 def _ensure_route_templates_table():
     # ZMENA: Premenovali sme tabuľku na b2b_manual_routes, aby sa vytvorila nanovo s novými stĺpcami
