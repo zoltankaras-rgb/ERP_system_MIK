@@ -1102,7 +1102,8 @@ def submit_manual_order():
     is_registered = customer.get('is_registered') == '1'
     cust_email = customer.get('kontakt') if is_registered else None
     
-    order_number = f"B2B-{login_id}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+    # ZMENA: Prefix B2BM- pre lepšiu filtráciu manuálnych objednávok
+    order_number = f"B2BM-{login_id}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
     
     total_net = 0.0
     total_vat = 0.0
@@ -1164,7 +1165,6 @@ def submit_manual_order():
             cur.close()
             conn.close()
 
-    # Generovanie identického CSV a PDF
     import copy
     order_payload = {
         "order_number": order_number,
@@ -1185,10 +1185,8 @@ def submit_manual_order():
         import pdf_generator
         import notification_handler
         
-        # 1. Štandardné PDF
         pdf_bytes, _, csv_filename = pdf_generator.create_order_files(order_payload)
 
-        # 2. Mapovanie EAN pre CSV (identické s e-shopom)
         csv_payload = copy.deepcopy(order_payload)
         mapping_db = db_connector.execute_query("SELECT interny_ean, objednavkovy_kod FROM b2b_ean_mapovanie", fetch='all') or []
         ean_map = {str(m['interny_ean']).strip().lstrip('0'): str(m['objednavkovy_kod']).strip() for m in mapping_db if m.get('interny_ean')}
@@ -1200,7 +1198,6 @@ def submit_manual_order():
 
         _, csv_bytes, _ = pdf_generator.create_order_files(csv_payload)
 
-        # 3. Zápis CSV na server
         export_dir = os.getenv("B2B_CSV_EXPORT_DIR", "/var/app/data/b2bobjednavky")
         os.makedirs(export_dir, exist_ok=True)
         file_name = csv_filename or f"objednavka_{order_number}.csv"
@@ -1210,10 +1207,8 @@ def submit_manual_order():
             with open(file_path, "wb") as f:
                 f.write(csv_bytes)
                 
-        # 4. Odosielanie emailov
         expedition_email = os.getenv("B2B_EXPEDITION_EMAIL") or "miksroexpedicia@gmail.com"
         
-        # Pre expedíciu s CSV
         try:
             notification_handler.send_order_confirmation_email(
                 to=expedition_email, order_number=order_number, pdf_content=pdf_bytes, csv_content=csv_bytes, csv_filename=file_name
@@ -1221,7 +1216,6 @@ def submit_manual_order():
         except Exception as e:
             print(f"Chyba pri maili na expediciu: {e}")
 
-        # Pre ZÁKAZNÍKA (iba ak je registrovaný a má email)
         if is_registered and cust_email and '@' in cust_email:
             try:
                 notification_handler.send_order_confirmation_email(
@@ -1238,3 +1232,55 @@ def submit_manual_order():
         'order_id': oid,
         'order_number': order_number
     })
+
+@leader_bp.get('/manual_order/pricelist_items')
+@login_required(role=('veduci', 'admin'))
+def manual_pricelist_items():
+    pl_id = request.args.get('pricelist_id')
+    if not pl_id: 
+        return jsonify([])
+    
+    sql = """
+        SELECT cp.ean_produktu as ean, p.nazov_vyrobku as name, cp.cena as price, p.mj, p.dph 
+        FROM b2b_cennik_polozky cp
+        JOIN produkty p ON p.ean = cp.ean_produktu
+        WHERE cp.cennik_id = %s
+        ORDER BY p.predajna_kategoria, p.nazov_vyrobku
+    """
+    rows = db_connector.execute_query(sql, (pl_id,), fetch='all') or []
+    
+    # Prevádzame Decimals na floaty pre JSON odpoveď
+    for r in rows:
+        r['price'] = float(r.get('price', 0))
+        r['dph'] = float(r.get('dph', 20))
+        
+    return jsonify(rows)
+
+@leader_bp.get('/manual_order/history')
+@login_required(role=('veduci', 'admin'))
+def manual_order_history():
+    limit = int(request.args.get('limit', 50))
+    q = request.args.get('q', '').strip()
+    
+    sql = """
+        SELECT id, cislo_objednavky, nazov_firmy, pozadovany_datum_dodania, celkova_suma_s_dph, stav, datum_objednavky
+        FROM b2b_objednavky
+        WHERE cislo_objednavky LIKE 'B2BM-%'
+    """
+    params = []
+    
+    if q:
+        sql += " AND nazov_firmy LIKE %s "
+        params.append(f"%{q}%")
+        
+    sql += " ORDER BY datum_objednavky DESC LIMIT %s"
+    params.append(limit)
+
+    rows = db_connector.execute_query(sql, tuple(params), fetch='all') or []
+    
+    for r in rows:
+        r['datum_objednavky'] = _iso(r.get('datum_objednavky'))
+        r['pozadovany_datum_dodania'] = _iso(r.get('pozadovany_datum_dodania'))
+        r['celkova_suma_s_dph'] = float(r.get('celkova_suma_s_dph') or 0)
+        
+    return jsonify(rows)
