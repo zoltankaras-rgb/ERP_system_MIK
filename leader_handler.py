@@ -1032,21 +1032,27 @@ def search_all_customers():
     
     like_q = f"%{q}%"
 
-    # 1. Hľadáme v registrovaných zákazníkoch (E-shop)
+    # 1. Hľadáme v registrovaných zákazníkoch (E-shop) - pridané cislo_prevadzky do SELECTu aj WHERE
     sql_reg = """
-        SELECT id as db_id, zakaznik_id as interne_cislo, nazov_firmy, adresa, email as kontakt, '1' as is_registered 
+        SELECT id as db_id, zakaznik_id as interne_cislo, nazov_firmy, adresa, email as kontakt, '1' as is_registered, cislo_prevadzky 
         FROM b2b_zakaznici 
-        WHERE typ='B2B' AND (nazov_firmy LIKE %s OR zakaznik_id LIKE %s)
-        LIMIT 10
+        WHERE typ='B2B' AND (nazov_firmy LIKE %s OR zakaznik_id LIKE %s OR cislo_prevadzky LIKE %s)
+        LIMIT 15
     """
-    reg_rows = db_connector.execute_query(sql_reg, (like_q, like_q), fetch='all') or []
+    reg_rows = db_connector.execute_query(sql_reg, (like_q, like_q, like_q), fetch='all') or []
+
+    # Vloženie čísla prevádzky priamo do názvu firmy pre frontend
+    for r in reg_rows:
+        c_prev = str(r.get('cislo_prevadzky') or '').strip()
+        if c_prev and not str(r['nazov_firmy']).startswith(f"[{c_prev}]"):
+            r['nazov_firmy'] = f"[{c_prev}] {r['nazov_firmy']}"
 
     # 2. Hľadáme v neregistrovaných (Manuálnych)
     sql_man = """
         SELECT id as db_id, interne_cislo, nazov_firmy, adresa, kontakt, '0' as is_registered 
         FROM b2b_manual_zakaznici 
         WHERE nazov_firmy LIKE %s OR interne_cislo LIKE %s
-        LIMIT 10
+        LIMIT 15
     """
     man_rows = db_connector.execute_query(sql_man, (like_q, like_q), fetch='all') or []
 
