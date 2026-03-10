@@ -395,18 +395,27 @@ def setup_new_sales_channel(data):
 # Predajné kanály – uloženie a integrované mazanie
 # -----------------------------------------------------------------
 def setup_new_sales_channel(data):
-    channel_name = (data.get("channel_name") or "").strip()
+    channel_name = str(data.get("channel_name") or "").strip()
     
-    # 1. Výnimka pre zmazanie kanálu
+    # === 1. MAZANIE KANÁLU (Opravený commit) ===
     if data.get("delete_channel"):
+        conn_del = None
         try:
-            db_connector.execute_query("DELETE FROM profit_sales_monthly WHERE sales_channel = %s", (channel_name,), fetch="none")
-            db_connector.execute_query("UPDATE b2b_zakaznici SET predajny_kanal = NULL WHERE predajny_kanal = %s", (channel_name,), fetch="none")
-            return {"message": f"Kanál '{channel_name}' bol úspešne vymazaný."}
+            conn_del = db_connector.get_connection()
+            cur_del = conn_del.cursor()
+            cur_del.execute("DELETE FROM profit_sales_monthly WHERE sales_channel = %s", (channel_name,))
+            cur_del.execute("UPDATE b2b_zakaznici SET predajny_kanal = NULL WHERE predajny_kanal = %s", (channel_name,))
+            conn_del.commit() # TOTO chýbalo, ukladá zmazanie napevno
+            return {"message": f"Kanál '{channel_name}' bol trvalo odstránený."}
         except Exception as e:
+            if conn_del: conn_del.rollback()
             return {"error": str(e)}
+        finally:
+            if conn_del and conn_del.is_connected():
+                cur_del.close()
+                conn_del.close()
 
-    # 2. Bezpečné parsovanie dátumu (ochrana proti 500 Internal Server Error)
+    # === 2. VYTVORENIE KANÁLU ===
     try:
         year = int(data.get("year", 0))
         month = int(data.get("month", 0))
@@ -416,53 +425,73 @@ def setup_new_sales_channel(data):
     chain_id = data.get("chain_id")
 
     if not year or not month or not channel_name:
-        return {"error": "Chýbajú dáta na vytvorenie kanálu."}
+        return {"error": "Chýbajú dáta pre vytvorenie."}
 
-    # 3. Nastavenie kanálu primárne na úroveň materskej spoločnosti
-    if chain_id:
+    if not _has_col("b2b_zakaznici", "predajny_kanal"):
+        try:
+            db_connector.execute_query("ALTER TABLE b2b_zakaznici ADD COLUMN predajny_kanal VARCHAR(100) DEFAULT NULL", fetch="none")
+        except: pass
+
+    # === 3. PREPOJENIE MATKY AJ DCÉR (Opravené) ===
+    if chain_id and str(chain_id).strip():
+        conn_upd = None
+        try:
+            conn_upd = db_connector.get_connection()
+            cur_upd = conn_upd.cursor()
+            # Updatne matku (id) aj jej pobočky (parent_id)
+            cur_upd.execute(
+                "UPDATE b2b_zakaznici SET predajny_kanal = %s WHERE id = %s OR parent_id = %s",
+                (channel_name, int(chain_id), int(chain_id))
+            )
+            conn_upd.commit()
+        except Exception as e:
+            if conn_upd: conn_upd.rollback()
+            print("UPDATE DB ERROR:", e)
+        finally:
+            if conn_upd and conn_upd.is_connected():
+                cur_upd.close()
+                conn_upd.close()
+    else:
+        # Fallback pre istotu, ak sa nevyberie reťazec, ale zadá sa len názov
         try:
             conn_upd = db_connector.get_connection()
             cur_upd = conn_upd.cursor()
             cur_upd.execute(
-                "UPDATE b2b_zakaznici SET predajny_kanal = %s WHERE id = %s",
-                (channel_name, int(chain_id))
+                "UPDATE b2b_zakaznici SET predajny_kanal = %s WHERE nazov_firmy LIKE %s",
+                (channel_name, f"%{channel_name}%")
             )
             conn_upd.commit()
             cur_upd.close()
             conn_upd.close()
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
+        except: pass
 
-    # 4. Generovanie nulových záznamov produktov pre nový kanál
+    # === 4. Vygenerovanie riadkov produktov ===
     products_q = "SELECT ean, nazov_vyrobku FROM produkty WHERE typ_polozky LIKE 'VÝROBOK%%' OR typ_polozky LIKE 'TOVAR%%'"
     all_products = db_connector.execute_query(products_q) or []
-    if not all_products:
-        return {"message": "V katalógu nie sú žiadne produkty na pridanie."}
+    
+    if all_products:
+        available_products_with_costs = get_calculations_view(year, month).get("available_products", [])
+        prod_costs = {p["ean"]: p.get("avg_cost", 0) for p in available_products_with_costs}
 
-    available_products_with_costs = get_calculations_view(year, month)["available_products"]
-    prod_costs = {p["ean"]: p.get("avg_cost", 0) for p in available_products_with_costs}
+        records_to_insert = [
+            (year, month, channel_name, p["ean"], float(prod_costs.get(p["ean"], 0) or 0)) 
+            for p in all_products
+        ]
+        query = """
+            INSERT IGNORE INTO profit_sales_monthly
+                (report_year, report_month, sales_channel, product_ean, purchase_price_net)
+            VALUES (%s, %s, %s, %s, %s)
+        """
+        try:
+            conn = db_connector.get_connection()
+            cur = conn.cursor()
+            cur.executemany(query, records_to_insert)
+            conn.commit()
+            cur.close()
+            conn.close()
+        except: pass
 
-    records_to_insert = [
-        (year, month, channel_name, p["ean"], float(prod_costs.get(p["ean"], 0) or 0)) for p in all_products
-    ]
-
-    query = """
-        INSERT IGNORE INTO profit_sales_monthly
-            (report_year, report_month, sales_channel, product_ean, purchase_price_net)
-        VALUES (%s, %s, %s, %s, %s)
-    """
-    try:
-        conn = db_connector.get_connection()
-        cur = conn.cursor()
-        cur.executemany(query, records_to_insert)
-        conn.commit()
-        cur.close()
-        conn.close()
-    except Exception:
-        pass
-
-    return {"message": f"Kanál '{channel_name}' bol úspešne vytvorený."}
+    return {"message": f"Kanál '{channel_name}' úspešne vytvorený a prepojený na prevádzky."}
 # -----------------------------------------------------------------
 # Kalkulácie / súťaže
 # -----------------------------------------------------------------

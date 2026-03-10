@@ -180,26 +180,6 @@ async function loadAndRenderProfitabilityData(){
   }
 }
 
-// ----- MAZANIE KANÁLU -----
-window.deleteSalesChannel = async function(channelName) {
-    if (!confirm(`Naozaj chcete zmazať kanál "${channelName}"?\nZákazníci z tohto kanálu spadnú do kategórie "Nezaradené".`)) return;
-    try {
-        await apiP('/api/kancelaria/profitability/setupSalesChannel', {
-            method: 'POST',
-            body: { 
-                channel_name: channelName, 
-                delete_channel: true
-            }
-        });
-        showStatus("Kanál bol zmazaný");
-        // Pol sekundový delay, aby databáza stihla commitnúť zmenu pred novým načítaním
-        setTimeout(() => {
-            loadAndRenderProfitabilityData();
-        }, 500);
-    } catch (e) {
-        showStatus("Chyba pri mazaní: " + e.message, true);
-    }
-};
 // ====== RENDER: pohľady =====================================================
 function renderCurrentView(){
   const active = document.querySelector('#profit-main-nav .b2b-tab-button.active')?.dataset.view || 'summary';
@@ -542,10 +522,14 @@ window.deleteSalesChannel = async function(channelName) {
                 month: profitabilityState.month
             }
         });
-        showStatus("Kanál zmazaný");
-        loadAndRenderProfitabilityData();
+        showStatus("Kanál bol úspešne zmazaný.");
+        
+        // Zabezpečí, že sa UI obnoví až keď DB dokončí proces zmazania
+        setTimeout(() => {
+            loadAndRenderProfitabilityData();
+        }, 500);
     } catch (e) {
-        showStatus("Chyba: " + e.message, true);
+        showStatus("Chyba pri mazaní: " + e.message, true);
     }
 };
 window.filterChannelOrders = function(channel) {
