@@ -1284,3 +1284,9 @@ def manual_order_history():
         r['celkova_suma_s_dph'] = float(r.get('celkova_suma_s_dph') or 0)
         
     return jsonify(rows)
+
+@leader_bp.post('/logistics/bulk-assign-route')
+@login_required(role=('veduci','admin'))
+def leader_bulk_assign_route():
+    import b2b_handler
+    return jsonify(b2b_handler.bulk_assign_route(request.get_json(silent=True) or {}))

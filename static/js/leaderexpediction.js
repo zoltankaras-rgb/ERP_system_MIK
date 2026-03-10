@@ -1518,6 +1518,9 @@ window.showManualRouteEditor = async function(id) {
                   return;
               }
 
+              const allRoutes = res.all_routes || [];
+              const routeOptions = allRoutes.map(r => `<option value="${r.id}">${escapeHtml(r.nazov)}</option>`).join('');
+
               let html = '';
               trasy.forEach(t => {
                   html += `
@@ -1525,17 +1528,27 @@ window.showManualRouteEditor = async function(id) {
                       <div style="background:#f1f5f9; padding:15px; display:flex; justify-content:space-between; align-items:center; border-bottom: 2px solid #0284c7;">
                           <h3 style="margin:0; color:#0f172a;">🚛 ${escapeHtml(t.nazov)}</h3>
                           <div style="display:flex; gap:10px;">
-                              <button class="btn btn-warning btn-sm" style="color:#000; font-weight:bold;" onclick='window.printChecklist(${JSON.stringify(t).replace(/'/g, "&apos;")}, "${date}")'>📝 Nakládkový list</button>
+                              <button class="btn btn-warning btn-sm" style="color:#000; font-weight:bold;" onclick='window.printChecklist(${JSON.stringify(t).replace(/'/g, "&apos;")}, "${date}")'>📝 Nakládkový list (Itinerár)</button>
                               <button class="btn btn-dark btn-sm" onclick='window.printSummary(${JSON.stringify(t).replace(/'/g, "&apos;")}, "${date}")'>📦 Súhrn do auta</button>
                           </div>
                       </div>
                       <div style="padding:15px; background:#fff; display:flex; gap:20px; flex-wrap:wrap;">
                           
                           <div style="flex:1; min-width:400px;">
-                              <h5 style="border-bottom:1px solid #e2e8f0; padding-bottom:8px; margin-top:0; color:#475569;">Poradie zastávok (Vykládka)</h5>
+                              <div style="background:#e0f2fe; padding:10px; margin-bottom:15px; border-radius:6px; display:flex; gap:10px; align-items:center; flex-wrap:wrap; border:1px solid #bae6fd;">
+                                  <span style="font-weight:bold; color:#0369a1;"><i class="fas fa-random"></i> Presunúť označených do trasy:</span>
+                                  <select id="bulk-route-sel-${t.trasa_id}" class="form-control form-control-sm" style="width:auto; flex:1; max-width:250px;">
+                                      <option value="">-- Vyber trasu --</option>
+                                      ${routeOptions}
+                                      <option value="unassigned">Zrušiť trasu (Nezaradené)</option>
+                                  </select>
+                                  <button class="btn btn-primary btn-sm" onclick="window.bulkAssignRoute('${t.trasa_id}')"><i class="fas fa-check"></i> Vykonať presun</button>
+                              </div>
+
                               <table style="width:100%; border-collapse:collapse; font-size:0.85rem;">
                                   <thead>
                                       <tr style="border-bottom:1px solid #e2e8f0; background:#f8fafc; text-align:left;">
+                                          <th style="width:30px; text-align:center; padding:8px;"><input type="checkbox" onclick="window.toggleAllLogistics(this, '${t.trasa_id}')" style="transform:scale(1.2); cursor:pointer;"></th>
                                           <th style="width:60px; text-align:center; padding:8px;">Poradie</th>
                                           <th style="padding:8px;">Odberateľ a Adresa</th>
                                           <th style="padding:8px;">Objednávky</th>
@@ -1544,7 +1557,10 @@ window.showManualRouteEditor = async function(id) {
                                   </thead>
                                   <tbody>
                                       ${t.zastavky.map((z) => `
-                                          <tr style="border-bottom:1px solid #f1f5f9;">
+                                          <tr style="border-bottom:1px solid #f1f5f9; ${z.zakaznik_id === '0' ? 'opacity:0.6; background:#fef2f2;' : ''}">
+                                              <td style="text-align:center; padding:8px;">
+                                                  ${z.zakaznik_id !== '0' ? `<input type="checkbox" class="route-cb-${t.trasa_id}" value="${z.zakaznik_id}" style="transform:scale(1.2); cursor:pointer;">` : `<i class="fas fa-ban text-danger" title="Tento zákazník nemá ID a nedá sa presunúť."></i>`}
+                                              </td>
                                               <td style="text-align:center; padding:8px;">
                                                   <input type="number" value="${z.poradie}" style="width:60px; text-align:center; font-weight:bold; border:1px solid #ccc; padding:4px; border-radius:4px;" id="poradie_${z.zakaznik_id}">
                                               </td>
@@ -1557,7 +1573,7 @@ window.showManualRouteEditor = async function(id) {
                                                   <small style="color:#94a3b8;">${z.cisla_objednavok.join(', ')}</small>
                                               </td>
                                               <td style="text-align:center; padding:8px;">
-                                                  <button class="btn btn-primary btn-sm" onclick="window.saveRouteOrder(${z.zakaznik_id})">💾</button>
+                                                  <button class="btn btn-secondary btn-sm" onclick="window.saveRouteOrder(${z.zakaznik_id})">💾</button>
                                               </td>
                                           </tr>
                                       `).join('')}
@@ -1575,7 +1591,7 @@ window.showManualRouteEditor = async function(id) {
                           </div>
                           
                           <div style="width:350px; background:#f8fafc; padding:15px; border-radius:8px; border:1px solid #e2e8f0;">
-                              <h5 style="border-bottom:1px solid #cbd5e1; padding-bottom:8px; margin-top:0; color:#475569;">Čo naložiť do auta</h5>
+                              <h5 style="border-bottom:1px solid #cbd5e1; padding-bottom:8px; margin-top:0; color:#475569;">Čo naložiť do auta (Kontrolný list)</h5>
                               ${t.sumar.map(s => `
                                   <div style="margin-bottom:12px;">
                                       <strong style="color:#0369a1; display:block; border-bottom:1px dashed #cbd5e1; padding-bottom:3px;">${escapeHtml(s.kategoria)}</strong>
@@ -2064,7 +2080,41 @@ window.showManualRouteEditor = async function(id) {
       html += `<script>window.onload=function(){window.print(); setTimeout(function(){window.close();},500);}</script></body></html>`;
       const win = window.open('', '_blank'); win.document.write(html); win.document.close();
   };
+// Globálne funkcie pre označovanie a hromadný presun v Logistike
+  window.toggleAllLogistics = function(source, trasaId) {
+      const cbs = document.querySelectorAll('.route-cb-' + trasaId);
+      cbs.forEach(cb => cb.checked = source.checked);
+  };
 
+  window.bulkAssignRoute = async function(trasaId) {
+      const cbs = document.querySelectorAll('.route-cb-' + trasaId + ':checked');
+      if(cbs.length === 0) return showStatus('Zaškrtnite aspoň jedného zákazníka na presun.', true);
+      
+      const targetRoute = document.getElementById('bulk-route-sel-' + trasaId).value;
+      if(!targetRoute) return showStatus('Zvoľte cieľovú trasu z rolovacieho menu.', true);
+      
+      const customerIds = Array.from(cbs).map(cb => cb.value);
+      
+      const btn = event.currentTarget;
+      const originalText = btn.innerHTML;
+      btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Pracujem...';
+      btn.disabled = true;
+      
+      try {
+          const res = await apiRequest('/api/leader/logistics/bulk-assign-route', {
+              method: 'POST',
+              body: { customer_ids: customerIds, trasa_id: targetRoute }
+          });
+          showStatus(res.message || 'Zákazníci boli presunutí.', false);
+          
+          // Ihneď aktualizuje stránku a ukáže zmeny!
+          document.getElementById('logistics-load-btn').click(); 
+      } catch(e) {
+          showStatus('Chyba pri presune: ' + e.message, true);
+          btn.innerHTML = originalText;
+          btn.disabled = false;
+      }
+  };
 // ================= MANUÁLNE OBJEDNÁVKY (NEREGISTROVANÍ AJ REGISTROVANÍ) =================
   function initManualOrdersUI() {
       const custSearch = $('#manual-customer-search');

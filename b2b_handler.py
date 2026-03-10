@@ -2130,9 +2130,12 @@ def get_logistics_routes_data(target_date: str):
         trasy_db = db_connector.execute_query("SELECT id, nazov FROM logistika_trasy WHERE is_active=1 ORDER BY nazov", fetch='all') or []
         trasy_map = {str(t['id']): t['nazov'] for t in trasy_db}
         trasy_map['unassigned'] = 'Zatiaľ nepriradená trasa (Zákazníci bez trasy)'
+        
+        # Pripravíme si zoznam všetkých trás pre rolovacie menu na frontende
+        all_routes = [{"id": str(t['id']), "nazov": t['nazov']} for t in trasy_db]
 
         # 2. Načítanie VŠETKÝCH zákazníkov do pamäte (obídenie MySQL JOIN)
-        customers = db_connector.execute_query("SELECT id, zakaznik_id, nazov_firmy, trasa_id, trasa_poradie FROM b2b_zakaznici", fetch='all') or []
+        customers = db_connector.execute_query("SELECT id, zakaznik_id, nazov_firmy, trasa_id, trasa_poradie, cislo_prevadzky FROM b2b_zakaznici", fetch='all') or []
         
         # Vytvorenie vyhľadávacích indexov pre Python
         cust_by_erp = {}
@@ -2175,23 +2178,27 @@ def get_logistics_routes_data(target_date: str):
             
             matched_cust = None
             
-            # Match algoritmus: Prioritne ID, inak Názov
             if erp_id_val in cust_by_erp:
                 matched_cust = cust_by_erp[erp_id_val]
             elif name_val in cust_by_name:
                 matched_cust = cust_by_name[name_val]
             
-            # Extrakcia vlastností
+            odberatel = p['odberatel']
+
             if matched_cust:
                 db_id = str(matched_cust['id'])
                 tid = str(matched_cust['trasa_id']) if matched_cust['trasa_id'] is not None else 'unassigned'
                 poradie = matched_cust['trasa_poradie'] if matched_cust['trasa_poradie'] is not None else 999
+                
+                # ZMENA: Zobrazenie čísla prevádzky v názve
+                cislo_prevadzky = str(matched_cust.get('cislo_prevadzky') or '').strip()
+                if cislo_prevadzky and not str(odberatel).startswith(f"[{cislo_prevadzky}]"):
+                    odberatel = f"[{cislo_prevadzky}] {odberatel}"
             else:
                 db_id = '0'
                 tid = 'unassigned'
                 poradie = 999
-            
-            odberatel = p['odberatel']
+
             adresa = p['adresa']
             obj_cislo = p['cislo_objednavky']
             kategoria = str(p['predajna_kategoria'] or 'Nezaradené').strip()
@@ -2233,7 +2240,6 @@ def get_logistics_routes_data(target_date: str):
                     "pocet_objednavok": len(obj_list), 
                     "cisla_objednavok": obj_list
                 })
-            # Zoradenie podľa trasa_poradie
             zastavky_list.sort(key=lambda x: x["poradie"])
 
             sumar_list = []
@@ -2248,12 +2254,46 @@ def get_logistics_routes_data(target_date: str):
         final_routes.sort(key=lambda x: x["nazov"])
         
         vehicles = db_connector.execute_query("SELECT id, license_plate, name FROM fleet_vehicles WHERE is_active=1 ORDER BY name", fetch='all') or []
-        return {"trasy": final_routes, "vehicles": vehicles}
+        
+        # ZMENA: Vraciam aj všetky trasy pre hromadný presun
+        return {"trasy": final_routes, "vehicles": vehicles, "all_routes": all_routes}
         
     except Exception as e:
         import traceback
         traceback.print_exc()
         return {"error": str(e)}
+
+# ZMENA: Nová funkcia na hromadný presun zákazníkov do trás
+def bulk_assign_route(data: dict):
+    customer_ids = data.get('customer_ids', [])
+    trasa_id = data.get('trasa_id')
+    
+    if not customer_ids:
+        return {"error": "Neboli vybraní žiadni zákazníci."}
+        
+    # Ak zvolí "unassigned", nastavíme trasu v DB na NULL
+    if str(trasa_id).strip() in ["", "unassigned", "null", "None"]:
+        trasa_val = None
+    else:
+        trasa_val = int(trasa_id)
+        
+    import db_connector
+    conn = db_connector.get_connection()
+    try:
+        cur = conn.cursor()
+        format_strings = ','.join(['%s'] * len(customer_ids))
+        
+        # Resetneme aj poradie na 999, aby sa zaradili na koniec novej trasy
+        cur.execute(f"UPDATE b2b_zakaznici SET trasa_id=%s, trasa_poradie=999 WHERE id IN ({format_strings})", 
+                    [trasa_val] + [int(cid) for cid in customer_ids])
+        conn.commit()
+        return {"message": f"Zákazníci boli úspešne presunutí."}
+    except Exception as e:
+        if conn: conn.rollback()
+        return {"error": str(e)}
+    finally:
+        if conn and conn.is_connected():
+            conn.close()
     
 def get_routes_list():
     try:
