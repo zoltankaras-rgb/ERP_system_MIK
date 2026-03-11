@@ -32,3 +32,11 @@ class PolozkaCennika(db.Model):
     dph = db.Column(db.Float, default=20.0)            
     
     is_action = db.Column(db.Boolean, default=False)
+    # Do models.py pridaj nový model pre burzové ceny
+class CenaVezg(db.Model):
+    __tablename__ = 'ceny_vezg'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    datum_zaznamu = db.Column(db.Date, nullable=False, default=datetime.utcnow)
+    cena_aktualna = db.Column(db.Float, nullable=False)
+    cena_minula = db.Column(db.Float, nullable=False)

@@ -12,6 +12,7 @@ from flask import (
 from flask_mail import Mail
 from flask import request
 from models import db, Cennik, PolozkaCennika
+from models import CenaVezg
 from sqlalchemy import text
 # === B2C BLUEPRINTY (VERejný + Admin) ===========================
 from b2c_public_api_nodb import b2c_public_bp
@@ -5456,6 +5457,34 @@ def api_logistics_v2_routes_data():
         import traceback
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/vezg-prices', methods=['GET'])
+def get_vezg_prices():
+    # Načítanie historických dát zoradených od najstarších pre graf
+    data = CenaVezg.query.order_by(CenaVezg.datum_zaznamu.asc()).all()
+    
+    # Identifikácia aktuálneho stavu (posledný záznam)
+    posledny = data[-1] if data else None
+    
+    status_color = "black"
+    if posledny:
+        if posledny.cena_aktualna > posledny.cena_minula:
+            status_color = "red"    # Stúpla (pre spracovateľa náklad = červená)
+        elif posledny.cena_aktualna < posledny.cena_minula:
+            status_color = "green"  # Klesla (pre spracovateľa zlacnenie = zelená)
+            
+    return jsonify({
+        "status_color": status_color,
+        "current_price": posledny.cena_aktualna if posledny else 0,
+        "previous_price": posledny.cena_minula if posledny else 0,
+        "history": [
+            {
+                "date": row.datum_zaznamu.strftime('%Y-%m-%d'),
+                "price": row.cena_aktualna
+            } for row in data
+        ]
+    })
 
 # =================================================================
 # === OBJEDNÁVKY / SKLAD BLUEPRINTY ===
