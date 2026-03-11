@@ -2,9 +2,14 @@ import requests
 from bs4 import BeautifulSoup
 import re
 from datetime import date
-from models import db, CenaVezg
 import logging
 
+# Import kontextu a modulov z tvojej aplikácie
+from app import app
+from models import db, CenaVezg
+
+# Konfigurácia logovania pre výstup do terminálu
+logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 log = logging.getLogger("erp-scraper")
 
 def fetch_vezg_prices():
@@ -16,12 +21,11 @@ def fetch_vezg_prices():
         soup = BeautifulSoup(response.text, 'html.parser')
         text = soup.get_text()
         
-        # Hľadanie cien vo formáte "1,70"
+        # Extrakcia hodnôt
         current_match = re.search(r"AutoFOM-Preisfaktor:\s*(\d+,\d+)\s*€", text)
         prev_match = re.search(r"Vorwochenpreis\s*(\d+,\d+)\s*€", text)
         
         if current_match and prev_match:
-            # Konverzia nemeckého formátu na float (desatinná čiarka na bodku)
             curr_price = float(current_match.group(1).replace(',', '.'))
             prev_price = float(prev_match.group(1).replace(',', '.'))
             
@@ -34,7 +38,13 @@ def fetch_vezg_prices():
             db.session.commit()
             log.info(f"VEZG cena úspešne uložená: Aktuálna {curr_price} €, Minulá {prev_price} €")
         else:
-            log.error("Nepodarilo sa nájsť ceny v štruktúre HTML. Štruktúra stránky sa mohla zmeniť.")
+            log.error("Nepodarilo sa nájsť ceny v štruktúre HTML pomocou RegEx.")
             
     except Exception as e:
-        log.error(f"Chyba pri sťahovaní VEZG cien: {e}")
+        log.error(f"Kritická chyba pri sťahovaní VEZG cien: {e}")
+
+# Exekučný blok pre spustenie z príkazového riadka
+if __name__ == "__main__":
+    # Obalenie volania do kontextu databázy Flasku
+    with app.app_context():
+        fetch_vezg_prices()
