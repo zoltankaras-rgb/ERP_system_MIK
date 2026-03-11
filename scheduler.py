@@ -10,7 +10,8 @@
 # ===========================================
 
 from __future__ import annotations
-
+import app
+from vezg_scraper import fetch_vezg_prices
 import argparse
 import logging
 import os
@@ -325,6 +326,10 @@ def _refresh_all(sched: BlockingScheduler) -> None:
     _schedule_hygiene_autostart(sched)
     _dump_jobs(sched)
 
+def _run_vezg_scraper_job():
+    """Obaľovacia funkcia pre vytvorenie Flask kontextu pred prácou s DB."""
+    with app.app_context():
+        fetch_vezg_prices()
 
 def build_scheduler() -> BlockingScheduler:
     sched = BlockingScheduler(
@@ -351,6 +356,17 @@ def build_scheduler() -> BlockingScheduler:
         id="refresh_tasks_global",
         replace_existing=True,
         misfire_grace_time=600,
+        max_instances=1,
+        coalesce=True,
+    )
+
+    # Naplánovanie zberu VEZG cien na každú stredu o 15:30
+    sched.add_job(
+        _run_vezg_scraper_job,
+        CronTrigger(day_of_week='wed', hour=15, minute=30, timezone=TZ),
+        id='vezg_weekly_scraper',
+        replace_existing=True,
+        misfire_grace_time=3600,
         max_instances=1,
         coalesce=True,
     )

@@ -5485,7 +5485,27 @@ def get_vezg_prices():
             } for row in data
         ]
     })
+@app.route('/api/vezg-prices', methods=['GET'])
+def api_get_vezg_prices():
+    # Načítanie chronologicky najnovšieho záznamu
+    zaznam = CenaVezg.query.order_by(CenaVezg.datum_zaznamu.desc()).first()
+    
+    if not zaznam:
+        return jsonify({"error": "Žiadne dáta"}), 404
+        
+    rozdiel = zaznam.cena_aktualna - zaznam.cena_minula
+    
+    # Logika vyhodnotenia: Pre spracovateľa (nákup) je stúpanie ceny negatívne (červená)
+    trend = "klesa" if rozdiel < 0 else "stupa" if rozdiel > 0 else "rovnako"
+    farba = "green" if trend == "klesa" else "red" if trend == "stupa" else "black"
 
+    return jsonify({
+        "aktualna": zaznam.cena_aktualna,
+        "minula": zaznam.cena_minula,
+        "rozdiel": round(rozdiel, 2),
+        "trend": trend,
+        "farba": farba
+    })
 # =================================================================
 # === OBJEDNÁVKY / SKLAD BLUEPRINTY ===
 # =================================================================

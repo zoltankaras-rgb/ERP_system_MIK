@@ -271,7 +271,29 @@ async function drawProductionChart(timeSeriesData) {
     if (chartContainer) { chartContainer.innerHTML = '<p class="error">Graf sa nepodarilo načítať.</p>'; }
   }
 }
-
+fetch('/api/vezg-prices')
+    .then(response => response.json())
+    .then(data => {
+        if(data.error) {
+            document.getElementById('vezg-trend').innerText = 'Dáta nedostupné';
+            return;
+        }
+        
+        document.getElementById('vezg-aktualna').innerText = data.aktualna.toFixed(2) + ' € / kg';
+        document.getElementById('vezg-minula').innerText = data.minula.toFixed(2);
+        
+        const trendEl = document.getElementById('vezg-trend');
+        trendEl.style.color = data.farba;
+        
+        if(data.trend === 'stupa') {
+            trendEl.innerText = '▲ Nárast o ' + data.rozdiel + ' €';
+        } else if(data.trend === 'klesa') {
+            trendEl.innerText = '▼ Pokles o ' + Math.abs(data.rozdiel) + ' €';
+        } else {
+            trendEl.innerText = '➖ Cena sa nezmenila';
+        }
+    })
+    .catch(err => console.error("Chyba načítania VEZG:", err));
 // ---------- Util --------------------------------------------------
 
 function showSection(id) {

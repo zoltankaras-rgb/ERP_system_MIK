@@ -15,6 +15,7 @@
   <script src="https://www.gstatic.com/charts/loader.js"></script>
   <script src="https://cdn.tiny.cloud/1/no-api-key/tinymce/6/tinymce.min.js" referrerpolicy="origin"></script>
   <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
   <style>
     /* Vynúť umiestnenie chat bubliniek vľavo dole, aj keby gemini.js používal 'right' */
@@ -68,6 +69,9 @@
       <aside class="sidebar">
         <ul class="sidebar-nav">
           <li><a class="sidebar-link active" data-section="section-dashboard"><i class="fas fa-chart-line"></i> Dashboard</a></li>
+          
+          <li><a class="sidebar-link" data-section="section-vezg-prices"><i class="fas fa-chart-bar"></i> Burza VEZG</a></li>
+
           <li><a class="sidebar-link" data-section="section-stock"><i class="fas fa-warehouse"></i> Sklad výroba</a></li>
           <li><a class="sidebar-link" data-section="section-orders"><i class="fas fa-clipboard-list"></i> Objednávky výroba</a></li>
           <li><a class="sidebar-link" data-section="section-planning"><i class="fas fa-calendar-alt"></i> Plánovanie výroby</a></li>
@@ -109,6 +113,32 @@
 
       <main class="main-content">
         <div id="section-dashboard" class="content-section active"></div>
+
+        <div id="section-vezg-prices" class="content-section" style="display:none">
+          <h2>Vývoj cien ošípaných polovičiek - Burza VEZG</h2>
+          <button id="refresh-vezg-btn" class="btn btn-primary" style="margin-bottom: 20px;"><i class="fas fa-sync"></i> Obnoviť údaje z ERP</button>
+          
+          <div style="display: flex; gap: 20px; flex-wrap: wrap;">
+            <div class="card p-3 shadow-sm" style="flex: 1; min-width: 250px; background: #fff; border-radius: 8px; padding: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                <h4 style="margin-top:0; color: #555;">Aktuálny vývoj</h4>
+                <div style="margin: 20px 0;">
+                  <span style="font-size: 14px; color: #777;">Tento týždeň:</span>
+                  <h1 id="vezg-current-price" style="margin: 5px 0; font-size: 32px;">-- € / kg</h1>
+                </div>
+                <div style="margin: 20px 0;">
+                  <span style="font-size: 14px; color: #777;">Minulý týždeň:</span>
+                  <h2 id="vezg-prev-price" style="margin: 5px 0; font-size: 24px; color: #666;">-- € / kg</h2>
+                </div>
+                <div style="padding: 10px; background: #f8f9fa; border-radius: 4px; font-weight: bold; text-align: center;">
+                  Status: <span id="vezg-indicator">Načítavam...</span>
+                </div>
+            </div>
+
+            <div class="card p-3 shadow-sm" style="flex: 2; min-width: 500px; background: #fff; border-radius: 8px; padding: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+              <canvas id="vezgChart" width="400" height="200"></canvas>
+            </div>
+          </div>
+        </div>
 
         <div id="section-stock" class="content-section"></div>
         <div id="section-orders" class="content-section" style="display:none"></div>
@@ -243,5 +273,99 @@
   <script src="{{ url_for('static', filename='js/gemini.js') }}" defer></script>
   <script src="{{ url_for('static', filename='js/task_planner.js') }}" defer></script>
   <script src="{{ url_for('static', filename='js/kancelaria_modules/gemini_tasks.js') }}" defer></script>
+
+  <script defer>
+    document.addEventListener("DOMContentLoaded", () => {
+      let vezgChartInstance = null;
+
+      async function loadVezgPrices() {
+        try {
+          const response = await fetch('/api/vezg-prices');
+          if (!response.ok) throw new Error('Sieťová chyba pri načítaní dát');
+          
+          const data = await response.json();
+          
+          if(data.error) {
+              document.getElementById('vezg-indicator').innerText = 'Dáta nedostupné';
+              return;
+          }
+
+          document.getElementById('vezg-current-price').innerText = data.current_price.toFixed(2) + ' € / kg';
+          document.getElementById('vezg-prev-price').innerText = data.previous_price.toFixed(2) + ' € / kg';
+          
+          const indicatorElement = document.getElementById('vezg-indicator');
+          indicatorElement.style.color = data.status_color;
+          
+          if (data.status_color === 'red') {
+              indicatorElement.innerHTML = '▲ Zvýšenie ceny (nárast nákladov)';
+          } else if (data.status_color === 'green') {
+              indicatorElement.innerHTML = '▼ Zníženie ceny (zlacnenie nákupu)';
+          } else {
+              indicatorElement.innerHTML = '➖ Bez zmeny';
+          }
+
+          if (data.history && data.history.length > 0) {
+            renderChart(data.history);
+          }
+
+        } catch (error) {
+          console.error("Chyba VEZG:", error);
+          document.getElementById('vezg-indicator').innerText = 'Chyba spojenia s ERP';
+        }
+      }
+
+      function renderChart(historyData) {
+        const ctx = document.getElementById('vezgChart').getContext('2d');
+        const labels = historyData.map(item => item.date);
+        const values = historyData.map(item => item.price);
+
+        if (vezgChartInstance) {
+          vezgChartInstance.destroy();
+        }
+
+        vezgChartInstance = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Vývoj ceny €/kg',
+                    data: values,
+                    borderColor: 'rgb(54, 162, 235)',
+                    backgroundColor: 'rgba(54, 162, 235, 0.1)',
+                    fill: true,
+                    tension: 0.1,
+                    pointRadius: 4,
+                    pointBackgroundColor: 'rgb(54, 162, 235)'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: { 
+                  y: { 
+                    beginAtZero: false,
+                    title: {
+                      display: true,
+                      text: 'Cena (€)'
+                    }
+                  } 
+                },
+                plugins: {
+                  legend: {
+                    display: false
+                  }
+                }
+            }
+        });
+      }
+
+      document.getElementById('refresh-vezg-btn').addEventListener('click', loadVezgPrices);
+      
+      // Ak chceme načítať priamo pri zobrazení sekcie, zavesíme na event alebo inicializujeme
+      // Pre jednoduchosť voláme hneď:
+      loadVezgPrices();
+    });
+  </script>
+
 </body>
 </html>
