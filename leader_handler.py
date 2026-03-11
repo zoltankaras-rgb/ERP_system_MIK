@@ -1090,37 +1090,55 @@ def search_standard_products():
     if len(q) < 2:
         return jsonify([])
 
-    # SQL dotaz so subselectom na zistenie poslednej ceny pre daného zákazníka a EAN
+    # 1. Klasické vyhľadanie produktov (rýchle a bezpečné)
     sql = """
-        SELECT 
-            p.ean, 
-            p.nazov_vyrobku as name, 
-            p.mj, 
-            COALESCE(p.dph, 20) as dph,
-            (
-                SELECT op.cena_bez_dph 
-                FROM b2b_objednavky_polozky op
-                JOIN b2b_objednavky o ON o.id = op.objednavka_id
-                WHERE op.ean_produktu = p.ean AND o.zakaznik_id = %s
-                ORDER BY o.datum_objednavky DESC LIMIT 1
-            ) as last_price
-        FROM produkty p
-        WHERE LOWER(p.nazov_vyrobku) LIKE %s OR p.ean LIKE %s
+        SELECT ean, nazov_vyrobku as name, mj, COALESCE(dph, 20) as dph
+        FROM produkty 
+        WHERE LOWER(nazov_vyrobku) LIKE %s OR ean LIKE %s
         LIMIT 30
     """
-    
     like_q = f"%{q.lower()}%"
-    rows = db_connector.execute_query(sql, (customer_id, like_q, like_q), fetch='all') or []
     
-    for r in rows:
-        if r.get('last_price') is not None:
-            r['price'] = float(r['last_price'])
-            r['has_history_price'] = True
-        else:
-            r['price'] = 0.0
-            r['has_history_price'] = False
-            
-    return jsonify(rows)
+    try:
+        rows = db_connector.execute_query(sql, (like_q, like_q), fetch='all') or []
+        
+        # 2. Ak máme zákazníka, nájdeme jeho minulé nákupy a vytiahneme posledné ceny
+        hist_prices = {}
+        if customer_id and rows:
+            eans = [str(r['ean']) for r in rows if r.get('ean')]
+            if eans:
+                format_strings = ','.join(['%s'] * len(eans))
+                hist_sql = f"""
+                    SELECT op.ean_produktu, op.cena_bez_dph
+                    FROM b2b_objednavky_polozky op
+                    JOIN b2b_objednavky o ON o.id = op.objednavka_id
+                    WHERE o.zakaznik_id = %s 
+                      AND op.ean_produktu IN ({format_strings})
+                    ORDER BY o.datum_objednavky DESC
+                """
+                hist_rows = db_connector.execute_query(hist_sql, [customer_id] + eans, fetch='all') or []
+                
+                # Do slovníka sa uloží prvá narazená cena (vďaka ORDER BY DESC je to tá najnovšia)
+                for hr in hist_rows:
+                    ean_key = str(hr['ean_produktu'])
+                    if ean_key not in hist_prices:
+                        hist_prices[ean_key] = float(hr['cena_bez_dph'] or 0)
+
+        # 3. Zlúčenie výsledkov a nastavenie cien pre frontend
+        for r in rows:
+            ean_val = str(r.get('ean'))
+            if ean_val in hist_prices:
+                r['price'] = hist_prices[ean_val]
+                r['has_history_price'] = True
+            else:
+                r['price'] = 0.0
+                r['has_history_price'] = False
+
+        return jsonify(rows)
+
+    except Exception as e:
+        print(f"Kritická chyba pri vyhľadávaní produktov: {e}")
+        return jsonify({'error': str(e)}), 500
 
 @leader_bp.post('/manual_order/submit')
 @login_required(role=('veduci', 'admin'))
