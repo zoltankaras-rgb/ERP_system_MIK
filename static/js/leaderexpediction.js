@@ -2183,10 +2183,16 @@ window.printDailySummary = async function() {
 
       $('#man-order-date').value = todayISO();
       
-      loadManualOrderHistory(); // Hneď načítame históriu
+      if(typeof loadManualOrderHistory === 'function') loadManualOrderHistory();
+
+      // TÁTO PREMENNÁ CHÝBALA (Pamätá si položky z cenníka)
+      let activePricelistItems = {};
 
       const loadFullPricelist = async (plId) => {
+          if(!plTbody) return;
           plTbody.innerHTML = '<tr><td colspan="4" class="text-center muted">Načítavam položky cenníka...</td></tr>';
+          activePricelistItems = {}; // Reset pred načítaním nového cenníka
+          
           try {
               const items = await apiRequest(`/api/leader/manual_order/pricelist_items?pricelist_id=${plId}`);
               if(!items.length) {
@@ -2194,7 +2200,11 @@ window.printDailySummary = async function() {
                   return;
               }
               
-              plTbody.innerHTML = items.map(p => `
+              plTbody.innerHTML = items.map(p => {
+                  // Uložíme do pamäte, aby to vyhľadávač vedel nájsť
+                  if(p.ean) activePricelistItems[String(p.ean)] = toNum(p.price, 0);
+                  
+                  return `
                   <tr>
                       <td>
                           <strong>${escapeHtml(p.name)}</strong><br>
@@ -2211,16 +2221,13 @@ window.printDailySummary = async function() {
                           <button class="btn btn-sm btn-primary" onclick='addFromPricelistGrid(${JSON.stringify(p).replace(/'/g, "&apos;")})'>Pridať</button>
                       </td>
                   </tr>
-              `).join('');
+              `}).join('');
               
-              // Enter spúšťa tlačidlo Pridať
               $$('.pl-qty-input').forEach(inp => {
                   inp.addEventListener('keypress', function(e) {
                       if (e.key === 'Enter') {
                           e.preventDefault();
                           this.closest('tr').querySelector('button').click();
-                          
-                          // Skočenie na ďalší input v poradí
                           const nextRow = this.closest('tr').nextElementSibling;
                           if (nextRow) {
                               const nextInp = nextRow.querySelector('.pl-qty-input');
@@ -2277,9 +2284,10 @@ window.printDailySummary = async function() {
                           custSearch.value = '';
                           custResults.style.display = 'none';
                           
-                          saveCustBtn.style.display = (c.is_registered === '1') ? 'none' : 'inline-block';
+                          if(saveCustBtn) saveCustBtn.style.display = (c.is_registered === '1') ? 'none' : 'inline-block';
+                          activePricelistItems = {}; // Reset cenníka
                           
-                          if(c.is_registered === '1') {
+                          if(c.is_registered === '1' && plContainer && plSelect) {
                               plContainer.style.display = 'block';
                               plSelect.innerHTML = '<option>Načítavam cenníky...</option>';
                               try {
@@ -2290,14 +2298,14 @@ window.printDailySummary = async function() {
                                       plSelect.onchange = (e) => loadFullPricelist(e.target.value);
                                   } else {
                                       plSelect.innerHTML = '<option>Zákazník nemá priradený cenník</option>';
-                                      plTbody.innerHTML = '<tr><td colspan="4" class="text-center muted">Žiadne položky na zobrazenie.</td></tr>';
+                                      if(plTbody) plTbody.innerHTML = '<tr><td colspan="4" class="text-center muted">Žiadne položky na zobrazenie.</td></tr>';
                                   }
                               } catch(e) {
                                   plSelect.innerHTML = '<option>Chyba pri načítaní cenníkov</option>';
                               }
                           } else {
-                              plContainer.style.display = 'none';
-                              plTbody.innerHTML = '';
+                              if(plContainer) plContainer.style.display = 'none';
+                              if(plTbody) plTbody.innerHTML = '';
                           }
                       };
                   });
@@ -2305,20 +2313,22 @@ window.printDailySummary = async function() {
           }, 300);
       });
 
-      saveCustBtn.onclick = async () => {
-          if($('#man-cust-is-registered').value === '1') return;
-          const payload = {
-              interne_cislo: $('#man-cust-id').value.trim(),
-              nazov_firmy: $('#man-cust-name').value.trim(),
-              adresa: $('#man-cust-addr').value.trim(),
-              kontakt: $('#man-cust-contact').value.trim()
+      if(saveCustBtn) {
+          saveCustBtn.onclick = async () => {
+              if($('#man-cust-is-registered').value === '1') return;
+              const payload = {
+                  interne_cislo: $('#man-cust-id').value.trim(),
+                  nazov_firmy: $('#man-cust-name').value.trim(),
+                  adresa: $('#man-cust-addr').value.trim(),
+                  kontakt: $('#man-cust-contact').value.trim()
+              };
+              if(!payload.interne_cislo || !payload.nazov_firmy) return showStatus("Interné číslo a názov sú povinné.", true);
+              try {
+                  await apiRequest('/api/leader/manual_customers/save', {method: 'POST', body: payload});
+                  showStatus("Neregistrovaný zákazník uložený do adresára.", false);
+              } catch(e) { showStatus("Chyba uloženia: " + e.message, true); }
           };
-          if(!payload.interne_cislo || !payload.nazov_firmy) return showStatus("Interné číslo a názov sú povinné.", true);
-          try {
-              await apiRequest('/api/leader/manual_customers/save', {method: 'POST', body: payload});
-              showStatus("Neregistrovaný zákazník uložený do adresára.", false);
-          } catch(e) { showStatus("Chyba uloženia: " + e.message, true); }
-      };
+      }
 
       let prodTimer;
       prodSearch.addEventListener('input', () => {
@@ -2330,7 +2340,6 @@ window.printDailySummary = async function() {
               prodResults.style.display = 'block';
               prodResults.innerHTML = '<div style="padding:10px;color:#666;">Hľadám produkt...</div>';
               try {
-                  // Získame ID zákazníka z formulára, aby sme zistili jeho historické ceny
                   const custId = $('#man-cust-id').value.trim();
                   const data = await apiRequest(`/api/leader/products_standard/search?q=${encodeURIComponent(q)}&customer_id=${encodeURIComponent(custId)}`);
                   
@@ -2340,18 +2349,15 @@ window.printDailySummary = async function() {
                       let currentPrice = p.price || 0.00;
                       let priceBadge = '';
                       
-                      // 1. Ak máme aktívny cenník a produkt v ňom je, cenník má absolútnu prioritu
                       if(activePricelistItems[String(p.ean)] !== undefined) {
                           currentPrice = activePricelistItems[String(p.ean)];
                           priceBadge = `<span style="background:#fef08a; color:#166534; padding:2px 4px; border-radius:3px; font-size:0.75rem;">Z CENNÍKA: ${currentPrice.toFixed(2)} €</span>`;
                       } 
-                      // 2. Ak nie je v cenníku, ale databáza našla cenu z predošlej objednávky
                       else if (p.has_history_price) {
                           currentPrice = p.price;
                           priceBadge = `<span style="background:#e0e7ff; color:#1d4ed8; padding:2px 4px; border-radius:3px; font-size:0.75rem;">NAPOSLEDY: ${currentPrice.toFixed(2)} €</span>`;
                       }
                       
-                      // Aktualizujeme p.price pre vloženie do tabuľky
                       p.price = currentPrice;
 
                       return `
@@ -2371,7 +2377,7 @@ window.printDailySummary = async function() {
                   prodResults.querySelectorAll('.product-search-item').forEach(el => {
                       el.onclick = () => {
                           const p = JSON.parse(el.getAttribute('data-json'));
-                          addManualOrderRow(p, 0); // Vloží s množstvom 0, ale so zapamätanou cenou
+                          addManualOrderRow(p, 0); 
                           prodSearch.value = '';
                           prodResults.style.display = 'none';
                       };
@@ -2441,9 +2447,10 @@ window.printDailySummary = async function() {
               $('#man-cust-contact').value = '';
               $('#man-cust-is-registered').value = '0';
               $('#man-order-note').value = '';
-              plContainer.style.display = 'none';
+              if(plContainer) plContainer.style.display = 'none';
+              activePricelistItems = {};
               
-              loadManualOrderHistory(); // Refresh history
+              if(typeof loadManualOrderHistory === 'function') loadManualOrderHistory();
               if(typeof loadB2B === 'function') loadB2B();
 
           } catch(e) {
