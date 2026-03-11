@@ -5487,11 +5487,11 @@ def get_vezg_prices():
     })
 @app.route('/api/vezg-prices', methods=['GET'])
 def api_get_vezg_prices():
-    # Načítanie chronologicky najnovšieho záznamu
     zaznam = CenaVezg.query.order_by(CenaVezg.datum_zaznamu.desc()).first()
     
+    # Kritická poistka, ak DB neobsahuje žiadnu cenu
     if not zaznam:
-        return jsonify({"error": "Žiadne dáta"}), 404
+        return jsonify({"error": "Žiadne dáta"}), 200
         
     rozdiel = zaznam.cena_aktualna - zaznam.cena_minula
     

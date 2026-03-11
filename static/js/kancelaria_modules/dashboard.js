@@ -5,7 +5,8 @@
 let dashboardState = {
   period: null,
   data: null,
-  googleChartsReady: null
+  googleChartsReady: null,
+  vezgChartInstance: null // Pridané pre správu inštancie VEZG grafu (Chart.js)
 };
 
 function initializeDashboardModule() {
@@ -29,6 +30,10 @@ async function loadDashboardData() {
              </div>`;
 
     html += renderKpiCards(data);
+    
+    // Vloženie VEZG bloku priamo do Dashboardu hneď pod KPI karty
+    html += renderVezgDashboardBlock();
+
     html += renderNext7Days(data?.next7Days);
     html += renderPromotionsBlock();
     html += renderLowStockRaw(data?.lowStockRaw);
@@ -46,9 +51,13 @@ async function loadDashboardData() {
     html += `</div>`;
     content.innerHTML = html;
 
+    // Inicializácia všetkých asynchrónnych sub-komponentov dashboardu
     hydratePromotionsFromPlanner();
     populateSalesTables(data?.topSold || [], data?.topProfitable || []);
     drawProductionChart(data?.timeSeriesData || []);
+    
+    // Spustenie načítania VEZG dát (nahrádza voľný nepodchytený fetch)
+    loadVezgDashboardData();
 
   } catch (e) {
     console.error(e);
@@ -85,6 +94,153 @@ function renderKpiCards(data) {
     </div>
   `;
 }
+
+// ---------- VEZG Burza (Pridané priamo do Dashboardu) -----------------
+
+function renderVezgDashboardBlock() {
+    return `
+    <div class="box" style="margin-bottom: 18px;">
+        <div class="box-head" style="display:flex; justify-content:space-between; align-items:center;">
+            <h4 style="margin:0; display:flex; align-items:center; gap:0.5rem;">
+                <i class="fas fa-chart-line" style="color:#3b82f6;"></i> Burza VEZG - Ošípané polovičky
+            </h4>
+            <button class="btn btn-sm btn-secondary" onclick="loadVezgDashboardData()"><i class="fas fa-sync-alt"></i> Obnoviť burzu</button>
+        </div>
+        
+        <div style="display: flex; gap: 20px; flex-wrap: wrap; margin-top: 15px;">
+            <div style="flex: 1; min-width: 200px; padding: 15px; background: #f9fafb; border-radius: 8px; border: 1px solid #e5e7eb;">
+                <div style="font-size: 0.9rem; color: #6b7280; margin-bottom: 5px;">Tento týždeň:</div>
+                <div id="dash-vezg-current" style="font-size: 2rem; font-weight: 700; color: #111827;">-- € / kg</div>
+                
+                <div style="font-size: 0.85rem; color: #6b7280; margin-top: 15px; margin-bottom: 2px;">Minulý týždeň:</div>
+                <div id="dash-vezg-prev" style="font-size: 1.2rem; font-weight: 600; color: #4b5563;">-- € / kg</div>
+                
+                <div id="dash-vezg-trend" style="margin-top: 15px; padding: 8px; border-radius: 6px; font-weight: 600; text-align: center; background: #fff; border: 1px solid #d1d5db;">
+                    Načítavam údaje zo servera...
+                </div>
+            </div>
+            
+            <div style="flex: 2; min-width: 300px; position: relative; height: 200px;">
+                <canvas id="dashVezgChart"></canvas>
+            </div>
+        </div>
+    </div>
+    `;
+}
+
+async function loadVezgDashboardData() {
+    const trendEl = document.getElementById('dash-vezg-trend');
+    if (!trendEl) return;
+
+    try {
+        trendEl.innerText = 'Načítavam...';
+        trendEl.style.color = '#6b7280';
+
+        const response = await fetch('/api/vezg-prices');
+        if (!response.ok) throw new Error('Chyba spojenia');
+        
+        const data = await response.json();
+        
+        if (data.error) {
+            trendEl.innerText = 'Dáta zatiaľ nedostupné';
+            return;
+        }
+
+        // Extrakcia premenných s bezpečnou kontrolou, aby nepadol .toFixed
+        const aktualnaCena = data.aktualna !== undefined ? data.aktualna : data.current_price;
+        const minulaCena = data.minula !== undefined ? data.minula : data.previous_price;
+        const rozdiel = data.rozdiel !== undefined ? data.rozdiel : (aktualnaCena - minulaCena);
+
+        const finalAktualna = aktualnaCena !== undefined ? Number(aktualnaCena) : 0;
+        const finalMinula = minulaCena !== undefined ? Number(minulaCena) : 0;
+
+        document.getElementById('dash-vezg-current').innerText = finalAktualna.toFixed(2) + ' € / kg';
+        document.getElementById('dash-vezg-prev').innerText = finalMinula.toFixed(2) + ' € / kg';
+        
+        // Logika zobrazenia pre spracovateľa (červená je zlá, lebo surovina dražie)
+        const diffNum = Number(rozdiel);
+        if (diffNum > 0) {
+            trendEl.innerHTML = `▲ Nárast ceny o ${diffNum.toFixed(2)} € <br><span style="font-size:0.8em; font-weight:normal;">(Zvýšenie nákladov)</span>`;
+            trendEl.style.color = '#dc2626'; // red
+            trendEl.style.backgroundColor = '#fef2f2';
+            trendEl.style.borderColor = '#fca5a5';
+        } else if (diffNum < 0) {
+            trendEl.innerHTML = `▼ Pokles ceny o ${Math.abs(diffNum).toFixed(2)} € <br><span style="font-size:0.8em; font-weight:normal;">(Zlacnenie nákupu)</span>`;
+            trendEl.style.color = '#16a34a'; // green
+            trendEl.style.backgroundColor = '#f0fdf4';
+            trendEl.style.borderColor = '#bbf7d0';
+        } else {
+            trendEl.innerHTML = '➖ Cena suroviny sa nezmenila';
+            trendEl.style.color = '#4b5563'; // gray
+            trendEl.style.backgroundColor = '#f9fafb';
+            trendEl.style.borderColor = '#e5e7eb';
+        }
+
+        // Ak API vracia historické dáta, nakreslíme Chart.js graf
+        if (data.history && Array.isArray(data.history) && data.history.length > 0) {
+            renderDashVezgChart(data.history);
+        }
+
+    } catch (err) {
+        console.error("Chyba VEZG sub-modulu:", err);
+        trendEl.innerText = 'Chyba API';
+        trendEl.style.color = '#dc2626';
+    }
+}
+
+function renderDashVezgChart(historyData) {
+    // Kreslenie grafu cez Chart.js (musí byť nalinkovaný v kancelaria.html)
+    const canvasEl = document.getElementById('dashVezgChart');
+    if (!canvasEl || typeof Chart === 'undefined') return;
+    
+    const ctx = canvasEl.getContext('2d');
+    const labels = historyData.map(item => item.date);
+    const values = historyData.map(item => item.price);
+
+    if (dashboardState.vezgChartInstance) {
+        dashboardState.vezgChartInstance.destroy();
+    }
+
+    dashboardState.vezgChartInstance = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'VEZG €/kg',
+                data: values,
+                borderColor: '#3b82f6',
+                backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                fill: true,
+                tension: 0.2,
+                pointRadius: 3,
+                pointBackgroundColor: '#2563eb'
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: { 
+                y: { 
+                    beginAtZero: false,
+                    ticks: { callback: function(value) { return value.toFixed(2) + ' €'; } }
+                },
+                x: {
+                    grid: { display: false }
+                }
+            },
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) { return context.parsed.y.toFixed(2) + ' €/kg'; }
+                    }
+                }
+            }
+        }
+    });
+}
+
+// ---------- Zvyšok Dashboard Logiky -----------------------------------
 
 function renderNext7Days(next7 = []) {
   if (!Array.isArray(next7) || next7.length === 0) {
@@ -271,33 +427,11 @@ async function drawProductionChart(timeSeriesData) {
     if (chartContainer) { chartContainer.innerHTML = '<p class="error">Graf sa nepodarilo načítať.</p>'; }
   }
 }
-fetch('/api/vezg-prices')
-    .then(response => response.json())
-    .then(data => {
-        if(data.error) {
-            document.getElementById('vezg-trend').innerText = 'Dáta nedostupné';
-            return;
-        }
-        
-        document.getElementById('vezg-aktualna').innerText = data.aktualna.toFixed(2) + ' € / kg';
-        document.getElementById('vezg-minula').innerText = data.minula.toFixed(2);
-        
-        const trendEl = document.getElementById('vezg-trend');
-        trendEl.style.color = data.farba;
-        
-        if(data.trend === 'stupa') {
-            trendEl.innerText = '▲ Nárast o ' + data.rozdiel + ' €';
-        } else if(data.trend === 'klesa') {
-            trendEl.innerText = '▼ Pokles o ' + Math.abs(data.rozdiel) + ' €';
-        } else {
-            trendEl.innerText = '➖ Cena sa nezmenila';
-        }
-    })
-    .catch(err => console.error("Chyba načítania VEZG:", err));
+
 // ---------- Util --------------------------------------------------
 
 function showSection(id) {
-    const navLink = document.querySelector(`.nav-link[data-section="${id}"]`);
+    const navLink = document.querySelector(`.sidebar-link[data-section="section-${id}"]`);
     if (navLink) navLink.click();
 }
 
@@ -327,12 +461,13 @@ async function apiRequest(url, opts = {}) {
 // ---------- Styles ------------------------------------------------
 (function injectDashStyles(){
   const css = `
-  #dashboard-content{ display:block }
+  #dashboard-content{ display:block; padding-bottom: 30px; }
   .dash-cards{ display:flex; gap:12px; flex-wrap:wrap; margin: 0 0 18px 0; }
-  .dash-card{ flex:1; min-width:220px; background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:14px; box-shadow:0 2px 10px rgba(0,0,0,.04);}
+  .dash-card{ flex:1; min-width:220px; background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:14px; box-shadow:0 2px 10px rgba(0,0,0,.04); transition: transform 0.2s;}
+  .dash-card:hover { transform: translateY(-2px); }
   .dash-card-label{ font-size:.9rem; color:#6b7280; margin-bottom:6px;}
   .dash-card-value{ font-size:2rem; font-weight:700; color:#111827;}
-  .box{ background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:16px; margin-bottom:18px;}
+  .box{ background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:16px; margin-bottom:18px; box-shadow:0 1px 3px rgba(0,0,0,.05);}
   .box.warn{ background:#fffbe6; border-color:#fde68a;}
   .box .box-title{ margin:0 0 8px 0; color:#374151; }
   .table-container{ overflow-x:auto; background:#fff; border:1px solid #e5e7eb; border-radius:8px; }
