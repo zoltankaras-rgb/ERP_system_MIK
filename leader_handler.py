@@ -1090,19 +1090,33 @@ def search_standard_products():
     if len(q) < 2:
         return jsonify([])
 
-    # 1. Klasické vyhľadanie produktov (rýchle a bezpečné)
-    sql = """
-        SELECT ean, nazov_vyrobku as name, mj, COALESCE(dph, 20) as dph
-        FROM produkty 
-        WHERE LOWER(nazov_vyrobku) LIKE %s OR ean LIKE %s
-        LIMIT 30
-    """
     like_q = f"%{q.lower()}%"
+    rows = []
     
+    # 1. Klasické vyhľadanie produktov so záchranou (Fallback na sklad2)
     try:
+        sql = """
+            SELECT ean, nazov_vyrobku as name, mj, COALESCE(dph, 20) as dph
+            FROM produkty 
+            WHERE LOWER(nazov_vyrobku) LIKE %s OR ean LIKE %s
+            LIMIT 30
+        """
         rows = db_connector.execute_query(sql, (like_q, like_q), fetch='all') or []
-        
-        # 2. Ak máme zákazníka, nájdeme jeho minulé nákupy a vytiahneme posledné ceny
+    except Exception as e1:
+        # Ak tabuľka produkty zlyhá, skúsime záložnú tabuľku sklad2
+        try:
+            sql_fallback = """
+                SELECT ean, nazov_produktu as name, COALESCE(mj, 'kg') as mj, COALESCE(dph, 20) as dph
+                FROM sklad2 
+                WHERE LOWER(nazov_produktu) LIKE %s OR ean LIKE %s
+                LIMIT 30
+            """
+            rows = db_connector.execute_query(sql_fallback, (like_q, like_q), fetch='all') or []
+        except Exception as e2:
+            return jsonify({'error': f"Chyba databázy produktov: {str(e2)}"}), 500
+            
+    try:
+        # 2. Zistenie historických cien pre daného zákazníka
         hist_prices = {}
         if customer_id and rows:
             eans = [str(r['ean']) for r in rows if r.get('ean')]
@@ -1116,19 +1130,16 @@ def search_standard_products():
                       AND op.ean_produktu IN ({format_strings})
                     ORDER BY o.datum_objednavky DESC
                 """
-                # OPRAVA 1: Obalíme parametre do tuple(), aby to databáza bezpečne prijala
                 params = tuple([customer_id] + eans)
                 hist_rows = db_connector.execute_query(hist_sql, params, fetch='all') or []
                 
-                # Do slovníka sa uloží prvá narazená cena (vďaka ORDER BY DESC je to tá najnovšia)
                 for hr in hist_rows:
                     ean_key = str(hr['ean_produktu'])
                     if ean_key not in hist_prices:
                         hist_prices[ean_key] = float(hr['cena_bez_dph'] or 0)
 
-        # 3. Zlúčenie výsledkov a nastavenie cien pre frontend
+        # 3. Zlúčenie výsledkov a bezpečné nastavenie formátov
         for r in rows:
-            # OPRAVA 2: DPH z databázy prevedieme na float(), aby to nezhadzovalo JSON výstup
             r['dph'] = float(r.get('dph') or 20.0)
             
             ean_val = str(r.get('ean'))
@@ -1142,8 +1153,8 @@ def search_standard_products():
         return jsonify(rows)
 
     except Exception as e:
-        print(f"Kritická chyba pri vyhľadávaní produktov: {e}")
-        return jsonify({'error': str(e)}), 500
+        print(f"Kritická chyba pri spracovaní cien: {e}")
+        return jsonify({'error': f"Chyba spracovania: {str(e)}"}), 500
     
 @leader_bp.post('/manual_order/submit')
 @login_required(role=('veduci', 'admin'))

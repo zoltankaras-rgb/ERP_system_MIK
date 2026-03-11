@@ -2376,7 +2376,10 @@ window.printDailySummary = async function() {
                           prodResults.style.display = 'none';
                       };
                   });
-              } catch(e) { prodResults.innerHTML = '<div style="padding:10px;color:red;">Chyba API.</div>'; }
+              } catch(e) { 
+                  console.error(e);
+                  prodResults.innerHTML = `<div style="padding:10px;color:red;"><b>Chyba API:</b> ${escapeHtml(e.message)}</div>`; 
+              }
           }, 300);
       });
 
