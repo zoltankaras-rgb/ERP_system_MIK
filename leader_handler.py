@@ -1116,7 +1116,9 @@ def search_standard_products():
                       AND op.ean_produktu IN ({format_strings})
                     ORDER BY o.datum_objednavky DESC
                 """
-                hist_rows = db_connector.execute_query(hist_sql, [customer_id] + eans, fetch='all') or []
+                # OPRAVA 1: Obalíme parametre do tuple(), aby to databáza bezpečne prijala
+                params = tuple([customer_id] + eans)
+                hist_rows = db_connector.execute_query(hist_sql, params, fetch='all') or []
                 
                 # Do slovníka sa uloží prvá narazená cena (vďaka ORDER BY DESC je to tá najnovšia)
                 for hr in hist_rows:
@@ -1126,6 +1128,9 @@ def search_standard_products():
 
         # 3. Zlúčenie výsledkov a nastavenie cien pre frontend
         for r in rows:
+            # OPRAVA 2: DPH z databázy prevedieme na float(), aby to nezhadzovalo JSON výstup
+            r['dph'] = float(r.get('dph') or 20.0)
+            
             ean_val = str(r.get('ean'))
             if ean_val in hist_prices:
                 r['price'] = hist_prices[ean_val]
@@ -1139,7 +1144,7 @@ def search_standard_products():
     except Exception as e:
         print(f"Kritická chyba pri vyhľadávaní produktov: {e}")
         return jsonify({'error': str(e)}), 500
-
+    
 @leader_bp.post('/manual_order/submit')
 @login_required(role=('veduci', 'admin'))
 def submit_manual_order():
