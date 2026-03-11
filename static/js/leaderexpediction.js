@@ -2330,25 +2330,48 @@ window.printDailySummary = async function() {
               prodResults.style.display = 'block';
               prodResults.innerHTML = '<div style="padding:10px;color:#666;">Hľadám produkt...</div>';
               try {
-                  const data = await apiRequest(`/api/leader/products_standard/search?q=${encodeURIComponent(q)}`);
+                  // Získame ID zákazníka z formulára, aby sme zistili jeho historické ceny
+                  const custId = $('#man-cust-id').value.trim();
+                  const data = await apiRequest(`/api/leader/products_standard/search?q=${encodeURIComponent(q)}&customer_id=${encodeURIComponent(custId)}`);
+                  
                   if(!data.length) { prodResults.innerHTML = '<div style="padding:10px;color:#999;">Produkt nenájdený.</div>'; return; }
                   
-                  prodResults.innerHTML = data.map(p => `
+                  prodResults.innerHTML = data.map(p => {
+                      let currentPrice = p.price || 0.00;
+                      let priceBadge = '';
+                      
+                      // 1. Ak máme aktívny cenník a produkt v ňom je, cenník má absolútnu prioritu
+                      if(activePricelistItems[String(p.ean)] !== undefined) {
+                          currentPrice = activePricelistItems[String(p.ean)];
+                          priceBadge = `<span style="background:#fef08a; color:#166534; padding:2px 4px; border-radius:3px; font-size:0.75rem;">Z CENNÍKA: ${currentPrice.toFixed(2)} €</span>`;
+                      } 
+                      // 2. Ak nie je v cenníku, ale databáza našla cenu z predošlej objednávky
+                      else if (p.has_history_price) {
+                          currentPrice = p.price;
+                          priceBadge = `<span style="background:#e0e7ff; color:#1d4ed8; padding:2px 4px; border-radius:3px; font-size:0.75rem;">NAPOSLEDY: ${currentPrice.toFixed(2)} €</span>`;
+                      }
+                      
+                      // Aktualizujeme p.price pre vloženie do tabuľky
+                      p.price = currentPrice;
+
+                      return `
                       <div class="product-search-item" data-json='${escapeHtml(JSON.stringify(p))}'>
                           <div>
                               <strong>${escapeHtml(p.name)}</strong><br>
                               <span class="meta">EAN: ${escapeHtml(p.ean)} | DPH: ${p.dph}%</span>
                           </div>
                           <div style="text-align:right;">
+                              ${priceBadge}<br>
                               <span style="color:#2563eb; font-weight:bold;">${escapeHtml(p.mj)}</span>
                           </div>
                       </div>
-                  `).join('');
+                      `;
+                  }).join('');
                   
                   prodResults.querySelectorAll('.product-search-item').forEach(el => {
                       el.onclick = () => {
                           const p = JSON.parse(el.getAttribute('data-json'));
-                          addManualOrderRow(p, 0); // Vloží s množstvom 0
+                          addManualOrderRow(p, 0); // Vloží s množstvom 0, ale so zapamätanou cenou
                           prodSearch.value = '';
                           prodResults.style.display = 'none';
                       };

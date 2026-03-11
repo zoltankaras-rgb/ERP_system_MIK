@@ -1085,16 +1085,41 @@ def save_manual_customer():
 @login_required(role=('veduci', 'admin'))
 def search_standard_products():
     q = request.args.get('q', '').strip()
+    customer_id = request.args.get('customer_id', '').strip()
+    
     if len(q) < 2:
         return jsonify([])
 
+    # SQL dotaz so subselectom na zistenie poslednej ceny pre daného zákazníka a EAN
     sql = """
-        SELECT ean, nazov_vyrobku as name, mj, COALESCE(dph, 20) as dph, 0 as price
-        FROM produkty 
-        WHERE LOWER(nazov_vyrobku) LIKE %s OR ean LIKE %s
+        SELECT 
+            p.ean, 
+            p.nazov_vyrobku as name, 
+            p.mj, 
+            COALESCE(p.dph, 20) as dph,
+            (
+                SELECT op.cena_bez_dph 
+                FROM b2b_objednavky_polozky op
+                JOIN b2b_objednavky o ON o.id = op.objednavka_id
+                WHERE op.ean_produktu = p.ean AND o.zakaznik_id = %s
+                ORDER BY o.datum_objednavky DESC LIMIT 1
+            ) as last_price
+        FROM produkty p
+        WHERE LOWER(p.nazov_vyrobku) LIKE %s OR p.ean LIKE %s
         LIMIT 30
     """
-    rows = db_connector.execute_query(sql, (f"%{q.lower()}%", f"%{q.lower()}%"), fetch='all') or []
+    
+    like_q = f"%{q.lower()}%"
+    rows = db_connector.execute_query(sql, (customer_id, like_q, like_q), fetch='all') or []
+    
+    for r in rows:
+        if r.get('last_price') is not None:
+            r['price'] = float(r['last_price'])
+            r['has_history_price'] = True
+        else:
+            r['price'] = 0.0
+            r['has_history_price'] = False
+            
     return jsonify(rows)
 
 @leader_bp.post('/manual_order/submit')
