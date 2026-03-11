@@ -6,7 +6,6 @@
   <title>Modul Kancelária</title>
 
   <link rel="stylesheet" href="{{ url_for('static', filename='css/kancelaria.css') }}?v=7" />
-
   <link rel="icon" href="data:;base64,iVBORw0KGgo=" />
 
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -15,6 +14,7 @@
   <script src="https://www.gstatic.com/charts/loader.js"></script>
   <script src="https://cdn.tiny.cloud/1/no-api-key/tinymce/6/tinymce.min.js" referrerpolicy="origin"></script>
   <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+  
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
   <style>
@@ -70,42 +70,29 @@
         <ul class="sidebar-nav">
           <li><a class="sidebar-link active" data-section="section-dashboard"><i class="fas fa-chart-line"></i> Dashboard</a></li>
           
-          <li><a class="sidebar-link" data-section="section-vezg-prices"><i class="fas fa-chart-bar"></i> Burza VEZG</a></li>
+          <li><a class="sidebar-link" data-section="section-vezg"><i class="fas fa-chart-bar"></i> Burza VEZG</a></li>
 
           <li><a class="sidebar-link" data-section="section-stock"><i class="fas fa-warehouse"></i> Sklad výroba</a></li>
           <li><a class="sidebar-link" data-section="section-orders"><i class="fas fa-clipboard-list"></i> Objednávky výroba</a></li>
           <li><a class="sidebar-link" data-section="section-planning"><i class="fas fa-calendar-alt"></i> Plánovanie výroby</a></li>
-
           <li><a class="sidebar-link" data-section="section-calendar"><i class="fas fa-calendar-check"></i> Plánovací kalendár</a></li>
-
           <li><a class="sidebar-link" data-section="section-order-forecast"><i class="fas fa-shipping-fast"></i> Expedičný Plán</a></li>
           <li><a class="sidebar-link" data-section="section-erp-admin"><i class="fas fa-cogs"></i> Správa ERP</a></li>
-
           <li><a class="sidebar-link" data-section="section-pricelists"><i class="fas fa-file-invoice-dollar"></i> Cenníky a Akcie</a></li>
-
           <li><a class="sidebar-link" data-section="section-b2b-admin"><i class="fas fa-users-cog"></i> B2B Admin</a></li>
-          
           <li><a class="sidebar-link" data-section="section-chains-admin"><i class="fas fa-network-wired"></i> Správa Reťazcov (EDI)</a></li>
-
           <li><a class="sidebar-link" data-section="section-b2c-admin"><i class="fas fa-shopping-basket"></i> B2C Správa</a></li>
-
           <li><a class="sidebar-link" data-section="section-haccp"><i class="fas fa-file-shield"></i> HACCP</a></li>
-
           <li><a class="sidebar-link" data-section="section-core-temp"><i class="fas fa-thermometer-half"></i> Teplota jadra</a></li>
-
           <li><a class="sidebar-link" data-section="section-fleet"><i class="fas fa-truck"></i> Vozový park</a></li>
           <li><a class="sidebar-link" data-section="section-hygiene"><i class="fas fa-soap"></i> Hygienický režim</a></li>
-
           <li><a class="sidebar-link" data-section="section-hr"><i class="fas fa-user-clock"></i> HR / Dochádzka</a></li>
-
           <li><a class="sidebar-link" data-section="section-mail"><i class="fas fa-envelope"></i> Pošta</a></li>
           <li><a class="sidebar-link" data-section="section-sms-connector"><i class="fas fa-sms"></i> SMS Connector</a></li>
-
           <li><a class="sidebar-link" data-section="section-temps"><i class="fas fa-temperature-low"></i> Teploty</a></li>
           <li><a class="sidebar-link" data-section="section-meat-calc"><i class="fas fa-drumstick-bite"></i> Kalkulátor rozrábky</a></li>
           <li><a class="sidebar-link" data-section="section-profitability"><i class="fas fa-euro-sign"></i> Ziskovosť/Kalkulácie</a></li>
           <li><a class="sidebar-link" data-section="section-costs"><i class="fas fa-wallet"></i> Správa Nákladov</a></li>
-
           <li><a class="sidebar-link" data-section="section-gemini-assistant"><i class="fas fa-robot"></i> Asistent Gemini</a></li>
           <li><a class="sidebar-link" data-section="section-import-export"><i class="fas fa-exchange-alt"></i> Import-Export ERP</a></li>
         </ul>
@@ -114,7 +101,7 @@
       <main class="main-content">
         <div id="section-dashboard" class="content-section active"></div>
 
-        <div id="section-vezg-prices" class="content-section" style="display:none">
+        <div id="section-vezg" class="content-section" style="display:none">
           <h2>Vývoj cien ošípaných polovičiek - Burza VEZG</h2>
           <button id="refresh-vezg-btn" class="btn btn-primary" style="margin-bottom: 20px;"><i class="fas fa-sync"></i> Obnoviť údaje z ERP</button>
           
@@ -143,9 +130,7 @@
         <div id="section-stock" class="content-section"></div>
         <div id="section-orders" class="content-section" style="display:none"></div>
         <div id="section-planning" class="content-section"></div>
-
         <div id="section-calendar" class="content-section"></div>
-
         <div id="section-order-forecast" class="content-section"></div>
         <div id="section-erp-admin" class="content-section"></div>
 
@@ -165,20 +150,14 @@
         </div>
 
         <div id="section-haccp" class="content-section"></div>
-
         <div id="section-core-temp" class="content-section"></div>
-
         <div id="section-fleet" class="content-section"></div>
         <div id="section-hygiene" class="content-section"></div>
-
         <div id="section-hr" class="content-section"></div>
-
         <div id="section-mail" class="content-section"></div>
         <div id="section-sms-connector" class="content-section" style="display:none"></div>
-
         <div id="section-temps" class="content-section"></div>
         <div id="section-meat-calc" class="content-section"></div>
-
         <div id="section-profitability" class="content-section"></div>
         <div id="section-costs" class="content-section"></div>
         <div id="section-gemini-assistant" class="content-section"></div>
@@ -210,7 +189,6 @@
   </div>
 
   <script src="{{ url_for('static', filename='js/common.js') }}" defer></script>
-
   <script src="{{ url_for('static', filename='js/kancelaria_modules/dashboard.js') }}" defer></script>
   <script src="{{ url_for('static', filename='js/kancelaria_modules/stock.js') }}" defer></script>
   <script src="{{ url_for('static', filename='js/kancelaria_modules/planning.js') }}" defer></script>
@@ -220,12 +198,10 @@
   <script src="{{ url_for('static', filename='js/kancelaria_modules/pricelist_manager.js') }}" defer></script>
   <script defer>
     document.addEventListener("DOMContentLoaded", () => {
-      // Čakáme, kým sa načíta pricelist_manager.js
       setTimeout(() => {
         if (typeof PricelistManager !== "undefined" && document.getElementById("pricelist-vue-app")) {
           const app = Vue.createApp(PricelistManager);
           app.mount("#pricelist-vue-app");
-          // Načítanie dát pri štarte
           if (app._instance && app._instance.ctx && app._instance.ctx.loadProducts) {
             app._instance.ctx.loadProducts();
           }
@@ -235,11 +211,9 @@
   </script>
 
   <script src="{{ url_for('static', filename='js/kancelaria_modules/b2b_admin.js') }}?v=3" defer></script>
-  
   <script src="{{ url_for('static', filename='js/kancelaria_modules/b2b_chains_admin.js') }}" defer></script>
   <script defer>
     document.addEventListener("DOMContentLoaded", () => {
-      // Čakáme, kým sa načíta b2b_chains_admin.js
       setTimeout(() => {
         if (typeof B2BChainsAdmin !== "undefined" && document.getElementById("chains-app")) {
           const chainsApp = Vue.createApp(B2BChainsAdmin);
@@ -251,9 +225,7 @@
 
   <script src="{{ url_for('static', filename='js/kancelaria_modules/b2c_admin.js') }}" defer></script>
   <script src="{{ url_for('static', filename='js/kancelaria_modules/haccp.js') }}" defer></script>
-
   <script src="{{ url_for('static', filename='js/kancelaria_modules/core_temp.js') }}?v=999" defer></script>
-
   <script src="{{ url_for('static', filename='js/kancelaria_modules/fleet.js') }}" defer></script>
   <script src="{{ url_for('static', filename='js/kancelaria_modules/hygiene.js') }}" defer></script>
   <script src="{{ url_for('static', filename='js/kancelaria_modules/orders.js') }}" defer></script>
@@ -266,106 +238,13 @@
   <script src="{{ url_for('static', filename='js/kancelaria_modules/hr.js') }}" defer></script>
 
   <script src="{{ url_for('static', filename='js/kancelaria.js') }}" defer></script>
-
   <script src="{{ url_for('static', filename='js/profitability.js') }}" defer></script>
   <script src="{{ url_for('static', filename='js/costs.js') }}" defer></script>
-
   <script src="{{ url_for('static', filename='js/gemini.js') }}" defer></script>
   <script src="{{ url_for('static', filename='js/task_planner.js') }}" defer></script>
   <script src="{{ url_for('static', filename='js/kancelaria_modules/gemini_tasks.js') }}" defer></script>
 
-  <script defer>
-    document.addEventListener("DOMContentLoaded", () => {
-      let vezgChartInstance = null;
-
-      async function loadVezgPrices() {
-        try {
-          const response = await fetch('/api/vezg-prices');
-          if (!response.ok) throw new Error('Sieťová chyba pri načítaní dát');
-          
-          const data = await response.json();
-          
-          if(data.error) {
-              document.getElementById('vezg-indicator').innerText = 'Dáta nedostupné';
-              return;
-          }
-
-          document.getElementById('vezg-current-price').innerText = data.current_price.toFixed(2) + ' € / kg';
-          document.getElementById('vezg-prev-price').innerText = data.previous_price.toFixed(2) + ' € / kg';
-          
-          const indicatorElement = document.getElementById('vezg-indicator');
-          indicatorElement.style.color = data.status_color;
-          
-          if (data.status_color === 'red') {
-              indicatorElement.innerHTML = '▲ Zvýšenie ceny (nárast nákladov)';
-          } else if (data.status_color === 'green') {
-              indicatorElement.innerHTML = '▼ Zníženie ceny (zlacnenie nákupu)';
-          } else {
-              indicatorElement.innerHTML = '➖ Bez zmeny';
-          }
-
-          if (data.history && data.history.length > 0) {
-            renderChart(data.history);
-          }
-
-        } catch (error) {
-          console.error("Chyba VEZG:", error);
-          document.getElementById('vezg-indicator').innerText = 'Chyba spojenia s ERP';
-        }
-      }
-
-      function renderChart(historyData) {
-        const ctx = document.getElementById('vezgChart').getContext('2d');
-        const labels = historyData.map(item => item.date);
-        const values = historyData.map(item => item.price);
-
-        if (vezgChartInstance) {
-          vezgChartInstance.destroy();
-        }
-
-        vezgChartInstance = new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: labels,
-                datasets: [{
-                    label: 'Vývoj ceny €/kg',
-                    data: values,
-                    borderColor: 'rgb(54, 162, 235)',
-                    backgroundColor: 'rgba(54, 162, 235, 0.1)',
-                    fill: true,
-                    tension: 0.1,
-                    pointRadius: 4,
-                    pointBackgroundColor: 'rgb(54, 162, 235)'
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                scales: { 
-                  y: { 
-                    beginAtZero: false,
-                    title: {
-                      display: true,
-                      text: 'Cena (€)'
-                    }
-                  } 
-                },
-                plugins: {
-                  legend: {
-                    display: false
-                  }
-                }
-            }
-        });
-      }
-
-      document.getElementById('refresh-vezg-btn').addEventListener('click', loadVezgPrices);
-      
-      // Ak chceme načítať priamo pri zobrazení sekcie, zavesíme na event alebo inicializujeme
-      // Pre jednoduchosť voláme hneď:
-      loadVezgPrices();
-    });
-  </script>
+  <script src="{{ url_for('static', filename='js/kancelaria_modules/vezg.js') }}" defer></script>
 
 </body>
 </html>
