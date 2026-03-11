@@ -6,7 +6,8 @@ let dashboardState = {
   period: null,
   data: null,
   googleChartsReady: null,
-  vezgChartInstance: null // Pridané pre správu inštancie VEZG grafu (Chart.js)
+  vezgChartInstance: null, // Pridané pre správu inštancie VEZG grafu (Chart.js)
+  vezgHistory: [] // Pridané pre pop-up okno histórie
 };
 
 function initializeDashboardModule() {
@@ -104,12 +105,19 @@ function renderVezgDashboardBlock() {
             <h4 style="margin:0; display:flex; align-items:center; gap:0.5rem;">
                 <i class="fas fa-chart-line" style="color:#3b82f6;"></i> Burza VEZG - Ošípané polovičky
             </h4>
-            <button class="btn btn-sm btn-secondary" onclick="loadVezgDashboardData()"><i class="fas fa-sync-alt"></i> Obnoviť burzu</button>
+            <div>
+                <button class="btn btn-sm btn-secondary" onclick="showVezgHistoryModal()" style="margin-right: 8px; background-color: #f3f4f6; color: #374151; border-color: #d1d5db;">
+                    <i class="fas fa-history"></i> História cien
+                </button>
+                <button class="btn btn-sm btn-primary" onclick="loadVezgDashboardData()">
+                    <i class="fas fa-sync-alt"></i> Obnoviť burzu
+                </button>
+            </div>
         </div>
         
         <div style="display: flex; gap: 20px; flex-wrap: wrap; margin-top: 15px;">
             <div style="flex: 1; min-width: 200px; padding: 15px; background: #f9fafb; border-radius: 8px; border: 1px solid #e5e7eb;">
-                <div style="font-size: 0.9rem; color: #6b7280; margin-bottom: 5px;">Tento týždeň:</div>
+                <div style="font-size: 0.9rem; color: #6b7280; margin-bottom: 5px;" id="dash-vezg-week-label">Tento týždeň:</div>
                 <div id="dash-vezg-current" style="font-size: 2rem; font-weight: 700; color: #111827;">-- € / kg</div>
                 
                 <div style="font-size: 0.85rem; color: #6b7280; margin-top: 15px; margin-bottom: 2px;">Minulý týždeň:</div>
@@ -146,7 +154,6 @@ async function loadVezgDashboardData() {
             return;
         }
 
-        // Extrakcia premenných s bezpečnou kontrolou, aby nepadol .toFixed
         const aktualnaCena = data.aktualna !== undefined ? data.aktualna : data.current_price;
         const minulaCena = data.minula !== undefined ? data.minula : data.previous_price;
         const rozdiel = data.rozdiel !== undefined ? data.rozdiel : (aktualnaCena - minulaCena);
@@ -157,45 +164,51 @@ async function loadVezgDashboardData() {
         document.getElementById('dash-vezg-current').innerText = finalAktualna.toFixed(2) + ' € / kg';
         document.getElementById('dash-vezg-prev').innerText = finalMinula.toFixed(2) + ' € / kg';
         
-        // Logika zobrazenia pre spracovateľa (červená je zlá, lebo surovina dražie)
+        // Aktualizácia štítku kalendárneho týždňa
+        if (data.aktualny_tyzden) {
+            document.getElementById('dash-vezg-week-label').innerText = `Aktuálna burza (${data.aktualny_tyzden}):`;
+        }
+
         const diffNum = Number(rozdiel);
         if (diffNum > 0) {
             trendEl.innerHTML = `▲ Nárast ceny o ${diffNum.toFixed(2)} € <br><span style="font-size:0.8em; font-weight:normal;">(Zvýšenie nákladov)</span>`;
-            trendEl.style.color = '#dc2626'; // red
+            trendEl.style.color = '#dc2626'; 
             trendEl.style.backgroundColor = '#fef2f2';
             trendEl.style.borderColor = '#fca5a5';
         } else if (diffNum < 0) {
             trendEl.innerHTML = `▼ Pokles ceny o ${Math.abs(diffNum).toFixed(2)} € <br><span style="font-size:0.8em; font-weight:normal;">(Zlacnenie nákupu)</span>`;
-            trendEl.style.color = '#16a34a'; // green
+            trendEl.style.color = '#16a34a'; 
             trendEl.style.backgroundColor = '#f0fdf4';
             trendEl.style.borderColor = '#bbf7d0';
         } else {
             trendEl.innerHTML = '➖ Cena suroviny sa nezmenila';
-            trendEl.style.color = '#4b5563'; // gray
+            trendEl.style.color = '#4b5563'; 
             trendEl.style.backgroundColor = '#f9fafb';
             trendEl.style.borderColor = '#e5e7eb';
         }
 
-        // Ak API vracia historické dáta, nakreslíme Chart.js graf
         if (data.history && Array.isArray(data.history) && data.history.length > 0) {
+            dashboardState.vezgHistory = data.history;
             renderDashVezgChart(data.history);
         }
 
     } catch (err) {
-        console.error("Chyba VEZG sub-modulu:", err);
+        console.error("Chyba VEZG API:", err);
         trendEl.innerText = 'Chyba API';
         trendEl.style.color = '#dc2626';
     }
 }
 
 function renderDashVezgChart(historyData) {
-    // Kreslenie grafu cez Chart.js (musí byť nalinkovaný v kancelaria.html)
     const canvasEl = document.getElementById('dashVezgChart');
     if (!canvasEl || typeof Chart === 'undefined') return;
     
     const ctx = canvasEl.getContext('2d');
-    const labels = historyData.map(item => item.date);
+    
+    // Využitie kalendárnych týždňov pre os X namiesto holých dátumov
+    const labels = historyData.map(item => item.week); 
     const values = historyData.map(item => item.price);
+    const dates = historyData.map(item => item.date); // Uchované pre tooltip
 
     if (dashboardState.vezgChartInstance) {
         dashboardState.vezgChartInstance.destroy();
@@ -212,7 +225,8 @@ function renderDashVezgChart(historyData) {
                 backgroundColor: 'rgba(59, 130, 246, 0.1)',
                 fill: true,
                 tension: 0.2,
-                pointRadius: 3,
+                pointRadius: 4,
+                pointHoverRadius: 6,
                 pointBackgroundColor: '#2563eb'
             }]
         },
@@ -232,12 +246,99 @@ function renderDashVezgChart(historyData) {
                 legend: { display: false },
                 tooltip: {
                     callbacks: {
-                        label: function(context) { return context.parsed.y.toFixed(2) + ' €/kg'; }
+                        title: function(context) {
+                            // Zobrazí kalendárny týždeň aj presný dátum pri prechode myšou
+                            const index = context[0].dataIndex;
+                            return `${labels[index]} (${dates[index]})`;
+                        },
+                        label: function(context) { 
+                            return context.parsed.y.toFixed(2) + ' €/kg'; 
+                        }
                     }
                 }
             }
         }
     });
+}
+
+function showVezgHistoryModal() {
+    if (!dashboardState.vezgHistory || dashboardState.vezgHistory.length === 0) {
+        alert("Historické dáta momentálne nie sú k dispozícii.");
+        return;
+    }
+
+    // Zoradíme dáta od najnovších (index 0) po najstaršie
+    let historyDesc = [...dashboardState.vezgHistory].reverse();
+    
+    let rowsHtml = '';
+
+    for (let i = 0; i < historyDesc.length; i++) {
+        let current = historyDesc[i];
+        
+        // Predošlý týždeň zistíme tak, že zoberieme v poradí starší záznam (i + 1 v reverznom poli)
+        let previous = (i < historyDesc.length - 1) ? historyDesc[i + 1] : null;
+
+        let changeHtml = '<span style="color:#6b7280;">➖ 0.00 €</span>';
+        if (previous) {
+            let diff = current.price - previous.price;
+            if (diff > 0) {
+                // Cena stúpla (červená)
+                changeHtml = `<span style="color:#dc2626; font-weight:bold;">▲ +${diff.toFixed(2)} €</span>`;
+            } else if (diff < 0) {
+                // Cena klesla (zelená)
+                changeHtml = `<span style="color:#16a34a; font-weight:bold;">▼ ${diff.toFixed(2)} €</span>`;
+            }
+        }
+
+        // Ak chýba "week", vygenerujeme fallback z dátumu
+        let weekLabel = current.week || current.date;
+
+        rowsHtml += `
+            <tr style="border-bottom: 1px solid #e5e7eb; transition: background-color 0.2s;">
+                <td style="padding: 12px 10px;"><strong>${weekLabel}</strong></td>
+                <td style="padding: 12px 10px; color: #6b7280;">${current.date}</td>
+                <td style="padding: 12px 10px; text-align: right; font-weight: 700; font-size: 1.05em;">${current.price.toFixed(2)} €</td>
+                <td style="padding: 12px 10px; text-align: right;">${changeHtml}</td>
+            </tr>
+        `;
+    }
+
+    let modalHtml = `
+        <div id="vezg-history-modal" style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.6); z-index: 10500; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(2px);">
+            <div style="background: #fff; width: 90%; max-width: 600px; border-radius: 12px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04); overflow: hidden; display: flex; flex-direction: column; max-height: 85vh;">
+                
+                <div style="background: #f8f9fa; padding: 16px 20px; border-bottom: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center;">
+                    <h3 style="margin: 0; font-size: 1.25rem; color: #111827;"><i class="fas fa-history text-muted"></i> Historický vývoj cien VEZG</h3>
+                    <button onclick="document.getElementById('vezg-history-modal').remove()" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; color: #9ca3af; transition: color 0.2s;" onmouseover="this.style.color='#4b5563'" onmouseout="this.style.color='#9ca3af'">&times;</button>
+                </div>
+                
+                <div style="padding: 0; overflow-y: auto;">
+                    <table style="width: 100%; border-collapse: collapse; text-align: left;">
+                        <thead style="background: #f3f4f6; position: sticky; top: 0; z-index: 10;">
+                            <tr>
+                                <th style="padding: 12px 10px; border-bottom: 2px solid #d1d5db; color: #374151; font-weight: 600;">Kalendárny Týždeň</th>
+                                <th style="padding: 12px 10px; border-bottom: 2px solid #d1d5db; color: #374151; font-weight: 600;">Zverejnené</th>
+                                <th style="padding: 12px 10px; border-bottom: 2px solid #d1d5db; color: #374151; font-weight: 600; text-align: right;">Cena</th>
+                                <th style="padding: 12px 10px; border-bottom: 2px solid #d1d5db; color: #374151; font-weight: 600; text-align: right;">Zmena / trend</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${rowsHtml}
+                        </tbody>
+                    </table>
+                </div>
+                
+                <div style="padding: 16px 20px; background: #f9fafb; border-top: 1px solid #e5e7eb; text-align: right;">
+                    <button class="btn btn-secondary" onclick="document.getElementById('vezg-history-modal').remove()">Zavrieť</button>
+                </div>
+            </div>
+        </div>
+    `;
+
+    let oldModal = document.getElementById('vezg-history-modal');
+    if (oldModal) oldModal.remove();
+
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
 }
 
 // ---------- Zvyšok Dashboard Logiky -----------------------------------
@@ -441,17 +542,13 @@ function escapeHtml(str) {
 function safeToFixed(v, d=2){ const n=Number(v); return isFinite(n)? n.toFixed(d): '0.00'; }
 
 async function apiRequest(url, opts = {}) {
-    // Ak existuje iná globálna funkcia s týmto názvom, použije ju (zamedzenie konfliktov)
     if (window.apiRequest && window.apiRequest !== apiRequest) return await window.apiRequest(url, opts);
     
-    // --- GLOBÁLNA OPRAVA PRE CHYBU 415 (Pre všetky moduly) ---
-    // Ak posielame dáta (POST/PUT), ktoré sú objekt a nie sú FormData (napr. súbor)
     if (opts.body && typeof opts.body === 'object' && !(opts.body instanceof FormData)) {
         opts.headers = opts.headers || {};
         opts.headers['Content-Type'] = 'application/json';
         opts.body = JSON.stringify(opts.body);
     }
-    // ---------------------------------------------------------
 
     const response = await fetch(url, opts);
     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);

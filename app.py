@@ -5487,24 +5487,33 @@ def get_vezg_prices():
     })
 @app.route('/api/vezg-prices', methods=['GET'])
 def api_get_vezg_prices():
-    zaznam = CenaVezg.query.order_by(CenaVezg.datum_zaznamu.desc()).first()
+    # Načítanie chronologicky všetkých záznamov pre graf
+    data = CenaVezg.query.order_by(CenaVezg.datum_zaznamu.asc()).all()
     
-    # Kritická poistka, ak DB neobsahuje žiadnu cenu
-    if not zaznam:
+    if not data:
         return jsonify({"error": "Žiadne dáta"}), 200
         
-    rozdiel = zaznam.cena_aktualna - zaznam.cena_minula
+    posledny = data[-1]
+    rozdiel = posledny.cena_aktualna - posledny.cena_minula
     
-    # Logika vyhodnotenia: Pre spracovateľa (nákup) je stúpanie ceny negatívne (červená)
-    trend = "klesa" if rozdiel < 0 else "stupa" if rozdiel > 0 else "rovnako"
-    farba = "green" if trend == "klesa" else "red" if trend == "stupa" else "black"
+    history_data = []
+    for row in data:
+        # Extrakcia kalendárneho týždňa z dátumu
+        tyzden = row.datum_zaznamu.isocalendar()[1]
+        history_data.append({
+            "date": row.datum_zaznamu.strftime('%d.%m.%Y'),
+            "week": f"KT {tyzden}",
+            "price": row.cena_aktualna
+        })
+
+    aktualny_tyzden = posledny.datum_zaznamu.isocalendar()[1]
 
     return jsonify({
-        "aktualna": zaznam.cena_aktualna,
-        "minula": zaznam.cena_minula,
+        "aktualna": posledny.cena_aktualna,
+        "minula": posledny.cena_minula,
         "rozdiel": round(rozdiel, 2),
-        "trend": trend,
-        "farba": farba
+        "aktualny_tyzden": f"KT {aktualny_tyzden}",
+        "history": history_data
     })
 # =================================================================
 # === OBJEDNÁVKY / SKLAD BLUEPRINTY ===
