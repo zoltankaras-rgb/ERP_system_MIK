@@ -295,7 +295,7 @@ def run_edi_import(cursor):
                 logger.error(f"Zákazník '{nazov_firmy}' nemá definované parent_id. Objednávka preskočená.")
                 continue
                 
-            order_number = f"EDI-{zakaznik_id}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+            order_number = f"EDI-{zakaznik_id}-{datetime.now().strftime('%Y%m%d%H%M%S%f')[:18]}"
             order_items = []
             total_gross = 0.0
             
