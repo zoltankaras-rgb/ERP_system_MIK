@@ -215,6 +215,28 @@
         .cookie-actions { width: 100%; flex-direction: column; }
         .cookie-actions button { width: 100%; }
     }
+    #loading-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(128, 128, 128, 0.8);
+    z-index: 10000; /* Musí byť nad všetkým */
+    display: none; /* Štandardne skryté, mení sa na flex */
+    justify-content: center;
+    align-items: center;
+}
+#loading-modal {
+    background-color: white;
+    padding: 40px 60px;
+    border-radius: 8px;
+    font-size: 24px;
+    font-weight: bold;
+    text-align: center;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+    color: var(--primary-color);
+}
   </style>
 </head>
 <body>
@@ -407,6 +429,10 @@
           <button id="cookie-accept" class="cookie-btn-accept">Súhlasím so všetkým</button>
       </div>
   </div>
-
+<div id="loading-overlay">
+    <div id="loading-modal">
+        <span id="loading-text">Spracovávam vašu objednávku...</span>
+    </div>
+</div>
 </body>
 </html>

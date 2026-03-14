@@ -406,7 +406,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const d = document.getElementById('delivery-date').value;
     if (!d) return showNotification('Zadajte požadovaný dátum dodania.', 'error');
     
-    // Vyfiltrujeme len položky, ktoré majú zadané množstvo väčšie ako 0
     const items = Object.values(appState.order).filter(i => i.quantity > 0);
     if (!items.length) return showNotification('Nemáte v objednávke žiadne položky s vyplneným množstvom.', 'error');
 
@@ -421,40 +420,95 @@ document.addEventListener('DOMContentLoaded', () => {
     const ccEmailsInput = document.getElementById('cc-emails');
     const ccEmails = ccEmailsInput ? ccEmailsInput.value : '';
 
-    const out = await apiCall('/api/b2b/submit-order', {
-      userId: appState.currentUser.id,
-      targetCustomerId: targetId,
-      customerName: custName,
-      customerEmail: appState.currentUser.email,
-      ccEmails: ccEmails,
-      items: items, 
-      deliveryDate: d,
-      note: document.getElementById('order-note').value
-    });
+    // Vnorena funkcia pre spracovanie requestu (podporuje preposlanie cez force_submit)
+    const sendRequest = async (isForced) => {
+        const submitBtn = document.getElementById('btn-submit-order');
+        if (submitBtn) submitBtn.disabled = true; 
+        
+        const overlay = document.getElementById('loading-overlay');
+        const loadingText = document.getElementById('loading-text');
+        if (overlay && loadingText) {
+            loadingText.innerText = 'Spracovávam vašu objednávku...';
+            overlay.style.display = 'flex'; 
+        }
 
-    if (!out) return;
+        const out = await apiCall('/api/b2b/submit-order', {
+            userId: appState.currentUser.id,
+            targetCustomerId: targetId,
+            customerName: custName,
+            customerEmail: appState.currentUser.email,
+            ccEmails: ccEmails,
+            items: items, 
+            deliveryDate: d,
+            note: document.getElementById('order-note').value,
+            force_submit: isForced // <-- Pridaný parameter pre backend
+        });
 
-    appState.order = {};
-    document.querySelectorAll('.quantity-input').forEach(i => i.value = '');
-    document.getElementById('order-note').value = '';
-    document.getElementById('delivery-date').value = '';
-    if (ccEmailsInput) ccEmailsInput.value = '';
-    updateTotals();
+        if (!out) {
+            if (submitBtn) submitBtn.disabled = false;
+            if (overlay) overlay.style.display = 'none';
+            return;
+        }
 
-    document.getElementById('products-container').innerHTML =
-      `<h3>Ďakujeme!</h3>
-       <p style="font-size:1.2rem;text-align:center;">Objednávka pre <strong>${custName}</strong> bola prijatá.</p>
-       <p style="text-align:center;">${out.message}</p>
-       <p style="text-align:center; font-size:0.9rem; color:#666;">Potvrdenie bolo odoslané na e-mail centrály${ccEmails ? ' a na zadané kópie.' : '.'}</p>`;
+        // === ZACHYTENIE VAROVANIA O DUPLICITE ===
+        if (out.warning === 'duplicate_order') {
+            if (overlay) overlay.style.display = 'none'; // Skryjeme sivú obrazovku nahrávania
+            if (submitBtn) submitBtn.disabled = false;   // Odblokujeme tlačidlo vzadu
 
-    setTimeout(() => {
-      const sel = document.getElementById('pricelist-select');
-      const stepProducts = document.getElementById('step-products');
-      sel.value = '';
-      stepProducts.classList.add('hidden');
-      document.getElementById('products-container').innerHTML = '';
-      document.getElementById('order-form-details').classList.add('hidden');
-    }, 3000);
+            // Využijeme váš existujúci modal-container pre vizuálne upozornenie
+            const mc = document.getElementById('modal-container');
+            mc.innerHTML = `
+                <div class="modal-backdrop" style="background:rgba(0,0,0,0.7);" onclick="closeModal('modal-container')"></div>
+                <div class="modal-content" style="max-width:500px; width:95%; text-align:center; padding:0;">
+                    <div class="modal-header" style="background-color: #fee2e2; border-bottom: 1px solid #fca5a5; padding: 15px;">
+                        <h3 style="color: #b91c1c; margin:0; font-size:1.2rem;">Upozornenie na duplicitu</h3>
+                    </div>
+                    <div style="padding:25px;">
+                        <p style="font-size:1.1rem; margin-bottom:25px; line-height:1.5;">${out.message}</p>
+                        <div style="display:flex; gap:15px; justify-content:center;">
+                            <button class="button secondary" onclick="closeModal('modal-container')">Zrušiť odoslanie</button>
+                            <button class="button" id="btn-force-submit">Áno, odoslať znova</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            mc.style.display = 'flex';
+
+            // Ak zákazník potvrdí, funkcia sa zavolá znova, no backend už duplicity ignoruje
+            document.getElementById('btn-force-submit').onclick = () => {
+                closeModal('modal-container');
+                sendRequest(true); 
+            };
+            return; // Prerušíme aktuálny beh, čaká sa na reakciu zákazníka v okne
+        }
+
+        // === ÚSPEŠNÉ SPRACOVANIE ===
+        if (loadingText) {
+            loadingText.innerText = 'Ďakujeme za objednávku, vaša objednávka bola úspešne spracovaná.';
+        }
+
+        appState.order = {};
+        document.querySelectorAll('.quantity-input').forEach(i => i.value = '');
+        document.getElementById('order-note').value = '';
+        document.getElementById('delivery-date').value = '';
+        if (ccEmailsInput) ccEmailsInput.value = '';
+        updateTotals();
+
+        setTimeout(() => {
+            if (overlay) overlay.style.display = 'none';
+            if (submitBtn) submitBtn.disabled = false;
+            
+            const sel = document.getElementById('pricelist-select');
+            const stepProducts = document.getElementById('step-products');
+            if (sel) sel.value = '';
+            if (stepProducts) stepProducts.classList.add('hidden');
+            document.getElementById('products-container').innerHTML = '';
+            document.getElementById('order-form-details').classList.add('hidden');
+        }, 3000);
+    };
+
+    // Štandardné prvé zavolanie (bez vynútenia)
+    sendRequest(false);
   };
 
   // =========================

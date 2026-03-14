@@ -1155,7 +1155,37 @@ def submit_b2b_order(data: dict):
         "route_number": cust.get("trasa_id"),
         "branch_number": cust.get("cislo_prevadzky"),
     }
+    # ---> PRIDANÝ KÓD PRE KONTROLU DUPLICITY ZÁKAZNÍKOM <---
+    force_submit = data.get("force_submit", False)
+    
+    if not force_submit:
+        norm_date = _normalize_date_to_str(delivery_date)
+        # Nájdenie existujúcich nezrušených objednávok na rovnaký deň
+        existing_orders = db_connector.execute_query(
+            "SELECT id FROM b2b_objednavky WHERE zakaznik_id=%s AND pozadovany_datum_dodania=%s AND stav NOT IN ('Zrušená', 'Zrusena', 'Stornovaná')",
+            (login_id, norm_date), fetch="all"
+        ) or []
 
+        if existing_orders:
+            # Mapovanie aktuálneho košíka {EAN: Množstvo}
+            current_cart = {str(it.get("ean")): _to_float(it.get("quantity")) for it in items_in if it.get("ean")}
+
+            # Porovnanie s históriou
+            for ex in existing_orders:
+                ex_items = db_connector.execute_query(
+                    "SELECT ean_produktu, mnozstvo FROM b2b_objednavky_polozky WHERE objednavka_id=%s",
+                    (ex["id"],), fetch="all"
+                ) or []
+                
+                ex_cart = {str(eit.get("ean_produktu")): _to_float(eit.get("mnozstvo")) for eit in ex_items if eit.get("ean_produktu")}
+
+                # Ak sa košíky exaktne zhodujú (položky aj množstvá)
+                if current_cart == ex_cart:
+                    return {
+                        "warning": "duplicate_order",
+                        "message": "Na tento deň dodania už máte vytvorenú presne takú istú objednávku (rovnaké položky aj množstvá). Chcete ju napriek tomu odoslať znova?"
+                    }
+    
     # 6. Uloženie do databázy
     order_number = f"B2B-{login_id}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
     conn = db_connector.get_connection()
