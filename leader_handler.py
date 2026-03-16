@@ -1386,14 +1386,19 @@ def leader_predictive_batch():
     client_filter = request.args.get('client_filter', '%COOP%') # Defaultne analyzuje len COOP
 
     # 1. Definícia bezpečnostných tolerancií (v %)
-    # Tieto hodnoty musia byť neskôr presunuté do DB tabuľky, pre teraz sú algoritmicky fixné.
+    # Kľúče musia byť lowercase, kvôli zhode so SQL: LOWER(p.predajna_kategoria)
     TOLERANCES = {
-        'čerstvé mäso': 1.03, # 3%
-        'výsek': 1.03,        # 3%
-        'údeniny': 1.08,      # 8%
-        'varené výrobky': 1.08,# 8%
-        'mrazené': 1.10,      # 10%
-        'default': 1.05       # 5% fallback
+        'výrobky': 1.08,                  # 8%
+        'bravčové mäso chladené': 1.03,   # 3%
+        'hovädzie mäso chladené': 1.03,   # 3%
+        'hydinové mäso chladené': 1.03,   # 3%
+        'bravčové mäso mrazené': 1.10,    # 10%
+        'hovädzie mäso mrazené': 1.10,    # 10%
+        'hydinové mäso mrazené': 1.10,    # 10%
+        'ryby mrazené': 1.10,             # 10%
+        'zelenina': 1.05,                 # 5%
+        'tovar': 1.05,                    # 5%
+        'default': 1.05                   # 5% fallback
     }
 
     try:

@@ -836,7 +836,7 @@ window.showManualRouteEditor = async function(id) {
     });
   }
 
-  // ======================= ŠTÍTKY PÔVODU MÄSA (TLAČ) =======================
+// ======================= ŠTÍTKY PÔVODU MÄSA (TLAČ) =======================
   var __mol_inited = false;
   const MOL_HISTORY_KEY = 'mol_history_v1';
 
@@ -876,6 +876,9 @@ window.showManualRouteEditor = async function(id) {
     if (isBeef){
       const cut = $('#mol-cuttext');
       if (cut && !safeStr(cut.value)) cut.value = mol_defaultCutText();
+      
+      const slaughter = $('#mol-slaughtertext');
+      if (slaughter && !safeStr(slaughter.value)) slaughter.value = mol_defaultCutText();
     }
   }
 
@@ -920,6 +923,7 @@ window.showManualRouteEditor = async function(id) {
     const fontSize = Math.max(8, Math.min(16, Math.floor(toNum($('#mol-font-size')?.value, 11)) || 11));
 
     const cutText = safeStr($('#mol-cuttext')?.value || '');
+    const slaughterText = safeStr($('#mol-slaughtertext')?.value || '');
 
     const tb = $('#mol-items tbody');
     const entries = [];
@@ -937,7 +941,7 @@ window.showManualRouteEditor = async function(id) {
       });
     }
 
-    const cfg = { type, company, approval, dateLabel, rowsPerPage, dateFormat, fontSize, cutText };
+    const cfg = { type, company, approval, dateLabel, rowsPerPage, dateFormat, fontSize, cutText, slaughterText };
     return { cfg, entries };
   }
 
@@ -966,6 +970,7 @@ window.showManualRouteEditor = async function(id) {
     const isBeef = mol_isBeef(cfg.type);
     const refVal = escapeHtml(safeStr(data.ref) || safeStr(data.batch) || '');
     const cutVal = escapeHtml(cfg.cutText || '');
+    const slaughterVal = escapeHtml(cfg.slaughterText || '');
 
     return `
       <table class="mol-label" cellspacing="0" cellpadding="0">
@@ -973,10 +978,11 @@ window.showManualRouteEditor = async function(id) {
         <tr><td colspan="4" class="mol-approval">${approval}</td></tr>
         <tr><td colspan="4" class="mol-title">${title}</td></tr>
         ${isBeef ? `<tr><td class="mol-lbl">Referenčné číslo:</td><td colspan="3" class="mol-val" style="font-size:0.75em; letter-spacing:-0.5px; white-space:nowrap;">${refVal}</td></tr>` : ''}
+        ${isBeef ? `<tr><td class="mol-lbl">Zabité:</td><td colspan="3" class="mol-val">${slaughterVal}</td></tr>` : ''}
         ${isBeef ? `<tr><td class="mol-lbl">Delené:</td><td colspan="3" class="mol-val">${cutVal}</td></tr>` : ''}
         <tr><td class="mol-lbl">CHOVANÉ v:</td><td colspan="3" class="mol-val">${origin}</td></tr>
-        <tr><td class="mol-lbl">ZABITÉ v:</td><td colspan="3" class="mol-val">${origin}</td></tr>
-        <tr><td class="mol-lbl">POVOD:</td><td colspan="3" class="mol-val">${origin}</td></tr>
+        ${!isBeef ? `<tr><td class="mol-lbl">ZABITÉ v:</td><td colspan="3" class="mol-val">${origin}</td></tr>` : ''}
+        <tr><td class="mol-lbl">PÔVOD:</td><td colspan="3" class="mol-val">${origin}</td></tr>
         <tr>
           <td class="mol-lbl">Kód dávky:</td><td class="mol-val">${batch}</td>
           <td class="mol-lbl">${dlabel}</td><td class="mol-val">${date}</td>
@@ -1128,7 +1134,7 @@ window.showManualRouteEditor = async function(id) {
   function mol_hist_keyOf(item){
     const cfg = item.cfg || {};
     const row = item.row || {};
-    return [cfg.type, row.date, row.batch, row.origin, row.ref, cfg.cutText].map(x=> safeStr(x)).join('|');
+    return [cfg.type, row.date, row.batch, row.origin, row.ref, cfg.cutText, cfg.slaughterText].map(x=> safeStr(x)).join('|');
   }
   function mol_hist_upsert(cfg, entries){
     const nowIso = new Date().toISOString();
@@ -1150,7 +1156,8 @@ window.showManualRouteEditor = async function(id) {
           rowsPerPage: Math.max(1, Math.min(12, Math.floor(toNum(cfg.rowsPerPage, 6)) || 6)),
           dateFormat: safeStr(cfg.dateFormat),
           fontSize: Math.max(8, Math.min(16, Math.floor(toNum(cfg.fontSize, 11)) || 11)),
-          cutText: safeStr(cfg.cutText)
+          cutText: safeStr(cfg.cutText),
+          slaughterText: safeStr(cfg.slaughterText)
         },
         row
       };
@@ -1198,7 +1205,7 @@ window.showManualRouteEditor = async function(id) {
       items = items.filter(it=>{
         const r = it.row || {};
         const c = it.cfg || {};
-        const hay = [r.date, r.batch, r.origin, r.ref, c.type, c.cutText].map(x=> String(x||'').toLowerCase()).join(' | ');
+        const hay = [r.date, r.batch, r.origin, r.ref, c.type, c.cutText, c.slaughterText].map(x=> String(x||'').toLowerCase()).join(' | ');
         return hay.includes(filter);
       });
     }
@@ -1315,6 +1322,9 @@ window.showManualRouteEditor = async function(id) {
         const cutEl = $('#mol-cuttext');
         if (cutEl && mol_isBeef(cfg.type)) cutEl.value = cfg.cutText || mol_defaultCutText();
 
+        const slaughterEl = $('#mol-slaughtertext');
+        if (slaughterEl && mol_isBeef(cfg.type)) slaughterEl.value = cfg.slaughterText || mol_defaultCutText();
+
         const tb = $('#mol-items tbody');
         mol_addRow(tb, { date: row.date, batch: row.batch, origin: row.origin, ref: row.ref });
 
@@ -1392,7 +1402,9 @@ window.showManualRouteEditor = async function(id) {
 
     let t = null;
     const schedulePreview = ()=>{ clearTimeout(t); t = setTimeout(()=> mol_preview(), 250); };
-    ['mol-type','mol-company','mol-approval','mol-cuttext','mol-date-label','mol-rows-per-page','mol-date-format','mol-font-size'].forEach(id=>{
+    
+    // Pridaný event listener pre nové pole 'mol-slaughtertext'
+    ['mol-type','mol-company','mol-approval','mol-cuttext','mol-slaughtertext','mol-date-label','mol-rows-per-page','mol-date-format','mol-font-size'].forEach(id=>{
       const el = $('#'+id);
       el && el.addEventListener('change', schedulePreview);
     });
@@ -2756,19 +2768,28 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 async function generateBlindBatchList() {
-    // Prevádzková ochrana: Po 12:00 je slepý zber nežiaduci
     const currentHour = new Date().getHours();
     if (currentHour >= 12) {
-        alert("KRITICKÁ CHYBA: Po 12:00 nie je možné generovať predikciu. Čakajte na tvrdú uzávierku a tlač reálnych dodacích listov.");
+        alert("KRITICKÁ CHYBA: Po 12:00 nie je možné generovať predikciu. Čakajte na tvrdú uzávierku.");
+        return;
+    }
+
+    // 1. Načítanie dátumu z dashboardu
+    const dateInput = document.getElementById('ldr-date').value;
+    let targetDateParam = '';
+    
+    if (dateInput) {
+        targetDateParam = `&date=${dateInput}`;
+    } else {
+        alert("CHYBA: Najskôr zvoľte dátum v dashboarde.");
         return;
     }
 
     try {
-        // Zobrazenie indikátora načítania
         document.body.style.cursor = 'wait';
         
-        // Volanie vášho nového Python endpointu
-        const response = await fetch('/api/leader/production/predictive_batch?client_filter=%COOP%');
+        // 2. Pripojenie parametra dátumu do dopytu
+        const response = await fetch(`/api/leader/production/predictive_batch?client_filter=%COOP%${targetDateParam}`);
         const data = await response.json();
 
         if (data.error) {
@@ -2776,11 +2797,10 @@ async function generateBlindBatchList() {
             return;
         }
 
-        // Extrakcia len tých položiek, ktoré treba reálne dovažovať
         const itemsToPick = data.predictions.filter(item => item.blind_pick_delta > 0);
 
         if (itemsToPick.length === 0) {
-            alert("Ranné objednávky už pokryli historický priemer. Slepý zber nie je potrebný.");
+            alert("Nedostatok historických dát alebo ranné objednávky už pokryli cieľ. Slepý zber nie je možný.");
             return;
         }
 
