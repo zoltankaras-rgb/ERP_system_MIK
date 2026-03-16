@@ -72,6 +72,7 @@
           <li><a class="sidebar-link active" data-section="section-dashboard"><i class="fas fa-chart-line"></i> Dashboard</a></li>
           
           <li><a class="sidebar-link" data-section="section-vezg"><i class="fas fa-chart-bar"></i> Burza VEZG</a></li>
+          <li><a class="sidebar-link" data-section="section-nakup"><i class="fas fa-shopping-cart"></i> Nákupy od dodávateľov</a></li>
 
           <li><a class="sidebar-link" data-section="section-stock"><i class="fas fa-warehouse"></i> Sklad výroba</a></li>
           <li><a class="sidebar-link" data-section="section-orders"><i class="fas fa-clipboard-list"></i> Objednávky výroba</a></li>
@@ -127,6 +128,8 @@
             </div>
           </div>
         </div>
+
+        <div id="section-nakup" class="content-section" style="display:none"></div>
 
         <div id="section-stock" class="content-section"></div>
         <div id="section-orders" class="content-section" style="display:none"></div>
@@ -244,8 +247,9 @@
   <script src="{{ url_for('static', filename='js/gemini.js') }}" defer></script>
   <script src="{{ url_for('static', filename='js/task_planner.js') }}" defer></script>
   <script src="{{ url_for('static', filename='js/kancelaria_modules/gemini_tasks.js') }}" defer></script>
-
   <script src="{{ url_for('static', filename='js/kancelaria_modules/vezg.js') }}" defer></script>
+  
+  <script src="{{ url_for('static', filename='js/kancelaria_modules/nakup.js') }}" defer></script>
 
 </body>
 </html>

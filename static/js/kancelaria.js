@@ -300,6 +300,12 @@ async function setupSection(sectionId) {
     return;
   }
 
+  if (sectionId === 'section-nakup') {
+    if (typeof window.renderNakupModule === 'function') {
+        window.renderNakupModule('section-nakup');
+    }
+}
+
   if (sectionId === 'section-mail') {
     if (sectionElement.dataset.initialized === 'true' &&
         typeof window.initializeMailModule === 'function') return;

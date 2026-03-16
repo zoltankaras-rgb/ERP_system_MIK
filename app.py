@@ -55,6 +55,7 @@ from pdf_generator import create_pricelist_pdf
 import integration_handler
 import meat_calc_handler
 import chains_handler
+import nakup_handler
 # ===================== ENTERPRISE KALENDÁR – KONŠTANTY =========================
 
 EVENT_STATUS_OPEN = 'OPEN'
@@ -5298,6 +5299,27 @@ def api_get_vezg_prices():
         "aktualny_tyzden": f"KT {aktualny_tyzden}",
         "history": history_data
     })
+
+# =================================================================
+# === MODUL NÁKUP (EXTERNÍ DODÁVATELIA) ===
+# =================================================================
+
+import nakup_handler # Pridať medzi ostatné importy hore
+
+# ... (nižšie medzi ostatné Kancelária endpointy) ...
+
+@app.route('/api/kancelaria/nakup/ulozit', methods=['POST'])
+@login_required(role=('kancelaria','veduci','admin'))
+def api_nakup_ulozit():
+    data = request.get_json(silent=True) or {}
+    return handle_request(nakup_handler.ulozit_nakup, data)
+
+@app.route('/api/kancelaria/nakup/historia', methods=['GET'])
+@login_required(role=('kancelaria','veduci','admin'))
+def api_nakup_historia():
+    ean = request.args.get('ean')
+    nazov = request.args.get('nazov')
+    return handle_request(nakup_handler.historia_nakupov, ean, nazov)
 # =================================================================
 # === OBJEDNÁVKY / SKLAD BLUEPRINTY ===
 # =================================================================
