@@ -437,26 +437,41 @@
 let globalEanUsageMap = new Map();
 
 // Funkcia na vybudovanie mapy (zavolajte ju pri štarte úpravy cenníka)
+// Funkcia na vybudovanie mapy (využíva výhradne existujúce endpointy)
 async function buildEanUsageMap(currentPricelistId = null) {
     globalEanUsageMap.clear();
     try {
-        const res = await apiRequest('/api/kancelaria/b2b/getPricelists');
-        const pricelists = res.pricelists || [];
+        // 1. Zabezpečenie zoznamu cenníkov
+        if (!state.pricelists || state.pricelists.length === 0) {
+            const plData = await callFirstOk([{ url: '/api/kancelaria/b2b/getPricelistsAndProducts' }]);
+            state.pricelists = plData.pricelists || [];
+        }
         
-        pricelists.forEach(pl => {
-            if (currentPricelistId && pl.id === currentPricelistId) return; // Ignorovať aktuálne upravovaný
+        // 2. Postupné stiahnutie položiek pre každý cenník
+        for (const pl of state.pricelists) {
+            if (currentPricelistId && pl.id == currentPricelistId) continue; 
             
-            const items = pl.items || [];
-            items.forEach(item => {
-                if (!item.ean) return;
-                if (!globalEanUsageMap.has(item.ean)) {
-                    globalEanUsageMap.set(item.ean, []);
-                }
-                if (!globalEanUsageMap.get(item.ean).includes(pl.nazov)) {
-                    globalEanUsageMap.get(item.ean).push(pl.nazov);
-                }
-            });
-        });
+            try {
+                const detailData = await callFirstOk([{ 
+                    url: '/api/kancelaria/b2b/getPricelistDetails', 
+                    opts: { method:'POST', body:{id: pl.id} } 
+                }]);
+
+                const items = detailData.items || [];
+                items.forEach(item => {
+                    const ean = item.ean_produktu;
+                    if (!ean) return;
+                    if (!globalEanUsageMap.has(ean)) {
+                        globalEanUsageMap.set(ean, []);
+                    }
+                    if (!globalEanUsageMap.get(ean).includes(pl.nazov_cennika)) {
+                        globalEanUsageMap.get(ean).push(pl.nazov_cennika);
+                    }
+                });
+            } catch (errDetail) {
+                console.error(`Chyba pri sťahovaní cenníka ID ${pl.id}:`, errDetail);
+            }
+        }
     } catch (e) {
         console.error("Zlyhalo načítanie EAN mapy:", e);
     }
