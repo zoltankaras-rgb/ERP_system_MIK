@@ -378,15 +378,21 @@ async function hydratePromotionsFromPlanner() {
   try {
     const data = await apiRequest('/api/kancelaria/get_promotions_data'); 
     const list = Array.isArray(data?.promotions) ? data.promotions : [];
+    const products = Array.isArray(data?.products) ? data.products : [];
     const today = new Date(); today.setHours(0,0,0,0);
 
     const toISO = (d) => { const x = new Date(d); return isNaN(x) ? null : new Date(x.getFullYear(),x.getMonth(),x.getDate()); };
     const daysDiff = (a,b) => Math.round((a - b) / 86400000);
 
+    // Pomocná mapa produktov pre rýchle nájdenie nákupnej ceny (default_unit_cost)
+    const productMap = {};
+    products.forEach(p => { productMap[p.ean] = p; });
+
     const mapped = list.map(p => {
         const s = toISO(p.start_date);
         const e = toISO(p.end_date);
         let state = 'upcoming', badge = 'badge-gray', stateText = 'Bez termínu';
+        
         if (s && e) {
           if (today < s) {
             state = 'upcoming'; badge = 'badge-blue'; stateText = `Začne o ${daysDiff(s, today)} d`;
@@ -402,7 +408,34 @@ async function hydratePromotionsFromPlanner() {
           badge = (state === 'active') ? 'badge-green' : 'badge-blue';
           stateText = (state === 'active') ? 'Prebieha' : 'Začne čoskoro';
         }
-        return { chain: p.chain_name || '', product: p.product_name || '', start: s, end: e, state, badge, stateText };
+
+        // Výpočet ziskovosti
+        const prodInfo = productMap[p.product_ean];
+        const sysBuyPrice = prodInfo ? (parseFloat(prodInfo.default_unit_cost) || parseFloat(prodInfo.nakupna_cena) || 0) : 0;
+        
+        // Predajná cena z akcie
+        const sellPrice = parseFloat(p.sale_price_net || 0);
+        
+        // Ak už bola akcia vyhodnotená (má uloženú actual_purchase_price), použijeme tú, inak systémovú
+        const buyPrice = p.actual_purchase_price !== null && p.actual_purchase_price !== undefined ? parseFloat(p.actual_purchase_price) : sysBuyPrice;
+
+        const profitEur = sellPrice - buyPrice;
+        let marginPct = 0;
+        if (sellPrice > 0) marginPct = (profitEur / sellPrice) * 100;
+
+        return { 
+            chain: p.chain_name || '', 
+            product: p.product_name || '', 
+            start: s, 
+            end: e, 
+            state, 
+            badge, 
+            stateText,
+            sellPrice: sellPrice,
+            buyPrice: buyPrice,
+            profitEur: profitEur,
+            marginPct: marginPct
+        };
       }).filter(p => p.state === 'active' || p.state === 'upcoming');
 
     const order = { active: 0, upcoming: 1 };
@@ -416,10 +449,43 @@ async function hydratePromotionsFromPlanner() {
 
 function renderPromotionsTable(items = []) {
   const fmtSK = (d) => d ? d.toLocaleDateString('sk-SK') : '—';
+  
   if (!items.length) return `<div style="padding:10px;">Aktuálne neprebiehajú žiadne akcie.</div>`;
+  
   let rows = '';
-  items.forEach(p => { rows += `<tr><td>${escapeHtml(p.chain || '—')}</td><td><strong>${escapeHtml(p.product)}</strong></td><td>${fmtSK(p.start)} – ${fmtSK(p.end)}</td><td><span class="badge ${p.badge}">${escapeHtml(p.stateText)}</span></td></tr>`; });
-  return `<table class="tbl"><thead><tr><th>Reťazec</th><th>Produkt</th><th>Obdobie</th><th>Stav</th></tr></thead><tbody>${rows}</tbody></table>`;
+  items.forEach(p => { 
+      const profitColor = p.profitEur < 0 ? '#dc2626' : '#15803d';
+      const marginColor = p.marginPct < 0 ? '#dc2626' : (p.marginPct < 15 ? '#d97706' : '#15803d');
+      
+      rows += `
+      <tr>
+          <td>${escapeHtml(p.chain || '—')}</td>
+          <td><strong>${escapeHtml(p.product)}</strong></td>
+          <td class="num" style="color:#64748b;">${safeToFixed(p.buyPrice, 2)} €</td>
+          <td class="num" style="font-weight:bold; color:#0369a1;">${safeToFixed(p.sellPrice, 2)} €</td>
+          <td class="num" style="font-weight:bold; color:${profitColor};">${p.profitEur > 0 ? '+' : ''}${safeToFixed(p.profitEur, 2)} €</td>
+          <td class="num" style="font-weight:bold; color:${marginColor};">${safeToFixed(p.marginPct, 1)} %</td>
+          <td>${fmtSK(p.start)} – ${fmtSK(p.end)}</td>
+          <td><span class="badge ${p.badge}">${escapeHtml(p.stateText)}</span></td>
+      </tr>`; 
+  });
+  
+  return `
+  <table class="tbl">
+      <thead>
+          <tr>
+              <th>Reťazec</th>
+              <th>Produkt</th>
+              <th class="num">Nákup (1kg)</th>
+              <th class="num">Akciová Cena</th>
+              <th class="num">Zisk/kg</th>
+              <th class="num">Marža</th>
+              <th>Obdobie</th>
+              <th>Stav</th>
+          </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+  </table>`;
 }
 
 function renderLowStockRaw(rows = []) {
