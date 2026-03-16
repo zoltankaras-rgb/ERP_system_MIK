@@ -433,7 +433,34 @@
       win.document.write(`<html><head><title>Sumár expedície B2B - ${formattedDate}</title><style>body { font-family: Arial, sans-serif; padding: 20px; font-size: 14px; } h2 { text-align: center; margin-bottom: 5px; } p.subtitle { text-align: center; color: #555; margin-top: 0; margin-bottom: 20px; } table { width: 100%; border-collapse: collapse; margin-top: 10px; } th, td { border: 1px solid #000; padding: 8px 12px; text-align: left; } th { background-color: #f4f4f4; } td[style*="text-align:right"] { text-align: right; font-weight: bold; }</style></head><body><h2>Sumár produktov na B2B expedíciu</h2><p class="subtitle"><strong>Dátum dodania:</strong> ${formattedDate} | <strong>Vytlačené:</strong> ${new Date().toLocaleString('sk-SK')}</p>${content}<script>window.print();</script></body></html>`);
       win.document.close();
   };
+// Globálna premenná pre ukladanie výskytu EAN kódov
+let globalEanUsageMap = new Map();
 
+// Funkcia na vybudovanie mapy (zavolajte ju pri štarte úpravy cenníka)
+async function buildEanUsageMap(currentPricelistId = null) {
+    globalEanUsageMap.clear();
+    try {
+        const res = await apiRequest('/api/kancelaria/b2b/getPricelists');
+        const pricelists = res.pricelists || [];
+        
+        pricelists.forEach(pl => {
+            if (currentPricelistId && pl.id === currentPricelistId) return; // Ignorovať aktuálne upravovaný
+            
+            const items = pl.items || [];
+            items.forEach(item => {
+                if (!item.ean) return;
+                if (!globalEanUsageMap.has(item.ean)) {
+                    globalEanUsageMap.set(item.ean, []);
+                }
+                if (!globalEanUsageMap.get(item.ean).includes(pl.nazov)) {
+                    globalEanUsageMap.get(item.ean).push(pl.nazov);
+                }
+            });
+        });
+    } catch (e) {
+        console.error("Zlyhalo načítanie EAN mapy:", e);
+    }
+}
 // =================================================================
   // 2. LOGISTIKA & TRASY (S PREPOJENÍM NA FLEET)
   // =================================================================
@@ -2031,12 +2058,15 @@ async function loadPricelistsForManagement() {
     } catch(e) { box.innerHTML = `<p class="error">Chyba pri načítaní dát: ${e.message}</p>`; }
 }
 
-window.showPricelistEditor = function(plId) {
+window.showPricelistEditor = async function(plId) { // PRIDANÉ async
     const isEdit = !!plId;
     let customersHtml = '';
     if (!isEdit) state.customers.forEach(c => { customersHtml += `<label class="cust-option"><input type="checkbox" value="${c.id}"> ${escapeHtml(c.nazov_firmy)}</label>`; });
     let copyOptions = '<option value="">-- Nevyplňovať --</option>';
     state.pricelists.forEach(p => { if (p.id != plId) copyOptions += `<option value="${p.id}">Kopírovať z: ${escapeHtml(p.nazov_cennika)}</option>`; });
+
+    // NOVÉ: Vybudovanie mapy EAN kódov pred otvorením modálu
+    await buildEanUsageMap(isEdit ? plId : null);
 
     const modalHtml = `
       <style>
@@ -2055,7 +2085,10 @@ window.showPricelistEditor = function(plId) {
       <div class="pl-editor-wrapper">
           <div class="pl-header">
               <h3 style="margin:0; color:#1e3a8a; display:flex; align-items:center; gap:10px;">${isEdit ? '✏️ Úprava cenníka' : '➕ Nový cenník'}</h3>
-              <button class="btn btn-secondary btn-sm" onclick="closeModal()">❌ Zavrieť</button>
+              <div>
+                  <button class="btn btn-success btn-sm" onclick="window.quickAddProductToSystem()" style="margin-right:15px; font-weight:bold; box-shadow:0 2px 4px rgba(0,0,0,0.1);">➕ Vytvoriť nový produkt do databázy</button>
+                  <button class="btn btn-secondary btn-sm" onclick="closeModal()">❌ Zavrieť</button>
+              </div>
           </div>
           <div class="pl-controls">
               <div class="form-group">
@@ -2112,7 +2145,6 @@ window.showPricelistEditor = function(plId) {
         };
     }
 };
-
 window.savePricelistItems = async function(plId) {
     const newName = doc.getElementById('pl-name').value.trim();
     if(!newName) return showStatus('Názov cenníka nemôže byť prázdny!', true);
@@ -2152,7 +2184,22 @@ function renderSourceProducts(filter) {
         if (currentPlItems.has(p.ean)) return;
         if (count > 50 && !f) return;
         if (!f || p.nazov_vyrobku.toLowerCase().includes(f) || p.ean.includes(f)) {
-            html += `<tr style="border-bottom:1px solid #eee;"><td style="padding:6px;"><div style="font-weight:600;">${escapeHtml(p.nazov_vyrobku)}</div><div style="font-size:0.75em; color:#666;">EAN: ${p.ean} | DPH: ${p.dph}%</div></td><td style="padding:6px;"><input type="number" id="price-in-${p.ean}" placeholder="0.00" style="width:100%; padding:4px; border:1px solid #ccc; border-radius:4px;" step="0.01"></td><td style="padding:6px; text-align:center;"><button class="btn btn-primary btn-sm" onclick="window.plAdd('${p.ean}')" style="padding:2px 8px;">+</button></td></tr>`;
+            
+            // NOVÉ: Zistenie použitia EAN a vygenerovanie ikonky
+            let eanWarningIcon = '';
+            if (p.ean && globalEanUsageMap.has(p.ean)) {
+                const usedIn = globalEanUsageMap.get(p.ean).join(', ');
+                eanWarningIcon = `<i class="fas fa-exclamation-triangle" style="color:#d97706; margin-left:8px; cursor:help; font-size:1.1em;" title="Tento EAN (${p.ean}) sa už nachádza v cenníkoch:\n${escapeHtml(usedIn)}"></i>`;
+            }
+
+            html += `<tr style="border-bottom:1px solid #eee;">
+                <td style="padding:6px;">
+                    <div style="font-weight:600;">${escapeHtml(p.nazov_vyrobku)} ${eanWarningIcon}</div>
+                    <div style="font-size:0.75em; color:#666;">EAN: ${p.ean} | DPH: ${p.dph}%</div>
+                </td>
+                <td style="padding:6px;"><input type="number" id="price-in-${p.ean}" placeholder="0.00" style="width:100%; padding:4px; border:1px solid #ccc; border-radius:4px;" step="0.01"></td>
+                <td style="padding:6px; text-align:center;"><button class="btn btn-primary btn-sm" onclick="window.plAdd('${p.ean}')" style="padding:2px 8px;">+</button></td>
+            </tr>`;
             count++;
         }
     });
@@ -2264,7 +2311,85 @@ window.printPricelistPreview = async function(plId) {
         const win = window.open('', '_blank'); win.document.write(html); win.document.close();
     } catch(e) { alert("Chyba pri generovaní tlače: " + e.message); }
 };
+window.quickAddProductToSystem = function() {
+    const html = `
+        <div style="padding: 10px;">
+            <h3 style="margin-top:0; color:#1e293b; border-bottom:1px solid #e2e8f0; padding-bottom:10px;">➕ Vytvoriť nový produkt v systéme</h3>
+            <p class="text-muted" style="font-size:0.85rem;">Produkt bude ihneď dostupný pre pridanie do cenníka.</p>
+            
+            <div class="form-group" style="margin-bottom: 10px;">
+                <label style="font-weight:bold;">Názov produktu <span style="color:red">*</span></label>
+                <input type="text" id="qa-nazov" class="filter-input" style="width: 100%;" required>
+            </div>
+            
+            <div style="display:flex; gap:10px; margin-bottom: 15px;">
+                <div class="form-group" style="flex:1;">
+                    <label style="font-weight:bold;">EAN kód</label>
+                    <input type="text" id="qa-ean" class="filter-input" style="width: 100%;">
+                </div>
+                <div class="form-group" style="width: 100px;">
+                    <label style="font-weight:bold;">MJ</label>
+                    <select id="qa-mj" class="filter-input" style="width: 100%;">
+                        <option value="kg">kg</option>
+                        <option value="ks">ks</option>
+                        <option value="g">g</option>
+                    </select>
+                </div>
+            </div>
 
+            <div class="form-group" style="margin-bottom: 20px;">
+                <label style="font-weight:bold;">Predajná kategória</label>
+                <input type="text" id="qa-kat" class="filter-input" style="width: 100%;" placeholder="Napr. Bravčové mäso, Údeniny...">
+            </div>
+
+            <div style="display:flex; justify-content:flex-end; gap:10px;">
+                <button class="btn btn-secondary" onclick="closeModal()">Zrušiť</button>
+                <button class="btn btn-primary" onclick="window.submitQuickAddProduct()">💾 Uložiť do ERP</button>
+            </div>
+        </div>
+    `;
+    openModal(html);
+};
+
+window.submitQuickAddProduct = async function() {
+    const nazov = document.getElementById('qa-nazov').value.trim();
+    const ean = document.getElementById('qa-ean').value.trim();
+    const mj = document.getElementById('qa-mj').value;
+    const kat = document.getElementById('qa-kat').value.trim();
+
+    if (!nazov) return showStatus('Názov produktu je povinný!', true);
+
+    try {
+        // Dopyt smeruje na existujúci endpoint ERP modulu pre tvorbu produktov
+        const res = await fetch('/api/kancelaria/erp/produkty', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                action: 'create', // Prispôsobte akcii vášho ERP backendu
+                nazov_vyrobku: nazov, 
+                ean: ean, 
+                mj: mj, 
+                predajna_kategoria: kat,
+                typ_polozky: 'VÝROBOK'
+            })
+        });
+        
+        const out = await res.json();
+        if (out.error) throw new Error(out.error);
+
+        showStatus('Produkt bol úspešne vytvorený.');
+        closeModal();
+
+        // Nutné zavolať funkcie na obnovu katalógu cenníka
+        if (typeof loadProductsAll === 'function') {
+            await loadProductsAll(); 
+            // Zavolajte vašu funkciu pre prekreslenie (napr. renderPricelistCatalog())
+        }
+        
+    } catch (e) {
+        showStatus('Chyba: ' + e.message, true);
+    }
+};
   // =================================================================
   // 6. REGISTRÁCIE & NASTAVENIA
   // =================================================================

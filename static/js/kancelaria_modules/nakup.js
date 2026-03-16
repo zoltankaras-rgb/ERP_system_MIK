@@ -81,15 +81,20 @@ window.renderNakupModule = async function(containerId) {
                         
                         <input type="hidden" id="nakup-ean">
                         
-                        <div style="display:flex; gap:10px; margin-top:15px;">
-                            <div style="flex:1;">
+                        <div style="display:flex; gap:10px; margin-top:15px; width: 100%; box-sizing: border-box;">
+                            <div style="flex:1; min-width: 0;">
                                 <label style="font-size:0.8rem; font-weight:bold;">Množstvo (kg/ks)</label>
-                                <input type="number" id="nakup-mnozstvo" class="filter-input" style="width: 100%; text-align:right;" step="0.01" placeholder="0.00">
+                                <input type="number" id="nakup-mnozstvo" class="filter-input" style="width: 100%; box-sizing: border-box; text-align:right;" step="0.01" placeholder="0.00">
                             </div>
-                            <div style="flex:1;">
+                            <div style="flex:1; min-width: 0;">
                                 <label style="font-size:0.8rem; font-weight:bold;">Nákupná cena bez DPH</label>
-                                <input type="number" id="nakup-cena" class="filter-input" style="width: 100%; text-align:right; border-color:#0284c7;" step="0.0001" placeholder="0.0000">
+                                <input type="number" id="nakup-cena" class="filter-input" style="width: 100%; box-sizing: border-box; text-align:right; border-color:#0284c7;" step="0.0001" placeholder="0.0000">
                             </div>
+                            <div style="flex: 0 0 90px; min-width: 0;">
+                                <label style="font-size:0.8rem; font-weight:bold;">DPH %</label>
+                                <input type="number" id="nakup-dph" class="filter-input" style="width: 100%; box-sizing: border-box; text-align:center;" step="1" value="20">
+                            </div>
+                        </div>
                             <div style="width:70px;">
                                 <label style="font-size:0.8rem; font-weight:bold;">DPH %</label>
                                 <input type="number" id="nakup-dph" class="filter-input" style="width: 100%; text-align:center;" step="1" value="20">
