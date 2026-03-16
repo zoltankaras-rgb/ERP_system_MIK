@@ -348,7 +348,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const bar = document.getElementById('announcement-bar');
     if (user.announcement) {
-        bar.textContent = user.announcement;
+        bar.innerHTML = user.announcement; // <-- Umožní spracovať HTML (farby, hrúbka, veľkosť)
         bar.classList.remove('hidden');
     } else bar.classList.add('hidden');
 
@@ -547,7 +547,7 @@ window.submitOrder = async function() {
     // Štandardné prvé zavolanie (bez vynútenia duplicity a bez vynútenia uzávierky)
     sendRequest(false, false);
   };
-  
+
 function setMinDeliveryDate() {
       const dateInput = document.getElementById('delivery-date');
       if (!dateInput) return;
