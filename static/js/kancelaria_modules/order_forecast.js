@@ -854,6 +854,11 @@ async function loadAndRenderPromotionEvaluation() {
         const sChain = document.getElementById('peval-chain')?.value || '';
         const sStatus = document.getElementById('peval-status')?.value || '';
 
+        // OPRAVA: Prevedenie zadaných textov z kalendára na skutočné JS Dátumy
+        let dFrom = null, dTo = null;
+        if (sFrom) { dFrom = new Date(sFrom); dFrom.setHours(0,0,0,0); }
+        if (sTo) { dTo = new Date(sTo); dTo.setHours(23,59,59,999); }
+
         let totalProfit = 0, totalRevenue = 0, totalQty = 0, html = '';
 
         if (Array.isArray(window.enrichedPromos)) {
@@ -862,8 +867,20 @@ async function loadAndRenderPromotionEvaluation() {
                 if (sCat && p._category !== sCat) return;
                 if (sChain && String(p.chain_id) !== sChain) return;
                 if (sStatus === 'ended' && !p._isEnded) return;
-                if (sFrom && p.end_date && p.end_date < sFrom) return;
-                if (sTo && p.start_date && p.start_date > sTo) return;
+                
+                // OPRAVA: Prevedenie dátumov z databázy a ich korektné matematické porovnanie
+                if (dFrom || dTo) {
+                    let pStart = p.start_date ? new Date(p.start_date) : null;
+                    let pEnd = p.end_date ? new Date(p.end_date) : null;
+                    
+                    if (pStart) pStart.setHours(0,0,0,0);
+                    if (pEnd) pEnd.setHours(23,59,59,999);
+
+                    // Akcia skončila pred našim filtrom "Od"
+                    if (dFrom && pEnd && pEnd < dFrom) return;
+                    // Akcia začne až po našom filtri "Do"
+                    if (dTo && pStart && pStart > dTo) return;
+                }
 
                 const fromStr = p.start_date ? new Date(p.start_date).toLocaleDateString('sk-SK') : '';
                 const toStr   = p.end_date   ? new Date(p.end_date).toLocaleDateString('sk-SK')   : '';
