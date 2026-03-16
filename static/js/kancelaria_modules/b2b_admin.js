@@ -2326,44 +2326,61 @@ window.printPricelistPreview = async function(plId) {
         const win = window.open('', '_blank'); win.document.write(html); win.document.close();
     } catch(e) { alert("Chyba pri generovaní tlače: " + e.message); }
 };
+// Funkcia na rýchle pridanie produktu do systému bez zatvorenia cenníka
 window.quickAddProductToSystem = function() {
-    const html = `
-        <div style="padding: 10px;">
-            <h3 style="margin-top:0; color:#1e293b; border-bottom:1px solid #e2e8f0; padding-bottom:10px;">➕ Vytvoriť nový produkt v systéme</h3>
-            <p class="text-muted" style="font-size:0.85rem;">Produkt bude ihneď dostupný pre pridanie do cenníka.</p>
-            
-            <div class="form-group" style="margin-bottom: 10px;">
-                <label style="font-weight:bold;">Názov produktu <span style="color:red">*</span></label>
-                <input type="text" id="qa-nazov" class="filter-input" style="width: 100%;" required>
-            </div>
-            
-            <div style="display:flex; gap:10px; margin-bottom: 15px;">
-                <div class="form-group" style="flex:1;">
-                    <label style="font-weight:bold;">EAN kód</label>
-                    <input type="text" id="qa-ean" class="filter-input" style="width: 100%;">
-                </div>
-                <div class="form-group" style="width: 100px;">
-                    <label style="font-weight:bold;">MJ</label>
-                    <select id="qa-mj" class="filter-input" style="width: 100%;">
-                        <option value="kg">kg</option>
-                        <option value="ks">ks</option>
-                        <option value="g">g</option>
-                    </select>
-                </div>
-            </div>
+    // Skontrolujeme, či už náhodou nie je otvorený, ak áno, zmažeme ho
+    let existing = document.getElementById('qa-modal-wrapper');
+    if (existing) existing.remove();
 
-            <div class="form-group" style="margin-bottom: 20px;">
-                <label style="font-weight:bold;">Predajná kategória</label>
-                <input type="text" id="qa-kat" class="filter-input" style="width: 100%;" placeholder="Napr. Bravčové mäso, Údeniny...">
+    // Vytvoríme úplne nezávislý element
+    const modalWrapper = document.createElement('div');
+    modalWrapper.id = 'qa-modal-wrapper';
+    
+    // Z-index 10600 zaručí, že bude NAD cenníkom (ktorý má 10000)
+    modalWrapper.style.cssText = 'position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.6); z-index:10600; display:flex; align-items:center; justify-content:center; backdrop-filter:blur(2px);';
+    
+    modalWrapper.innerHTML = `
+        <div style="background:#fff; width:90%; max-width:500px; border-radius:12px; box-shadow:0 25px 50px -12px rgba(0,0,0,0.25); overflow:hidden; border:1px solid #e2e8f0;">
+            <div style="background:#f8fafc; padding:15px 20px; border-bottom:1px solid #e2e8f0; display:flex; justify-content:space-between; align-items:center;">
+                <h3 style="margin:0; color:#1e293b;">➕ Rýchle pridanie produktu</h3>
+                <button type="button" onclick="document.getElementById('qa-modal-wrapper').remove()" style="background:none; border:none; font-size:1.5rem; cursor:pointer; color:#64748b;">&times;</button>
             </div>
+            <div style="padding:20px;">
+                <p class="text-muted" style="font-size:0.85rem; margin-top:0;">Produkt sa uloží do databázy a ihneď sa objaví v ľavom zozname cenníka. Vaša rozpracovaná práca v cenníku ostane nedotknutá.</p>
+                
+                <div class="form-group" style="margin-bottom: 15px;">
+                    <label style="font-weight:bold;">Názov produktu <span style="color:red">*</span></label>
+                    <input type="text" id="qa-nazov" class="filter-input" style="width: 100%; font-weight:bold;" required>
+                </div>
+                
+                <div style="display:flex; gap:10px; margin-bottom: 15px;">
+                    <div class="form-group" style="flex:1;">
+                        <label style="font-weight:bold;">EAN kód</label>
+                        <input type="text" id="qa-ean" class="filter-input" style="width: 100%;">
+                    </div>
+                    <div class="form-group" style="width: 80px;">
+                        <label style="font-weight:bold;">MJ</label>
+                        <select id="qa-mj" class="filter-input" style="width: 100%;">
+                            <option value="kg">kg</option>
+                            <option value="ks">ks</option>
+                            <option value="g">g</option>
+                        </select>
+                    </div>
+                </div>
 
-            <div style="display:flex; justify-content:flex-end; gap:10px;">
-                <button class="btn btn-secondary" onclick="closeModal()">Zrušiť</button>
-                <button class="btn btn-primary" onclick="window.submitQuickAddProduct()">💾 Uložiť do ERP</button>
+                <div class="form-group" style="margin-bottom: 25px;">
+                    <label style="font-weight:bold;">Predajná kategória</label>
+                    <input type="text" id="qa-kat" class="filter-input" style="width: 100%;" placeholder="Napr. Bravčové mäso, Údeniny...">
+                </div>
+
+                <div style="display:flex; justify-content:flex-end; gap:10px;">
+                    <button type="button" class="btn btn-secondary" onclick="document.getElementById('qa-modal-wrapper').remove()">Zrušiť</button>
+                    <button type="button" class="btn btn-primary" onclick="window.submitQuickAddProduct()">💾 Uložiť do DB</button>
+                </div>
             </div>
         </div>
     `;
-    openModal(html);
+    document.body.appendChild(modalWrapper);
 };
 
 window.submitQuickAddProduct = async function() {
@@ -2374,35 +2391,45 @@ window.submitQuickAddProduct = async function() {
 
     if (!nazov) return showStatus('Názov produktu je povinný!', true);
 
+    // Zmeniť text tlačidla na načítavanie, aby používateľ vedel, že sa niečo deje
+    const btn = document.querySelector('#qa-modal-wrapper .btn-primary');
+    if(btn) btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Ukladám...';
+
     try {
-        // Dopyt smeruje na existujúci endpoint ERP modulu pre tvorbu produktov
+        const payload = { 
+            action: 'create', 
+            nazov_vyrobku: nazov, 
+            ean: ean, 
+            mj: mj, 
+            predajna_kategoria: kat,
+            typ_polozky: 'VÝROBOK'
+        };
+
         const res = await fetch('/api/kancelaria/erp/produkty', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-                action: 'create', // Prispôsobte akcii vášho ERP backendu
-                nazov_vyrobku: nazov, 
-                ean: ean, 
-                mj: mj, 
-                predajna_kategoria: kat,
-                typ_polozky: 'VÝROBOK'
-            })
+            body: JSON.stringify(payload)
         });
         
         const out = await res.json();
         if (out.error) throw new Error(out.error);
 
         showStatus('Produkt bol úspešne vytvorený.');
-        closeModal();
-
-        // Nutné zavolať funkcie na obnovu katalógu cenníka
-        if (typeof loadProductsAll === 'function') {
-            await loadProductsAll(); 
-            // Zavolajte vašu funkciu pre prekreslenie (napr. renderPricelistCatalog())
-        }
         
+        // ZATVORÍME IBA TENTO MALÝ MODÁL PRE PRODUKT
+        document.getElementById('qa-modal-wrapper').remove();
+
+        // POTICHU AKTUALIZUJEME KATALÓG V POZADÍ (BEZ ZATVORENIA CENNÍKA)
+        const plData = await callFirstOk([{ url: '/api/kancelaria/b2b/getPricelistsAndProducts' }]);
+        state.productsAll = plData.products || [];
+        
+        // PREKRESLÍME ĽAVÝ PANEL CENNÍKA, ABY SA TAM NOVÝ PRODUKT OBJAVIL
+        const filterInput = document.getElementById('pl-prod-filter');
+        renderSourceProducts(filterInput ? filterInput.value : '');
+
     } catch (e) {
-        showStatus('Chyba: ' + e.message, true);
+        showStatus('Chyba pri ukladaní do ERP: ' + e.message, true);
+        if(btn) btn.innerHTML = '💾 Uložiť do DB';
     }
 };
   // =================================================================
