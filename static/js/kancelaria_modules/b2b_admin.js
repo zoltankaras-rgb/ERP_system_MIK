@@ -2328,15 +2328,30 @@ window.printPricelistPreview = async function(plId) {
 };
 // Funkcia na rýchle pridanie produktu do systému bez zatvorenia cenníka
 window.quickAddProductToSystem = function() {
-    // Skontrolujeme, či už náhodou nie je otvorený, ak áno, zmažeme ho
     let existing = document.getElementById('qa-modal-wrapper');
     if (existing) existing.remove();
 
-    // Vytvoríme úplne nezávislý element
+    // 1. Získanie unikátnych kategórií z aktuálnych produktov v systéme
+    const categoriesSet = new Set();
+    if (state.productsAll && state.productsAll.length > 0) {
+        state.productsAll.forEach(p => {
+            // Rôzne moduly môžu kategóriu volať inak, poistíme to
+            const cat = p.predajna_kategoria || p.kategoria_pre_recepty || p.sales_category || p.kategoria;
+            if (cat && cat.trim() !== '') {
+                categoriesSet.add(cat.trim());
+            }
+        });
+    }
+    
+    // 2. Vytvorenie rolovacieho menu utriedeného podľa abecedy
+    const categoriesArray = Array.from(categoriesSet).sort();
+    let catOptionsHtml = '<option value="">-- Vyberte kategóriu --</option>';
+    categoriesArray.forEach(c => {
+        catOptionsHtml += `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`;
+    });
+
     const modalWrapper = document.createElement('div');
     modalWrapper.id = 'qa-modal-wrapper';
-    
-    // Z-index 10600 zaručí, že bude NAD cenníkom (ktorý má 10000)
     modalWrapper.style.cssText = 'position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.6); z-index:10600; display:flex; align-items:center; justify-content:center; backdrop-filter:blur(2px);';
     
     modalWrapper.innerHTML = `
@@ -2369,8 +2384,10 @@ window.quickAddProductToSystem = function() {
                 </div>
 
                 <div class="form-group" style="margin-bottom: 25px;">
-                    <label style="font-weight:bold;">Predajná kategória</label>
-                    <input type="text" id="qa-kat" class="filter-input" style="width: 100%;" placeholder="Napr. Bravčové mäso, Údeniny...">
+                    <label style="font-weight:bold;">Predajná kategória <span style="color:red">*</span></label>
+                    <select id="qa-kat" class="filter-input" style="width: 100%;" required>
+                        ${catOptionsHtml}
+                    </select>
                 </div>
 
                 <div style="display:flex; justify-content:flex-end; gap:10px;">
@@ -2387,11 +2404,11 @@ window.submitQuickAddProduct = async function() {
     const nazov = document.getElementById('qa-nazov').value.trim();
     const ean = document.getElementById('qa-ean').value.trim();
     const mj = document.getElementById('qa-mj').value;
-    const kat = document.getElementById('qa-kat').value.trim();
+    const kat = document.getElementById('qa-kat').value; // Hodnota zo Selectu
 
     if (!nazov) return showStatus('Názov produktu je povinný!', true);
+    if (!kat) return showStatus('Musíte vybrať predajnú kategóriu!', true);
 
-    // Zmeniť text tlačidla na načítavanie, aby používateľ vedel, že sa niečo deje
     const btn = document.querySelector('#qa-modal-wrapper .btn-primary');
     if(btn) btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Ukladám...';
 
@@ -2416,14 +2433,11 @@ window.submitQuickAddProduct = async function() {
 
         showStatus('Produkt bol úspešne vytvorený.');
         
-        // ZATVORÍME IBA TENTO MALÝ MODÁL PRE PRODUKT
         document.getElementById('qa-modal-wrapper').remove();
 
-        // POTICHU AKTUALIZUJEME KATALÓG V POZADÍ (BEZ ZATVORENIA CENNÍKA)
         const plData = await callFirstOk([{ url: '/api/kancelaria/b2b/getPricelistsAndProducts' }]);
         state.productsAll = plData.products || [];
         
-        // PREKRESLÍME ĽAVÝ PANEL CENNÍKA, ABY SA TAM NOVÝ PRODUKT OBJAVIL
         const filterInput = document.getElementById('pl-prod-filter');
         renderSourceProducts(filterInput ? filterInput.value : '');
 
