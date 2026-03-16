@@ -5329,6 +5329,42 @@ def api_nakup_produkty():
 @login_required(role=('kancelaria','veduci','admin'))
 def api_nakup_historia():
     return handle_request(nakup_handler.historia_nakupov, request.args.get('ean'), request.args.get('nazov'))
+
+@app.route('/api/kancelaria/erp/produkty', methods=['POST'])
+@login_required(role=('kancelaria','veduci','admin'))
+def api_quick_add_product():
+    """Rýchle pridanie produktu z modulu B2B cenníkov"""
+    data = request.get_json(silent=True) or {}
+    action = data.get('action')
+    nazov = data.get('nazov_vyrobku')
+    ean = data.get('ean')
+    mj = data.get('mj', 'kg')
+    kat = data.get('predajna_kategoria', '')
+    typ = data.get('typ_polozky', 'VÝROBOK')
+
+    if action != 'create' or not nazov:
+        return jsonify({"error": "Neplatné dáta. Názov je povinný."}), 400
+
+    import db_connector
+    try:
+        # Voliteľné: Overenie duplicity EAN kódu
+        if ean:
+            existing = db_connector.execute_query("SELECT id FROM produkty WHERE ean = %s", (ean,), fetch="one")
+            if existing:
+                return jsonify({"error": f"Produkt s EAN {ean} už v systéme existuje!"}), 400
+
+        # Zápis do databázy
+        db_connector.execute_query(
+            """
+            INSERT INTO produkty (nazov_vyrobku, ean, mj, predajna_kategoria, typ_polozky) 
+            VALUES (%s, %s, %s, %s, %s)
+            """,
+            (nazov, ean, mj, kat, typ),
+            fetch="none"
+        )
+        return jsonify({"status": "ok", "message": "Produkt úspešne vytvorený"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 # =================================================================
 # === OBJEDNÁVKY / SKLAD BLUEPRINTY ===
 # =================================================================
