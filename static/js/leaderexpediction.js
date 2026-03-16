@@ -2748,7 +2748,115 @@ async function loadExpeditionBreakdown() {
         container.innerHTML = `<div class="alert alert-danger mb-0">Kritická chyba pripojenia na server pri sťahovaní rozpisu.</div>`;
     }
 }
+document.addEventListener('DOMContentLoaded', () => {
+    const btnBlindBatch = document.getElementById('btnGenerateBlindBatch');
+    if (btnBlindBatch) {
+        btnBlindBatch.addEventListener('click', generateBlindBatchList);
+    }
+});
 
+async function generateBlindBatchList() {
+    // Prevádzková ochrana: Po 12:00 je slepý zber nežiaduci
+    const currentHour = new Date().getHours();
+    if (currentHour >= 12) {
+        alert("KRITICKÁ CHYBA: Po 12:00 nie je možné generovať predikciu. Čakajte na tvrdú uzávierku a tlač reálnych dodacích listov.");
+        return;
+    }
+
+    try {
+        // Zobrazenie indikátora načítania
+        document.body.style.cursor = 'wait';
+        
+        // Volanie vášho nového Python endpointu
+        const response = await fetch('/api/leader/production/predictive_batch?client_filter=%COOP%');
+        const data = await response.json();
+
+        if (data.error) {
+            alert("Systémová chyba: " + data.error);
+            return;
+        }
+
+        // Extrakcia len tých položiek, ktoré treba reálne dovažovať
+        const itemsToPick = data.predictions.filter(item => item.blind_pick_delta > 0);
+
+        if (itemsToPick.length === 0) {
+            alert("Ranné objednávky už pokryli historický priemer. Slepý zber nie je potrebný.");
+            return;
+        }
+
+        printBlindBatchList(itemsToPick, data.target_date);
+
+    } catch (error) {
+        alert("Zlyhanie komunikácie so serverom.");
+        console.error(error);
+    } finally {
+        document.body.style.cursor = 'default';
+    }
+}
+
+function printBlindBatchList(items, targetDate) {
+    // Generovanie zjednodušeného tlačového okna
+    let printWindow = window.open('', '_blank', 'width=800,height=900');
+    
+    let html = `
+    <html>
+    <head>
+        <title>Slepý zberný list - Expedícia</title>
+        <style>
+            body { font-family: Arial, sans-serif; padding: 20px; }
+            h1 { text-align: center; border-bottom: 2px solid black; padding-bottom: 10px; }
+            table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+            th, td { border: 1px solid black; padding: 12px; text-align: left; font-size: 16px; }
+            th { background-color: #f2f2f2; font-weight: bold; }
+            .checkbox-col { width: 80px; text-align: center; }
+            .weight-col { font-weight: bold; font-size: 18px; text-align: right; }
+        </style>
+    </head>
+    <body>
+        <h1>HROMADNÝ SLEPÝ ZBER (COOP)</h1>
+        <p><strong>Cieľový dátum závozu:</strong> ${targetDate}</p>
+        <p><strong>Čas generovania:</strong> ${new Date().toLocaleTimeString()}</p>
+        <p><em>Pokyn: Stiahnite uvedenú tonáž z hlavného skladu, navážte do prepraviek a uložte do Staging zóny.</em></p>
+        
+        <table>
+            <thead>
+                <tr>
+                    <th>Názov výrobku</th>
+                    <th>Kategória</th>
+                    <th>Cieľová hmotnosť k vychystaniu</th>
+                    <th class="checkbox-col">Hotovo</th>
+                </tr>
+            </thead>
+            <tbody>
+    `;
+
+    items.forEach(item => {
+        html += `
+            <tr>
+                <td>${item.name}</td>
+                <td>${item.kategoria}</td>
+                <td class="weight-col">${item.blind_pick_delta} ${item.mj}</td>
+                <td class="checkbox-col"></td>
+            </tr>
+        `;
+    });
+
+    html += `
+            </tbody>
+        </table>
+    </body>
+    </html>
+    `;
+
+    printWindow.document.write(html);
+    printWindow.document.close();
+    printWindow.focus();
+    
+    // Automatické spustenie tlače
+    setTimeout(() => {
+        printWindow.print();
+    }, 500);
+}
 
 function printExpeditionBreakdown() {
     if (!currentBreakdownData.grouped || Object.keys(currentBreakdownData.grouped).length === 0) return;

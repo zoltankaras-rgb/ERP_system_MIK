@@ -1370,3 +1370,132 @@ def leader_daily_summary():
     date_str = request.args.get('date')
     import b2b_handler
     return jsonify(b2b_handler.get_daily_items_summary({'date': date_str}))
+
+@leader_bp.get('/production/predictive_batch')
+@login_required(role=('veduci', 'admin'))
+def leader_predictive_batch():
+    """
+    Kritický logistický endpoint pre hromadné slepé vychystávanie (Blind Batch Picking).
+    Kombinuje 3-týždňový kĺzavý priemer so živými dátami pre stanovenie produkčného cieľa.
+    """
+    target_date = request.args.get('date')
+    if not target_date:
+        # Ak nie je zadaný, predikuje sa na zajtra
+        target_date = (date.today() + timedelta(days=1)).strftime('%Y-%m-%d')
+        
+    client_filter = request.args.get('client_filter', '%COOP%') # Defaultne analyzuje len COOP
+
+    # 1. Definícia bezpečnostných tolerancií (v %)
+    # Tieto hodnoty musia byť neskôr presunuté do DB tabuľky, pre teraz sú algoritmicky fixné.
+    TOLERANCES = {
+        'čerstvé mäso': 1.03, # 3%
+        'výsek': 1.03,        # 3%
+        'údeniny': 1.08,      # 8%
+        'varené výrobky': 1.08,# 8%
+        'mrazené': 1.10,      # 10%
+        'default': 1.05       # 5% fallback
+    }
+
+    try:
+        conn = _get_conn()
+        cur = conn.cursor(dictionary=True)
+        
+        # 2. Výpočet historického priemeru (Krok A)
+        # Analyzuje posledné 4 týždne, hľadá presne rovnaký deň v týždni. Deliacim koeficientom je 3 (berieme 3 reprezentatívne dni).
+        sql_history = """
+            SELECT 
+                op.ean_produktu as ean, 
+                MAX(op.nazov_vyrobku) as name,
+                MAX(LOWER(COALESCE(p.predajna_kategoria, 'default'))) as category,
+                MAX(COALESCE(p.mj, 'kg')) as mj,
+                (SUM(op.mnozstvo) / 3.0) as avg_qty
+            FROM b2b_objednavky_polozky op
+            JOIN b2b_objednavky o ON o.id = op.objednavka_id
+            LEFT JOIN produkty p ON p.ean = op.ean_produktu
+            WHERE DAYOFWEEK(o.pozadovany_datum_dodania) = DAYOFWEEK(%s)
+              AND o.pozadovany_datum_dodania < %s
+              AND o.pozadovany_datum_dodania >= DATE_SUB(%s, INTERVAL 4 WEEK)
+              AND o.nazov_firmy LIKE %s
+              AND o.stav != 'Zrušená'
+            GROUP BY op.ean_produktu
+            HAVING avg_qty > 1.0 -- Ignorujeme anomálie pod 1 kg
+        """
+        cur.execute(sql_history, (target_date, target_date, target_date, client_filter))
+        history_rows = cur.fetchall() or []
+
+        # 3. Výpočet reálneho stavu (Krok B)
+        # Sčíta všetky už existujúce B2B a manuálne objednávky pre cieľový dátum do aktuálneho momentu.
+        sql_real = """
+            SELECT 
+                op.ean_produktu as ean, 
+                SUM(op.mnozstvo) as real_qty
+            FROM b2b_objednavky_polozky op
+            JOIN b2b_objednavky o ON o.id = op.objednavka_id
+            WHERE DATE(o.pozadovany_datum_dodania) = %s
+              AND o.stav != 'Zrušená'
+            GROUP BY op.ean_produktu
+        """
+        cur.execute(sql_real, (target_date,))
+        real_rows = {str(r['ean']): float(r['real_qty']) for r in cur.fetchall() or []}
+
+        # 4. Syntéza a algoritmické rozhodovanie
+        results = []
+        for h in history_rows:
+            ean = str(h['ean'])
+            name = h['name']
+            cat = h['category']
+            mj = h['mj']
+            avg_qty = float(h['avg_qty'])
+            
+            # Priradenie tolerancie
+            tolerance_multiplier = TOLERANCES.get('default')
+            for key, val in TOLERANCES.items():
+                if key in cat:
+                    tolerance_multiplier = val
+                    break
+                    
+            # Kalkulácia
+            historical_target = avg_qty * tolerance_multiplier
+            real_qty = real_rows.get(ean, 0.0)
+            
+            # Rozhodovací strom na elimináciu duplicity a extrémov
+            if real_qty >= historical_target:
+                # Extrémny deň: Dopyt už o 8:00 prekonal historický priemer aj s rezervou.
+                # Aplikujeme toleranciu na reálny stav, ignorujeme históriu.
+                final_target = real_qty * tolerance_multiplier
+            else:
+                # Bežný deň: Vychystávame podľa historického modelu
+                final_target = historical_target
+
+            # Delta predstavuje objem, ktorý je nutné "slepo" chystať od momentu kliknutia.
+            delta_to_pick = final_target - real_qty
+
+            results.append({
+                'ean': ean,
+                'name': name,
+                'kategoria': cat,
+                'mj': mj,
+                'avg_history': round(avg_qty, 2),
+                'tolerance_pct': round((tolerance_multiplier - 1) * 100, 1),
+                'real_ordered': round(real_qty, 2),
+                'total_target': round(final_target, 2),
+                'blind_pick_delta': round(max(0.0, delta_to_pick), 2)
+            })
+
+        # Zoradenie podľa objemu vychystávania od najväčšieho
+        results.sort(key=lambda x: x['blind_pick_delta'], reverse=True)
+
+        return jsonify({
+            'target_date': target_date,
+            'client_filter': client_filter.replace('%', ''),
+            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'predictions': [r for r in results if r['blind_pick_delta'] > 0]
+        })
+
+    except Exception as e:
+        return jsonify({'error': f'Zlyhanie prediktívneho algoritmu: {str(e)}'}), 500
+    finally:
+        try: cur.close()
+        except: pass
+        try: conn.close()
+        except: pass
