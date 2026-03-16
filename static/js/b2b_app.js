@@ -402,7 +402,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   window.handleLoginSuccess = handleLoginSuccess;
   
-  window.submitOrder = async function() {
+window.submitOrder = async function() {
     const d = document.getElementById('delivery-date').value;
     if (!d) return showNotification('Zadajte požadovaný dátum dodania.', 'error');
     
@@ -420,8 +420,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const ccEmailsInput = document.getElementById('cc-emails');
     const ccEmails = ccEmailsInput ? ccEmailsInput.value : '';
 
-    // Vnorena funkcia pre spracovanie requestu (podporuje preposlanie cez force_submit)
-    const sendRequest = async (isForced) => {
+    // Vnorená funkcia pre spracovanie requestu s podporou pre obídenie duplicity aj uzávierky
+    const sendRequest = async (isForced, skipDeadlineCheck = false) => {
         const submitBtn = document.getElementById('btn-submit-order');
         if (submitBtn) submitBtn.disabled = true; 
         
@@ -432,6 +432,9 @@ document.addEventListener('DOMContentLoaded', () => {
             overlay.style.display = 'flex'; 
         }
 
+        // Aktuálna hodnota dátumu dodania z DOM (môže byť prepísaná modálom po uzávierke)
+        const currentDeliveryDate = document.getElementById('delivery-date').value;
+
         const out = await apiCall('/api/b2b/submit-order', {
             userId: appState.currentUser.id,
             targetCustomerId: targetId,
@@ -439,15 +442,49 @@ document.addEventListener('DOMContentLoaded', () => {
             customerEmail: appState.currentUser.email,
             ccEmails: ccEmails,
             items: items, 
-            deliveryDate: d,
+            deliveryDate: currentDeliveryDate,
             note: document.getElementById('order-note').value,
-            force_submit: isForced // <-- Pridaný parameter pre backend
+            force_submit: isForced, // Parameter pre duplicitu
+            force_deadline: skipDeadlineCheck // Parameter pre uzávierku
         });
 
         if (!out) {
             if (submitBtn) submitBtn.disabled = false;
             if (overlay) overlay.style.display = 'none';
             return;
+        }
+
+        // === ZACHYTENIE VAROVANIA PO UZÁVIERKE ===
+        if (out.warning === 'deadline_passed') {
+            if (overlay) overlay.style.display = 'none';
+            if (submitBtn) submitBtn.disabled = false;
+
+            const mc = document.getElementById('modal-container');
+            mc.innerHTML = `
+                <div class="modal-backdrop" style="background:rgba(0,0,0,0.7);" onclick="closeModal('modal-container')"></div>
+                <div class="modal-content" style="max-width:500px; width:95%; text-align:center; padding:0;">
+                    <div class="modal-header" style="background-color: #fef08a; border-bottom: 1px solid #fde047; padding: 15px;">
+                        <h3 style="color: #854d0e; margin:0; font-size:1.2rem;">Časová uzávierka prekročená</h3>
+                    </div>
+                    <div style="padding:25px;">
+                        <p style="font-size:1.1rem; margin-bottom:25px; line-height:1.5;">${out.message}</p>
+                        <div style="display:flex; gap:15px; justify-content:center;">
+                            <button class="button secondary" onclick="closeModal('modal-container')">Zrušiť a upraviť obj.</button>
+                            <button class="button" id="btn-accept-deadline">Súhlasím, odoslať</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            mc.style.display = 'flex';
+
+            document.getElementById('btn-accept-deadline').onclick = () => {
+                closeModal('modal-container');
+                // Automatický prepis pôvodného dátumu na nový vygenerovaný backendom
+                document.getElementById('delivery-date').value = out.new_date; 
+                // Odoslanie s príznakom obídenia kontroly času (stav duplicitného isForced zachovávame)
+                sendRequest(isForced, true); 
+            };
+            return; 
         }
 
         // === ZACHYTENIE VAROVANIA O DUPLICITE ===
@@ -474,10 +511,10 @@ document.addEventListener('DOMContentLoaded', () => {
             `;
             mc.style.display = 'flex';
 
-            // Ak zákazník potvrdí, funkcia sa zavolá znova, no backend už duplicity ignoruje
+            // Ak zákazník potvrdí, funkcia sa zavolá znova s prepísaným force_submit na true
             document.getElementById('btn-force-submit').onclick = () => {
                 closeModal('modal-container');
-                sendRequest(true); 
+                sendRequest(true, skipDeadlineCheck); 
             };
             return; // Prerušíme aktuálny beh, čaká sa na reakciu zákazníka v okne
         }
@@ -507,10 +544,32 @@ document.addEventListener('DOMContentLoaded', () => {
         }, 3000);
     };
 
-    // Štandardné prvé zavolanie (bez vynútenia)
-    sendRequest(false);
+    // Štandardné prvé zavolanie (bez vynútenia duplicity a bez vynútenia uzávierky)
+    sendRequest(false, false);
   };
-
+  
+function setMinDeliveryDate() {
+      const dateInput = document.getElementById('delivery-date');
+      if (!dateInput) return;
+      
+      const now = new Date();
+      const daysToAdd = now.getHours() >= 12 ? 2 : 1;
+      
+      let minDate = new Date();
+      minDate.setDate(now.getDate() + daysToAdd);
+      
+      // Preskočenie víkendov
+      while (minDate.getDay() === 0 || minDate.getDay() === 6) {
+          minDate.setDate(minDate.getDate() + 1);
+      }
+      
+      const minStr = minDate.toISOString().split('T')[0];
+      dateInput.min = minStr;
+      
+      if (dateInput.value && dateInput.value < minStr) {
+          dateInput.value = minStr;
+      }
+  }
   // =========================
   // PRODUKTY + OBJEDNÁVKA + POZNÁMKY
   // =========================

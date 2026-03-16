@@ -352,7 +352,13 @@
 
             <div id="order-form-details" class="hidden">
               <h3>Detaily a odoslanie</h3>
-              <div class="form-group"><label for="delivery-date">Požadovaný dátum dodania:</label><input type="date" id="delivery-date" required /></div>
+              <div class="form-group">
+                  <label for="delivery-date">Požadovaný dátum dodania:</label>
+                  <input type="date" id="delivery-date" required />
+                  <small style="color:#6b7280; font-size:0.85rem; display:block; margin-top:4px;">
+                      Objednávky na nasledujúci pracovný deň prijímame do 12:00.
+                  </small>
+              </div>
               <div class="form-group" style="margin-bottom: 15px;">
     <label for="cc-emails" style="font-weight: bold; display: block; margin-bottom: 5px;">Kópia potvrdenia objednávky (e-maily oddelené čiarkou):</label>
     <input type="text" id="cc-emails" class="filter-input" placeholder="napr. uctovnicka@firma.sk, kuchar@firma.sk" style="width: 100%;">

@@ -1067,7 +1067,34 @@ def submit_b2b_order(data: dict):
 
     if not (user_id and items_in and delivery_date and customer_email):
         return {"error": "Chýbajú povinné údaje (zákazník, položky, dátum dodania, e-mail)."}
-
+    # ---> KONTROLA SYSTÉMOVEJ UZÁVIERKY DO 12:00 <---
+    force_deadline = data.get("force_deadline", False)
+    if delivery_date:
+        try:
+            del_date_obj = datetime.strptime(_normalize_date_to_str(delivery_date), "%Y-%m-%d").date()
+            now = datetime.now()
+            today = now.date()
+            
+            # Po 12:00 je min. doba dodania +2 dni, inak +1 deň
+            days_to_add = 2 if now.hour >= 12 else 1
+            min_date = today + timedelta(days=days_to_add)
+            
+            # Preskočenie víkendov (5=Sobota, 6=Nedeľa), aby dodanie padlo na pracovný deň
+            while min_date.weekday() > 4: 
+                min_date += timedelta(days=1)
+                
+            if not force_deadline and del_date_obj < min_date:
+                new_date_str = min_date.strftime("%Y-%m-%d")
+                new_date_sk = min_date.strftime("%d.%m.%Y")
+                return {
+                    "warning": "deadline_passed",
+                    "message": f"Systémová uzávierka (12:00) pre dodanie na Vami zvolený deň už uplynula. Vaša objednávka bude preto automaticky posunutá na najbližší možný pracovný deň: <b>{new_date_sk}</b>. Súhlasíte s novým termínom dodania?",
+                    "new_date": new_date_str
+                }
+        except Exception as e:
+            print(f"Chyba pri kontrole uzávierky: {e}")
+            pass
+    # ------------------------------------------------
     # 1. Identifikácia cieľového zákazníka (na koho sa fakturuje/dodáva)
     final_id = target_cust_id if target_cust_id else user_id
 
