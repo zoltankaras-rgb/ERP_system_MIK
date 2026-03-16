@@ -374,17 +374,12 @@ def create_manual_slicing_job(data: Dict[str, Any]):
 
 def get_slicing_requirements_from_orders():
     """
-    Vráti zoznam položiek na krájanie z B2B/B2C objednávok.
-
-    - pre každý riadok máme:
-        cislo_objednavky, zakaznik, termin, produkt, množstvo, MJ, vaha_balenia_g, zdrojovy_ean, target_ean
-    - ignorujeme objednávky, pre ktoré UŽ existuje úloha na krájanie
-      (záznam v zaznamy_vyroba s detaily_zmeny.cisloObjednavky a operacia='krajanie'
-       v stave 'Prijaté, čaká na tlač' alebo 'Ukončené' - Zrušená sa ignoruje a vráti do ponuky)
-    - ak je pre danú objednávku+produkt krájanie v stave 'Prebieha krájanie',
-      nastavíme is_running=True (tlačidlo v FE bude sivé a disabled)
+    Vráti zoznam položiek na krájanie z B2B/B2C objednávok s robustným párovaním stavov cez Python.
     """
-    # 1. Zistíme bežiace krájanie (podľa názvu – stará logika)
+    import json
+    from datetime import datetime, date
+
+    # 1. Zistíme bežiace krájanie (podľa názvu) pre heuristiku tlačidiel
     zv_col = _zv_name_col()
     active_slicing = {}
     try:
@@ -400,41 +395,45 @@ def get_slicing_requirements_from_orders():
     except Exception:
         active_slicing = {}
 
-    # 2. Mapovanie objednávka+produkt -> stav krájania (zaznamy_vyroba.detaily_zmeny)
+    # 2. BEZPEČNÉ Mapovanie objednávok (Python JSON parsing namiesto SQL JSON_EXTRACT)
     order_slicing_status = {}
     try:
         jobs = db_connector.execute_query("""
-            SELECT 
-                JSON_UNQUOTE(JSON_EXTRACT(detaily_zmeny, '$.cisloObjednavky')) AS order_no,
-                JSON_UNQUOTE(JSON_EXTRACT(detaily_zmeny, '$.cielovyEan'))      AS target_ean,
-                JSON_UNQUOTE(JSON_EXTRACT(detaily_zmeny, '$.cielovyNazov'))    AS product_name,
-                stav
+            SELECT detaily_zmeny, stav
             FROM zaznamy_vyroba
-            WHERE detaily_zmeny IS NOT NULL
-              AND JSON_EXTRACT(detaily_zmeny, '$.operacia') = '"krajanie"'
+            WHERE detaily_zmeny IS NOT NULL 
+              AND detaily_zmeny LIKE '%"operacia"%'
         """) or []
         
         for j in jobs:
-            o = (j.get('order_no') or '').strip()
-            e = (j.get('target_ean') or '').strip()
-            p = (j.get('product_name') or '').strip()
+            try:
+                details = json.loads(j.get('detaily_zmeny') or '{}')
+            except:
+                continue
+            
+            if details.get('operacia') != 'krajanie':
+                continue
+                
+            # Eliminácia medzier a normalizácia na veľké písmená pre 100% zhodu
+            o = str(details.get('cisloObjednavky') or '').strip().upper()
+            e = str(details.get('cielovyEan') or '').strip()
+            p = str(details.get('cielovyNazov') or '').strip().upper()
             st = j.get('stav') or ''
+            
             if not o:
                 continue
             
             key = (o, e) if e else (o, p)
             curr_st = order_slicing_status.get(key, '')
             
-            # Hierarchia priorít: Ukončené > Prijaté > Prebieha > Naplánované > Zrušená
             priority = {'Prijaté, čaká na tlač': 4, 'Ukončené': 3, 'Prebieha krájanie': 2, 'Naplánované': 1, 'Zrušená': 0}
             if priority.get(st, -1) > priority.get(curr_st, -1):
                 order_slicing_status[key] = st
                 
     except Exception as e:
         print(f"Error building order_slicing_status: {e}")
-        order_slicing_status = {}
 
-    # helper na konverziu textových stĺpcov s jednotnou koláciou
+    # 3. SQL pre načítanie samotných objednávok
     def _str(col):
         return f"CONVERT({col} USING utf8mb4) COLLATE utf8mb4_general_ci"
 
@@ -447,7 +446,6 @@ def get_slicing_requirements_from_orders():
         AND o.stav NOT IN ('Hotová', 'Zrušená', 'Expedovaná')
     """
 
-    # ---------- B2B ----------
     sql_b2b = f"""
         SELECT 
             {_str('o.cislo_objednavky')} AS cislo_objednavky,
@@ -467,10 +465,8 @@ def get_slicing_requirements_from_orders():
         )
         WHERE {sql_condition}
     """
-
     sql_parts = [sql_b2b]
 
-    # ---------- B2C ----------
     if _table_exists('b2c_objednavky') and _table_exists('b2c_objednavky_polozky'):
         cust_expr = "COALESCE(z.nazov_firmy, z.email, 'B2C Zákazník')"
         join_cust = """
@@ -479,7 +475,6 @@ def get_slicing_requirements_from_orders():
                 OR CAST(z.zakaznik_id AS CHAR) = CAST(o.zakaznik_id AS CHAR)
             )
         """
-
         sql_b2c = f"""
             SELECT 
                 {_str('o.cislo_objednavky')} AS cislo_objednavky,
@@ -506,60 +501,55 @@ def get_slicing_requirements_from_orders():
 
     try:
         rows = db_connector.execute_query(full_sql, fetch='all') or []
-
         formatted = []
+        
         for r in rows:
             termin = r['termin']
-            if isinstance(termin, (datetime, date)):
-                termin_str = termin.strftime('%d.%m.%Y')
-            else:
-                termin_str = str(termin) if termin is not None else ''
+            termin_str = termin.strftime('%d.%m.%Y') if isinstance(termin, (datetime, date)) else (str(termin) if termin else '')
 
             mnozstvo = float(r['mnozstvo'] or 0)
             vaha_g   = float(r['vaha_balenia_g'] or 0)
             mj       = str(r['mj'] or 'kg').lower()
 
             qty_ks = 0
-            qty_disp = ""
             if mj == 'ks':
-                qty_ks   = int(mnozstvo)
+                qty_ks = int(mnozstvo)
                 qty_disp = f"{qty_ks} ks"
                 needed_kg = (qty_ks * vaha_g) / 1000.0 if vaha_g > 0 else 0
             else:
                 needed_kg = mnozstvo
                 if vaha_g > 0:
-                    qty_ks   = math.ceil((mnozstvo * 1000) / vaha_g)
+                    qty_ks = math.ceil((mnozstvo * 1000) / vaha_g)
                     qty_disp = f"{mnozstvo:.2f} kg (~{qty_ks} ks)"
                 else:
                     qty_disp = f"{mnozstvo:.2f} kg"
-                    qty_ks   = math.ceil(mnozstvo)
+                    qty_ks = math.ceil(mnozstvo)
 
-            prod_name = (r['produkt'] or '').strip()
-            order_no  = (r['cislo_objednavky'] or '').strip()
-            t_ean     = (r.get('target_ean') or '').strip()
+            # 4. Aplikácia normalizovaného párovania na získané dáta
+            prod_name_raw = (r['produkt'] or '').strip()
+            prod_name_up  = prod_name_raw.upper()
+            order_no      = (r['cislo_objednavky'] or '').strip().upper()
+            t_ean         = (r.get('target_ean') or '').strip()
 
-            # Stav krájania pre konkrétnu objednávku + produkt
             job_state = order_slicing_status.get((order_no, t_ean))
             if job_state is None:
-                job_state = order_slicing_status.get((order_no, prod_name), '')
+                job_state = order_slicing_status.get((order_no, prod_name_up), '')
 
-            # Zrušená úloha sa už nepovažuje za vybavenú - operátor ju môže znova spustiť
             already_done = job_state in ('Prijaté, čaká na tlač', 'Ukončené')
-            is_running_exact = job_state in ('Prebieha krájanie', 'Naplánované')
-
+            
+            # Odstránenie položky zo zoznamu objednávok
             if already_done:
                 continue
 
-            # Pôvodná heuristika podľa celkového bežiaceho krájania pre produkt
-            is_running_product = active_slicing.get(prod_name, 0) > (needed_kg * 0.1)
-
+            is_running_exact = job_state in ('Prebieha krájanie', 'Naplánované')
+            is_running_product = active_slicing.get(prod_name_raw, 0) > (needed_kg * 0.1)
             is_running = bool(is_running_exact or is_running_product)
 
             formatted.append({
                 "order": r['cislo_objednavky'],
                 "customer": r['zakaznik'],
                 "date": termin_str,
-                "product": prod_name,
+                "product": prod_name_raw,
                 "quantity_display": qty_disp,
                 "pieces_calc": qty_ks,
                 "is_running": is_running,
@@ -572,7 +562,6 @@ def get_slicing_requirements_from_orders():
     except Exception as e:
         print(f"Error slicing reqs: {e}")
         return []
-
 # ─────────────────────────────────────────────────────────────
 # Prevzatie z výroby – dni a položky (len neprijaté)
 # ─────────────────────────────────────────────────────────────
