@@ -380,7 +380,7 @@ def get_slicing_requirements_from_orders():
         cislo_objednavky, zakaznik, termin, produkt, množstvo, MJ, vaha_balenia_g, zdrojovy_ean, target_ean
     - ignorujeme objednávky, pre ktoré UŽ existuje úloha na krájanie
       (záznam v zaznamy_vyroba s detaily_zmeny.cisloObjednavky a operacia='krajanie'
-       v stave 'Prijaté, čaká na tlač' alebo 'Ukončené' alebo 'Zrušená')
+       v stave 'Prijaté, čaká na tlač' alebo 'Ukončené' - Zrušená sa ignoruje a vráti do ponuky)
     - ak je pre danú objednávku+produkt krájanie v stave 'Prebieha krájanie',
       nastavíme is_running=True (tlačidlo v FE bude sivé a disabled)
     """
@@ -406,18 +406,30 @@ def get_slicing_requirements_from_orders():
         jobs = db_connector.execute_query("""
             SELECT 
                 JSON_UNQUOTE(JSON_EXTRACT(detaily_zmeny, '$.cisloObjednavky')) AS order_no,
-                JSON_UNQUOTE(JSON_EXTRACT(detaily_zmeny, '$.cielovyNazov'))     AS product_name,
+                JSON_UNQUOTE(JSON_EXTRACT(detaily_zmeny, '$.cielovyEan'))      AS target_ean,
+                JSON_UNQUOTE(JSON_EXTRACT(detaily_zmeny, '$.cielovyNazov'))    AS product_name,
                 stav
             FROM zaznamy_vyroba
             WHERE detaily_zmeny IS NOT NULL
               AND JSON_EXTRACT(detaily_zmeny, '$.operacia') = '"krajanie"'
         """) or []
+        
         for j in jobs:
             o = (j.get('order_no') or '').strip()
+            e = (j.get('target_ean') or '').strip()
             p = (j.get('product_name') or '').strip()
-            if not o or not p:
+            st = j.get('stav') or ''
+            if not o:
                 continue
-            order_slicing_status[(o, p)] = j.get('stav') or ''
+            
+            key = (o, e) if e else (o, p)
+            curr_st = order_slicing_status.get(key, '')
+            
+            # Hierarchia priorít: Ukončené > Prijaté > Prebieha > Naplánované > Zrušená
+            priority = {'Prijaté, čaká na tlač': 4, 'Ukončené': 3, 'Prebieha krájanie': 2, 'Naplánované': 1, 'Zrušená': 0}
+            if priority.get(st, -1) > priority.get(curr_st, -1):
+                order_slicing_status[key] = st
+                
     except Exception as e:
         print(f"Error building order_slicing_status: {e}")
         order_slicing_status = {}
@@ -524,13 +536,17 @@ def get_slicing_requirements_from_orders():
 
             prod_name = (r['produkt'] or '').strip()
             order_no  = (r['cislo_objednavky'] or '').strip()
+            t_ean     = (r.get('target_ean') or '').strip()
 
             # Stav krájania pre konkrétnu objednávku + produkt
-            job_state = order_slicing_status.get((order_no, prod_name), '')
-            already_done = job_state in ('Prijaté, čaká na tlač', 'Ukončené', 'Zrušená')
+            job_state = order_slicing_status.get((order_no, t_ean))
+            if job_state is None:
+                job_state = order_slicing_status.get((order_no, prod_name), '')
+
+            # Zrušená úloha sa už nepovažuje za vybavenú - operátor ju môže znova spustiť
+            already_done = job_state in ('Prijaté, čaká na tlač', 'Ukončené')
             is_running_exact = job_state in ('Prebieha krájanie', 'Naplánované')
 
-            # Ak už je pre túto objednávku krájanie ukončené, NEVRACAJ RIADOK
             if already_done:
                 continue
 
@@ -556,7 +572,6 @@ def get_slicing_requirements_from_orders():
     except Exception as e:
         print(f"Error slicing reqs: {e}")
         return []
-
 
 # ─────────────────────────────────────────────────────────────
 # Prevzatie z výroby – dni a položky (len neprijaté)
@@ -1029,14 +1044,12 @@ def finalize_slicing_transaction(log_id, actual_pieces):
         batch_id_base = f"SLICE-{datetime.now().strftime('%y%m%d')}-{log_id}"
 
         # --- A) ZÁZNAM PRE CIEĽ (Krájané) -> PLUSOVÝ v KUSOCH ---
-        # Fiktívna výroba (pre názov/cenu cieľa)
         cur.execute(f"""
             INSERT INTO zaznamy_vyroba 
-            (id_davky, {zv_col}, datum_vyroby, datum_ukoncenia, planovane_mnozstvo_kg, realne_mnozstvo_kg, planovane_ks, realne_mnozstvo_ks, stav, cena_za_jednotku)
-            VALUES (%s, %s, NOW(), NOW(), %s, %s, %s, %s, 'Dokončené', %s)
-        """, (batch_id_base + "-IN", target_prod['nazov_vyrobku'], total_weight_kg, total_weight_kg, pieces, pieces, target_price))
+            (id_davky, {zv_col}, datum_vyroby, datum_ukoncenia, planovane_mnozstvo_kg, realne_mnozstvo_kg, realne_mnozstvo_ks, stav, cena_za_jednotku)
+            VALUES (%s, %s, NOW(), NOW(), %s, %s, %s, 'Dokončené', %s)
+        """, (batch_id_base + "-IN", target_prod['nazov_vyrobku'], total_weight_kg, total_weight_kg, pieces, target_price))
 
-        # Záznam pre export -> unit='ks', prijem_ks=pieces (Export to zoberie ako KUSY)
         cur.execute("""
             INSERT INTO expedicia_prijmy (id_davky, nazov_vyrobku, datum_prijmu, prijem_kg, prijem_ks, unit, prijal, created_at)
             VALUES (%s, %s, CURDATE(), %s, %s, 'ks', 'System Krájanie', NOW())
@@ -1044,14 +1057,12 @@ def finalize_slicing_transaction(log_id, actual_pieces):
 
 
         # --- B) ZÁZNAM PRE ZDROJ (Blok) -> MÍNUSOVÝ v KG ---
-        # Fiktívna výroba (pre názov/cenu zdroja)
         cur.execute(f"""
             INSERT INTO zaznamy_vyroba 
             (id_davky, {zv_col}, datum_vyroby, datum_ukoncenia, planovane_mnozstvo_kg, realne_mnozstvo_kg, stav, cena_za_jednotku)
             VALUES (%s, %s, NOW(), NOW(), %s, %s, 'Dokončené', %s)
         """, (batch_id_base + "-OUT", source_prod['nazov_vyrobku'], total_weight_kg, total_weight_kg, source_price))
 
-        # Záznam pre export -> unit='kg', prijem_kg=-total_weight_kg (Export to zoberie ako MÍNUSOVÉ KG)
         cur.execute("""
             INSERT INTO expedicia_prijmy (id_davky, nazov_vyrobku, datum_prijmu, prijem_kg, prijem_ks, unit, prijal, created_at)
             VALUES (%s, %s, CURDATE(), %s, 0, 'kg', 'System Krájanie', NOW())
