@@ -92,7 +92,7 @@ window.renderNakupModule = async function(containerId) {
                             </div>
                             <div style="width:70px;">
                                 <label style="font-size:0.8rem; font-weight:bold;">DPH %</label>
-                                <select id="nakup-dph" class="filter-input" style="width: 100%;"><option value="20">20</option><option value="10">10</option><option value="0">0</option></select>
+                                <input type="number" id="nakup-dph" class="filter-input" style="width: 100%; text-align:center;" step="1" value="20">
                             </div>
                         </div>
                         <div style="margin-top:15px; text-align:right;">
@@ -170,7 +170,7 @@ window.renderNakupModule = async function(containerId) {
 
         autoList.innerHTML = matches.map(p => `
             <div class="autocomplete-item" style="padding:8px 12px; border-bottom:1px solid #f1f5f9; cursor:pointer; display:flex; justify-content:space-between;" 
-                 onclick="window.vybratProdukt('${escapeHtml(p.name)}', '${p.ean || ''}')">
+                 onclick="window.vybratProdukt('${escapeHtml(p.name)}', '${p.ean || ''}', ${p.dph || 20})">
                 <span style="font-weight:600; color:#1e293b;">${escapeHtml(p.name)}</span>
                 <span style="color:#64748b; font-family:monospace; font-size:0.8rem;">${p.ean || ''}</span>
             </div>
@@ -184,7 +184,17 @@ window.renderNakupModule = async function(containerId) {
     });
 
     document.addEventListener('click', (e) => { if (e.target !== searchInput && e.target !== autoList) autoList.style.display = 'none'; });
-    window.vybratProdukt = function(nazov, ean) { searchInput.value = nazov; eanInput.value = ean; autoList.style.display = 'none'; document.getElementById('nakup-mnozstvo').focus(); };
+    
+    // Pridaný parameter dph pre funkciu výberu
+    window.vybratProdukt = function(nazov, ean, dph) { 
+        searchInput.value = nazov; 
+        eanInput.value = ean; 
+        if (dph !== undefined && dph !== null) {
+            document.getElementById('nakup-dph').value = dph;
+        }
+        autoList.style.display = 'none'; 
+        document.getElementById('nakup-mnozstvo').focus(); 
+    };
 };
 
 window.pridatNovehoDodavatela = async function() {
@@ -211,6 +221,7 @@ window.pridatPolozkuNakupu = function() {
     if (!nazov) return alert('Zadajte názov produktu.');
     if (isNaN(mnozstvo) || mnozstvo <= 0) return alert('Zadajte platné množstvo.');
     if (isNaN(cena_bez_dph) || cena_bez_dph <= 0) return alert('Zadajte platnú cenu.');
+    if (isNaN(dph) || dph < 0) return alert('Zadajte platnú sadzbu DPH.');
 
     nakupCart.push({ ean, nazov, mnozstvo, cena_bez_dph, dph });
     

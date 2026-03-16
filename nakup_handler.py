@@ -109,14 +109,20 @@ def zoznam_objednavok():
     return {"objednavky": rows}
 
 def get_produkty_autocomplete():
+    import db_connector
     sql = """
-        SELECT ean, nazov_vyrobku as name FROM produkty WHERE nazov_vyrobku IS NOT NULL AND nazov_vyrobku != ''
+        SELECT ean, nazov_vyrobku as name, COALESCE(dph, 20.0) as dph 
+        FROM produkty 
+        WHERE nazov_vyrobku IS NOT NULL AND nazov_vyrobku != ''
         UNION
-        SELECT ean, nazov as name FROM sklad WHERE nazov IS NOT NULL AND nazov != ''
+        SELECT ean, nazov as name, 20.0 as dph 
+        FROM sklad 
+        WHERE nazov IS NOT NULL AND nazov != ''
     """
     rows = db_connector.execute_query(sql, fetch="all") or []
     unique_products = {r['name']: r for r in rows}
     return {"products": list(unique_products.values())}
+
 
 def historia_nakupov(ean, nazov):
     _ensure_nakup_schema()
