@@ -1924,10 +1924,6 @@ def base_data_alias():
         "itemTypes":             item_types
     })
 
-
-
-# Forecast / promo / goods suggestion
-# ----- 7-dňový prehľad (B2B + B2C) – jediná platná route -----
 # ----- 7-dňový prehľad (B2B + B2C) – jediná platná route -----
 from flask import jsonify
 from datetime import date, timedelta
@@ -1935,7 +1931,7 @@ from datetime import date, timedelta
 @app.route('/api/kancelaria/get_7_day_forecast', methods=['GET'], endpoint='kanc_7d_forecast')
 @login_required(role=('kancelaria','veduci','admin'))
 def kanc_7d_forecast():
-    import db_connector
+    return handle_request(office_handler.get_7_day_forecast)
 
     # --- pomocné ---
     def dates7():
