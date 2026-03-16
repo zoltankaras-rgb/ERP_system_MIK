@@ -1932,7 +1932,6 @@ def base_data_alias():
 def kanc_7d_forecast():
     return handle_request(office_handler.get_7_day_forecast)
 
-
 # =================================================================
 # VYHODNOTENIE AKCIÍ (Ukladanie)
 # =================================================================

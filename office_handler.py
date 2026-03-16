@@ -5487,182 +5487,84 @@ def get_purchase_suggestions():
 
 def get_7_day_forecast():
     """
-    7-dňový prehľad potreby produktov.
-    Vracia:
-      - dates:            ["YYYY-MM-DD", ... x7]
-      - forecast:         B2B + B2C DOKOPY (hlavné pole pre UI)
-      - b2c_forecast:     len B2C (na kontrolu / kompatibilitu)
-      - forecast_b2c, b2c: aliasy na b2c_forecast
-      - debug:            diagnostika (tabuľky/stĺpce/počty)
+    Zjednodušený 7-dňový prehľad potreby produktov bez kolíznych SQL klauzúl.
     """
-    from datetime import date, timedelta
     import db_connector
+    from datetime import date, timedelta
 
-    COLL = "utf8mb4_0900_ai_ci"
+    # --- Pomocné polia ---
+    DATES = [(date.today() + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(7)]
 
-    def _dates7():
-        base = date.today()
-        return [(base + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(7)]
-
-    def _tbl_exists(t):
-        r = db_connector.execute_query(
-            "SELECT COUNT(*) AS c FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=%s",
-            (t,), fetch="one"
-        )
-        return bool(r and int(list(r.values())[0]) > 0)
-
-    def _cols(t):
+    # 1. Načítanie produktov (Pre informácie o sklade a balení)
+    product_meta = {}
+    try:
         rows = db_connector.execute_query(
-            "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=%s",
-            (t,), fetch="all"
-        ) or []
-        return {x["COLUMN_NAME"] for x in rows}
-
-    def _pick(colset, *cands):
-        for c in cands:
-            if c and c in colset:
-                return c
-        return None
-
-    def _first_existing(*tables):
-        for t in tables:
-            if t and _tbl_exists(t):
-                return t
-        return None
-
-    # ---------- meta o produktoch ----------
-    def _read_product_meta():
-        meta = {}
-        if not _tbl_exists("produkty"):
-            return meta
-        cs = _cols("produkty")
-        name = _pick(cs, "nazov_vyrobku", "nazov", "produkt", "name")
-        cat  = _pick(cs, "kategoria_pre_recepty", "predajna_kategoria", "kategoria", "category")
-        stk  = _pick(cs, "aktualny_sklad_finalny_kg", "stav_kg", "sklad_kg", "sklad", "aktualny_sklad")
-        typ  = _pick(cs, "typ_polozky", "typ_produktu", "typ", "product_type")
-        pck  = _pick(cs, "vaha_balenia_g", "vaha_g", "hmotnost_g", "balenie_g")
-
-        rows = db_connector.execute_query(
-            f"SELECT {name} AS n, COALESCE({cat},'Nezaradené') AS c, "
-            f"COALESCE({stk},0) AS s, COALESCE({typ},'') AS t, COALESCE({pck},0) AS g "
-            f"FROM produkty", fetch="all"
+            "SELECT nazov_vyrobku AS n, COALESCE(kategoria_pre_recepty, predajna_kategoria, 'Nezaradené') AS c, "
+            "COALESCE(aktualny_sklad_finalny_kg, 0) AS s, COALESCE(typ_polozky, '') AS t, COALESCE(vaha_balenia_g, 0) AS g "
+            "FROM produkty", fetch="all"
         ) or []
         for r in rows:
             n = (r.get("n") or "").strip()
             if not n: continue
-            t = (r.get("t") or "").upper()
-            meta[n] = {
-                "cat": (r.get("c") or "Nezaradené") or "Nezaradené",
+            typ = (r.get("t") or "").upper()
+            product_meta[n] = {
+                "cat": r.get("c") or "Nezaradené",
                 "stock": float(r.get("s") or 0),
-                "is_manu": bool(t.startswith("VÝROBOK") or t.startswith("VYROBOK") or t in ("PRODUKT","PRODUCT")),
+                "is_manu": bool(typ.startswith("VÝROBOK") or typ in ("PRODUKT", "PRODUCT")),
                 "pack_g": float(r.get("g") or 0),
             }
-        return meta
+    except Exception as e:
+        print(f"Product Meta error: {e}")
 
     def _stock_display(kg):
-        try:
-            v = float(kg or 0.0)
-            return f"{int(v)} kg" if v.is_integer() else f"{v:.2f} kg"
-        except Exception:
-            return "—"
+        v = float(kg or 0.0)
+        return f"{int(v)} kg" if v.is_integer() else f"{v:.2f} kg"
 
-    product_meta = _read_product_meta()
-    dates = _dates7()
-
-    # ---------- B2B – použijeme tvoju existujúcu implementáciu, ak je dostupná ----------
-    b2b = {}
+    # 2. B2B Forecast (Využitie stabilnej existujúcej logiky)
+    b2b_fc = {}
     try:
-        # ak máš v office_handleri pôvodnú funkciu get_7_day_order_forecast, vezmeme z nej forecast
-        b2b_payload = globals().get('get_7_day_order_forecast', None)
-        if callable(b2b_payload):
-            res = b2b_payload()
-            if isinstance(res, dict):
-                b2b = res.get("forecast") or {}
-    except Exception:
-        b2b = {}
+        # V office_handler už existuje funkcia get_7_day_order_forecast() pre B2B
+        base = get_7_day_order_forecast()
+        if isinstance(base, dict):
+            b2b_fc = base.get("forecast") or {}
+    except Exception as e:
+        print(f"B2B Forecast error: {e}")
 
-    # ---------- B2C – “na tvrdo” b2c_objednavky + b2c_objednavky_polozky ----------
-    # Skús typické názvy (bez autodetekcie, aby to určite trafilo).
-    b2c_orders_tbl = _first_existing("b2c_objednavky", "eshop_objednavky", "b2c_orders")
-    b2c_items_tbl  = _first_existing("b2c_objednavky_polozky", "eshop_objednavky_polozky", "b2c_orders_items")
-
-    b2c = {}
-    b2c_debug = {"orders_tbl": b2c_orders_tbl, "items_tbl": b2c_items_tbl, "date_used": None, "rows": 0}
-
-    if b2c_orders_tbl and b2c_items_tbl:
-        oc = _cols(b2c_orders_tbl)
-        ic = _cols(b2c_items_tbl)
-
-        fk = _pick(ic, "objednavka_id", "order_id")
-        name = _pick(ic, "nazov_vyrobku", "nazov", "produkt_nazov", "vyrobok_nazov", "product_name", "name")
-        qty  = _pick(ic, "mnozstvo_kg", "mnozstvo", "qty_kg", "qty", "quantity")
-        unit = _pick(ic, "mj", "jednotka", "unit")
-        pack = _pick(ic, "vaha_balenia_g", "balenie_g", "hmotnost_g", "pack_g")
-        ean  = _pick(ic, "ean_produktu", "ean")
-
-        # dátum v orders – vyberieme prvý, ktorý existuje (poradie zodpovedá bežným schémam)
-        date_candidates = ["datum_vyzdvihnutia","datum_dodania","delivery_date","pickup_date","slot_date",
-                           "termin_vyzdvihnutia","termin_dodania","termin","datum","date","created_at"]
-        date_cols = [c for c in date_candidates if c in oc]
-        if date_cols:
-            date_expr = "DATE(COALESCE(" + ", ".join("o."+c for c in date_cols) + "))"
-        else:
-            # ak nemáš nič v objednávke, posledný pokus – položka (stáva sa pri niektorých eshop exportoch)
-            date_i_candidates = ["datum_vyzdvihnutia","datum_dodania","delivery_date","pickup_date","slot_date",
-                                 "termin_vyzdvihnutia","termin_dodania","termin","datum","date","created_at"]
-            date_i_cols = [c for c in date_i_candidates if c in ic]
-            date_expr = "DATE(COALESCE(" + ", ".join("pol."+c for c in date_i_cols) + "))" if date_i_cols else "DATE(o.created_at)"
-        b2c_debug["date_used"] = date_expr
-
-        status = _pick(oc, "stav", "status")
-        where = [f"{date_expr} BETWEEN %s AND %s"]
-        params = (dates[0], dates[-1])
-        if status:
-            where.append(
-                f"COALESCE(CONVERT(o.{status} USING utf8mb4) COLLATE {COLL}, '') NOT IN "
-                "('Zrušená','Zrusena','Zrušena','Zrušené','Cancelled')"
-            )
-
-        pack_expr = f"pol.{pack}" if pack else "p.vaha_balenia_g"
-
-        join = f"""
-            JOIN {b2c_items_tbl} pol ON pol.{fk} = o.id
-            LEFT JOIN produkty p ON (
-                {"(p.ean IS NOT NULL AND pol."+ean+" IS NOT NULL AND CONVERT(p.ean USING utf8mb4) COLLATE "+COLL+" = CONVERT(pol."+ean+" USING utf8mb4) COLLATE "+COLL+") OR" if ean else ""}
-                (CONVERT(p.nazov_vyrobku USING utf8mb4) COLLATE {COLL} = CONVERT(pol.{name} USING utf8mb4) COLLATE {COLL})
-            )
+    # 3. B2C Forecast (Zjednodušený bezpečný SQL dopyt)
+    b2c_fc = {}
+    try:
+        sql = """
+            SELECT 
+                pol.nazov_vyrobku AS n,
+                DATE(o.pozadovany_datum_dodania) AS d,
+                pol.mnozstvo AS qty,
+                pol.mj AS unit,
+                p.vaha_balenia_g AS pack_g
+            FROM b2c_objednavky o
+            JOIN b2c_objednavky_polozky pol ON pol.objednavka_id = o.id
+            LEFT JOIN produkty p ON p.nazov_vyrobku = pol.nazov_vyrobku
+            WHERE DATE(o.pozadovany_datum_dodania) BETWEEN %s AND %s
+              AND o.stav NOT IN ('Zrušená', 'Zrusena', 'Zrušena', 'Zrušené', 'Cancelled')
         """
-
-        sql = f"""
-            SELECT
-              COALESCE(CONVERT(pol.{name} USING utf8mb4) COLLATE {COLL}, '') AS n,
-              {date_expr} AS d,
-              SUM(
-                CASE
-                  WHEN LOWER(COALESCE(pol.{unit},'')) = 'kg' THEN COALESCE(pol.{qty},0)
-                  WHEN LOWER(COALESCE(pol.{unit},'')) = 'g'  THEN COALESCE(pol.{qty},0) / 1000
-                  WHEN LOWER(COALESCE(pol.{unit},'')) IN ('ks','pc','pcs') THEN COALESCE(pol.{qty},0) * COALESCE({pack_expr}, 0) / 1000
-                  ELSE COALESCE(pol.{qty},0)
-                END
-              ) AS q
-            FROM {b2c_orders_tbl} o
-            {join}
-            WHERE {" AND ".join(where)}
-            GROUP BY n, d
-            ORDER BY n, d
-        """
-        rows = db_connector.execute_query(sql, params, fetch="all") or []
-        b2c_debug["rows"] = len(rows)
-
+        rows = db_connector.execute_query(sql, (DATES[0], DATES[-1]), fetch="all") or []
+        
         idx = {}
         for r in rows:
             n = (r.get("n") or "").strip()
-            d = (r.get("d") or "")
-            if not n or d not in dates: continue
-            q = float(r.get("q") or 0.0)
-
-            meta = product_meta.get(n, {"cat":"Nezaradené","stock":0.0,"is_manu":True})
-            cat = meta["cat"] or "Nezaradené"
+            d = str(r.get("d") or "")
+            if not n or d not in DATES: continue
+            
+            raw_qty = float(r.get("qty") or 0.0)
+            unit = str(r.get("unit") or "").lower()
+            pack_g = float(r.get("pack_g") or 0.0)
+            
+            # Prepočet na KG na základe jednotky a váhy
+            if unit == 'g': q = raw_qty / 1000.0
+            elif unit in ('ks', 'pc', 'pcs'): q = (raw_qty * pack_g) / 1000.0
+            else: q = raw_qty
+            
+            meta = product_meta.get(n, {"cat": "Nezaradené", "stock": 0.0, "is_manu": True})
+            cat = meta["cat"]
             key = (cat, n)
 
             if key not in idx:
@@ -5670,62 +5572,48 @@ def get_7_day_forecast():
                     "name": n,
                     "mj": "kg",
                     "stock_display": _stock_display(meta["stock"]),
-                    "isManufacturable": bool(meta["is_manu"]),
-                    "daily_needs": {dt: 0 for dt in dates},
+                    "isManufacturable": meta["is_manu"],
+                    "daily_needs": {dt: 0 for dt in DATES},
                 }
-                b2c.setdefault(cat, []).append(item)
+                b2c_fc.setdefault(cat, []).append(item)
                 idx[key] = item
-            idx[key]["daily_needs"][d] = idx[key]["daily_needs"].get(d, 0) + q
+            
+            idx[key]["daily_needs"][d] += q
+            
+    except Exception as e:
+        print(f"B2C Forecast error: {e}")
 
-        for cat, arr in b2c.items():
-            def _total(it): return sum(float(it["daily_needs"].get(dt,0) or 0) for dt in dates)
-            arr.sort(key=lambda it: (-_total(it), it["name"]))
-
-    # ---------- MERGE B2B + B2C do forecast ----------
-    def _merge_two(fa, fb):
-        out = {}
-        for src in (fa or {}), (fb or {}):
-            for cat, items in (src or {}).items():
-                out.setdefault(cat, [])
-                idx = {(p["name"], p.get("mj","kg")): i for i,p in enumerate(out[cat])}
-                for p in items or []:
-                    k = (p["name"], p.get("mj","kg"))
-                    if k in idx:
-                        tgt = out[cat][idx[k]]
-                    else:
-                        tgt = {
-                            "name": p["name"],
-                            "mj": p.get("mj","kg"),
-                            "stock_display": p.get("stock_display","—"),
-                            "isManufacturable": bool(p.get("isManufacturable",True)),
-                            "daily_needs": {dt: 0 for dt in p.get("daily_needs",{}).keys() or []}
-                        }
-                        if not tgt["daily_needs"]:
-                            for dt in (p.get("daily_needs") or {}).keys():
-                                tgt["daily_needs"][dt] = 0
-                        out[cat].append(tgt); idx[k] = len(out[cat]) - 1
-                    for dt, val in (p.get("daily_needs") or {}).items():
-                        tgt["daily_needs"][dt] = float(tgt["daily_needs"].get(dt,0)) + float(val or 0)
-                    if len(p.get("stock_display","")) > len(tgt.get("stock_display","")):
-                        tgt["stock_display"] = p.get("stock_display","—")
-                    tgt["isManufacturable"] = bool(tgt.get("isManufacturable",True) or p.get("isManufacturable",True))
-        for cat, arr in out.items():
-            def _total(it): return sum(float(v or 0) for v in it["daily_needs"].values())
-            arr.sort(key=lambda it: (-_total(it), it["name"]))
-        return out
-
-    merged = _merge_two(b2b, b2c)
+    # 4. Zlúčenie B2B a B2C
+    merged = {}
+    for src in (b2b_fc, b2c_fc):
+        for cat, items in src.items():
+            merged.setdefault(cat, [])
+            idx = {p["name"]: i for i, p in enumerate(merged[cat])}
+            for p in items:
+                if p["name"] in idx:
+                    tgt = merged[cat][idx[p["name"]]]
+                else:
+                    tgt = {
+                        "name": p["name"],
+                        "mj": "kg",
+                        "stock_display": p.get("stock_display", "—"),
+                        "isManufacturable": p.get("isManufacturable", True),
+                        "daily_needs": {dt: 0 for dt in DATES}
+                    }
+                    merged[cat].append(tgt)
+                    idx[p["name"]] = len(merged[cat]) - 1
+                
+                for dt, val in p["daily_needs"].items():
+                    tgt["daily_needs"][dt] += float(val)
+                    
+    # Zoradenie výsledkov (najvyššia potreba hore)
+    for cat, arr in merged.items():
+        arr.sort(key=lambda it: (-sum(it["daily_needs"].values()), it["name"]))
 
     return {
-        "dates": dates,
-        "forecast": merged,           # HLAVNÉ pole – B2B+B2C DOKOPY
-        "b2c_forecast": b2c or {},    # čisté B2C
-        "forecast_b2c": b2c or {},    # alias
-        "b2c": b2c or {},             # alias
-        "debug": {
-            "b2c": b2c_debug,
-            "b2b_present": bool(b2b),
-        }
+        "dates": DATES,
+        "forecast": merged,
+        "b2c_forecast": b2c_fc
     }
 def get_production_plan_calendar():
     """
