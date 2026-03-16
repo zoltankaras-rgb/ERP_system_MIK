@@ -1924,259 +1924,38 @@ def base_data_alias():
         "itemTypes":             item_types
     })
 
-# ----- 7-dňový prehľad (B2B + B2C) – jediná platná route -----
-from flask import jsonify
-from datetime import date, timedelta
-
+# =================================================================
+# 7-DŇOVÝ PREHĽAD (čisté volanie backandu)
+# =================================================================
 @app.route('/api/kancelaria/get_7_day_forecast', methods=['GET'], endpoint='kanc_7d_forecast')
 @login_required(role=('kancelaria','veduci','admin'))
 def kanc_7d_forecast():
     return handle_request(office_handler.get_7_day_forecast)
 
-    # --- pomocné ---
-    def dates7():
-        base = date.today()
-        return [(base + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(7)]
-    DATES = dates7()
 
-    def tbl_exists(t):
-        r = db_connector.execute_query(
-            "SELECT COUNT(*) AS c FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=%s",
-            (t,), fetch="one"
-        )
-        return bool(r and int(list(r.values())[0]) > 0)
-
-    def cols(t):
-        rows = db_connector.execute_query(
-            "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=%s",
-            (t,), fetch="all"
-        ) or []
-        return {x["COLUMN_NAME"] for x in rows}
-
-    def pick(colset, *cands):
-        for c in cands:
-            if c and c in colset:
-                return c
-        return None
-
-    def stock_disp(kg):
-        try:
-            v = float(kg or 0.0)
-            return f"{int(v)} kg" if v.is_integer() else f"{v:.2f} kg"
-        except Exception:
-            return "—"
-
-    # --- meta o produktoch ---
-    PRODUCT_META = {}
-    if tbl_exists("produkty"):
-        cs = cols("produkty")
-        name = pick(cs, "nazov_vyrobku", "nazov", "produkt", "name")
-        cat  = pick(cs, "kategoria_pre_recepty", "predajna_kategoria", "kategoria", "category")
-        stk  = pick(cs, "aktualny_sklad_finalny_kg", "stav_kg", "sklad_kg", "sklad", "aktualny_sklad")
-        typ  = pick(cs, "typ_polozky", "typ_produktu", "typ", "product_type")
-        pck  = pick(cs, "vaha_balenia_g", "vaha_g", "hmotnost_g", "balenie_g")
-        rows = db_connector.execute_query(
-            f"SELECT {name} AS n, COALESCE({cat},'Nezaradené') AS c, "
-            f"COALESCE({stk},0) AS s, COALESCE({typ},'') AS t, COALESCE({pck},0) AS g "
-            f"FROM produkty", fetch="all"
-        ) or []
-        for r in rows:
-            n = (r.get("n") or "").strip()
-            if not n: continue
-            t = (r.get("t") or "").upper()
-            PRODUCT_META[n] = {
-                "cat": (r.get("c") or "Nezaradené") or "Nezaradené",
-                "stock": float(r.get("s") or 0),
-                "is_manu": bool(t.startswith("VÝROBOK") or t.startswith("VYROBOK") or t in ("PRODUKT","PRODUCT")),
-                "pack_g": float(r.get("g") or 0),
-            }
-
-
-
-    # ===================== B2B (pôvodná logika) =====================
-    b2b_fc = {}
-    try:
-        base = office_handler.get_7_day_order_forecast()
-        if isinstance(base, dict):
-            b2b_fc = base.get("forecast") or {}
-    except Exception:
-        b2b_fc = {}
-
+# =================================================================
+# VYHODNOTENIE AKCIÍ (Ukladanie)
+# =================================================================
 @app.route('/api/kancelaria/save_promotion_evaluation', methods=['POST'])
+@login_required(role=('kancelaria','veduci','admin'))
 def save_promo_eval():
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     p_id = data.get('id')
     sold_qty = data.get('sold_quantity', 0)
     buy_price = data.get('actual_purchase_price', 0)
     
-    return jsonify({"status": "ok", "message": "Uložené"})
-
-    # ===================== B2C (Opravený SQL dotaz) =============================
-    # Použijeme bezpečnejšiu koláciu, aby to nepadalo pri JOINoch
-    COLL = "utf8mb4_general_ci" 
-    
-    b2c_fc = {}
-    b2c_dbg = {"orders_tbl": None, "items_tbl": None, "date_used": None, "rows": 0}
-
-    orders_tbl = None
-    for t in ("b2c_objednavky", "eshop_objednavky", "b2c_orders"):
-        if tbl_exists(t): orders_tbl = t; break
-
-    items_tbl = None
-    for t in ("b2c_objednavky_polozky", "eshop_objednavky_polozky", "b2c_orders_items"):
-        if tbl_exists(t): items_tbl = t; break
-
-    if orders_tbl and items_tbl:
-        oc = cols(orders_tbl); ic = cols(items_tbl)
-        fk   = pick(ic, "objednavka_id", "order_id")
-        name = pick(ic, "nazov_vyrobku", "nazov", "produkt_nazov", "vyrobok_nazov", "product_name", "name")
-        qty  = pick(ic, "mnozstvo_kg", "mnozstvo", "qty_kg", "qty", "quantity")
-        unit = pick(ic, "mj", "jednotka", "unit")
-        pack = pick(ic, "vaha_balenia_g", "balenie_g", "hmotnost_g", "pack_g")
-        ean  = pick(ic, "ean_produktu", "ean", "ean_kod")
-
-        # --- OPRAVA: Rozšírený zoznam dátumových stĺpcov ---
-        # Pridané: pozadovany_datum_dodania, datum_objednavky
-        D_O = [
-            "pozadovany_datum_dodania", "datum_dodania", "delivery_date", 
-            "datum_objednavky", "datum_vytvorenia",
-            "datum_vyzdvihnutia", "pickup_date", "slot_date",
-            "termin_vyzdvihnutia", "termin_dodania", "termin", 
-            "datum", "date", "created_at", "created", "created_on"
-        ]
+    if not p_id:
+        return jsonify({"error": "Chýba ID akcie"}), 400
         
-        # Najprv hľadáme v hlavičke (orders), potom v položkách
-        present_o = [f"o.{c}" for c in D_O if c in oc]
-        
-        if present_o:
-            # Použijeme prvý nájdený stĺpec (priorita je podľa poradia v D_O)
-            date_expr = f"DATE({present_o[0]})"
-        else:
-            # Fallback, ak sa nenájde nič (aby to nespadlo na 'Unknown column')
-            date_expr = "CURDATE()"
-
-        b2c_dbg.update({"orders_tbl": orders_tbl, "items_tbl": items_tbl, "date_used": date_expr})
-
-        status = pick(oc, "stav", "status")
-        where = [f"{date_expr} BETWEEN %s AND %s"]
-        params = (DATES[0], DATES[-1])
-        if status:
-            where.append(
-                f"COALESCE(CONVERT(o.{status} USING utf8mb4) COLLATE {COLL}, '') NOT IN "
-                "('Zrušená','Zrusena','Zrušena','Zrušené','Cancelled')"
-            )
-
-        pack_expr = f"pol.{pack}" if pack else "p.vaha_balenia_g"
-        
-        # Opravený JOIN s CONVERT pre bezpečnosť kolácií
-        join_prod = f"""
-            LEFT JOIN produkty p ON (
-                {"(p.ean IS NOT NULL AND pol."+ean+" IS NOT NULL AND CONVERT(p.ean USING utf8mb4) = CONVERT(pol."+ean+" USING utf8mb4)) OR" if ean else ""}
-                (CONVERT(p.nazov_vyrobku USING utf8mb4) = CONVERT(pol.{name} USING utf8mb4))
-            )
-        """
-
-        sql = f"""
-            SELECT
-              COALESCE(CONVERT(pol.{name} USING utf8mb4), '') AS n,
-              {date_expr} AS d,
-              SUM(
-                CASE
-                  WHEN LOWER(COALESCE(pol.{unit},'')) = 'kg' THEN COALESCE(pol.{qty},0)
-                  WHEN LOWER(COALESCE(pol.{unit},'')) = 'g'  THEN COALESCE(pol.{qty},0) / 1000
-                  WHEN LOWER(COALESCE(pol.{unit},'')) IN ('ks','pc','pcs')
-                       THEN COALESCE(pol.{qty},0) * COALESCE({pack_expr}, 0) / 1000
-                  ELSE COALESCE(pol.{qty},0)
-                END
-              ) AS q
-            FROM {orders_tbl} o
-            JOIN {items_tbl} pol ON pol.{fk} = o.id
-            {join_prod}
-            WHERE {" AND ".join(where)}
-            GROUP BY n, d
-            ORDER BY n, d
-        """
-        
-        try:
-            rows = db_connector.execute_query(sql, params, fetch="all") or []
-        except Exception as e:
-            print(f"B2C Forecast Error: {e}")
-            rows = []
-
-        b2c_dbg["rows"] = len(rows)
-
-        # poskladaj forecast mapu
-        idx = {}
-        for r in rows:
-            n = (r.get("n") or "").strip()
-            d = (r.get("d") or "")
-            if not n or str(d) not in DATES: continue
-            q = float(r.get("q") or 0.0)
-
-            meta = PRODUCT_META.get(n, {"cat":"Nezaradené","stock":0.0,"is_manu":True})
-            cat = meta["cat"] or "Nezaradené"
-            key = (cat, n)
-
-            if key not in idx:
-                item = {
-                    "name": n,
-                    "mj": "kg",
-                    "stock_display": stock_disp(meta["stock"]),
-                    "isManufacturable": bool(meta["is_manu"]),
-                    "daily_needs": {dt: 0 for dt in DATES},
-                }
-                b2c_fc.setdefault(cat, []).append(item)
-                idx[key] = item
-            idx[key]["daily_needs"][str(d)] = idx[key]["daily_needs"].get(str(d), 0) + q
-
-        for cat, arr in b2c_fc.items():
-            def _total(it): return sum(float(it["daily_needs"].get(dt,0) or 0) for dt in DATES)
-            arr.sort(key=lambda it: (-_total(it), it["name"]))
-
-    # ===================== merge B2B + B2C ==========================
-    def merge_two(fa, fb):
-        out = {}
-        for src in (fa or {}), (fb or {}):
-            for cat, items in (src or {}).items():
-                out.setdefault(cat, [])
-                idx = {(p["name"], p.get("mj","kg")): i for i,p in enumerate(out[cat])}
-                for p in items or []:
-                    k = (p["name"], p.get("mj","kg"))
-                    if k in idx:
-                        tgt = out[cat][idx[k]]
-                    else:
-                        tgt = {
-                            "name": p["name"],
-                            "mj": p.get("mj","kg"),
-                            "stock_display": p.get("stock_display","—"),
-                            "isManufacturable": bool(p.get("isManufacturable",True)),
-                            "daily_needs": {dt: 0 for dt in p.get("daily_needs",{}).keys() or DATES}
-                        }
-                        if not tgt["daily_needs"]:
-                            for dt in DATES: tgt["daily_needs"][dt] = 0
-                        out[cat].append(tgt); idx[k] = len(out[cat]) - 1
-                    for dt, val in (p.get("daily_needs") or {}).items():
-                        tgt["daily_needs"][dt] = float(tgt["daily_needs"].get(dt,0)) + float(val or 0)
-                    if len(p.get("stock_display","")) > len(tgt.get("stock_display","")):
-                        tgt["stock_display"] = p.get("stock_display","—")
-                    tgt["isManufacturable"] = bool(tgt.get("isManufacturable",True) or p.get("isManufacturable",True))
-        for cat, arr in out.items():
-            def _total(it): return sum(float(v or 0) for v in it["daily_needs"].values())
-            arr.sort(key=lambda it: (-_total(it), it["name"]))
-        return out
-
-    merged = merge_two(b2b_fc, b2c_fc)
-
-    data = {
-        "dates": DATES,
-        "forecast": merged,
-        "b2c_forecast": b2c_fc,
-        "debug": {
-            "b2c": b2c_dbg,
-            "b2b_present": bool(b2b_fc),
-        }
-    }
-    return jsonify(data), 200
+    try:
+        import db_connector
+        db_connector.execute_query(
+            "UPDATE b2b_promotions SET sold_quantity=%s, actual_purchase_price=%s WHERE id=%s",
+            (sold_qty, buy_price, p_id), fetch='none'
+        )
+        return jsonify({"status": "ok", "message": "Uložené"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/api/kancelaria/get_goods_purchase_suggestion')
 @login_required(role=('kancelaria','veduci','admin'))
