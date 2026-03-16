@@ -5303,23 +5303,32 @@ def api_get_vezg_prices():
 # =================================================================
 # === MODUL NÁKUP (EXTERNÍ DODÁVATELIA) ===
 # =================================================================
-
-import nakup_handler # Pridať medzi ostatné importy hore
-
-# ... (nižšie medzi ostatné Kancelária endpointy) ...
+import nakup_handler
 
 @app.route('/api/kancelaria/nakup/ulozit', methods=['POST'])
 @login_required(role=('kancelaria','veduci','admin'))
 def api_nakup_ulozit():
-    data = request.get_json(silent=True) or {}
-    return handle_request(nakup_handler.ulozit_nakup, data)
+    return handle_request(nakup_handler.ulozit_nakup, request.json)
+
+@app.route('/api/kancelaria/nakup/zmenit_stav', methods=['POST'])
+@login_required(role=('kancelaria','veduci','admin'))
+def api_nakup_zmenit_stav():
+    return handle_request(nakup_handler.zmenit_stav_objednavky, request.json)
+
+@app.route('/api/kancelaria/nakup/zoznam', methods=['GET'])
+@login_required(role=('kancelaria','veduci','admin'))
+def api_nakup_zoznam():
+    return handle_request(nakup_handler.zoznam_objednavok)
+
+@app.route('/api/kancelaria/nakup/produkty', methods=['GET'])
+@login_required(role=('kancelaria','veduci','admin'))
+def api_nakup_produkty():
+    return handle_request(nakup_handler.get_produkty_autocomplete)
 
 @app.route('/api/kancelaria/nakup/historia', methods=['GET'])
 @login_required(role=('kancelaria','veduci','admin'))
 def api_nakup_historia():
-    ean = request.args.get('ean')
-    nazov = request.args.get('nazov')
-    return handle_request(nakup_handler.historia_nakupov, ean, nazov)
+    return handle_request(nakup_handler.historia_nakupov, request.args.get('ean'), request.args.get('nazov'))
 # =================================================================
 # === OBJEDNÁVKY / SKLAD BLUEPRINTY ===
 # =================================================================
