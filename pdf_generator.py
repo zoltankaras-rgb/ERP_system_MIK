@@ -246,10 +246,14 @@ def _make_csv(order):
         # 6. Číslo odberateľa namiesto GLN (13 znakov)
         odb_field = cust_code[:13].ljust(13)
 
-        # 7. Cena
+        # 7. Vynechané miesto pre váhu z terminálu (napr. 10 znakov)
+        # Toto nahradí pôvodnú pozíciu ceny
+        weight_field = " " * 10
+
+        # 8. Cena (posunutá o pozíciu vpravo)
         price_field = f"{price:.2f}"
 
-        # Výsledný riadok (117 znakov pred cenou)
+        # Výsledný riadok
         line = (
             "  " +                  
             code_field + " " +
@@ -259,6 +263,7 @@ def _make_csv(order):
             branch_field +          
             odb_field +
             " " * 15 +              
+            weight_field +          
             price_field
         )
         sio.write(line + "\n")
