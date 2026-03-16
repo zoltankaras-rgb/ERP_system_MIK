@@ -177,14 +177,14 @@ async function loadSlicingRequirements() {
                     </button>`;
                 rowStyle = 'style="background-color:#fef2f2; opacity:0.9;"'; // jemne červené
             } else {
-                // Pripravené na spustenie krájania
-                btnHtml = `
-                    <button class="btn-info slice-btn"
-                            style="padding:4px 8px; font-size:0.8rem;"
-                            onclick="startSlicingFromOrder(this, '${escapeHtml(r.product)}', ${r.pieces_calc})">
-                        <i class="fas fa-play"></i> Krájať
-                    </button>`;
-            }
+    // Pripravené na spustenie krájania
+    btnHtml = `
+        <button class="btn-info slice-btn"
+                style="padding:4px 8px; font-size:0.8rem;"
+                onclick="startSlicingFromOrder(this, '${escapeHtml(r.product)}', ${r.pieces_calc}, '${escapeHtml(r.order)}', '${escapeHtml(r.date)}', '${r.target_ean}', '${escapeHtml(r.customer)}')">
+            <i class="fas fa-play"></i> Krájať
+        </button>`;
+}
 
             html += `
             <tr ${rowStyle}>
