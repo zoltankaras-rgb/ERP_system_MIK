@@ -2006,6 +2006,15 @@ def kanc_7d_forecast():
     except Exception:
         b2b_fc = {}
 
+@app.route('/api/kancelaria/save_promotion_evaluation', methods=['POST'])
+def save_promo_eval():
+    data = request.get_json()
+    p_id = data.get('id')
+    sold_qty = data.get('sold_quantity', 0)
+    buy_price = data.get('actual_purchase_price', 0)
+    
+    return jsonify({"status": "ok", "message": "Uložené"})
+
     # ===================== B2C (Opravený SQL dotaz) =============================
     # Použijeme bezpečnejšiu koláciu, aby to nepadalo pri JOINoch
     COLL = "utf8mb4_general_ci" 

@@ -13,6 +13,7 @@ function initializeOrderForecastModule() {
       <button class="btn btn-primary js-tab" data-tab="forecast">7-dňový Prehľad</button>
       <button class="btn btn-secondary js-tab" data-tab="purchase">Návrh Nákupu Tovaru</button>
       <button class="btn btn-secondary js-tab" data-tab="promotions">Správa Akcií</button>
+      <button class="btn btn-secondary js-tab" data-tab="promo_eval" style="background-color: #0f766e; border-color: #0f766e; color: white;">Vyhodnotenie Akcií</button>
       <button class="btn btn-secondary js-tab" data-tab="inventory">Inventúra Expedície</button>
     </div>
 
@@ -20,6 +21,7 @@ function initializeOrderForecastModule() {
       <div id="forecast-tab-content"   data-view="forecast"   style="display:block;"></div>
       <div id="purchase-tab-content"   data-view="purchase"   style="display:none;"></div>
       <div id="promotions-tab-content" data-view="promotions" style="display:none;"></div>
+      <div id="promo-eval-tab-content" data-view="promo_eval" style="display:none;"></div>
       <div id="inventory-tab-content"  data-view="inventory"  style="display:none;"></div>
     </div>
   `;
@@ -29,8 +31,14 @@ function initializeOrderForecastModule() {
 
   function setActiveTab(key) {
     tabs.forEach(btn => {
-      btn.classList.remove('btn-primary'); btn.classList.add('btn-secondary');
-      if (btn.dataset.tab === key) { btn.classList.remove('btn-secondary'); btn.classList.add('btn-primary'); }
+      // Špeciálny styling pre vyhodnotenie, aby vizuálne ladilo
+      if(btn.dataset.tab === 'promo_eval') {
+          btn.style.backgroundColor = (key === 'promo_eval') ? '#0f766e' : 'transparent';
+          btn.style.color = (key === 'promo_eval') ? 'white' : '#0f766e';
+      } else {
+          btn.classList.remove('btn-primary'); btn.classList.add('btn-secondary');
+          if (btn.dataset.tab === key) { btn.classList.remove('btn-secondary'); btn.classList.add('btn-primary'); }
+      }
     });
     Array.from(viewsWrap.children).forEach(v => v.style.display = (v.getAttribute('data-view') === key ? 'block' : 'none'));
 
@@ -38,6 +46,7 @@ function initializeOrderForecastModule() {
       case 'forecast':  loadAndRenderForecast(); break;
       case 'purchase':  loadAndRenderPurchaseSuggestion(); break;
       case 'promotions':loadAndRenderPromotionsManager(); break;
+      case 'promo_eval':loadAndRenderPromotionEvaluation(); break;
       case 'inventory': loadAndRenderExpeditionInventory(); break;
     }
   }
@@ -331,8 +340,9 @@ window.printExpeditionInventoryPDF = function(head, groups, grandTotal) {
     win.document.close();
 };
 
+
 // =================================================================
-// === 2. EXISTUJÚCE FUNKCIE (Forecast, Purchase, Promo) ===========
+// === 2. 7-DŇOVÝ PREHĽAD A NÁKUP ==================================
 // =================================================================
 
 async function loadAndRenderForecast() {
@@ -471,11 +481,9 @@ async function loadAndRenderPurchaseSuggestion() {
     
     let html = '';
     Object.keys(byCat).sort().forEach(h => {
-        // PRIDANÝ STĹPEC CENA
         html += `<h4>${h}</h4><div class="table-container"><table><thead><tr><th>Tovar</th><th>Sklad</th><th>Min</th><th>Cena</th><th>Návrh</th></tr></thead><tbody>`;
         byCat[h].forEach(i => {
             const isLow = (i.stock - i.reserved) < i.min_stock;
-            // Formátovanie ceny
             const priceStr = (i.price != null) ? Number(i.price).toFixed(2) + ' €' : '-';
 
             html += `<tr ${isLow?'style="background:#fff7ed"':''}>
@@ -492,7 +500,10 @@ async function loadAndRenderPurchaseSuggestion() {
   } catch(e) { container.innerHTML = `<div class="error">${e.message}</div>`; }
 }
 
-// ---------- Správa akcií (VYLEPŠENÉ PRIDÁVANIE - COMBOBOX) ----------
+// =================================================================
+// === 3. SPRÁVA AKCIÍ =============================================
+// =================================================================
+
 async function loadAndRenderPromotionsManager() {
   const container = document.getElementById('promotions-tab-content');
   if (!container) return;
@@ -503,24 +514,20 @@ async function loadAndRenderPromotionsManager() {
     const { chains = [], promotions = [], products = [] } = data || {};
     const today = new Date().toISOString().split('T')[0];
 
-    // --- SPRACOVANIE DÁT ---
     const productMap = {};
     const categoriesSet = new Set();
     
     products.forEach(p => {
         productMap[p.ean] = p;
-        p._searchStr = `${p.name} ${p.ean}`.toLowerCase(); // Pre rýchlejšie hľadanie
+        p._searchStr = `${p.name} ${p.ean}`.toLowerCase();
         if(p.predajna_kategoria) categoriesSet.add(p.predajna_kategoria);
     });
     const categories = Array.from(categoriesSet).sort();
 
-    // Obohatenie akcií o dáta
     promotions.forEach(p => {
         let prod = null;
         if (p.product_ean) prod = productMap[p.product_ean];
-        if (!prod && p.product_name) {
-             prod = products.find(x => x.name === p.product_name);
-        }
+        if (!prod && p.product_name) prod = products.find(x => x.name === p.product_name);
         p._category = prod ? (prod.predajna_kategoria || 'Nezaradené') : 'Nezaradené';
         p._ean = prod ? prod.ean : (p.product_ean || '');
         p._searchStr = `${p.product_name} ${p._ean}`.toLowerCase();
@@ -531,82 +538,45 @@ async function loadAndRenderPromotionsManager() {
 
     container.innerHTML = `
       <div class="form-grid">
-        <!-- FORMULÁR NA PRIDANIE AKCIE (S NAŠEPKÁVAČOM) -->
         <div>
           <h4>Vytvoriť Novú Akciu</h4>
           <form id="add-promotion-form">
             <div class="form-group">
               <label>Obchodný Reťazec</label>
-              <select name="chain_id" required class="form-control">
-                <option value="">-- vyber --</option>
-                ${chainOptions}
-              </select>
+              <select name="chain_id" required class="form-control"><option value="">-- vyber --</option>${chainOptions}</select>
             </div>
 
-            <!-- INTELIGENTNÝ VÝBER PRODUKTU -->
             <div class="form-group" style="background:#f0f9ff; padding:10px; border:1px solid #bae6fd; border-radius:5px; position:relative;">
               <label style="color:#0284c7; font-weight:bold;">Produkt v Akcii</label>
-              
-              <!-- 1. Filter Kategórie -->
               <div style="margin-bottom:5px;">
                  <label style="font-size:0.75rem; color:#666;">Kategória:</label>
-                 <select id="picker-category-filter" class="form-control" style="font-size:0.9rem;">
-                    <option value="">Všetky kategórie</option>
-                    ${catOptions}
-                 </select>
+                 <select id="picker-category-filter" class="form-control" style="font-size:0.9rem;"><option value="">Všetky kategórie</option>${catOptions}</select>
               </div>
-
-              <!-- 2. Vyhľadávacie pole (Našepkávač) -->
               <div style="position:relative;">
                   <input type="text" id="picker-search-input" class="form-control" placeholder="Hľadaj názov alebo EAN..." autocomplete="off" style="font-weight:bold;">
-                  <!-- Skryté pole pre skutočnú EAN hodnotu -->
                   <input type="hidden" name="ean" id="real-ean-input" required>
-                  
-                  <!-- Zoznam výsledkov (Dropdown) -->
-                  <div id="picker-results-list" style="display:none; position:absolute; top:100%; left:0; right:0; max-height:250px; overflow-y:auto; background:white; border:1px solid #ccc; z-index:1000; box-shadow:0 4px 6px rgba(0,0,0,0.1);">
-                  </div>
+                  <div id="picker-results-list" style="display:none; position:absolute; top:100%; left:0; right:0; max-height:250px; overflow-y:auto; background:white; border:1px solid #ccc; z-index:1000; box-shadow:0 4px 6px rgba(0,0,0,0.1);"></div>
               </div>
               <div id="selected-product-display" style="margin-top:5px; font-size:0.85rem; color:#059669; font-weight:bold; min-height:1.2em;"></div>
             </div>
 
             <div class="form-grid">
-              <div class="form-group">
-                <label>Platnosť Od</label>
-                <input type="date" name="start_date" value="${today}" required class="form-control">
-              </div>
-              <div class="form-group">
-                <label>Platnosť Do</label>
-                <input type="date" name="end_date" value="${today}" required class="form-control">
-              </div>
+              <div class="form-group"><label>Platnosť Od</label><input type="date" name="start_date" value="${today}" required class="form-control"></div>
+              <div class="form-group"><label>Platnosť Do</label><input type="date" name="end_date" value="${today}" required class="form-control"></div>
             </div>
 
-            <div class="form-group">
-              <label>Cena Počas Akcie (bez DPH)</label>
-              <input type="number" name="sale_price_net" step="0.01" required class="form-control">
-            </div>
-
-            <button type="submit" class="btn btn-success" style="width:100%;">
-              Uložiť Akciu
-            </button>
+            <div class="form-group"><label>Cena Počas Akcie (bez DPH)</label><input type="number" name="sale_price_net" step="0.01" required class="form-control"></div>
+            <button type="submit" class="btn btn-success" style="width:100%;">Uložiť Akciu</button>
           </form>
         </div>
 
-        <!-- SPRÁVA REŤAZCOV -->
         <div>
           <h4>Správa Obchodných Reťazcov</h4>
           <ul id="chains-list">
-            ${chains.map(c => `
-              <li>
-                ${c.name}
-                <button onclick="manageChain('delete', ${c.id})" class="btn btn-danger" style="padding:.125rem .4rem; font-size:.8rem; margin-left:.5rem;">X</button>
-              </li>
-            `).join('')}
+            ${chains.map(c => `<li>${c.name} <button onclick="manageChain('delete', ${c.id})" class="btn btn-danger" style="padding:.125rem .4rem; font-size:.8rem; margin-left:.5rem;">X</button></li>`).join('')}
           </ul>
           <div class="form-group" style="display:flex; gap:.5rem; align-items:flex-end;">
-            <div style="flex:1;">
-              <label>Nový reťazec:</label>
-              <input type="text" id="new-chain-name" class="form-control">
-            </div>
+            <div style="flex:1;"><label>Nový reťazec:</label><input type="text" id="new-chain-name" class="form-control"></div>
             <button onclick="manageChain('add')" class="btn btn-primary" style="margin:0; height:38px;">Pridať</button>
           </div>
         </div>
@@ -614,50 +584,21 @@ async function loadAndRenderPromotionsManager() {
 
       <hr style="margin: 2rem 0;">
 
-      <!-- FILTRE PRE TABUĽKU -->
       <h4 style="margin-top:1rem;">Prehľad Naplánovaných Akcií</h4>
-      
       <div style="background:#f8f9fa; padding:15px; border-radius:5px; margin-bottom:15px; display:flex; gap:15px; flex-wrap:wrap; align-items:end;">
-        <div style="flex:1; min-width:200px;">
-            <label style="font-size:0.85rem; font-weight:bold;">Hľadať (Názov, EAN)</label>
-            <input type="text" id="promo-filter-search" class="form-control" placeholder="Napíšte názov alebo EAN...">
-        </div>
-        <div style="flex:1; min-width:200px;">
-            <label style="font-size:0.85rem; font-weight:bold;">Kategória</label>
-            <select id="promo-filter-cat" class="form-control">
-                <option value="">Všetky kategórie</option>
-                ${catOptions}
-            </select>
-        </div>
-        <div style="flex:1; min-width:200px;">
-             <label style="font-size:0.85rem; font-weight:bold;">Reťazec</label>
-             <select id="promo-filter-chain" class="form-control">
-                <option value="">Všetky reťazce</option>
-                ${chainOptions}
-            </select>
-        </div>
+        <div style="flex:1; min-width:200px;"><label style="font-size:0.85rem; font-weight:bold;">Hľadať (Názov, EAN)</label><input type="text" id="promo-filter-search" class="form-control" placeholder="Napíšte názov alebo EAN..."></div>
+        <div style="flex:1; min-width:200px;"><label style="font-size:0.85rem; font-weight:bold;">Kategória</label><select id="promo-filter-cat" class="form-control"><option value="">Všetky kategórie</option>${catOptions}</select></div>
+        <div style="flex:1; min-width:200px;"><label style="font-size:0.85rem; font-weight:bold;">Reťazec</label><select id="promo-filter-chain" class="form-control"><option value="">Všetky reťazce</option>${chainOptions}</select></div>
       </div>
 
-      <!-- TABUĽKA -->
       <div class="table-container" style="max-height:600px;">
         <table class="table table-striped">
-          <thead>
-            <tr>
-              <th>Reťazec</th>
-              <th>EAN</th>
-              <th>Produkt</th>
-              <th>Kategória</th>
-              <th>Trvanie</th>
-              <th>Akciová Cena</th>
-              <th>Akcia</th>
-            </tr>
-          </thead>
+          <thead><tr><th>Reťazec</th><th>EAN</th><th>Produkt</th><th>Kategória</th><th>Trvanie</th><th>Akciová Cena</th><th>Akcia</th></tr></thead>
           <tbody id="promotions-table-body"></tbody>
         </table>
       </div>
     `;
 
-    // --- 1. LOGIKA PRE "INTELIGENTNÝ VÝBER" PRODUKTU ---
     const pickerSearch = document.getElementById('picker-search-input');
     const pickerCat = document.getElementById('picker-category-filter');
     const pickerList = document.getElementById('picker-results-list');
@@ -667,79 +608,46 @@ async function loadAndRenderPromotionsManager() {
     function renderPickerResults() {
         const txt = pickerSearch.value.toLowerCase().trim();
         const cat = pickerCat.value;
-
-        // Ak nič nepíše, nezobrazuj nič (alebo môžeme zobraziť top 10 z kategórie)
-        if (txt.length === 0 && cat === '') {
-            pickerList.style.display = 'none';
-            return;
-        }
+        if (txt.length === 0 && cat === '') { pickerList.style.display = 'none'; return; }
 
         let matches = products.filter(p => {
             if (cat && p.predajna_kategoria !== cat) return false;
             if (txt && !p._searchStr.includes(txt)) return false;
             return true;
-        });
-
-        // Obmedzíme počet výsledkov na 50 aby to nesekalo
-        matches = matches.slice(0, 50);
+        }).slice(0, 50);
 
         if (matches.length === 0) {
             pickerList.innerHTML = '<div style="padding:8px; color:#888;">Žiadny produkt sa nenašiel.</div>';
-            pickerList.style.display = 'block';
-            return;
+            pickerList.style.display = 'block'; return;
         }
 
         pickerList.innerHTML = matches.map(p => `
-            <div class="picker-item" 
-                 data-ean="${p.ean}" 
-                 data-name="${escapeHtml(p.name)}"
-                 style="padding:8px; border-bottom:1px solid #eee; cursor:pointer; display:flex; justify-content:space-between;">
+            <div class="picker-item" data-ean="${p.ean}" data-name="${escapeHtml(p.name)}" style="padding:8px; border-bottom:1px solid #eee; cursor:pointer; display:flex; justify-content:space-between;">
                 <span style="font-weight:bold;">${escapeHtml(p.name)}</span>
                 <span style="color:#666; font-family:monospace;">${p.ean}</span>
             </div>
         `).join('');
-        
         pickerList.style.display = 'block';
 
-        // Pridanie click eventov na položky
         pickerList.querySelectorAll('.picker-item').forEach(item => {
             item.addEventListener('click', () => {
-                const ean = item.dataset.ean;
-                const name = item.dataset.name;
-                
-                realEanInput.value = ean;
-                pickerSearch.value = name; // Do inputu dáme názov
-                selectedDisplay.innerText = `Vybrané: ${name} (EAN: ${ean})`;
+                realEanInput.value = item.dataset.ean; pickerSearch.value = item.dataset.name;
+                selectedDisplay.innerText = `Vybrané: ${item.dataset.name} (EAN: ${item.dataset.ean})`;
                 pickerList.style.display = 'none';
             });
-            // Hover efekt cez JS (alebo CSS)
             item.addEventListener('mouseenter', () => item.style.backgroundColor = '#e0f2fe');
             item.addEventListener('mouseleave', () => item.style.backgroundColor = 'white');
         });
     }
 
-    pickerSearch.addEventListener('input', () => {
-        // Ak používateľ píše, vymažeme predchádzajúci výber EAN (aby neostal starý)
-        if(realEanInput.value && pickerSearch.value !== selectedDisplay.innerText) {
-             // realEanInput.value = ''; // Môžeme nechať, ale...
-        }
-        renderPickerResults();
-    });
+    pickerSearch.addEventListener('input', renderPickerResults);
     pickerSearch.addEventListener('focus', renderPickerResults);
-    pickerCat.addEventListener('change', () => {
-        pickerSearch.value = ''; // Reset textu pri zmene kategórie
-        renderPickerResults();
-    });
+    pickerCat.addEventListener('change', () => { pickerSearch.value = ''; renderPickerResults(); });
 
-    // Kliknutie mimo zatvorí zoznam
     document.addEventListener('click', (e) => {
-        if (!pickerSearch.contains(e.target) && !pickerList.contains(e.target) && !pickerCat.contains(e.target)) {
-            pickerList.style.display = 'none';
-        }
+        if (!pickerSearch.contains(e.target) && !pickerList.contains(e.target) && !pickerCat.contains(e.target)) pickerList.style.display = 'none';
     });
 
-
-    // --- 2. LOGIKA FILTROVANIA TABUĽKY (Dolná časť) ---
     const tbody = document.getElementById('promotions-table-body');
     const searchInput = document.getElementById('promo-filter-search');
     const catSelect = document.getElementById('promo-filter-cat');
@@ -753,86 +661,48 @@ async function loadAndRenderPromotionsManager() {
         const filtered = promotions.filter(p => {
             if (searchText && !p._searchStr.includes(searchText)) return false;
             if (catFilter && p._category !== catFilter) return false;
-            if (chainFilter) {
-                 if (p.chain_id && String(p.chain_id) !== chainFilter) return false;
-            }
+            if (chainFilter && String(p.chain_id) !== chainFilter) return false;
             return true;
         });
 
         if (filtered.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">Žiadne akcie nezodpovedajú filtru.</td></tr>';
-            return;
+            tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">Žiadne akcie nezodpovedajú filtru.</td></tr>'; return;
         }
 
         tbody.innerHTML = filtered.map(p => {
             const from = p.start_date ? new Date(p.start_date).toLocaleDateString('sk-SK') : '';
             const to   = p.end_date   ? new Date(p.end_date).toLocaleDateString('sk-SK')   : '';
-            const price = Number(p.sale_price_net || 0).toFixed(2);
-            
-            return `
-            <tr>
-              <td>${escapeHtml(p.chain_name || '')}</td>
-              <td style="font-family:monospace; font-size:0.9em;">${escapeHtml(p._ean)}</td>
-              <td>${escapeHtml(p.product_name || '')}</td>
-              <td><span class="badge badge-info" style="font-weight:normal; background:#e0f2fe; color:#0369a1;">${escapeHtml(p._category)}</span></td>
-              <td>${from} - ${to}</td>
-              <td style="font-weight:bold;">${price} €</td>
-              <td>
-                <button class="btn btn-danger btn-sm" onclick="deletePromotion(${p.id})">
-                  <i class="fas fa-trash"></i>
-                </button>
-              </td>
-            </tr>
-          `;
+            return `<tr><td>${escapeHtml(p.chain_name || '')}</td><td style="font-family:monospace; font-size:0.9em;">${escapeHtml(p._ean)}</td><td>${escapeHtml(p.product_name || '')}</td><td><span class="badge badge-info" style="font-weight:normal; background:#e0f2fe; color:#0369a1;">${escapeHtml(p._category)}</span></td><td>${from} - ${to}</td><td style="font-weight:bold;">${Number(p.sale_price_net || 0).toFixed(2)} €</td><td><button class="btn btn-danger btn-sm" onclick="deletePromotion(${p.id})"><i class="fas fa-trash"></i></button></td></tr>`;
         }).join('');
     }
 
     searchInput.addEventListener('input', renderTable);
     catSelect.addEventListener('change', renderTable);
     chainSelect.addEventListener('change', renderTable);
-
     renderTable();
 
     const form = document.getElementById('add-promotion-form');
     if (form) form.onsubmit = saveNewPromotion;
 
-  } catch (e) {
-    container.innerHTML = `<div class="error" style="padding:1rem;">${e.message}</div>`;
-  }
+  } catch (e) { container.innerHTML = `<div class="error" style="padding:1rem;">${e.message}</div>`; }
 }
 
 async function saveNewPromotion(e) {
   e.preventDefault();
-  
-  // Validácia EAN (či bol vybratý z našepkávača)
   const eanInput = document.getElementById('real-ean-input');
-  if (!eanInput || !eanInput.value) {
-      alert('Prosím, vyberte produkt zo zoznamu (kliknite naň v našepkávači).');
-      return;
-  }
-
+  if (!eanInput || !eanInput.value) { alert('Prosím, vyberte produkt zo zoznamu (kliknite naň v našepkávači).'); return; }
   const formData = new FormData(e.target);
-  const payload = Object.fromEntries(formData.entries());
   try {
-    await postJSON('/api/kancelaria/save_promotion', payload);
-    e.target.reset();
-    // Reset custom polí
-    document.getElementById('selected-product-display').innerText = '';
-    
+    await postJSON('/api/kancelaria/save_promotion', Object.fromEntries(formData.entries()));
+    e.target.reset(); document.getElementById('selected-product-display').innerText = '';
     loadAndRenderPromotionsManager();
-  } catch (err) {
-    alert('Chyba pri ukladaní akcie: ' + err.message);
-  }
+  } catch (err) { alert('Chyba pri ukladaní akcie: ' + err.message); }
 }
 
 async function deletePromotion(id) {
   if (!confirm('Naozaj chceš zmazať túto akciu?')) return;
-  try {
-    await postJSON('/api/kancelaria/delete_promotion', { id });
-    loadAndRenderPromotionsManager();
-  } catch (err) {
-    alert('Chyba pri mazaní akcie: ' + err.message);
-  }
+  try { await postJSON('/api/kancelaria/delete_promotion', { id }); loadAndRenderPromotionsManager(); }
+  catch (err) { alert('Chyba pri mazaní akcie: ' + err.message); }
 }
 
 async function manageChain(action, id) {
@@ -840,10 +710,7 @@ async function manageChain(action, id) {
     if (action === 'add') {
       const input = document.getElementById('new-chain-name');
       const name = (input.value || '').trim();
-      if (!name) {
-        alert('Zadaj názov reťazca.');
-        return;
-      }
+      if (!name) { alert('Zadaj názov reťazca.'); return; }
       await postJSON('/api/kancelaria/manage_promotion_chain', { action: 'add', name });
       input.value = '';
     } else if (action === 'delete') {
@@ -851,9 +718,295 @@ async function manageChain(action, id) {
       await postJSON('/api/kancelaria/manage_promotion_chain', { action: 'delete', id });
     }
     loadAndRenderPromotionsManager();
-  } catch (err) {
-    alert('Chyba pri správe reťazca: ' + err.message);
-  }
+  } catch (err) { alert('Chyba pri správe reťazca: ' + err.message); }
+}
+
+// =================================================================
+// === 4. VYHODNOTENIE AKCIÍ (Ziskovosť) ===========================
+// =================================================================
+
+async function loadAndRenderPromotionEvaluation() {
+  const container = document.getElementById('promo-eval-tab-content');
+  if (!container) return;
+  container.innerHTML = '<div class="text-muted" style="padding:1rem;"><i class="fas fa-spinner fa-spin"></i> Načítavam dáta pre vyhodnotenie...</div>';
+
+  try {
+    const data = await getJSON('/api/kancelaria/get_promotions_data');
+    const { chains = [], promotions = [], products = [] } = data || {};
+
+    const productMap = {};
+    const categoriesSet = new Set();
+    
+    products.forEach(p => {
+        productMap[p.ean] = p;
+        if(p.predajna_kategoria) categoriesSet.add(p.predajna_kategoria);
+    });
+
+    const todayObj = new Date();
+    todayObj.setHours(0,0,0,0);
+
+    // Obohatenie akcií
+    window.enrichedPromos = promotions.map(p => {
+        let prod = null;
+        if (p.product_ean) prod = productMap[p.product_ean];
+        if (!prod && p.product_name) prod = products.find(x => x.name === p.product_name);
+        
+        const isEnded = p.end_date ? new Date(p.end_date) < todayObj : false;
+        const sysBuyPrice = prod ? (parseFloat(prod.nakupna_cena) || 0) : 0;
+        const savedBuyPrice = p.actual_purchase_price !== null && p.actual_purchase_price !== undefined ? parseFloat(p.actual_purchase_price) : sysBuyPrice;
+
+        return {
+            ...p,
+            _category: prod ? (prod.predajna_kategoria || 'Nezaradené') : 'Nezaradené',
+            _ean: prod ? prod.ean : (p.product_ean || ''),
+            _mj: prod ? (prod.mj || 'kg') : 'kg',
+            _isEnded: isEnded,
+            _sysBuyPrice: sysBuyPrice,
+            _savedBuyPrice: savedBuyPrice,
+            _soldQty: parseFloat(p.sold_quantity) || 0,
+            _searchStr: `${p.product_name} ${prod ? prod.ean : ''}`.toLowerCase()
+        };
+    });
+
+    const chainOptions = chains.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
+    const catOptions = Array.from(categoriesSet).sort().map(c => `<option value="${c}">${escapeHtml(c)}</option>`).join('');
+
+    container.innerHTML = `
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+          <h3 style="color:#0f766e;">📊 Vyhodnotenie Ziskovosti Akcií</h3>
+          <button class="btn btn-secondary" onclick="printPromoEvalReport()"><i class="fas fa-print"></i> Tlačiť Report</button>
+      </div>
+      <p class="text-muted" style="font-size:0.9rem;">Zadajte predané množstvo a upravte skutočnú nákupnú cenu pre výpočet marže a zisku ukončených akcií.</p>
+
+      <div style="background:#f8f9fa; padding:15px; border-radius:5px; margin-bottom:15px; display:flex; gap:10px; flex-wrap:wrap; align-items:end; border:1px solid #dee2e6;">
+        <div style="flex:1; min-width:150px;">
+            <label style="font-size:0.8rem; font-weight:bold; color:#666;">Hľadať</label>
+            <input type="text" id="peval-search" class="filter-input" style="width:100%;" placeholder="Názov, EAN...">
+        </div>
+        <div style="flex:1; min-width:130px;">
+            <label style="font-size:0.8rem; font-weight:bold; color:#666;">Obdobie OD</label>
+            <input type="date" id="peval-date-from" class="filter-input" style="width:100%;">
+        </div>
+        <div style="flex:1; min-width:130px;">
+            <label style="font-size:0.8rem; font-weight:bold; color:#666;">Obdobie DO</label>
+            <input type="date" id="peval-date-to" class="filter-input" style="width:100%;">
+        </div>
+        <div style="flex:1; min-width:150px;">
+            <label style="font-size:0.8rem; font-weight:bold; color:#666;">Kategória</label>
+            <select id="peval-cat" class="filter-input" style="width:100%;"><option value="">Všetky</option>${catOptions}</select>
+        </div>
+        <div style="flex:1; min-width:150px;">
+             <label style="font-size:0.8rem; font-weight:bold; color:#666;">Reťazec</label>
+             <select id="peval-chain" class="filter-input" style="width:100%;"><option value="">Všetky</option>${chainOptions}</select>
+        </div>
+        <div style="flex:1; min-width:120px;">
+             <label style="font-size:0.8rem; font-weight:bold; color:#666;">Stav akcie</label>
+             <select id="peval-status" class="filter-input" style="width:100%;">
+                <option value="ended" selected>Tieto sú Ukončené</option>
+                <option value="all">Všetky (aj aktívne)</option>
+             </select>
+        </div>
+      </div>
+
+      <div class="table-container" style="max-height: 60vh; overflow-y:auto;">
+        <table class="table-refined" id="peval-table" style="width:100%; font-size:0.85rem;">
+          <thead style="position:sticky; top:0; background:#f1f5f9; z-index:10; box-shadow:0 1px 2px rgba(0,0,0,0.1);">
+            <tr>
+              <th>Stav & Trvanie</th>
+              <th>Reťazec</th>
+              <th>Produkt</th>
+              <th style="text-align:right;">Akciová Cena<br>(Predaj)</th>
+              <th style="text-align:right;">Nákupná cena<br>(Náklad)</th>
+              <th style="text-align:right;">Predané<br>Množstvo</th>
+              <th style="text-align:right;">Zisk €</th>
+              <th style="text-align:right;">Marža %</th>
+              <th style="text-align:center;">Uložiť</th>
+            </tr>
+          </thead>
+          <tbody id="peval-tbody"></tbody>
+          <tfoot style="position:sticky; bottom:0; background:#e2e8f0; font-weight:bold;">
+            <tr>
+               <td colspan="5" style="text-align:right;">SUMÁR ZOBRAZENÝCH:</td>
+               <td style="text-align:right;" id="peval-sum-qty">0</td>
+               <td style="text-align:right; color:#15803d;" id="peval-sum-profit">0.00 €</td>
+               <td style="text-align:right; color:#15803d;" id="peval-sum-margin">0.0 %</td>
+               <td></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    `;
+
+    // Renderovanie tabuľky
+    window.renderEvalTable = function() {
+        const tbody = document.getElementById('peval-tbody');
+        const sSearch = document.getElementById('peval-search').value.toLowerCase().trim();
+        const sFrom = document.getElementById('peval-date-from').value;
+        const sTo = document.getElementById('peval-date-to').value;
+        const sCat = document.getElementById('peval-cat').value;
+        const sChain = document.getElementById('peval-chain').value;
+        const sStatus = document.getElementById('peval-status').value;
+
+        let totalProfit = 0, totalRevenue = 0, totalQty = 0, html = '';
+
+        window.enrichedPromos.forEach(p => {
+            if (sSearch && !p._searchStr.includes(sSearch)) return;
+            if (sCat && p._category !== sCat) return;
+            if (sChain && String(p.chain_id) !== sChain) return;
+            if (sStatus === 'ended' && !p._isEnded) return;
+            if (sFrom && p.end_date && p.end_date < sFrom) return;
+            if (sTo && p.start_date && p.start_date > sTo) return;
+
+            const fromStr = p.start_date ? new Date(p.start_date).toLocaleDateString('sk-SK') : '';
+            const toStr   = p.end_date   ? new Date(p.end_date).toLocaleDateString('sk-SK')   : '';
+            const badge = p._isEnded 
+                ? `<span style="background:#fee2e2; color:#b91c1c; padding:2px 5px; border-radius:3px; font-size:0.7rem; font-weight:bold;">UKONČENÁ</span>` 
+                : `<span style="background:#dcfce7; color:#15803d; padding:2px 5px; border-radius:3px; font-size:0.7rem; font-weight:bold;">PREBIEHA</span>`;
+
+            const sellPrice = parseFloat(p.sale_price_net || 0);
+            const rowRev = sellPrice * p._soldQty;
+            const rowCost = p._savedBuyPrice * p._soldQty;
+            const rowProfit = rowRev - rowCost;
+            
+            totalQty += p._soldQty;
+            totalRevenue += rowRev;
+            totalProfit += rowProfit;
+
+            html += `
+            <tr data-promo-id="${p.id}" data-sell="${sellPrice}">
+              <td>${badge}<br><span style="font-size:0.8em; color:#666;">${fromStr} - ${toStr}</span></td>
+              <td style="font-weight:bold; color:#0369a1;">${escapeHtml(p.chain_name || '')}</td>
+              <td>
+                <div style="font-weight:600; color:#1e293b;">${escapeHtml(p.product_name)}</div>
+                <div style="font-size:0.75rem; color:#64748b;">EAN: ${escapeHtml(p._ean)} | Kat: ${escapeHtml(p._category)}</div>
+              </td>
+              <td style="text-align:right; font-weight:bold; color:#1d4ed8; vertical-align:middle;">${safeToFixed(sellPrice, 2)} €</td>
+              <td style="vertical-align:middle;">
+                 <input type="number" step="0.01" class="filter-input p-buy-input" value="${p._savedBuyPrice}" style="width:80px; text-align:right;" oninput="recalcEvalRow(${p.id})">
+              </td>
+              <td style="vertical-align:middle;">
+                 <div style="display:flex; align-items:center; justify-content:flex-end; gap:5px;">
+                    <input type="number" step="0.01" class="filter-input p-qty-input" value="${p._soldQty || ''}" placeholder="0" style="width:80px; text-align:right;" oninput="recalcEvalRow(${p.id})">
+                    <span style="color:#64748b;">${escapeHtml(p._mj)}</span>
+                 </div>
+              </td>
+              <td style="text-align:right; vertical-align:middle; font-weight:bold;" class="p-profit-cell">0.00 €</td>
+              <td style="text-align:right; vertical-align:middle; font-weight:bold;" class="p-margin-cell">0.0 %</td>
+              <td style="text-align:center; vertical-align:middle;">
+                 <button class="btn btn-success btn-sm p-save-btn" onclick="savePromoEval(${p.id})" style="padding:4px 8px; opacity:0.5;" title="Uložiť zmeny"><i class="fas fa-save"></i></button>
+              </td>
+            </tr>
+            `;
+        });
+
+        if (!html) html = `<tr><td colspan="9" style="text-align:center; padding:30px; color:#64748b;">Žiadne akcie nevyhovujú filtrom.</td></tr>`;
+        tbody.innerHTML = html;
+        
+        let totalMargin = 0;
+        if(totalRevenue > 0) totalMargin = (totalProfit / totalRevenue) * 100;
+        
+        document.getElementById('peval-sum-qty').innerText = safeToFixed(totalQty, 2);
+        const pSum = document.getElementById('peval-sum-profit');
+        const mSum = document.getElementById('peval-sum-margin');
+        
+        pSum.innerText = `${safeToFixed(totalProfit, 2)} €`;
+        pSum.style.color = totalProfit < 0 ? '#dc2626' : '#15803d';
+        mSum.innerText = `${safeToFixed(totalMargin, 1)} %`;
+        mSum.style.color = totalMargin < 10 ? (totalMargin < 0 ? '#dc2626' : '#d97706') : '#15803d';
+
+        window.enrichedPromos.forEach(p => recalcEvalRow(p.id, false));
+    };
+
+    window.recalcEvalRow = function(id, enableSaveBtn = true) {
+        const row = document.querySelector(`tr[data-promo-id="${id}"]`);
+        if (!row) return;
+
+        const sell = parseFloat(row.dataset.sell) || 0;
+        const buy = parseFloat(row.querySelector('.p-buy-input').value) || 0;
+        const qty = parseFloat(row.querySelector('.p-qty-input').value) || 0;
+
+        const rev = sell * qty;
+        const profit = rev - (buy * qty);
+        let margin = 0;
+        if (rev > 0) margin = (profit / rev) * 100;
+
+        const pCell = row.querySelector('.p-profit-cell');
+        const mCell = row.querySelector('.p-margin-cell');
+        const sBtn = row.querySelector('.p-save-btn');
+
+        pCell.innerText = `${profit > 0 ? '+' : ''}${safeToFixed(profit, 2)} €`;
+        pCell.style.color = profit < 0 ? '#dc2626' : (profit > 0 ? '#15803d' : '#64748b');
+        mCell.innerText = `${safeToFixed(margin, 1)} %`;
+        mCell.style.color = margin < 0 ? '#dc2626' : (margin < 15 ? '#d97706' : '#15803d');
+
+        if(enableSaveBtn && sBtn) { sBtn.style.opacity = '1'; sBtn.style.boxShadow = '0 0 5px rgba(22, 163, 74, 0.5)'; }
+    };
+
+    window.savePromoEval = async function(id) {
+        const row = document.querySelector(`tr[data-promo-id="${id}"]`);
+        if (!row) return;
+        const sBtn = row.querySelector('.p-save-btn');
+        sBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+        const buy = parseFloat(row.querySelector('.p-buy-input').value) || 0;
+        const qty = parseFloat(row.querySelector('.p-qty-input').value) || 0;
+
+        try {
+            await postJSON('/api/kancelaria/save_promotion_evaluation', { id: id, sold_quantity: qty, actual_purchase_price: buy });
+            const pObj = window.enrichedPromos.find(x => x.id === id);
+            if(pObj) { pObj._soldQty = qty; pObj._savedBuyPrice = buy; }
+            sBtn.innerHTML = '<i class="fas fa-check"></i>';
+            sBtn.style.opacity = '0.5'; sBtn.style.boxShadow = 'none';
+            setTimeout(() => { sBtn.innerHTML = '<i class="fas fa-save"></i>'; }, 2000);
+            renderEvalTable();
+        } catch (e) { alert('Chyba pri ukladaní: ' + e.message); sBtn.innerHTML = '<i class="fas fa-save"></i>'; }
+    };
+
+    window.printPromoEvalReport = function() {
+        const sFrom = document.getElementById('peval-date-from').value;
+        const sTo = document.getElementById('peval-date-to').value;
+        const tBodyHTML = document.getElementById('peval-tbody').innerHTML;
+        const sumQty = document.getElementById('peval-sum-qty').innerText;
+        const sumProfit = document.getElementById('peval-sum-profit').innerText;
+        const sumMargin = document.getElementById('peval-sum-margin').innerText;
+
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = `<table><tbody>${tBodyHTML}</tbody></table>`;
+        tempDiv.querySelectorAll('tr').forEach(tr => {
+            if(tr.children.length >= 9) tr.removeChild(tr.lastElementChild);
+            tr.querySelectorAll('input').forEach(inp => { inp.parentNode.innerHTML = `<span>${inp.value}</span>`; });
+        });
+
+        let periodStr = "Všetky obdobia";
+        if (sFrom && sTo) periodStr = `Od ${new Date(sFrom).toLocaleDateString('sk-SK')} do ${new Date(sTo).toLocaleDateString('sk-SK')}`;
+        else if (sFrom) periodStr = `Od ${new Date(sFrom).toLocaleDateString('sk-SK')}`;
+        else if (sTo) periodStr = `Do ${new Date(sTo).toLocaleDateString('sk-SK')}`;
+
+        const printWin = window.open('', '_blank');
+        printWin.document.write(`
+            <html><head><title>Vyhodnotenie Akcií</title><style>
+                body { font-family: Arial, sans-serif; font-size: 12px; margin: 20px; }
+                h2 { text-align: center; margin-bottom: 5px; }
+                .subtitle { text-align: center; color: #555; margin-bottom: 20px; }
+                table { width: 100%; border-collapse: collapse; }
+                th, td { border: 1px solid #000; padding: 6px; text-align: left; }
+                th { background-color: #f0f0f0; } .num { text-align: right; }
+            </style></head><body>
+                <h2>Vyhodnotenie ziskovosti akcií</h2>
+                <div class="subtitle">Obdobie: ${periodStr} | Vytlačené: ${new Date().toLocaleString('sk-SK')}</div>
+                <table><thead><tr><th>Trvanie</th><th>Reťazec</th><th>Produkt</th><th class="num">Predajná Cena</th><th class="num">Nákupná (Náklad)</th><th class="num">Predané Množstvo</th><th class="num">Zisk €</th><th class="num">Marža %</th></tr></thead>
+                <tbody>${tempDiv.querySelector('tbody').innerHTML}</tbody>
+                <tfoot><tr style="font-weight:bold; background-color:#f0f0f0;"><td colspan="5" class="num">CELKOVÝ SUMÁR:</td><td class="num">${sumQty}</td><td class="num">${sumProfit}</td><td class="num">${sumMargin}</td></tr></tfoot>
+                </table><script>setTimeout(()=>{window.print(); window.close();}, 500);</script>
+            </body></html>`);
+        printWin.document.close();
+    }
+
+    ['peval-search', 'peval-date-from', 'peval-date-to', 'peval-cat', 'peval-chain', 'peval-status']
+        .forEach(id => document.getElementById(id).addEventListener(id === 'peval-search' ? 'input' : 'change', renderEvalTable));
+
+    renderEvalTable();
+
+  } catch (e) { container.innerHTML = `<div class="error" style="padding:1rem;">${e.message}</div>`; }
 }
 
 
