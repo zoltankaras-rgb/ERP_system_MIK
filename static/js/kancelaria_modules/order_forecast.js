@@ -732,7 +732,11 @@ async function loadAndRenderPromotionEvaluation() {
 
   try {
     const data = await getJSON('/api/kancelaria/get_promotions_data');
-    const { chains = [], promotions = [], products = [] } = data || {};
+    
+    // Bezpečné načítanie polí (ochrana pred "undefined")
+    const chains = Array.isArray(data.chains) ? data.chains : [];
+    const promotions = Array.isArray(data.promotions) ? data.promotions : [];
+    const products = Array.isArray(data.products) ? data.products : [];
 
     const productMap = {};
     const categoriesSet = new Set();
@@ -840,64 +844,69 @@ async function loadAndRenderPromotionEvaluation() {
     // Renderovanie tabuľky
     window.renderEvalTable = function() {
         const tbody = document.getElementById('peval-tbody');
-        const sSearch = document.getElementById('peval-search').value.toLowerCase().trim();
-        const sFrom = document.getElementById('peval-date-from').value;
-        const sTo = document.getElementById('peval-date-to').value;
-        const sCat = document.getElementById('peval-cat').value;
-        const sChain = document.getElementById('peval-chain').value;
-        const sStatus = document.getElementById('peval-status').value;
+        if (!tbody) return;
+        
+        const searchEl = document.getElementById('peval-search');
+        const sSearch = searchEl ? searchEl.value.toLowerCase().trim() : '';
+        const sFrom = document.getElementById('peval-date-from')?.value || '';
+        const sTo = document.getElementById('peval-date-to')?.value || '';
+        const sCat = document.getElementById('peval-cat')?.value || '';
+        const sChain = document.getElementById('peval-chain')?.value || '';
+        const sStatus = document.getElementById('peval-status')?.value || '';
 
         let totalProfit = 0, totalRevenue = 0, totalQty = 0, html = '';
 
-        window.enrichedPromos.forEach(p => {
-            if (sSearch && !p._searchStr.includes(sSearch)) return;
-            if (sCat && p._category !== sCat) return;
-            if (sChain && String(p.chain_id) !== sChain) return;
-            if (sStatus === 'ended' && !p._isEnded) return;
-            if (sFrom && p.end_date && p.end_date < sFrom) return;
-            if (sTo && p.start_date && p.start_date > sTo) return;
+        if (Array.isArray(window.enrichedPromos)) {
+            window.enrichedPromos.forEach(p => {
+                if (sSearch && !p._searchStr.includes(sSearch)) return;
+                if (sCat && p._category !== sCat) return;
+                if (sChain && String(p.chain_id) !== sChain) return;
+                if (sStatus === 'ended' && !p._isEnded) return;
+                if (sFrom && p.end_date && p.end_date < sFrom) return;
+                if (sTo && p.start_date && p.start_date > sTo) return;
 
-            const fromStr = p.start_date ? new Date(p.start_date).toLocaleDateString('sk-SK') : '';
-            const toStr   = p.end_date   ? new Date(p.end_date).toLocaleDateString('sk-SK')   : '';
-            const badge = p._isEnded 
-                ? `<span style="background:#fee2e2; color:#b91c1c; padding:2px 5px; border-radius:3px; font-size:0.7rem; font-weight:bold;">UKONČENÁ</span>` 
-                : `<span style="background:#dcfce7; color:#15803d; padding:2px 5px; border-radius:3px; font-size:0.7rem; font-weight:bold;">PREBIEHA</span>`;
+                const fromStr = p.start_date ? new Date(p.start_date).toLocaleDateString('sk-SK') : '';
+                const toStr   = p.end_date   ? new Date(p.end_date).toLocaleDateString('sk-SK')   : '';
+                const badge = p._isEnded 
+                    ? `<span style="background:#fee2e2; color:#b91c1c; padding:2px 5px; border-radius:3px; font-size:0.7rem; font-weight:bold;">UKONČENÁ</span>` 
+                    : `<span style="background:#dcfce7; color:#15803d; padding:2px 5px; border-radius:3px; font-size:0.7rem; font-weight:bold;">PREBIEHA</span>`;
 
-            const sellPrice = parseFloat(p.sale_price_net || 0);
-            const rowRev = sellPrice * p._soldQty;
-            const rowCost = p._savedBuyPrice * p._soldQty;
-            const rowProfit = rowRev - rowCost;
-            
-            totalQty += p._soldQty;
-            totalRevenue += rowRev;
-            totalProfit += rowProfit;
+                const sellPrice = parseFloat(p.sale_price_net || 0);
+                const rowRev = sellPrice * p._soldQty;
+                const rowCost = p._savedBuyPrice * p._soldQty;
+                const rowProfit = rowRev - rowCost;
+                
+                totalQty += p._soldQty;
+                totalRevenue += rowRev;
+                totalProfit += rowProfit;
 
-            html += `
-            <tr data-promo-id="${p.id}" data-sell="${sellPrice}">
-              <td>${badge}<br><span style="font-size:0.8em; color:#666;">${fromStr} - ${toStr}</span></td>
-              <td style="font-weight:bold; color:#0369a1;">${escapeHtml(p.chain_name || '')}</td>
-              <td>
-                <div style="font-weight:600; color:#1e293b;">${escapeHtml(p.product_name)}</div>
-                <div style="font-size:0.75rem; color:#64748b;">EAN: ${escapeHtml(p._ean)} | Kat: ${escapeHtml(p._category)}</div>
-              </td>
-              <td style="text-align:right; font-weight:bold; color:#1d4ed8; vertical-align:middle;">${safeToFixed(sellPrice, 2)} €</td>
-              <td style="vertical-align:middle;">
-                 <input type="number" step="0.01" class="filter-input p-buy-input" value="${p._savedBuyPrice}" style="width:80px; text-align:right;" oninput="recalcEvalRow(${p.id})">
-              </td>
-              <td style="vertical-align:middle;">
-                 <div style="display:flex; align-items:center; justify-content:flex-end; gap:5px;">
-                    <input type="number" step="0.01" class="filter-input p-qty-input" value="${p._soldQty || ''}" placeholder="0" style="width:80px; text-align:right;" oninput="recalcEvalRow(${p.id})">
-                    <span style="color:#64748b;">${escapeHtml(p._mj)}</span>
-                 </div>
-              </td>
-              <td style="text-align:right; vertical-align:middle; font-weight:bold;" class="p-profit-cell">0.00 €</td>
-              <td style="text-align:right; vertical-align:middle; font-weight:bold;" class="p-margin-cell">0.0 %</td>
-              <td style="text-align:center; vertical-align:middle;">
-                 <button class="btn btn-success btn-sm p-save-btn" onclick="savePromoEval(${p.id})" style="padding:4px 8px; opacity:0.5;" title="Uložiť zmeny"><i class="fas fa-save"></i></button>
-              </td>
-            </tr>
-            `;
-        });
+                html += `
+                <tr data-promo-id="${p.id}" data-sell="${sellPrice}">
+                  <td>${badge}<br><span style="font-size:0.8em; color:#666;">${fromStr} - ${toStr}</span></td>
+                  <td style="font-weight:bold; color:#0369a1;">${escapeHtml(p.chain_name || '')}</td>
+                  <td>
+                    <div style="font-weight:600; color:#1e293b;">${escapeHtml(p.product_name)}</div>
+                    <div style="font-size:0.75rem; color:#64748b;">EAN: ${escapeHtml(p._ean)} | Kat: ${escapeHtml(p._category)}</div>
+                  </td>
+                  <td style="text-align:right; font-weight:bold; color:#1d4ed8; vertical-align:middle;">${safeToFixed(sellPrice, 2)} €</td>
+                  <td style="vertical-align:middle;">
+                     <input type="number" step="0.01" class="filter-input p-buy-input" value="${p._savedBuyPrice}" style="width:80px; text-align:right;" oninput="recalcEvalRow(${p.id})">
+                  </td>
+                  <td style="vertical-align:middle;">
+                     <div style="display:flex; align-items:center; justify-content:flex-end; gap:5px;">
+                        <input type="number" step="0.01" class="filter-input p-qty-input" value="${p._soldQty || ''}" placeholder="0" style="width:80px; text-align:right;" oninput="recalcEvalRow(${p.id})">
+                        <span style="color:#64748b;">${escapeHtml(p._mj)}</span>
+                     </div>
+                  </td>
+                  <td style="text-align:right; vertical-align:middle; font-weight:bold;" class="p-profit-cell">0.00 €</td>
+                  <td style="text-align:right; vertical-align:middle; font-weight:bold;" class="p-margin-cell">0.0 %</td>
+                  <td style="text-align:center; vertical-align:middle;">
+                     <button class="btn btn-success btn-sm p-save-btn" onclick="savePromoEval(${p.id})" style="padding:4px 8px; opacity:0.5;" title="Uložiť zmeny"><i class="fas fa-save"></i></button>
+                  </td>
+                </tr>
+                `;
+            });
+        }
 
         if (!html) html = `<tr><td colspan="9" style="text-align:center; padding:30px; color:#64748b;">Žiadne akcie nevyhovujú filtrom.</td></tr>`;
         tbody.innerHTML = html;
@@ -905,16 +914,23 @@ async function loadAndRenderPromotionEvaluation() {
         let totalMargin = 0;
         if(totalRevenue > 0) totalMargin = (totalProfit / totalRevenue) * 100;
         
-        document.getElementById('peval-sum-qty').innerText = safeToFixed(totalQty, 2);
+        const elSumQty = document.getElementById('peval-sum-qty');
+        if(elSumQty) elSumQty.innerText = safeToFixed(totalQty, 2);
+
         const pSum = document.getElementById('peval-sum-profit');
         const mSum = document.getElementById('peval-sum-margin');
-        
-        pSum.innerText = `${safeToFixed(totalProfit, 2)} €`;
-        pSum.style.color = totalProfit < 0 ? '#dc2626' : '#15803d';
-        mSum.innerText = `${safeToFixed(totalMargin, 1)} %`;
-        mSum.style.color = totalMargin < 10 ? (totalMargin < 0 ? '#dc2626' : '#d97706') : '#15803d';
+        if(pSum) {
+            pSum.innerText = `${safeToFixed(totalProfit, 2)} €`;
+            pSum.style.color = totalProfit < 0 ? '#dc2626' : '#15803d';
+        }
+        if(mSum) {
+            mSum.innerText = `${safeToFixed(totalMargin, 1)} %`;
+            mSum.style.color = totalMargin < 10 ? (totalMargin < 0 ? '#dc2626' : '#d97706') : '#15803d';
+        }
 
-        window.enrichedPromos.forEach(p => recalcEvalRow(p.id, false));
+        if (Array.isArray(window.enrichedPromos)) {
+            window.enrichedPromos.forEach(p => recalcEvalRow(p.id, false));
+        }
     };
 
     window.recalcEvalRow = function(id, enableSaveBtn = true) {
@@ -934,40 +950,58 @@ async function loadAndRenderPromotionEvaluation() {
         const mCell = row.querySelector('.p-margin-cell');
         const sBtn = row.querySelector('.p-save-btn');
 
-        pCell.innerText = `${profit > 0 ? '+' : ''}${safeToFixed(profit, 2)} €`;
-        pCell.style.color = profit < 0 ? '#dc2626' : (profit > 0 ? '#15803d' : '#64748b');
-        mCell.innerText = `${safeToFixed(margin, 1)} %`;
-        mCell.style.color = margin < 0 ? '#dc2626' : (margin < 15 ? '#d97706' : '#15803d');
+        if(pCell) {
+            pCell.innerText = `${profit > 0 ? '+' : ''}${safeToFixed(profit, 2)} €`;
+            pCell.style.color = profit < 0 ? '#dc2626' : (profit > 0 ? '#15803d' : '#64748b');
+        }
+        if(mCell) {
+            mCell.innerText = `${safeToFixed(margin, 1)} %`;
+            mCell.style.color = margin < 0 ? '#dc2626' : (margin < 15 ? '#d97706' : '#15803d');
+        }
 
-        if(enableSaveBtn && sBtn) { sBtn.style.opacity = '1'; sBtn.style.boxShadow = '0 0 5px rgba(22, 163, 74, 0.5)'; }
+        if(enableSaveBtn && sBtn) { 
+            sBtn.style.opacity = '1'; 
+            sBtn.style.boxShadow = '0 0 5px rgba(22, 163, 74, 0.5)'; 
+        }
     };
 
     window.savePromoEval = async function(id) {
         const row = document.querySelector(`tr[data-promo-id="${id}"]`);
         if (!row) return;
         const sBtn = row.querySelector('.p-save-btn');
-        sBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+        if(sBtn) sBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+        
         const buy = parseFloat(row.querySelector('.p-buy-input').value) || 0;
         const qty = parseFloat(row.querySelector('.p-qty-input').value) || 0;
 
         try {
             await postJSON('/api/kancelaria/save_promotion_evaluation', { id: id, sold_quantity: qty, actual_purchase_price: buy });
-            const pObj = window.enrichedPromos.find(x => x.id === id);
-            if(pObj) { pObj._soldQty = qty; pObj._savedBuyPrice = buy; }
-            sBtn.innerHTML = '<i class="fas fa-check"></i>';
-            sBtn.style.opacity = '0.5'; sBtn.style.boxShadow = 'none';
-            setTimeout(() => { sBtn.innerHTML = '<i class="fas fa-save"></i>'; }, 2000);
+            if (Array.isArray(window.enrichedPromos)) {
+                const pObj = window.enrichedPromos.find(x => x.id === id);
+                if(pObj) { pObj._soldQty = qty; pObj._savedBuyPrice = buy; }
+            }
+            if(sBtn) {
+                sBtn.innerHTML = '<i class="fas fa-check"></i>';
+                sBtn.style.opacity = '0.5'; sBtn.style.boxShadow = 'none';
+                setTimeout(() => { sBtn.innerHTML = '<i class="fas fa-save"></i>'; }, 2000);
+            }
             renderEvalTable();
-        } catch (e) { alert('Chyba pri ukladaní: ' + e.message); sBtn.innerHTML = '<i class="fas fa-save"></i>'; }
+        } catch (e) { 
+            alert('Chyba pri ukladaní: ' + e.message); 
+            if(sBtn) sBtn.innerHTML = '<i class="fas fa-save"></i>'; 
+        }
     };
 
     window.printPromoEvalReport = function() {
-        const sFrom = document.getElementById('peval-date-from').value;
-        const sTo = document.getElementById('peval-date-to').value;
-        const tBodyHTML = document.getElementById('peval-tbody').innerHTML;
-        const sumQty = document.getElementById('peval-sum-qty').innerText;
-        const sumProfit = document.getElementById('peval-sum-profit').innerText;
-        const sumMargin = document.getElementById('peval-sum-margin').innerText;
+        const sFrom = document.getElementById('peval-date-from')?.value;
+        const sTo = document.getElementById('peval-date-to')?.value;
+        const tbody = document.getElementById('peval-tbody');
+        if(!tbody) return;
+        
+        const tBodyHTML = tbody.innerHTML;
+        const sumQty = document.getElementById('peval-sum-qty')?.innerText || '0';
+        const sumProfit = document.getElementById('peval-sum-profit')?.innerText || '0 €';
+        const sumMargin = document.getElementById('peval-sum-margin')?.innerText || '0 %';
 
         const tempDiv = document.createElement('div');
         tempDiv.innerHTML = `<table><tbody>${tBodyHTML}</tbody></table>`;
@@ -999,39 +1033,20 @@ async function loadAndRenderPromotionEvaluation() {
                 </table><script>setTimeout(()=>{window.print(); window.close();}, 500);</script>
             </body></html>`);
         printWin.document.close();
-    }
+    };
 
     ['peval-search', 'peval-date-from', 'peval-date-to', 'peval-cat', 'peval-chain', 'peval-status']
-        .forEach(id => document.getElementById(id).addEventListener(id === 'peval-search' ? 'input' : 'change', renderEvalTable));
+        .forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.addEventListener(id === 'peval-search' ? 'input' : 'change', renderEvalTable);
+        });
 
     renderEvalTable();
 
-  } catch (e) { container.innerHTML = `<div class="error" style="padding:1rem;">${e.message}</div>`; }
+  } catch (e) { 
+      container.innerHTML = `<div class="error" style="padding:1rem;">Zlyhanie pri načítaní dát. Prekontrolujte databázu alebo pripojenie.<br><br>Detail chyby: ${e.message}</div>`; 
+  }
 }
-
-
-// Urgent modal
-function openUrgentProductionModal(name, qty) {
-    const today = new Date().toISOString().split('T')[0];
-    showModal('Urgentná výroba', `
-      <form onsubmit="submitUrgent(event, '${name}')">
-        <h3>${name}</h3>
-        <label>Množstvo:</label><input id="u-qty" value="${qty}" class="form-control">
-        <label>Dátum:</label><input id="u-date" type="date" value="${today}" class="form-control">
-        <button class="btn btn-success" style="margin-top:10px;">Odoslať</button>
-      </form>
-    `);
-}
-window.submitUrgent = async (e, name) => {
-    e.preventDefault();
-    const q = document.getElementById('u-qty').value;
-    const d = document.getElementById('u-date').value;
-    try {
-        await postJSON('/api/kancelaria/create_urgent_task', { productName: name, quantity: q, productionDate: d });
-        closeModal(); loadAndRenderForecast();
-    } catch(err) { alert(err.message); }
-}
-
 // Globálny export
 window.initializeOrderForecastModule = initializeOrderForecastModule;
 window.viewExpeditionInventoryDetail = viewExpeditionInventoryDetail;
