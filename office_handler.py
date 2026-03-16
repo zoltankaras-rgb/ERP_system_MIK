@@ -1331,24 +1331,27 @@ def _avg_costs_index_by_ean() -> Dict[str, Dict[str, Any]]:
 def get_promotions_data():
     """
     Dáta pre modul 'Správa Akcií' a dashboard:
-
       - chains:    zoznam reťazcov (b2b_retail_chains, ak existuje)
       - promotions: existujúce akcie (b2b_promotions)
-      - products:  kompletný katalóg predajných produktov s EAN + default_unit_cost
+      - products:  kompletný katalóg predajných produktov s EAN + nakupna_cena
     """
+    import db_connector
 
     def _table_exists(table_name: str) -> bool:
         try:
             row = db_connector.execute_query(
-                """
-                SELECT 1
-                  FROM INFORMATION_SCHEMA.TABLES
-                 WHERE TABLE_SCHEMA = DATABASE()
-                   AND TABLE_NAME = %s
-                 LIMIT 1
-                """,
-                (table_name,),
-                fetch="one",
+                "SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1",
+                (table_name,), fetch="one"
+            )
+            return bool(row)
+        except Exception:
+            return False
+
+    def _has_col(table_name: str, col_name: str) -> bool:
+        try:
+            row = db_connector.execute_query(
+                "SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = %s LIMIT 1",
+                (table_name, col_name), fetch="one"
             )
             return bool(row)
         except Exception:
@@ -1361,97 +1364,69 @@ def get_promotions_data():
     # ---------- CHAINY (reťazce) ----------
     if _table_exists("b2b_retail_chains"):
         try:
-            chains = db_connector.execute_query(
-                "SELECT id, name FROM b2b_retail_chains ORDER BY name",
-                fetch="all",
-            ) or []
+            chains = db_connector.execute_query("SELECT id, name FROM b2b_retail_chains ORDER BY name", fetch="all") or []
         except Exception:
-            chains = []
+            pass
 
     # ---------- EXISTUJÚCE AKCIE ----------
     if _table_exists("b2b_promotions"):
+        # Dynamicky zistíme, či už boli vytvorené nové stĺpce pre vyhodnotenie, aby nepadal SQL dopyt
+        has_actual_price = _has_col("b2b_promotions", "actual_purchase_price")
+        has_sold_qty = _has_col("b2b_promotions", "sold_quantity")
+        
+        sel_actual_price = "p.actual_purchase_price" if has_actual_price else "NULL AS actual_purchase_price"
+        sel_sold_qty = "p.sold_quantity" if has_sold_qty else "0 AS sold_quantity"
+
         try:
             if _table_exists("b2b_retail_chains"):
                 promotions = db_connector.execute_query(
-                    """
+                    f"""
                     SELECT
-                        p.id,
-                        p.chain_id,
-                        c.name AS chain_name,
-                        p.product_ean,
-                        p.product_name,
-                        p.start_date,
-                        p.end_date,
-                        p.sale_price_net
+                        p.id, p.chain_id, c.name AS chain_name,
+                        p.product_ean, p.product_name, p.start_date, p.end_date, p.sale_price_net,
+                        {sel_actual_price}, {sel_sold_qty}
                       FROM b2b_promotions p
                       LEFT JOIN b2b_retail_chains c ON c.id = p.chain_id
                      ORDER BY p.start_date DESC, p.id DESC
-                    """,
-                    fetch="all",
+                    """, fetch="all"
                 ) or []
             else:
                 promotions = db_connector.execute_query(
-                    """
+                    f"""
                     SELECT
-                        id,
-                        chain_id,
-                        product_ean,
-                        product_name,
-                        start_date,
-                        end_date,
-                        sale_price_net
-                      FROM b2b_promotions
+                        id, chain_id, product_ean, product_name, start_date, end_date, sale_price_net,
+                        {sel_actual_price}, {sel_sold_qty}
+                      FROM b2b_promotions p
                      ORDER BY start_date DESC, id DESC
-                    """,
-                    fetch="all",
+                    """, fetch="all"
                 ) or []
-        except Exception:
-            promotions = []
+        except Exception as e:
+            print(f"Error loading promotions: {e}")
 
     # ---------- PRODUKTY – CENTRÁLNY KATALÓG ----------
-    # použijeme len existujúce stĺpce: ean, nazov_vyrobku, predajna_kategoria, kategoria_pre_recepty, mj
     try:
+        # PRIDANÉ NAČÍTANIE: nakupna_cena z tabuľky produkty
         products = db_connector.execute_query(
             """
             SELECT
-                ean,
-                nazov_vyrobku AS name,
-                mj,
-                COALESCE(predajna_kategoria, kategoria_pre_recepty, '') AS sales_category
+                ean, nazov_vyrobku AS name, mj,
+                COALESCE(predajna_kategoria, kategoria_pre_recepty, '') AS sales_category,
+                COALESCE(nakupna_cena, 0) AS nakupna_cena
               FROM produkty
-             WHERE ean IS NOT NULL
-               AND ean <> ''
+             WHERE ean IS NOT NULL AND ean <> ''
              ORDER BY sales_category, name
-            """,
-            fetch="all",
+            """, fetch="all"
         ) or []
-    except Exception:
-        try:
-            products = db_connector.execute_query(
-                """
-                SELECT
-                    ean,
-                    nazov_vyrobku AS name,
-                    mj,
-                    '' AS sales_category
-                  FROM produkty
-                 WHERE ean IS NOT NULL
-                   AND ean <> ''
-                 ORDER BY name
-                """,
-                fetch="all",
-            ) or []
-        except Exception:
-            products = []
+    except Exception as e:
+        print(f"Error loading products for promotions: {e}")
 
-    # zachováme pôvodnú logiku: doplniť default_unit_cost podľa EAN
+    # Priradenie výrobnej ceny (ak existuje)
     try:
         avg_idx = _avg_costs_index_by_ean()
         for p in products:
             rec = avg_idx.get((p.get("ean") or "").strip())
             p["default_unit_cost"] = (rec or {}).get("avg_manufacturing_unit_cost")
     except Exception:
-        # ak by helper zlyhal, necháme products bez default_unit_cost
         pass
 
     return {
@@ -1459,7 +1434,6 @@ def get_promotions_data():
         "promotions": promotions,
         "products": products,
     }
-
 
 def manage_promotion_chain(data: Dict[str, Any]):
     action = (data or {}).get('action')
