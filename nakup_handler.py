@@ -1,16 +1,13 @@
 import db_connector
 
 def _ensure_nakup_schema():
-    """Vytvorí schému pre nákupy s podporou stavov bez čísla dokladu."""
+    """Vykoná tvrdú kontrolu a migráciu stĺpcov, aby databáza nepadala na starej štruktúre."""
+    # 1. Základné tabuľky (ak ešte vôbec neexistujú)
     db_connector.execute_query("""
         CREATE TABLE IF NOT EXISTS nakupne_objednavky (
             id INT AUTO_INCREMENT PRIMARY KEY,
             dodavatel VARCHAR(255) NOT NULL,
-            datum_vystavenia DATE NOT NULL,
-            datum_dodania DATE NULL,
-            stav ENUM('Objednané', 'Prijaté', 'Zrušené') DEFAULT 'Objednané',
-            celkova_suma_bez_dph DECIMAL(10,2) DEFAULT 0,
-            celkova_suma_s_dph DECIMAL(10,2) DEFAULT 0,
+            datum_nakupu DATE NOT NULL,
             poznamka TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_slovak_ci;
@@ -23,11 +20,28 @@ def _ensure_nakup_schema():
             ean VARCHAR(64) NULL,
             nazov_produktu VARCHAR(255) NOT NULL,
             mnozstvo DECIMAL(10,3) NOT NULL,
-            cena_bez_dph DECIMAL(10,4) NOT NULL,
-            dph DECIMAL(5,2) DEFAULT 20.00,
+            cena_za_jednotku DECIMAL(10,4) NOT NULL,
             FOREIGN KEY (objednavka_id) REFERENCES nakupne_objednavky(id) ON DELETE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_slovak_ci;
     """, fetch='none')
+
+    # 2. Migrácie - bezpečné pridanie nových stĺpcov a premenovanie starých (ignoruje chyby, ak už prebehli)
+    migracie = [
+        "ALTER TABLE nakupne_objednavky ADD COLUMN datum_dodania DATE NULL;",
+        "ALTER TABLE nakupne_objednavky ADD COLUMN stav ENUM('Objednané', 'Prijaté', 'Zrušené') DEFAULT 'Objednané';",
+        "ALTER TABLE nakupne_objednavky ADD COLUMN celkova_suma_bez_dph DECIMAL(10,2) DEFAULT 0;",
+        "ALTER TABLE nakupne_objednavky ADD COLUMN celkova_suma_s_dph DECIMAL(10,2) DEFAULT 0;",
+        "ALTER TABLE nakupne_objednavky CHANGE datum_nakupu datum_vystavenia DATE NOT NULL;",
+        
+        "ALTER TABLE nakupne_objednavky_polozky ADD COLUMN cena_bez_dph DECIMAL(10,4) NOT NULL DEFAULT 0;",
+        "ALTER TABLE nakupne_objednavky_polozky ADD COLUMN dph DECIMAL(5,2) DEFAULT 20.00;"
+    ]
+    
+    for sql in migracie:
+        try:
+            db_connector.execute_query(sql, fetch='none')
+        except Exception:
+            pass
 
 def ulozit_nakup(data):
     try:
@@ -38,7 +52,6 @@ def ulozit_nakup(data):
     dodavatel = data.get('dodavatel')
     datum_vystavenia = data.get('datum_vystavenia') or data.get('datum')
     
-    # Ochrana pred prázdnym textom v dátume dodania
     datum_dodania = data.get('datum_dodania')
     if not datum_dodania or str(datum_dodania).strip() == "":
         datum_dodania = None
@@ -66,20 +79,28 @@ def ulozit_nakup(data):
         
         for p in polozky:
             ean = p.get('ean')
-            # Ochrana pred prázdnym EAN kódom
             if not ean or str(ean).strip() == "":
                 ean = None
-                
+            
+            # Duplikujeme cena_bez_dph aj do povodneho stlpca cena_za_jednotku, aby nepadla databaza pre 'NOT NULL'
             cur.execute("""
-                INSERT INTO nakupne_objednavky_polozky (objednavka_id, ean, nazov_produktu, mnozstvo, cena_bez_dph, dph) 
-                VALUES (%s, %s, %s, %s, %s, %s)
-            """, (obj_id, ean, p.get('nazov'), float(p.get('mnozstvo', 0)), float(p.get('cena_bez_dph', 0)), float(p.get('dph', 20))))
+                INSERT INTO nakupne_objednavky_polozky 
+                (objednavka_id, ean, nazov_produktu, mnozstvo, cena_bez_dph, cena_za_jednotku, dph) 
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """, (
+                obj_id, 
+                ean, 
+                p.get('nazov'), 
+                float(p.get('mnozstvo', 0)), 
+                float(p.get('cena_bez_dph', 0)), 
+                float(p.get('cena_bez_dph', 0)), 
+                float(p.get('dph', 20))
+            ))
             
         conn.commit()
         return {"message": f"Záznam bol úspešne uložený v stave '{stav}'."}
     except Exception as e:
         if conn: conn.rollback()
-        # Vypíše presnú chybu do konzoly (terminálu) servera
         print(f"!!! CHYBA DB PRI UKLADANI NAKUPU: {str(e)}")
         return {"error": f"Databázová chyba: {str(e)}"}
     finally:
