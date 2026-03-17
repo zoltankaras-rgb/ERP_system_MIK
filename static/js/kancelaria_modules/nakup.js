@@ -95,11 +95,6 @@ window.renderNakupModule = async function(containerId) {
                                 <input type="number" id="nakup-dph" class="filter-input" style="width: 100%; box-sizing: border-box; text-align:center;" step="1" value="20">
                             </div>
                         </div>
-                            <div style="width:70px;">
-                                <label style="font-size:0.8rem; font-weight:bold;">DPH %</label>
-                                <input type="number" id="nakup-dph" class="filter-input" style="width: 100%; text-align:center;" step="1" value="20">
-                            </div>
-                        </div>
                         <div style="margin-top:15px; text-align:right;">
                             <button class="btn btn-success" style="width:100%; font-weight:bold;" onclick="pridatPolozkuNakupu()">Pridať do zoznamu ➕</button>
                         </div>
@@ -190,7 +185,6 @@ window.renderNakupModule = async function(containerId) {
 
     document.addEventListener('click', (e) => { if (e.target !== searchInput && e.target !== autoList) autoList.style.display = 'none'; });
     
-    // Pridaný parameter dph pre funkciu výberu
     window.vybratProdukt = function(nazov, ean, dph) { 
         searchInput.value = nazov; 
         eanInput.value = ean; 
@@ -318,7 +312,7 @@ window.nacitatPrehladNakupov = async function() {
                     <th style="text-align:right;">Suma bez DPH</th>
                     <th style="text-align:right;">Suma s DPH</th>
                     <th style="text-align:center;">Stav</th>
-                    <th style="text-align:center;">Akcia</th>
+                    <th style="text-align:right;">Akcia</th>
                 </tr>
             </thead>
             <tbody>
@@ -326,7 +320,9 @@ window.nacitatPrehladNakupov = async function() {
         
         obj.forEach(o => {
             const statusBadge = o.stav === 'Prijaté' ? `<span style="background:#dcfce7; color:#15803d; padding:3px 8px; border-radius:4px; font-weight:bold;">${o.stav}</span>` : `<span style="background:#fef08a; color:#854d0e; padding:3px 8px; border-radius:4px; font-weight:bold;">${o.stav}</span>`;
-            const acceptBtn = o.stav === 'Objednané' ? `<button class="btn btn-success btn-sm" onclick="zmenitStavNaPrijate(${o.id})">✔️ Označiť za prijaté</button>` : '';
+            
+            const acceptBtn = o.stav === 'Objednané' ? `<button class="btn btn-success btn-sm" onclick="zmenitStavNaPrijate(${o.id})" style="margin-right:5px;" title="Označiť za prijaté">✔️</button>` : '';
+            const printBtn = `<button class="btn btn-secondary btn-sm" onclick="window.tlacitUlozenuObjednavku(${o.id})" title="Tlačiť objednávku">🖨️</button>`;
 
             html += `
             <tr>
@@ -337,7 +333,7 @@ window.nacitatPrehladNakupov = async function() {
                 <td style="text-align:right;">${parseFloat(o.celkova_suma_bez_dph).toFixed(2)} €</td>
                 <td style="text-align:right; font-weight:bold;">${parseFloat(o.celkova_suma_s_dph).toFixed(2)} €</td>
                 <td style="text-align:center;">${statusBadge}</td>
-                <td style="text-align:center;">${acceptBtn}</td>
+                <td style="text-align:right; white-space:nowrap;">${acceptBtn}${printBtn}</td>
             </tr>`;
         });
         
@@ -431,6 +427,83 @@ window.tlacitReportNakupu = function() {
         </body></html>
     `);
     printWin.document.close();
+};
+
+window.tlacitUlozenuObjednavku = async function(id) {
+    try {
+        const res = await fetch(`/api/kancelaria/nakup/detail/${id}`);
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+
+        const header = data.header;
+        const items = data.items || [];
+        const dodavatel = header.dodavatel;
+        
+        const fmtDate = (d) => d ? d.split('-').reverse().join('.') : '—';
+        let riadkyHTML = '';
+        
+        items.forEach((p, i) => {
+            const cena_bez_dph = parseFloat(p.cena_bez_dph) || 0;
+            const mnozstvo = parseFloat(p.mnozstvo) || 0;
+            const dph = parseFloat(p.dph) || 0;
+            const sumNet = mnozstvo * cena_bez_dph;
+            const sumGross = sumNet * (1 + (dph / 100));
+            
+            riadkyHTML += `
+                <tr>
+                    <td style="text-align:center;">${i+1}.</td>
+                    <td>${escapeHtml(p.nazov)}<br><small style="color:#666;">${p.ean || ''}</small></td>
+                    <td style="text-align:right;">${mnozstvo}</td>
+                    <td style="text-align:right;">${cena_bez_dph.toFixed(4)} €</td>
+                    <td style="text-align:right;">${dph}%</td>
+                    <td style="text-align:right; font-weight:bold;">${sumGross.toFixed(2)} €</td>
+                </tr>
+            `;
+        });
+
+        const printWin = window.open('', '_blank');
+        printWin.document.write(`
+            <!DOCTYPE html>
+            <html>
+            <head><title>Objednávka č. ${header.id} - ${escapeHtml(dodavatel)}</title><style>
+                body { font-family: Arial, sans-serif; padding: 30px; font-size: 14px; color: #333; }
+                h1 { margin: 0 0 5px 0; color: #1e3a8a; text-transform: uppercase; font-size: 22px; }
+                table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+                th, td { border: 1px solid #ccc; padding: 10px; text-align: left; }
+                th { background-color: #f1f5f9; font-weight: bold; }
+                .info-box { display: flex; justify-content: space-between; margin-top: 20px; padding: 15px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; }
+                @media print { body { padding: 0; } .no-print { display: none; } }
+            </style></head>
+            <body>
+                <div class="no-print" style="text-align:center; margin-bottom:20px;"><button onclick="window.print()" style="padding:10px 20px; font-size:16px; background:#0284c7; color:#fff; border:none; border-radius:4px; cursor:pointer;">🖨️ Potvrdiť tlač</button></div>
+                <h1>Objednávka č. ${header.id} (${header.stav})</h1>
+                <div class="info-box">
+                    <div>
+                        <strong>Dodávateľ:</strong> <span style="font-size:16px;">${escapeHtml(dodavatel)}</span><br><br>
+                        <strong>Dátum vystavenia:</strong> ${fmtDate(header.datum_vystavenia)}<br>
+                        <strong>Očakávané dodanie:</strong> ${fmtDate(header.datum_dodania)}<br>
+                    </div>
+                    <div style="max-width: 300px;"><strong>Poznámka:</strong><br>${escapeHtml(header.poznamka) || '—'}</div>
+                </div>
+                <table>
+                    <thead><tr><th style="width: 40px; text-align:center;">#</th><th>Produkt</th><th style="text-align:right;">Množstvo</th><th style="text-align:right;">Cena bez DPH</th><th style="text-align:right;">DPH</th><th style="text-align:right;">Spolu s DPH</th></tr></thead>
+                    <tbody>${riadkyHTML}</tbody>
+                    <tfoot>
+                        <tr style="font-size: 16px; font-weight: bold; background: #f1f5f9;">
+                            <td colspan="5" style="text-align:right;">CELKOVÁ SUMA NÁKUPU:</td>
+                            <td style="text-align:right; color:#dc2626;">${parseFloat(header.celkova_suma_s_dph).toFixed(2)} €</td>
+                        </tr>
+                    </tfoot>
+                </table>
+                <div style="margin-top: 50px; display:flex; justify-content:space-between;">
+                    <div>Vystavil (Podpis): ________________________</div><div>Schválil: ________________________</div>
+                </div>
+            </body></html>
+        `);
+        printWin.document.close();
+    } catch (e) {
+        alert("Chyba pri získavaní dát pre tlač: " + e.message);
+    }
 };
 
 window.ukazHistoriuNákupu = async function() {

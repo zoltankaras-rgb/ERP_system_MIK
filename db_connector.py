@@ -57,6 +57,10 @@ def _init_session(conn: mysql.connector.MySQLConnection) -> None:
         cur.execute(f"SET character_set_client = '{DB_CHARSET}'")
         cur.execute(f"SET character_set_connection = '{DB_CHARSET}'")
         cur.execute(f"SET character_set_results = '{DB_CHARSET}'")
+        
+        # Explicitné nastavenie lokálnej časovej zóny
+        cur.execute("SET time_zone = 'Europe/Bratislava'")
+        
         # voliteľne by sa dalo nastaviť time_zone, sql_mode atď.
         cur.close()
     except Exception as e:
@@ -77,6 +81,7 @@ def get_connection():
           conn.ping(reconnect=True, attempts=1, delay=0)
       except Exception:
           pass
+      _init_session(conn)
       return conn
     except PoolError:
       # krátka pauza a druhý pokus
@@ -87,10 +92,13 @@ def get_connection():
               conn.ping(reconnect=True, attempts=1, delay=0)
           except Exception:
               pass
+          _init_session(conn)
           return conn
       except PoolError:
           # núdzové priame spojenie (mimo poolu) – zabráni pádu, ale MUSÍ sa vždy zavrieť
-          return mysql.connector.connect(**DB_CONFIG)
+          conn = mysql.connector.connect(**DB_CONFIG)
+          _init_session(conn)
+          return conn
 
 # --- Core vykonávanie dotazov ------------------------------------
 # db_connector.py

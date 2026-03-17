@@ -56,6 +56,11 @@ import integration_handler
 import meat_calc_handler
 import chains_handler
 import nakup_handler
+import time
+# Vynútenie časovej zóny pre bežiaci proces
+os.environ['TZ'] = 'Europe/Bratislava'
+if hasattr(time, 'tzset'):
+    time.tzset()
 # ===================== ENTERPRISE KALENDÁR – KONŠTANTY =========================
 
 EVENT_STATUS_OPEN = 'OPEN'
@@ -5333,6 +5338,15 @@ def api_nakup_zmenit_stav():
     if "error" in vysledok:
         return jsonify(vysledok), 400
         
+    return jsonify(vysledok), 200
+
+@app.route('/api/kancelaria/nakup/detail/<int:obj_id>', methods=['GET'])
+@login_required(role=('kancelaria','veduci','admin'))
+def api_nakup_detail(obj_id):
+    import nakup_handler
+    vysledok = nakup_handler.detail_objednavky(obj_id)
+    if "error" in vysledok:
+        return jsonify(vysledok), 400
     return jsonify(vysledok), 200
 
 @app.route('/api/kancelaria/nakup/zoznam', methods=['GET'])

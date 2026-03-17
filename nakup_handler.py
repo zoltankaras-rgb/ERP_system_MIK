@@ -193,3 +193,34 @@ def historia_nakupov(ean, nazov):
         return {"history": rows}
     except Exception as e:
         return {"error": str(e)}
+    
+def detail_objednavky(obj_id):
+   
+    conn = db_connector.get_connection()
+    try:
+        cur = conn.cursor(dictionary=True)
+        # Vytiahnutie hlavičky
+        cur.execute("""
+            SELECT id, dodavatel, DATE_FORMAT(datum_vystavenia, '%Y-%m-%d') as datum_vystavenia, 
+                   DATE_FORMAT(datum_dodania, '%Y-%m-%d') as datum_dodania, stav, 
+                   celkova_suma_bez_dph, celkova_suma_s_dph, poznamka
+            FROM nakupne_objednavky WHERE id = %s
+        """, (obj_id,))
+        header = cur.fetchone()
+        if not header:
+            return {"error": "Objednávka neexistuje."}
+        
+        # Vytiahnutie položiek
+        cur.execute("""
+            SELECT ean, nazov_produktu as nazov, mnozstvo, cena_bez_dph, dph 
+            FROM nakupne_objednavky_polozky WHERE objednavka_id = %s
+        """, (obj_id,))
+        items = cur.fetchall() or []
+        
+        return {"header": header, "items": items}
+    except Exception as e:
+        return {"error": str(e)}
+    finally:
+        if conn and conn.is_connected():
+            cur.close()
+            conn.close()
