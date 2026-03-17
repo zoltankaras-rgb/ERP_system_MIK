@@ -7,7 +7,7 @@ def _ensure_nakup_schema():
             id INT AUTO_INCREMENT PRIMARY KEY,
             dodavatel VARCHAR(255) NOT NULL,
             datum_vystavenia DATE NOT NULL,
-            datum_dodania DATE,
+            datum_dodania DATE NULL,
             stav ENUM('Objednané', 'Prijaté', 'Zrušené') DEFAULT 'Objednané',
             celkova_suma_bez_dph DECIMAL(10,2) DEFAULT 0,
             celkova_suma_s_dph DECIMAL(10,2) DEFAULT 0,
@@ -20,7 +20,7 @@ def _ensure_nakup_schema():
         CREATE TABLE IF NOT EXISTS nakupne_objednavky_polozky (
             id INT AUTO_INCREMENT PRIMARY KEY,
             objednavka_id INT NOT NULL,
-            ean VARCHAR(64),
+            ean VARCHAR(64) NULL,
             nazov_produktu VARCHAR(255) NOT NULL,
             mnozstvo DECIMAL(10,3) NOT NULL,
             cena_bez_dph DECIMAL(10,4) NOT NULL,
@@ -30,10 +30,19 @@ def _ensure_nakup_schema():
     """, fetch='none')
 
 def ulozit_nakup(data):
-    _ensure_nakup_schema()
+    try:
+        _ensure_nakup_schema()
+    except Exception as e:
+        print(f"Upozornenie pri kontrole schemy nakupov: {e}")
+
     dodavatel = data.get('dodavatel')
-    datum_vystavenia = data.get('datum_vystavenia')
+    datum_vystavenia = data.get('datum_vystavenia') or data.get('datum')
+    
+    # Ochrana pred prázdnym textom v dátume dodania
     datum_dodania = data.get('datum_dodania')
+    if not datum_dodania or str(datum_dodania).strip() == "":
+        datum_dodania = None
+
     stav = data.get('stav', 'Objednané')
     celkova_suma_bez_dph = data.get('celkova_suma_bez_dph', 0)
     celkova_suma_s_dph = data.get('celkova_suma_s_dph', 0)
@@ -51,20 +60,28 @@ def ulozit_nakup(data):
             INSERT INTO nakupne_objednavky 
             (dodavatel, datum_vystavenia, datum_dodania, stav, celkova_suma_bez_dph, celkova_suma_s_dph, poznamka) 
             VALUES (%s, %s, %s, %s, %s, %s, %s)
-        """, (dodavatel, datum_vystavenia, datum_dodania, stav, celkova_suma_bez_dph, celkova_suma_s_dph, poznamka))
+        """, (dodavatel, datum_vystavenia, datum_dodania, stav, float(celkova_suma_bez_dph), float(celkova_suma_s_dph), poznamka))
+        
         obj_id = cur.lastrowid
         
         for p in polozky:
+            ean = p.get('ean')
+            # Ochrana pred prázdnym EAN kódom
+            if not ean or str(ean).strip() == "":
+                ean = None
+                
             cur.execute("""
                 INSERT INTO nakupne_objednavky_polozky (objednavka_id, ean, nazov_produktu, mnozstvo, cena_bez_dph, dph) 
                 VALUES (%s, %s, %s, %s, %s, %s)
-            """, (obj_id, p.get('ean'), p.get('nazov'), float(p.get('mnozstvo')), float(p.get('cena_bez_dph')), float(p.get('dph'))))
+            """, (obj_id, ean, p.get('nazov'), float(p.get('mnozstvo', 0)), float(p.get('cena_bez_dph', 0)), float(p.get('dph', 20))))
             
         conn.commit()
         return {"message": f"Záznam bol úspešne uložený v stave '{stav}'."}
     except Exception as e:
         if conn: conn.rollback()
-        return {"error": str(e)}
+        # Vypíše presnú chybu do konzoly (terminálu) servera
+        print(f"!!! CHYBA DB PRI UKLADANI NAKUPU: {str(e)}")
+        return {"error": f"Databázová chyba: {str(e)}"}
     finally:
         if conn and conn.is_connected():
             cur.close()
@@ -97,7 +114,11 @@ def zmenit_stav_objednavky(data):
             conn.close()
 
 def zoznam_objednavok():
-    _ensure_nakup_schema()
+    try:
+        _ensure_nakup_schema()
+    except Exception:
+        pass
+        
     sql = """
         SELECT id, dodavatel, DATE_FORMAT(datum_vystavenia, '%%d.%%m.%%Y') as datum_vystavenia, 
                DATE_FORMAT(datum_dodania, '%%d.%%m.%%Y') as datum_dodania, stav, celkova_suma_bez_dph, celkova_suma_s_dph
@@ -109,7 +130,6 @@ def zoznam_objednavok():
     return {"objednavky": rows}
 
 def get_produkty_autocomplete():
-    import db_connector
     sql = """
         SELECT ean, nazov_vyrobku as name, COALESCE(dph, 20.0) as dph 
         FROM produkty 
@@ -123,9 +143,12 @@ def get_produkty_autocomplete():
     unique_products = {r['name']: r for r in rows}
     return {"products": list(unique_products.values())}
 
-
 def historia_nakupov(ean, nazov):
-    _ensure_nakup_schema()
+    try:
+        _ensure_nakup_schema()
+    except Exception:
+        pass
+        
     if not ean and not nazov:
         return {"error": "Zadajte EAN alebo Názov."}
         
