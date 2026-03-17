@@ -5308,12 +5308,32 @@ import nakup_handler
 @app.route('/api/kancelaria/nakup/ulozit', methods=['POST'])
 @login_required(role=('kancelaria','veduci','admin'))
 def api_nakup_ulozit():
-    return handle_request(nakup_handler.ulozit_nakup, request.json)
+    import nakup_handler
+    data = request.get_json(silent=True) or {}
+    
+    # Ochrana pred padnutím databázy: Ak je dátum prázdny text "", zmeníme ho na None (NULL)
+    if not data.get('datum_dodania'):
+        data['datum_dodania'] = None
+        
+    vysledok = nakup_handler.ulozit_nakup(data)
+    
+    if "error" in vysledok:
+        return jsonify(vysledok), 400
+        
+    return jsonify(vysledok), 200
+
 
 @app.route('/api/kancelaria/nakup/zmenit_stav', methods=['POST'])
 @login_required(role=('kancelaria','veduci','admin'))
 def api_nakup_zmenit_stav():
-    return handle_request(nakup_handler.zmenit_stav_objednavky, request.json)
+    import nakup_handler
+    data = request.get_json(silent=True) or {}
+    vysledok = nakup_handler.zmenit_stav_objednavky(data)
+    
+    if "error" in vysledok:
+        return jsonify(vysledok), 400
+        
+    return jsonify(vysledok), 200
 
 @app.route('/api/kancelaria/nakup/zoznam', methods=['GET'])
 @login_required(role=('kancelaria','veduci','admin'))
