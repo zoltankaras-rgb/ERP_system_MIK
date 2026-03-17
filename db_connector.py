@@ -59,7 +59,7 @@ def _init_session(conn: mysql.connector.MySQLConnection) -> None:
         cur.execute(f"SET character_set_results = '{DB_CHARSET}'")
         
         # Explicitné nastavenie lokálnej časovej zóny
-        cur.execute("SET time_zone = 'Europe/Bratislava'")
+        cur.execute("SET time_zone = '+01:00'")
         
         # voliteľne by sa dalo nastaviť time_zone, sql_mode atď.
         cur.close()
