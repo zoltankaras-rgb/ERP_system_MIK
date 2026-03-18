@@ -438,19 +438,23 @@ async function initServerClock() {
   setInterval(() => {
     const now = new Date(Date.now() + serverTimeOffset);
     
+    // Vynútenie stredoeurópskeho času (Bratislava) eliminuje lokálne odchýlky klienta
     clockTimeEl.textContent = now.toLocaleTimeString('sk-SK', {
+      timeZone: 'Europe/Bratislava',
       hour: '2-digit',
       minute: '2-digit',
       second: '2-digit'
     });
     
     clockDateEl.textContent = now.toLocaleDateString('sk-SK', {
+      timeZone: 'Europe/Bratislava',
       day: '2-digit',
       month: '2-digit',
       year: 'numeric'
     });
   }, 1000);
 }
+
 // =================================================================
 // === BOOT ========================================================
 // =================================================================
@@ -474,4 +478,4 @@ document.addEventListener('DOMContentLoaded', async () => {
     showStatus('Nepodarilo sa inicializovať modul Kancelária.', true);
     showLogin();
   }
-});
+})
