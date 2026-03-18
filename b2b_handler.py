@@ -2208,6 +2208,8 @@ def get_logistics_routes_data(target_date: str):
         trasy_db = db_connector.execute_query("SELECT id, nazov FROM logistika_trasy WHERE is_active=1 ORDER BY nazov", fetch='all') or []
         trasy_map = {str(t['id']): t['nazov'] for t in trasy_db}
         trasy_map['unassigned'] = 'Zatiaľ nepriradené'
+        
+        # Odošleme všetky trasy pre roletové menu
         all_routes = [{"id": str(t['id']), "nazov": t['nazov']} for t in trasy_db]
 
         customers = db_connector.execute_query("SELECT id, zakaznik_id, nazov_firmy, trasa_id, trasa_poradie, cislo_prevadzky FROM b2b_zakaznici", fetch='all') or []
@@ -2245,12 +2247,8 @@ def get_logistics_routes_data(target_date: str):
 
         routes_data = {}
         
-        # --- PRIDANÁ TVRDÁ INICIALIZÁCIA STĹPCOV ---
-        # Týmto zaistíme, že stĺpec "Nepriradené" a stĺpce aut nezmiznú, ani keď sú prázdne
+        # Vždy pripravíme aspoň stĺpec pre nepriradené objednávky
         routes_data['unassigned'] = { "id": 'unassigned', "nazov": trasy_map['unassigned'], "zastavky": {}, "sumar": {} }
-        for t in trasy_db:
-            tid = str(t['id'])
-            routes_data[tid] = { "id": tid, "nazov": t['nazov'], "zastavky": {}, "sumar": {} }
 
         for p in polozky:
             erp_id_val = str(p['erp_id']).strip().lower() if p['erp_id'] else ""
@@ -2277,9 +2275,10 @@ def get_logistics_routes_data(target_date: str):
                     tid = 'unassigned'
                     poradie = 999
 
-            # Pre istotu (ak trasa bola zmazaná z DB, hodíme do nepriradených)
             if tid not in routes_data:
-                tid = 'unassigned'
+                # Ak trasa ešte v routes_data nie je, založíme ju
+                route_name = trasy_map.get(tid, 'Neznáma trasa')
+                routes_data[tid] = { "id": tid, "nazov": route_name, "zastavky": {}, "sumar": {} }
 
             if odberatel_zobrazenie not in routes_data[tid]["zastavky"]:
                 routes_data[tid]["zastavky"][odberatel_zobrazenie] = {
@@ -2476,6 +2475,8 @@ def assign_vehicle_to_route_and_fleet(data: dict):
     finally:
         if conn and conn.is_connected():
             conn.close()
+
+    
  # =================================================================
 # ADRESÁR PREVÁDZOK PRE MANUÁLNE TRASY
 # =================================================================
