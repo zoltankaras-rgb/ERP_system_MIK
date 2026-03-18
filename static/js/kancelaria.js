@@ -412,7 +412,45 @@ async function showModal(title, contentPromise) {
 
 // Sprístupni showModal globálne (niektoré moduly ho volajú priamo)
 window.showModal = showModal;
+// =================================================================
+// === SERVER CLOCK ================================================
+// =================================================================
+async function initServerClock() {
+  const clockTimeEl = document.getElementById('clock-time');
+  const clockDateEl = document.getElementById('clock-date');
+  if (!clockTimeEl || !clockDateEl) return;
 
+  let serverTimeOffset = 0;
+
+  try {
+    // HEAD request minimalizuje prenos dát, slúži len na zisk HTTP hlavičiek
+    const response = await fetch(window.location.href, { method: 'HEAD' });
+    const dateHeader = response.headers.get('date');
+    if (dateHeader) {
+      const serverTime = new Date(dateHeader).getTime();
+      const localTime = Date.now();
+      serverTimeOffset = serverTime - localTime;
+    }
+  } catch (e) {
+    console.warn('Zlyhala synchronizácia serverového času. Používa sa lokálny čas klienta.');
+  }
+
+  setInterval(() => {
+    const now = new Date(Date.now() + serverTimeOffset);
+    
+    clockTimeEl.textContent = now.toLocaleTimeString('sk-SK', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    });
+    
+    clockDateEl.textContent = now.toLocaleDateString('sk-SK', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric'
+    });
+  }, 1000);
+}
 // =================================================================
 // === BOOT ========================================================
 // =================================================================
@@ -420,6 +458,9 @@ window.showModal = showModal;
 document.addEventListener('DOMContentLoaded', async () => {
   try {
     bindLoginForm();
+    // Spustenie hodín hneď po načítaní DOM
+    initServerClock();
+    
     // Auth brána – iba ak sme prihlásení, spustíme aplikáciu
     const loggedIn = await tryAuthPing();
     if (loggedIn) {
