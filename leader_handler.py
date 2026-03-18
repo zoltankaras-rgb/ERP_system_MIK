@@ -992,6 +992,52 @@ def leader_delete_route_template():
 def leader_assign_vehicle():
     return jsonify(b2b_handler.assign_vehicle_to_route_and_fleet(request.get_json(silent=True) or {}))
 
+@leader_bp.post('/logistics/kanban-save')
+@login_required(role=('veduci','admin'))
+def leader_logistics_kanban_save():
+    """
+    Uloží hromadne zmeny z Drag & Drop Kanbanu.
+    Prijíma ID trasy a presné pole usporiadaných ID zákazníkov.
+    """
+    data = request.get_json(silent=True) or {}
+    route_id = data.get('route_id')
+    customer_ids = data.get('customer_ids', []) # napr. ['REG_12', 'MAN_5', 'NAME_Test']
+
+    conn = _get_conn()
+    try:
+        cur = conn.cursor()
+        
+        # Ak je to stĺpec 'unassigned', nastavíme NULL. Inak konkrétne ID trasy.
+        trasa_val = None if str(route_id) == 'unassigned' else int(route_id)
+
+        # Prejdeme všetky prijaté IDčka a zapíšeme im nové poradie a novú trasu
+        for poradie, cid in enumerate(customer_ids, start=1):
+            cid_str = str(cid)
+            if cid_str.startswith('REG_'):
+                db_id = int(cid_str[4:])
+                cur.execute("UPDATE b2b_zakaznici SET trasa_id=%s, trasa_poradie=%s WHERE id=%s", (trasa_val, poradie, db_id))
+            
+            elif cid_str.startswith('MAN_'):
+                db_id = int(cid_str[4:])
+                cur.execute("UPDATE b2b_manual_zakaznici SET trasa_id=%s, trasa_poradie=%s WHERE id=%s", (trasa_val, poradie, db_id))
+            
+            elif cid_str.startswith('NAME_'):
+                name = cid_str[5:]
+                cur.execute("""
+                    INSERT INTO logistika_name_routes (odberatel, trasa_id, trasa_poradie) VALUES (%s, %s, %s)
+                    ON DUPLICATE KEY UPDATE trasa_id=%s, trasa_poradie=%s
+                """, (name, trasa_val, poradie, trasa_val, poradie))
+
+        conn.commit()
+        return jsonify({"message": "Nové usporiadanie uložené."})
+    except Exception as e:
+        if conn: conn.rollback()
+        return jsonify({"error": str(e)}), 500
+    finally:
+        if conn:
+            cur.close()
+            conn.close()
+
 # =============================================================================
 # MANUÁLNE OBJEDNÁVKY (ZJEDNOTENÉ PRE REGISTROVANÝCH AJ NEREGISTROVANÝCH)
 # =============================================================================
