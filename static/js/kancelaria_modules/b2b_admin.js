@@ -348,7 +348,18 @@
                       }
                   }
 
-                  const formatVytvorenia = o.datum_objednavky ? new Date(o.datum_objednavky).toLocaleString('sk-SK') : '-';
+                  let formatVytvorenia = '-';
+                  if (o.datum_objednavky) {
+                      let d = new Date(o.datum_objednavky);
+                      if (!isNaN(d.getTime())) {
+                          // Eliminácia nežiaduceho posunu: ak backend pošle GMT, 
+                          // prehliadač nesmie pridať lokálny hodinový offset.
+                          if (typeof o.datum_objednavky === 'string' && o.datum_objednavky.includes('GMT')) {
+                              d.setMinutes(d.getMinutes() + d.getTimezoneOffset());
+                          }
+                          formatVytvorenia = d.toLocaleString('sk-SK');
+                      }
+                  }
 
                   // OPRAVA TU: Formátovanie názvu firmy s číslom prevádzky (odstránenie prípadnej duplicity)
                   let zobrazenyNazov = escapeHtml(o.nazov_firmy);

@@ -51,6 +51,10 @@
       const d = new Date(isoStr);
       if (isNaN(d.getTime())) return isoStr;
       
+      if (typeof isoStr === 'string' && isoStr.includes('GMT')) {
+          d.setMinutes(d.getMinutes() + d.getTimezoneOffset());
+      }
+      
       const day = String(d.getDate()).padStart(2, '0');
       const month = String(d.getMonth() + 1).padStart(2, '0');
       const year = d.getFullYear();
