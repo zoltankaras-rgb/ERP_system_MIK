@@ -2626,58 +2626,89 @@ window.printDailySummary = async function() {
       }
   };
 
-  
-  function boot(){
-    $$('.sidebar-link').forEach(a=>{
-      a.onclick = ()=>{
-        if (a.getAttribute('onclick')) return; 
-        
-        $$('.sidebar-link').forEach(x=> x.classList.remove('active')); a.classList.add('active');
-        const secId = a.getAttribute('data-section'); $$('.content-section').forEach(s=> s.classList.remove('active'));
-        const target = secId ? $('#'+secId) : null; if (target) target.classList.add('active');
-        
-        if (secId === 'leader-dashboard')  loadDashboard();
-        if (secId === 'leader-b2c')        loadB2C();
-        if (secId === 'leader-b2b')        loadB2B();
-        if (secId === 'leader-b2b-comm') {
-            if (typeof window.loadCommView === 'function') window.loadCommView();
-        }
-        if (secId === 'leader-meat-origin-labels') { initMeatOriginLabels(); mol_preview(); }
-        if (secId === 'leader-cut')        loadCutJobs();
-        if (secId === 'leader-lowstock')   loadLeaderLowStockDetail();
-        if (secId === 'leader-plan')       loadLeaderProductionCalendar();
-        if (secId === 'leader-logistics')  root.loadLogistics();
-      };
-    });
+  // =========================================================
+  // KANBAN - RÝCHLE AKCIE (Pridanie stĺpca, premenovanie, zmazanie)
+  // Vložené vo vnútri hlavného modulu kvôli prístupu k apiRequest a showStatus
+  // =========================================================
+  window.addKanbanColumn = function() {
+      const select = doc.getElementById('new-col-select');
+      const routeId = select.value;
+      if (!routeId) return;
+      
+      const routeName = select.options[select.selectedIndex].dataset.name;
+      const board = doc.getElementById('kanban-board');
+      
+      if (board.querySelector(`.k-column[data-route-id="${routeId}"]`)) {
+          showStatus('Tento stĺpec už je na nástenke zobrazený.', true);
+          select.value = '';
+          return;
+      }
+      
+      const colHtml = `
+          <div class="k-column" data-route-id="${routeId}">
+              <div class="k-header" style="color:#0369a1;">
+                  <span style="display:flex; align-items:center; gap:5px;">
+                      ${escapeHtml(routeName)}
+                      <button class="btn btn-sm" style="padding:0; color:#94a3b8; background:transparent; border:none;" title="Premenovať trasu" onclick="window.renameRoute('${routeId}', '${escapeHtml(routeName)}')"><i class="fas fa-edit"></i></button>
+                      <span class="k-count" style="opacity:0.7;font-size:0.8rem;">(0)</span>
+                  </span>
+                  <div>
+                      <button class="btn btn-sm" style="color:#94a3b8; background:transparent; border:none;" onclick="this.closest('.k-column').remove()" title="Skryť prázdny stĺpec"><i class="fas fa-times"></i></button>
+                  </div>
+              </div>
+              <div class="k-dropzone"></div>
+              <div class="k-fleet-controls">
+                  <div style="display:flex; gap:5px; margin-bottom:5px;">
+                      <select id="veh_${routeId}" class="form-control" style="padding:4px; font-size:0.8rem; flex:1;">
+                          ${window.kanbanVehiclesHtml || '<option value="">-- Priradiť auto --</option>'}
+                      </select>
+                      <button class="btn btn-success btn-sm" style="padding:4px 8px;" onclick="window.assignVehicleToFleet('${escapeHtml(routeName)}', '${routeId}')"><i class="fas fa-check"></i></button>
+                  </div>
+              </div>
+          </div>
+      `;
+      
+      board.insertAdjacentHTML('beforeend', colHtml);
+      select.value = '';
+      
+      // Znovunačítanie drag and drop po pridaní stĺpca
+      if (typeof initKanbanDragAndDrop === 'function') {
+          initKanbanDragAndDrop();
+      }
+  };
 
-    $('#ldr-date') && ($('#ldr-date').value = todayISO());
-    $('#b2c-date') && ($('#b2c-date').value = todayISO());
-    $('#b2b-date') && ($('#b2b-date').value = todayISO());
-    $('#cut-date') && ($('#cut-date').value = todayISO());
-    $('#nb2b-date') && ($('#nb2b-date').value = todayISO());
+  window.renameRoute = async function(routeId, oldName) {
+      const newName = prompt('Zadajte nový názov trasy:', oldName);
+      if (!newName || newName.trim() === '' || newName.trim() === oldName) return;
+      
+      try {
+          showStatus('Upravujem názov trasy...', false);
+          await apiRequest('/api/leader/logistics/update-route-name', {
+              method: 'POST',
+              body: { id: routeId, nazov: newName.trim() }
+          });
+          showStatus('Názov trasy bol upravený.', false);
+          doc.getElementById('logistics-load-btn').click(); 
+      } catch(e) {
+          showStatus('Chyba: ' + e.message, true);
+      }
+  };
 
-    $('#ldr-refresh') && ($('#ldr-refresh').onclick = loadDashboard);
-    $('#plan-commit') && ($('#plan-commit').onclick = commitPlan);
-    $('#b2c-refresh') && ($('#b2c-refresh').onclick = loadB2C);
-    $('#b2b-refresh') && ($('#b2b-refresh').onclick = loadB2B);
-    $('#leader-lowstock-refresh') && ($('#leader-lowstock-refresh').onclick = loadLeaderLowStockDetail);
-    
-    attachProductSearch();
-    attachSupplierAutocomplete();
-    $('#nb2b-add')  && ($('#nb2b-add').onclick  = ()=> addManualRow($('#nb2b-items tbody')));
-    $('#nb2b-save') && ($('#nb2b-save').onclick = saveManualB2B);
-    
-    $('#cut-refresh') && ($('#cut-refresh').onclick = loadCutJobs);
-    $('#cut-new')     && ($('#cut-new').onclick     = openNewCutModal);
-
-    initManualOrdersUI(); // <--- PRIDANÉ INICIALIZOVANIE TU
-
-    loadDashboard();
-  }
-
-  boot();
-})(window, document);
-
+  window.unassignCard = async function(customerId) {
+      if(!confirm("Odstrániť tohto zákazníka z trasy (vrátiť do nepriradených)?")) return;
+      
+      showStatus('Odoberám z trasy...', false);
+      try {
+          await apiRequest('/api/leader/logistics/kanban-save', {
+              method: 'POST',
+              body: { route_id: 'unassigned', customer_ids: [customerId] }
+          });
+          showStatus('Zákazník bol vrátený medzi nepriradené.', false);
+          doc.getElementById('logistics-load-btn').click(); 
+      } catch(err) {
+          showStatus('Chyba: ' + err.message, true);
+      }
+  };
 // =========================================================
 // INICIALIZÁCIA A OPRAVA NAVIGÁCIE
 // =========================================================
@@ -2993,84 +3024,56 @@ function printExpeditionBreakdown() {
     printWindow.document.write(printContent);
     printWindow.document.close();
 }
-// Rýchle tlačidlo na vyhodenie z trasy (X na karte)
-  window.unassignCard = async function(customerId) {
-      if(!confirm("Odstrániť tohto zákazníka z trasy (vrátiť do nepriradených)?")) return;
-      
-      showStatus('Odoberám z trasy...', false);
-      try {
-          await apiRequest('/api/leader/logistics/kanban-save', {
-              method: 'POST',
-              body: { route_id: 'unassigned', customer_ids: [customerId] }
-          });
-          showStatus('Zákazník bol vrátený medzi nepriradené.', false);
-          document.getElementById('logistics-load-btn').click(); // Prekreslí Kanban
-      } catch(err) {
-          showStatus('Chyba: ' + err.message, true);
-      }
-  };
-  // =========================================================
-  // KANBAN - Pridanie prázdneho stĺpca
-  // =========================================================
-  window.addKanbanColumn = function() {
-      const select = document.getElementById('new-col-select');
-      const routeId = select.value;
-      if (!routeId) return;
-      
-      const routeName = select.options[select.selectedIndex].dataset.name;
-      const board = document.getElementById('kanban-board');
-      
-      // Skontrolujeme, či stĺpec už náhodou neexistuje
-      if (board.querySelector(`.k-column[data-route-id="${routeId}"]`)) {
-          showStatus('Tento stĺpec už je na nástenke zobrazený.', true);
-          select.value = '';
-          return;
-      }
-      
-      const colHtml = `
-          <div class="k-column" data-route-id="${routeId}">
-              <div class="k-header" style="color:#0369a1;">
-                  <span>${escapeHtml(routeName)} <span class="k-count" style="opacity:0.7;font-size:0.8rem;">(0)</span></span>
-                  <div>
-                      <button class="btn btn-sm" style="color:#94a3b8; background:transparent; border:none;" onclick="this.closest('.k-column').remove()" title="Skryť prázdny stĺpec"><i class="fas fa-times"></i></button>
-                  </div>
-              </div>
-              <div class="k-dropzone"></div>
-              <div class="k-fleet-controls">
-                  <div style="display:flex; gap:5px; margin-bottom:5px;">
-                      <select id="veh_${routeId}" class="form-control" style="padding:4px; font-size:0.8rem; flex:1;">
-                          ${window.kanbanVehiclesHtml || '<option value="">-- Priradiť auto --</option>'}
-                      </select>
-                      <button class="btn btn-success btn-sm" style="padding:4px 8px;" onclick="window.assignVehicleToFleet('${escapeHtml(routeName)}', '${routeId}')"><i class="fas fa-check"></i></button>
-                  </div>
-              </div>
-          </div>
-      `;
-      
-      // Vložíme nový stĺpec nakoniec dosky
-      board.insertAdjacentHTML('beforeend', colHtml);
-      select.value = '';
-      
-      // Keďže sme pridali nové prvky, musíme znovu inicializovať Drag & Drop, 
-      // aby nový stĺpec vedel prijímať karty (ak tam máš funkciu initKanbanDragAndDrop definovanú globálne)
-      if (typeof initKanbanDragAndDrop === 'function') {
-          initKanbanDragAndDrop();
-      }
-  };
-  // Premenovanie existujúcej trasy priamo z Kanbanu
-  window.renameRoute = async function(routeId, oldName) {
-      const newName = prompt('Zadajte nový názov trasy:', oldName);
-      if (!newName || newName.trim() === '' || newName.trim() === oldName) return;
-      
-      try {
-          showStatus('Upravujem názov trasy...', false);
-          await apiRequest('/api/leader/logistics/update-route-name', {
-              method: 'POST',
-              body: { id: routeId, nazov: newName.trim() }
-          });
-          showStatus('Názov trasy bol upravený.', false);
-          document.getElementById('logistics-load-btn').click(); // Prekreslí Kanban s novým názvom
-      } catch(e) {
-          showStatus('Chyba: ' + e.message, true);
-      }
-  };
+
+
+  function boot(){
+    $$('.sidebar-link').forEach(a=>{
+      a.onclick = ()=>{
+        if (a.getAttribute('onclick')) return; 
+        
+        $$('.sidebar-link').forEach(x=> x.classList.remove('active')); a.classList.add('active');
+        const secId = a.getAttribute('data-section'); $$('.content-section').forEach(s=> s.classList.remove('active'));
+        const target = secId ? $('#'+secId) : null; if (target) target.classList.add('active');
+        
+        if (secId === 'leader-dashboard')  loadDashboard();
+        if (secId === 'leader-b2c')        loadB2C();
+        if (secId === 'leader-b2b')        loadB2B();
+        if (secId === 'leader-b2b-comm') {
+            if (typeof window.loadCommView === 'function') window.loadCommView();
+        }
+        if (secId === 'leader-meat-origin-labels') { initMeatOriginLabels(); mol_preview(); }
+        if (secId === 'leader-cut')        loadCutJobs();
+        if (secId === 'leader-lowstock')   loadLeaderLowStockDetail();
+        if (secId === 'leader-plan')       loadLeaderProductionCalendar();
+        if (secId === 'leader-logistics')  root.loadLogistics();
+      };
+    });
+
+    $('#ldr-date') && ($('#ldr-date').value = todayISO());
+    $('#b2c-date') && ($('#b2c-date').value = todayISO());
+    $('#b2b-date') && ($('#b2b-date').value = todayISO());
+    $('#cut-date') && ($('#cut-date').value = todayISO());
+    $('#nb2b-date') && ($('#nb2b-date').value = todayISO());
+
+    $('#ldr-refresh') && ($('#ldr-refresh').onclick = loadDashboard);
+    $('#plan-commit') && ($('#plan-commit').onclick = commitPlan);
+    $('#b2c-refresh') && ($('#b2c-refresh').onclick = loadB2C);
+    $('#b2b-refresh') && ($('#b2b-refresh').onclick = loadB2B);
+    $('#leader-lowstock-refresh') && ($('#leader-lowstock-refresh').onclick = loadLeaderLowStockDetail);
+    
+    attachProductSearch();
+    attachSupplierAutocomplete();
+    $('#nb2b-add')  && ($('#nb2b-add').onclick  = ()=> addManualRow($('#nb2b-items tbody')));
+    $('#nb2b-save') && ($('#nb2b-save').onclick = saveManualB2B);
+    
+    $('#cut-refresh') && ($('#cut-refresh').onclick = loadCutJobs);
+    $('#cut-new')     && ($('#cut-new').onclick     = openNewCutModal);
+
+    initManualOrdersUI(); // <--- PRIDANÉ INICIALIZOVANIE TU
+
+    loadDashboard();
+  }
+
+  boot();
+})(window, document);
+
