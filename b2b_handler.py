@@ -1983,7 +1983,22 @@ def delete_route_template(data: dict):
         return {"error": "Chýba ID šablóny."}
     db_connector.execute_query("DELETE FROM b2b_manual_routes WHERE id=%s", (tid,), fetch='none')
     return {"message": "Šablóna bola zmazaná."}
-
+def update_route_name(data: dict):
+    rid = data.get("id")
+    novy_nazov = (data.get("nazov") or "").strip()
+    
+    if not rid or not novy_nazov:
+        return {"error": "Chýba ID alebo nový názov trasy."}
+        
+    try:
+        import db_connector
+        db_connector.execute_query(
+            "UPDATE logistika_trasy SET nazov=%s WHERE id=%s", 
+            (novy_nazov, rid), fetch='none'
+        )
+        return {"message": "Názov trasy bol úspešne zmenený."}
+    except Exception as e:
+        return {"error": str(e)}
 def delete_pricelist(data: dict):
     pl_id = data.get('id')
     if not pl_id:

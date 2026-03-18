@@ -1176,6 +1176,11 @@ def api_logistics_routes_data():
         import traceback
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
+    
+@app.route("/api/kancelaria/b2b/updateRouteName", methods=["POST"])
+def api_update_route_name():
+    import b2b_handler
+    return jsonify(b2b_handler.update_route_name(request.get_json() or {}))
 
 @app.get('/leaderexpedicia')
 @login_required(role=('veduci','admin'))

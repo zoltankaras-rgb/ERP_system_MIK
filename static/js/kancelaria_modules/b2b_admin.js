@@ -2509,7 +2509,10 @@ window.submitQuickAddProduct = async function() {
                       <td>${r.id}</td>
                       <td><strong>${escapeHtml(r.nazov)}</strong></td>
                       <td><span style="color:#64748b; font-size:0.85em;">${escapeHtml(r.poznamka || '-')}</span></td>
-                      <td style="text-align:right;"><button class="btn btn-danger btn-sm" onclick="window.deleteRoute(${r.id})">🗑️ Zmazať</button></td>
+                      <td style="text-align:right;">
+                          <button class="btn btn-primary btn-sm" onclick="window.renameB2BRoute(${r.id}, '${escapeHtml(r.nazov)}')">✏️ Upraviť názov</button>
+                          <button class="btn btn-danger btn-sm" onclick="window.deleteRoute(${r.id})">🗑️ Zmazať</button>
+                      </td>
                   </tr>`;
               });
           }
@@ -2598,6 +2601,19 @@ window.submitQuickAddProduct = async function() {
           await callFirstOk([{ url:'/api/kancelaria/b2b/deleteRoute', opts:{ method:'POST', body:{ id: id } } }]);
           showStatus('Trasa bola zmazaná');
           loadB2BSettings(); // Refreshne celú záložku
+      } catch(e) {
+          showStatus(e.message, true);
+      }
+  };
+
+  window.renameB2BRoute = async function(id, oldName) {
+      const newName = prompt('Zadajte nový názov pre túto trasu:', oldName);
+      if (!newName || newName.trim() === '' || newName.trim() === oldName) return;
+      
+      try {
+          await callFirstOk([{ url:'/api/kancelaria/b2b/updateRouteName', opts:{ method:'POST', body:{ id: id, nazov: newName.trim() } } }]);
+          showStatus('Názov trasy bol úspešne upravený');
+          loadB2BSettings(); 
       } catch(e) {
           showStatus(e.message, true);
       }

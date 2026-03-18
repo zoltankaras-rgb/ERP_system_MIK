@@ -1038,6 +1038,13 @@ def leader_logistics_kanban_save():
             cur.close()
             conn.close()
 
+
+@leader_bp.post('/logistics/update-route-name')
+@login_required(role=('veduci','admin'))
+def leader_update_route_name():
+    import b2b_handler
+    return jsonify(b2b_handler.update_route_name(request.get_json(silent=True) or {}))
+
 # =============================================================================
 # MANUÁLNE OBJEDNÁVKY (ZJEDNOTENÉ PRE REGISTROVANÝCH AJ NEREGISTROVANÝCH)
 # =============================================================================
