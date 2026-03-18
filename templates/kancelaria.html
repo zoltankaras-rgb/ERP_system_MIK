@@ -57,9 +57,14 @@
 
   <div id="app-container" class="app-container">
     <header class="app-header">
-      <div>
-        <h1>Modul Kancelária</h1>
-        <p id="user-info">Vitajte, ...</p>
+      <div style="display: flex; align-items: center; gap: 15px;">
+        <button id="mobile-menu-toggle" class="btn btn-secondary mobile-only-btn" style="display: none; padding: 0.5rem 0.75rem;">
+          <i class="fas fa-bars" style="font-size: 1.25rem;"></i>
+        </button>
+        <div>
+          <h1>Modul Kancelária</h1>
+          <p id="user-info">Vitajte, ...</p>
+        </div>
       </div>
       
       <div id="server-clock" style="text-align: center; flex: 1;">
@@ -71,6 +76,8 @@
         <i class="fas fa-sign-out-alt"></i> Odhlásiť sa
       </button>
     </header>
+
+    <div id="sidebar-overlay" class="sidebar-overlay"></div>
 
     <div class="main-layout">
       <aside class="sidebar">

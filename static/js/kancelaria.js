@@ -165,6 +165,7 @@ window.onUnauthorized = (function () {
 
 function loadAndShowOfficeMenu() {
   initializeSidebar();
+  initMobileMenu();
 
   // Úvodná sekcia
   document.querySelectorAll('.main-content .content-section').forEach(s => s.style.display = 'none');
@@ -194,7 +195,41 @@ function initializeSidebar() {
     });
   });
 }
+function initMobileMenu() {
+  const toggleBtn = document.getElementById('mobile-menu-toggle');
+  const sidebar = document.querySelector('.sidebar');
+  const overlay = document.getElementById('sidebar-overlay');
+  const sidebarLinks = document.querySelectorAll('.sidebar-nav a.sidebar-link');
 
+  if (!toggleBtn || !sidebar || !overlay) return;
+
+  function openMenu() {
+    sidebar.classList.add('open');
+    overlay.classList.add('show');
+    document.body.style.overflow = 'hidden'; // Zabráni scrollovaniu stránky v pozadí
+  }
+
+  function closeMenu() {
+    sidebar.classList.remove('open');
+    overlay.classList.remove('show');
+    document.body.style.overflow = '';
+  }
+
+  // Otvorenie cez hamburger
+  toggleBtn.addEventListener('click', openMenu);
+  
+  // Zatvorenie kliknutím mimo menu (na tmavú vrstvu)
+  overlay.addEventListener('click', closeMenu);
+
+  // Zatvorenie po vybratí modulu
+  sidebarLinks.forEach(link => {
+    link.addEventListener('click', () => {
+      if (window.innerWidth <= 768) {
+        closeMenu();
+      }
+    });
+  });
+}
 // =================================================================
 // === NÁRADIE NA DYNAMICKÝ IMPORT (ERP, MAIL, SMS) =================
 // =================================================================
