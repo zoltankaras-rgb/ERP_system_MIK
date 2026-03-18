@@ -2207,7 +2207,7 @@ def get_logistics_routes_data(target_date: str):
         
         trasy_db = db_connector.execute_query("SELECT id, nazov FROM logistika_trasy WHERE is_active=1 ORDER BY nazov", fetch='all') or []
         trasy_map = {str(t['id']): t['nazov'] for t in trasy_db}
-        trasy_map['unassigned'] = 'Zatiaľ nepriradená trasa (Zákazníci bez trasy)'
+        trasy_map['unassigned'] = 'Zatiaľ nepriradené'
         all_routes = [{"id": str(t['id']), "nazov": t['nazov']} for t in trasy_db]
 
         customers = db_connector.execute_query("SELECT id, zakaznik_id, nazov_firmy, trasa_id, trasa_poradie, cislo_prevadzky FROM b2b_zakaznici", fetch='all') or []
@@ -2244,6 +2244,13 @@ def get_logistics_routes_data(target_date: str):
         polozky = db_connector.execute_query(sql, (target_date,), fetch='all') or []
 
         routes_data = {}
+        
+        # --- PRIDANÁ TVRDÁ INICIALIZÁCIA STĹPCOV ---
+        # Týmto zaistíme, že stĺpec "Nepriradené" a stĺpce aut nezmiznú, ani keď sú prázdne
+        routes_data['unassigned'] = { "id": 'unassigned', "nazov": trasy_map['unassigned'], "zastavky": {}, "sumar": {} }
+        for t in trasy_db:
+            tid = str(t['id'])
+            routes_data[tid] = { "id": tid, "nazov": t['nazov'], "zastavky": {}, "sumar": {} }
 
         for p in polozky:
             erp_id_val = str(p['erp_id']).strip().lower() if p['erp_id'] else ""
@@ -2270,8 +2277,9 @@ def get_logistics_routes_data(target_date: str):
                     tid = 'unassigned'
                     poradie = 999
 
+            # Pre istotu (ak trasa bola zmazaná z DB, hodíme do nepriradených)
             if tid not in routes_data:
-                routes_data[tid] = { "id": tid, "nazov": trasy_map.get(tid, 'Neznáma trasa'), "zastavky": {}, "sumar": {} }
+                tid = 'unassigned'
 
             if odberatel_zobrazenie not in routes_data[tid]["zastavky"]:
                 routes_data[tid]["zastavky"][odberatel_zobrazenie] = {
@@ -2291,7 +2299,6 @@ def get_logistics_routes_data(target_date: str):
         for tid, data in routes_data.items():
             z_list = []
             for odb, zdata in data["zastavky"].items():
-                # OPRAVA: Mapujeme atribúty explicitne, aby sa do JSONu nedostal Python 'set'
                 z_list.append({
                     "zakaznik_id": zdata["zakaznik_id"],
                     "odberatel": zdata["odberatel"],
@@ -2310,7 +2317,9 @@ def get_logistics_routes_data(target_date: str):
 
             final_routes.append({ "trasa_id": tid, "nazov": data["nazov"], "zastavky": z_list, "sumar": s_list })
 
-        final_routes.sort(key=lambda x: x["nazov"])
+        # Zoradíme stĺpce: 'unassigned' vždy prvé, ostatné podľa abecedy
+        final_routes.sort(key=lambda x: -1 if x["trasa_id"] == 'unassigned' else (0 if x["nazov"] else 1))
+
         vehicles = db_connector.execute_query("SELECT id, license_plate, name FROM fleet_vehicles WHERE is_active=1 ORDER BY name", fetch='all') or []
         return {"trasy": final_routes, "vehicles": vehicles, "all_routes": all_routes}
     except Exception as e:

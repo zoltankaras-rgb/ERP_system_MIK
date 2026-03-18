@@ -1425,7 +1425,10 @@ window.showManualRouteEditor = async function(id) {
                   t.zastavky.forEach(z => {
                       cardsHtml += `
                           <div class="k-card" draggable="true" data-cid="${escapeHtml(z.zakaznik_id)}">
-                              <div class="k-card-title">${escapeHtml(z.odberatel)}</div>
+                              <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                                  <div class="k-card-title">${escapeHtml(z.odberatel)}</div>
+                                  ${!isUnassigned ? `<button class="btn btn-sm" style="padding:0 5px; color:#ef4444; border:none; background:transparent;" title="Vyhodiť späť do nepriradených" onclick="window.unassignCard('${escapeHtml(z.zakaznik_id)}')"><i class="fas fa-times"></i></button>` : ''}
+                              </div>
                               <div class="k-card-subtitle">${escapeHtml(z.adresa)}</div>
                               <div>
                                   <span class="k-badge">${z.pocet_objednavok} obj.</span>
@@ -2892,3 +2895,19 @@ function printExpeditionBreakdown() {
     printWindow.document.write(printContent);
     printWindow.document.close();
 }
+// Rýchle tlačidlo na vyhodenie z trasy (X na karte)
+  window.unassignCard = async function(customerId) {
+      if(!confirm("Odstrániť tohto zákazníka z trasy (vrátiť do nepriradených)?")) return;
+      
+      showStatus('Odoberám z trasy...', false);
+      try {
+          await apiRequest('/api/leader/logistics/kanban-save', {
+              method: 'POST',
+              body: { route_id: 'unassigned', customer_ids: [customerId] }
+          });
+          showStatus('Zákazník bol vrátený medzi nepriradené.', false);
+          document.getElementById('logistics-load-btn').click(); // Prekreslí Kanban
+      } catch(err) {
+          showStatus('Chyba: ' + err.message, true);
+      }
+  };
