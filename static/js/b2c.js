@@ -453,7 +453,6 @@ async function loadOrderForm() {
       if(!deliveryDateInput.value) deliveryDateInput.value = deliveryDateInput.min;
     }
 
-    ensureOrderExtras();
     const form = document.getElementById('orderForm');
     if (form && !form.dataset.submitHandlerBound) {
       form.addEventListener('submit', handleOrderSubmit);
@@ -462,7 +461,6 @@ async function loadOrderForm() {
 
     enforceManualSubmit();
     updateOrderTotal();
-renderCategoryChips(otherCategories);
   } catch (error) {
     container.innerHTML =
       `<h2>Vytvoriť objednávku</h2><p class="error">Nepodarilo sa načítať produkty: ${escapeHtml(error.message)}</p>`;
@@ -484,31 +482,35 @@ function generateProductCardHTML(p, isLoggedIn) {
     if (isLoggedIn) {
         const byPieceHtml = (p.mj === 'kg') 
           ? `<div class="piece-checkbox-wrapper" style="margin-top:8px; font-size:0.8rem; display:flex; align-items:center; gap:5px;">
-               <input type="checkbox" class="by-piece-checkbox" id="chk-${p.ean}" onchange="toggleItemNote(this, '${p.ean}')">
+               <input type="checkbox" class="by-piece-checkbox" id="chk-${p.ean}" onchange="toggleItemNote(this, '${p.ean}')" style="width:20px;height:20px;">
                <label for="chk-${p.ean}" style="cursor:pointer; color:#64748b;">Objednať na kusy</label>
                <button type="button" class="by-piece-button hidden" onclick="openItemNoteModal('${p.ean}')" 
-                       style="background:none; border:none; color:#16a34a; cursor:pointer;">
+                       style="background:none; border:none; color:#16a34a; cursor:pointer; padding:10px;">
                    <i class="fas fa-pen"></i>
                </button>
              </div>`
           : '';
 
+        const stepVal = p.mj === 'ks' ? '1' : '0.1';
+
         controlsHtml = `
             <div class="card-controls" style="margin-top: auto; padding-top: 15px; border-top: 1px solid #f1f5f9;">
                 <div style="display:flex; justify-content:space-between; align-items:center;">
                     <div style="font-weight:bold; font-size:1.2rem; color:#16a34a;">${priceFormatted} <small style="font-size:0.7rem; color:#64748b;">/ ${unit}</small></div>
-                    <div style="display:flex; align-items:center; gap:5px;">
+                    
+                    <div class="qty-stepper">
+                        <button type="button" class="qty-btn minus" onclick="stepQty(this, -1)">-</button>
                         <input type="number" class="quantity-input" 
-                               min="0" step="${p.mj === 'ks' ? '1' : '0.1'}" 
-                               placeholder="0"
-                               style="width:70px; padding:8px; text-align:center; border:1px solid #cbd5e1; border-radius:6px; font-weight:bold;"
+                               min="0" step="${stepVal}" 
+                               value="" placeholder="0"
                                data-ean="${p.ean}"
                                data-name="${title}"
                                data-price-s-dph="${p.cena_s_dph}"
                                data-price-bez-dph="${p.cena_bez_dph}"
                                data-unit="${p.mj}">
-                        <span style="font-size:0.8rem; color:#64748b;">${unit}</span>
+                        <button type="button" class="qty-btn plus" onclick="stepQty(this, 1)">+</button>
                     </div>
+
                 </div>
                 ${byPieceHtml}
             </div>
@@ -1281,3 +1283,36 @@ function renderCategoryChips(categories) {
         nav.appendChild(btn);
     });
 }
+// === KROKOVACIE TLAČIDLÁ (STEPPER LOGIKA) ===
+window.stepQty = function(btn, direction) {
+    const wrapper = btn.closest('.qty-stepper');
+    const input = wrapper.querySelector('.quantity-input');
+    if (!input) return;
+
+    let step = parseFloat(input.step) || 1;
+    let val = parseFloat(input.value) || 0;
+    
+    let newVal = val + (step * direction);
+    if (newVal < 0) newVal = 0;
+    
+    // Presné zaokrúhlenie kvôli JS floating point anomáliám (napr. 0.1 + 0.2 = 0.300000004)
+    if (step === 1) {
+        input.value = Math.round(newVal);
+    } else {
+        input.value = newVal.toFixed(2).replace(/\.?0+$/, ''); 
+    }
+    
+    if (parseFloat(input.value) === 0) input.value = ''; // Ak je 0, nechajme prázdny input (zobrazí sa placeholder)
+    
+    // Vyvolanie udalosti pre prepočet sumy v košíku
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+};
+
+// === DEBOUNCED VYHĽADÁVANIE ===
+let searchTimeout;
+window.debouncedFilterProducts = function() {
+    clearTimeout(searchTimeout);
+    searchTimeout = setTimeout(() => {
+        filterProducts();
+    }, 300); // 300ms oneskorenie po dopísaní znaku
+};

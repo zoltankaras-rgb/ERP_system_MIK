@@ -2,35 +2,33 @@
 <html lang="sk">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#ffffff">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <title>Objednávkový systém - MIK s.r.o.</title>
     <link rel="icon" href="data:;base64,iVBORw0KGgo=">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/b2c_style.css', v=2) }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/b2c_style.css', v=3) }}">
 </head>
 <body>
 
     <div class="container">
-        <header>
-            <div class="sticky-tools" style="position:sticky; top:0; z-index:900; background:#fff; padding:10px 0; border-bottom:1px solid #e2e8f0; margin-bottom: 20px;">
-                <div style="display:flex; flex-direction:column; gap:10px;">
-                    
-                    <div style="position:relative;">
-                        <i class="fas fa-search" style="position:absolute; left:12px; top:50%; transform:translateY(-50%); color:#94a3b8;"></i>
-                        <input type="text" id="productSearch" placeholder="Hľadať produkt (napr. klobása, stehno)..." 
-                               onkeyup="filterProducts()"
-                               style="width:100%; padding:10px 10px 10px 35px; border-radius:20px; border:1px solid #cbd5e1; font-size:1rem;">
-                    </div>
-
-                    <div id="category-nav" style="display:flex; overflow-x:auto; gap:8px; padding-bottom:5px; scrollbar-width:none;">
-                        </div>
-                </div>
-            </div>
-
+        <header class="app-top-header">
             <img src="https://www.miksro.sk/wp-content/uploads/2025/09/Dizajn-bez-nazvu-1.png" alt="Logo MIK s.r.o." class="logo">
             <div id="header-auth-links" class="header-auth-links"></div>
         </header>
+
+        <div class="sticky-tools" id="main-sticky-bar">
+            <div class="search-bar-wrapper" style="position:relative; margin-bottom: 10px;">
+                <i class="fas fa-search" style="position:absolute; left:14px; top:50%; transform:translateY(-50%); color:#94a3b8;"></i>
+                <input type="text" id="productSearch" placeholder="Hľadať produkt (napr. klobása, stehno)..." 
+                       oninput="debouncedFilterProducts()"
+                       style="width:100%; padding:12px 12px 12px 40px; border-radius:10px; border:1px solid #cbd5e1; font-size:1rem; box-shadow: 0 2px 4px rgba(0,0,0,0.05); -webkit-appearance: none; appearance: none;">
+            </div>
+            <div id="category-nav" class="category-scroll-nav"></div>
+        </div>
 
         <div id="loggedOutView">
             <div id="public-pricelist-container"></div>

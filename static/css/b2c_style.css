@@ -39,7 +39,7 @@ body {
 }
 
 /* =========================
-   HLAVNÝ KONTAJNER & HLAVIČKA
+   HLAVNÝ KONTAJNER
    ========================= */
 
 .container {
@@ -49,17 +49,6 @@ body {
   padding: 20px 40px;
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
   border-radius: 8px;
-}
-
-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-4);
-  padding-bottom: 20px;
-  margin-bottom: 30px;
-  border-bottom: 1px solid var(--border-color);
-  text-align: left;
 }
 
 .logo {
@@ -87,8 +76,7 @@ header {
    NADPISY
    ========================= */
 
-h2,
-h3 {
+h2, h3 {
   color: var(--text-color);
   border-bottom: 2px solid var(--secondary-color);
   padding-bottom: 10px;
@@ -195,10 +183,6 @@ h3 {
   }
 }
 
-.button.btn-block {
-  width: 100% !important;
-}
-
 /* =========================
    SEKCIÁ – KARTY
    ========================= */
@@ -214,7 +198,6 @@ h3 {
   margin-bottom: var(--space-6);
 }
 
-/* Vernostný blok */
 .loyalty-info {
   display: flex;
   justify-content: space-between;
@@ -273,20 +256,13 @@ h3 {
   background: #fff;
 }
 
-.tab-content {
-  display: none;
-}
-
-.tab-content.active {
-  display: block;
-}
+.tab-content { display: none; }
+.tab-content.active { display: block; }
 
 /* =========================================================
-   NOVÝ GRID SYSTÉM (Karty Produktov)
-   Toto nahrádza starý riadkový zoznam
+   GRID SYSTÉM (Karty Produktov)
    ========================================================= */
 
-/* Kontajner pre mriežku */
 .product-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
@@ -294,7 +270,6 @@ h3 {
   padding: 10px 0 30px 0;
 }
 
-/* Samotná karta produktu */
 .product-card {
   background: #fff;
   border: 1px solid var(--border-color);
@@ -304,7 +279,7 @@ h3 {
   flex-direction: column;
   box-shadow: 0 2px 4px rgba(0,0,0,0.03);
   transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s;
-  position: relative; /* kvôli Akcia badge */
+  position: relative; 
   height: 100%;
 }
 
@@ -314,7 +289,6 @@ h3 {
   border-color: var(--primary-color);
 }
 
-/* Obrázok v karte */
 .product-card .img-wrapper {
   border-radius: 8px;
   overflow: hidden;
@@ -334,7 +308,6 @@ h3 {
   transform: scale(1.05);
 }
 
-/* Popis produktu v karte */
 .product-meta {
   font-size: 0.85rem;
   color: #64748b;
@@ -342,24 +315,12 @@ h3 {
   margin-bottom: 15px;
 }
 
-/* Spodná časť karty (Cena + Input) */
 .card-controls {
-  margin-top: auto; /* Tlačí obsah na spodok karty */
+  margin-top: auto; 
   padding-top: 15px;
   border-top: 1px solid #f1f5f9;
 }
 
-/* Input množstva v karte */
-.quantity-input {
-  width: 70px !important;
-  text-align: center;
-  font-weight: bold;
-  padding: 6px !important;
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-}
-
-/* Checkbox "Objednať na kusy" */
 .piece-checkbox-wrapper {
   margin-top: 8px;
   font-size: 0.8rem;
@@ -369,7 +330,6 @@ h3 {
   gap: 6px;
 }
 
-/* Badge pre Akciu */
 .badge-sale {
   position: absolute;
   top: 10px;
@@ -484,58 +444,10 @@ h3 {
   color: #4b5563;
 }
 
-/* =========================
-   RESPONSIVE – TABLET & MOBIL
-   ========================= */
-
-@media (max-width: 1024px) {
-  .container {
-    margin: 1rem;
-    padding: 16px;
-  }
-}
-
-@media (max-width: 768px) {
-  html, body {
-    max-width: 100%;
-    overflow-x: hidden;
-  }
-
-  .container {
-    width: 100%;
-    margin: 0;
-    padding: 15px;
-    box-shadow: none;
-    border-radius: 0;
-  }
-
-  header {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.75rem;
-  }
-
-  /* Grid na mobile – 1 stĺpec */
-  .product-grid {
-    grid-template-columns: 1fr; 
-    gap: 16px;
-  }
-
-  .modal-content {
-    width: 100%;
-    padding: 1.25rem 1rem;
-    max-height: 90vh;
-  }
-}
-
-@media (max-width: 480px) {
-  h2, h3 { font-size: 1.05rem; }
-  .logo { max-width: 160px; }
-}
-/* Pridá 20px medzeru nad formulárom po scrollovaní */
 #auth-section {
     scroll-margin-top: 20px;
 }
+
 /* =========================
    COOKIE LIŠTA
    ========================= */
@@ -568,7 +480,7 @@ h3 {
 .cookie-content h3 {
     margin: 0 0 8px 0;
     font-size: 1.1rem;
-    border: none; /* zrušíme čiaru z globálneho štýlu h3 */
+    border: none; 
     padding: 0;
 }
 
@@ -590,22 +502,6 @@ h3 {
     padding: 10px 20px;
 }
 
-/* Mobilné zobrazenie */
-@media (max-width: 768px) {
-    .cookie-banner {
-        flex-direction: column;
-        text-align: center;
-    }
-    
-    .cookie-actions {
-        width: 100%;
-        flex-direction: column;
-    }
-    
-    .cookie-actions .button {
-        width: 100%;
-    }
-}
 /* =========================
    STICKY CART BAR (MOBILE)
    ========================= */
@@ -618,7 +514,7 @@ h3 {
     border-top: 1px solid #cbd5e1;
     padding: 10px 20px;
     box-shadow: 0 -4px 10px rgba(0,0,0,0.05);
-    z-index: 800; /* Pod cookie lištou (tá má zvyčajne viac) */
+    z-index: 800; 
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -653,7 +549,6 @@ h3 {
     border-radius: 20px !important;
 }
 
-/* Navigačné čipy (Kategórie) */
 .nav-chip {
     white-space: nowrap;
     background: #f1f5f9;
@@ -665,6 +560,11 @@ h3 {
     color: #475569;
     cursor: pointer;
     transition: all 0.2s;
+    flex: 0 0 auto; 
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 36px;
 }
 
 .nav-chip:hover {
@@ -678,88 +578,124 @@ h3 {
     border-color: #fecaca;
 }
 
-/* Na desktope spodnú lištu skryjeme, ak chcete */
 @media (min-width: 769px) {
     .mobile-sticky-cart {
         display: none;
     }
-}/* =========================================================
-   HARDCORE FIX PRE MOBILY (Vložiť na koniec CSS súboru)
+}
+
+/* =========================================================
+   KOMPONENT: DOTYKOVÝ KROKOVAČ (STEPPER) A HLAVIČKA
    ========================================================= */
 
+.app-top-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-bottom: 15px;
+    border-bottom: none;
+    margin-bottom: 0;
+}
+
+.sticky-tools {
+    position: sticky;
+    top: 0;
+    z-index: 900;
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(8px);
+    padding: 10px 0;
+    margin-bottom: 20px;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.category-scroll-nav {
+    display: flex;
+    overflow-x: auto;
+    gap: 8px;
+    padding-bottom: 5px;
+    scrollbar-width: none; /* Firefox */
+    -webkit-overflow-scrolling: touch;
+}
+.category-scroll-nav::-webkit-scrollbar { display: none; }
+
+.qty-stepper {
+    display: flex;
+    align-items: center;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    overflow: hidden;
+    background: #fff;
+    height: 44px; /* Touch target štandard */
+}
+
+.qty-btn {
+    background: #f1f5f9;
+    border: none;
+    color: #334155;
+    width: 44px;
+    height: 100%;
+    font-size: 1.25rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+}
+.qty-btn:active { background: #e2e8f0; }
+
+.qty-stepper .quantity-input {
+    border: none !important;
+    border-radius: 0 !important;
+    width: 60px !important;
+    height: 100% !important;
+    text-align: center;
+    font-weight: bold;
+    font-size: 1.05rem !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    -moz-appearance: textfield;
+    appearance: textfield;
+}
+
+.qty-stepper .quantity-input::-webkit-outer-spin-button,
+.qty-stepper .quantity-input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+/* =========================================================
+   HARDCORE FIX PRE MOBILY (Prepisuje desktopové pravidlá)
+   ========================================================= */
 @media screen and (max-width: 768px) {
-    
-    /* 1. Oprava hlavičky - aby sa prvky netlačili */
-    header {
-        flex-direction: column !important;
-        align-items: center !important;
-        text-align: center !important;
-        gap: 15px !important;
-        padding: 15px !important;
-    }
-
-    .logo {
-        max-width: 180px !important;
-        margin: 0 auto !important;
-    }
-
-    .header-auth-links {
-        width: 100% !important;
-        text-align: center !important;
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
-    }
-
-    /* 2. Oprava Sticky Lišty (Hľadanie a Kategórie) */
-    .sticky-tools {
-        position: sticky !important;
-        top: 0 !important;
-        z-index: 9999 !important; /* Najvyššia priorita */
-        background: #fff !important;
+    .app-top-header {
+        flex-direction: row !important; /* Na mobile vedľa seba */
         padding: 10px 0 !important;
-        width: 100% !important;
-        box-sizing: border-box !important;
+    }
+    
+    .logo { 
+        max-width: 140px !important; 
+        margin: 0 !important; 
+    }
+    
+    .header-auth-links { 
+        width: auto !important; 
+        text-align: right !important; 
     }
 
-    /* Kontajner vnútri sticky lišty */
-    .sticky-tools > div {
-        padding: 0 10px !important;
-        width: 100% !important;
+    .container { 
+        width: 100%;
+        margin: 0;
+        padding: 10px; 
+        box-shadow: none;
+        border-radius: 0;
     }
-
-    /* 3. Oprava rolovacích tlačidiel (Chips) - KRITICKÉ */
-    #category-nav {
-        display: flex !important;
-        flex-direction: row !important;
-        flex-wrap: nowrap !important; /* ZAKÁŽE zalamovanie */
-        overflow-x: auto !important; /* POVOLÍ rolovanie do strán */
-        white-space: nowrap !important;
-        gap: 10px !important;
-        padding: 5px 0 10px 0 !important;
-        width: 100% !important;
-        -webkit-overflow-scrolling: touch;
-        scrollbar-width: none; /* Skryje posuvník */
-    }
-
-    /* Aby sa tlačidlá nezmenšovali */
-    .nav-chip {
-        flex: 0 0 auto !important; 
-        display: inline-flex !important;
-        align-items: center;
-        justify-content: center;
-        height: 36px;
-        padding: 0 15px !important;
-    }
-
-    /* 4. Oprava kariet produktov - 1 stĺpec na celú šírku */
+    
+    /* Vnútenie 1 stĺpca pre produkty s elimináciou pretekania */
     .product-grid {
-        display: grid !important;
-        grid-template-columns: 1fr !important; /* Vždy len jeden stĺpec */
-        gap: 20px !important;
-        padding: 15px !important;
-        width: 100% !important;
-        box-sizing: border-box !important;
+        grid-template-columns: 1fr !important;
+        gap: 16px !important;
+        padding: 0 !important;
     }
 
     .product-card {
@@ -767,23 +703,27 @@ h3 {
         margin: 0 !important;
     }
 
-    /* Obrázok v karte */
     .product-card .img-wrapper {
-        height: 200px !important; /* Fixná výška obrázka */
+        height: 200px !important; 
     }
 
-    /* Ovládanie ceny a množstva na mobile */
-    .card-controls > div {
-        display: flex !important;
-        flex-direction: row !important;
-        justify-content: space-between !important;
-        align-items: center !important;
-        width: 100% !important;
+    .modal-content {
+        width: 100%;
+        padding: 1.25rem 1rem;
+        max-height: 90vh;
     }
 
-    .quantity-input {
-        width: 80px !important;
-        height: 40px !important; /* Väčšie pre prsty */
-        font-size: 16px !important; /* Aby iPhone nepribližoval */
+    .cookie-banner {
+        flex-direction: column;
+        text-align: center;
+    }
+    
+    .cookie-actions {
+        width: 100%;
+        flex-direction: column;
+    }
+    
+    .cookie-actions .button {
+        width: 100%;
     }
 }
