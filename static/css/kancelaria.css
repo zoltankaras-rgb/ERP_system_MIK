@@ -511,3 +511,133 @@ a.btn,
 #section-fleet .delta { font-weight: 700; }
 #section-fleet .delta.up { color: var(--success-color); }
 #section-fleet .delta.down { color: var(--danger-color); }
+/* =====================================================================
+   RESPONZIVITA (TABLETY A MOBILY)
+   ===================================================================== */
+
+@media (max-width: 1024px) {
+  /* --- LAYOUT PRE TABLETY A MOBILY --- */
+  
+  /* Flexibilnejší sidebar pre tablety */
+  .sidebar {
+    width: 200px;
+    padding: 1rem 0.5rem;
+  }
+  
+  /* Zmenšenie paddingu v hlavnom obsahu */
+  .main-content {
+    padding: 1rem;
+  }
+  
+  /* Karty a tabuľky sa môžu zvinúť pod seba ak je to potrebné */
+  .card > .card-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  
+  /* Toolbary sa prispôsobia na viac riadkov */
+  .toolbar, 
+  [id^="section-"] .toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .toolbar > *, 
+  [id^="section-"] .toolbar > * {
+    width: 100%;
+    margin-right: 0 !important;
+  }
+  
+  /* Zväčšenie dotykových plôch pre lepšie ovládanie (Touch Targets) */
+  .btn, button.btn, a.btn,
+  button[class*="btn-"], a[class*="btn-"],
+  input, select, textarea {
+    min-height: 44px; 
+    font-size: 1rem;
+  }
+  
+  .sidebar-nav a {
+    padding: 1rem;
+    font-size: 1rem;
+  }
+}
+
+@media (max-width: 768px) {
+  /* --- LAYOUT PRE MOBILY --- */
+  
+  /* Zmena hlavného layoutu na stĺpcový */
+  .main-layout {
+    flex-direction: column;
+  }
+  
+  /* Sidebar sa presunie hore a funguje ako scrollable menu */
+  .sidebar {
+    width: 100%;
+    border-right: none;
+    border-bottom: 1px solid var(--mid);
+    max-height: 250px; /* Obmedzená výška pre rýchly prístup, zbytok scrollovateľný */
+    padding: 0.5rem;
+  }
+  
+  .sidebar-nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  
+  .sidebar-nav a {
+    flex: 1 1 auto;
+    justify-content: center;
+    padding: 0.75rem;
+    font-size: 0.9rem;
+    text-align: center;
+  }
+  
+  .sidebar-nav a i {
+    margin-right: 0.5rem;
+  }
+  
+  /* Tabuľky s horizontálnym scrollom na malých displejoch */
+  .table-container,
+  [id^="section-"] table {
+    display: block;
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  
+  /* Hlavička aplikácie */
+  .app-header {
+    flex-direction: column;
+    align-items: stretch;
+    text-align: center;
+    gap: 10px;
+  }
+  
+  #server-clock {
+    margin: 10px 0;
+  }
+  
+  /* Modálne okná na celú obrazovku */
+  .modal-content {
+    width: 100%;
+    height: 100%;
+    max-height: 100vh;
+    border-radius: 0;
+    padding: 1rem;
+  }
+  
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  /* VEZG Graf - prispôsobenie */
+  #section-vezg > div {
+    flex-direction: column;
+  }
+  
+  #section-vezg .card {
+    min-width: 100% !important;
+  }
+}
