@@ -435,7 +435,7 @@ def upload_file():
     return jsonify({"ok": True, "path": saved_path})
 
 # ======================================================
-# === B2B Hormadné prepisovanie EANOV v cenníku ========
+# === B2B Hromadné prepisovanie EANOV v cenníku ========
 # ======================================================
 @app.route('/api/kancelaria/catalog/analyze_ean_replace', methods=['POST'])
 @login_required(role=('kancelaria','veduci','admin'))
@@ -447,16 +447,21 @@ def analyze_ean_replace():
     if not old_ean or not new_ean:
         return jsonify({"error": "Chýba starý alebo nový EAN."}), 400
 
-    # ZMENA: Presné názvy tabuliek cennik a polozka_cennika
+    # Explicitné mapovanie na B2B tabuľky
     sql = """
         SELECT c.id AS cennik_id, c.nazov AS cennik_nazov,
-               p1.cena AS old_price,
-               p2.cena AS conflict_price
-        FROM cennik c
-        JOIN polozka_cennika p1 ON c.id = p1.cennik_id AND p1.ean = %s
-        LEFT JOIN polozka_cennika p2 ON c.id = p2.cennik_id AND p2.ean = %s
+               p1.cena_bez_dph AS old_price,
+               p2.cena_bez_dph AS conflict_price
+        FROM b2b_cenniky c
+        JOIN b2b_cennik_polozky p1 ON c.id = p1.cennik_id AND p1.ean = %s
+        LEFT JOIN b2b_cennik_polozky p2 ON c.id = p2.cennik_id AND p2.ean = %s
     """
-    rows = db_connector.execute_query(sql, (old_ean, new_ean), fetch='all') or []
+    
+    try:
+        rows = db_connector.execute_query(sql, (old_ean, new_ean), fetch='all') or []
+    except Exception as e:
+        print(f">>> ANALYZE EAN ERROR: {e}")
+        return jsonify({"error": f"Databázová chyba: {str(e)}"}), 500
     
     results = []
     for r in rows:
@@ -484,15 +489,15 @@ def execute_ean_replace():
     cur = conn.cursor()
     try:
         for cid in confirmed_ids:
-            # 1. Odstránenie kolízie (nový EAN, ak už v cenníku figuruje)
+            # 1. Odstránenie kolízneho nového EAN, ak existuje v danom cenníku
             cur.execute("""
-                DELETE FROM polozka_cennika 
+                DELETE FROM b2b_cennik_polozky 
                 WHERE cennik_id = %s AND ean = %s
             """, (cid, new_ean))
             
-            # 2. Prepis starého EAN na nový so zachovaním ceny
+            # 2. Prepis starého EAN na nový so zachovaním pôvodnej ceny (cena_bez_dph)
             cur.execute("""
-                UPDATE polozka_cennika 
+                UPDATE b2b_cennik_polozky 
                 SET ean = %s 
                 WHERE cennik_id = %s AND ean = %s
             """, (new_ean, cid, old_ean))
@@ -501,11 +506,11 @@ def execute_ean_replace():
         return jsonify({"success": True})
     except Exception as e:
         conn.rollback()
+        print(f">>> EXECUTE EAN ERROR: {e}")
         return jsonify({"error": str(e)}), 500
     finally:
         cur.close()
         conn.close()
-
 # ==========================================
 # === MÄSOVÉ KALKULÁCIE (Meat Calc) ========
 # ==========================================
