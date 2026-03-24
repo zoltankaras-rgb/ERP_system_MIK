@@ -163,6 +163,7 @@
                 <button id="cat-export-csv" class="btn-secondary btn-sm"><i class="fas fa-file-export"></i> Export</button>
                 <button id="cat-import-csv" class="btn-primary btn-sm"><i class="fas fa-file-import"></i> Import</button>
                 <button id="cat-download-template" class="btn-info btn-sm" title="Stiahnuť šablónu"><i class="fas fa-download"></i></button>
+                <button id="cat-btn-bulk-ean" class="btn-warning btn-sm" style="background:#f59e0b; color:#fff; border:none; margin-left:10px;"><i class="fas fa-exchange-alt"></i> Hromadná náhrada EAN</button>
                 <input id="cat-import-file" type="file" accept=".csv,text/csv" style="display:none" />
             </div>
         </div>
@@ -366,7 +367,155 @@
         });
 
         document.getElementById('cat-btn-add').onclick = () => openProductModal(null);
+        const btnBulkEan = document.getElementById('cat-btn-bulk-ean');
+if (btnBulkEan) btnBulkEan.onclick = openBulkEanReplaceModal;
         renderTable();
+
+function openBulkEanReplaceModal() {
+    // Generovanie zoznamu produktov pre zamedzenie chybného vstupu (preklepov)
+    const sortedProds = [...products].sort((a,b) => String(a.nazov_vyrobku).localeCompare(String(b.nazov_vyrobku), 'sk'));
+    const optionsHtml = sortedProds.map(p => `<option value="${escapeHtml(p.ean)}">${escapeHtml(p.nazov_vyrobku)} (${escapeHtml(p.ean)})</option>`).join('');
+
+    const modalHtml = `
+        <div class="form-group">
+            <label style="color:#dc2626; font-weight:bold;">Pôvodný produkt (EAN na vyradenie z cenníkov)</label>
+            <select id="bulk-old-ean" style="width:100%; padding:8px;" class="select-search">
+                <option value="">-- Vyberte produkt --</option>
+                ${optionsHtml}
+            </select>
+        </div>
+        <div class="form-group" style="margin-top:15px;">
+            <label style="color:#166534; font-weight:bold;">Nový produkt (EAN na nahradenie)</label>
+            <select id="bulk-new-ean" style="width:100%; padding:8px;" class="select-search">
+                <option value="">-- Vyberte produkt --</option>
+                ${optionsHtml}
+            </select>
+        </div>
+        <div style="margin-top:20px; text-align:right;">
+            <button id="btn-analyze-ean" class="btn-primary">1. Analyzovať výskyt</button>
+        </div>
+        <div id="bulk-ean-results" style="margin-top:20px; padding-top:15px; border-top:1px solid #e2e8f0;"></div>
+    `;
+
+    openModalCompat('Hromadná náhrada EAN v cenníkoch', {
+        html: modalHtml,
+        onReady: () => {
+            const btnAnalyze = document.getElementById('btn-analyze-ean');
+            const resultsDiv = document.getElementById('bulk-ean-results');
+            const selOld = document.getElementById('bulk-old-ean');
+            const selNew = document.getElementById('bulk-new-ean');
+
+            btnAnalyze.onclick = async () => {
+                const oldEan = selOld.value;
+                const newEan = selNew.value;
+
+                if (!oldEan || !newEan) {
+                    alert('Definujte pôvodný aj nový produkt.');
+                    return;
+                }
+                if (oldEan === newEan) {
+                    alert('Logická chyba: Pôvodný a nový produkt nemôžu byť identické.');
+                    return;
+                }
+
+                resultsDiv.innerHTML = '<div style="text-align:center; padding:10px;"><i class="fas fa-spinner fa-spin"></i> Komunikujem so serverom...</div>';
+
+                try {
+                    const res = await apiRequest('/api/kancelaria/catalog/analyze_ean_replace', {
+                        method: 'POST',
+                        body: { old_ean: oldEan, new_ean: newEan }
+                    });
+
+                    if (res.error) throw new Error(res.error);
+
+                    const affected = res.affected_pricelists || [];
+                    if (affected.length === 0) {
+                        resultsDiv.innerHTML = '<div style="padding:10px; background:#f8fafc; border-radius:4px; color:#475569;">Pôvodný EAN sa nenachádza v žiadnom cenníku. Transakcia nie je potrebná.</div>';
+                        return;
+                    }
+
+                    // Vykreslenie analytickej tabuľky
+                    let tableHtml = `
+                        <h4 style="margin:0 0 10px 0;">Detegované cenníky (${affected.length})</h4>
+                        <table class="tbl" style="width:100%; font-size:0.85rem;">
+                            <thead>
+                                <tr>
+                                    <th style="width:30px; text-align:center;"><input type="checkbox" id="chk-all-ean" checked></th>
+                                    <th>Cenník</th>
+                                    <th style="text-align:right;">Pôvodná cena</th>
+                                    <th style="text-align:center;">Detekcia kolízie</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                    `;
+
+                    affected.forEach((item) => {
+                        const conflictNode = item.has_conflict 
+                            ? '<span style="color:#dc2626; font-weight:bold;"><i class="fas fa-exclamation-triangle"></i> Duplicita (Zmaže sa)</span>' 
+                            : '<span style="color:#166534;">Čistý prepis</span>';
+                        
+                        // Kolízne cenníky zámerne nezaškrtneme predvolene, vyžaduje to explicitné vedomie používateľa
+                        const isChecked = item.has_conflict ? '' : 'checked';
+                        const rowBg = item.has_conflict ? 'background:#fef2f2;' : '';
+
+                        tableHtml += `
+                            <tr style="${rowBg}">
+                                <td style="text-align:center;">
+                                    <input type="checkbox" class="chk-ean-item" data-cid="${item.cennik_id}" ${isChecked}>
+                                </td>
+                                <td>${escapeHtml(item.cennik_nazov)}</td>
+                                <td style="text-align:right; font-weight:bold;">${item.old_price.toFixed(2)} €</td>
+                                <td style="text-align:center;">${conflictNode}</td>
+                            </tr>
+                        `;
+                    });
+
+                    tableHtml += `
+                            </tbody>
+                        </table>
+                        <div style="margin-top:15px; text-align:right;">
+                            <button id="btn-execute-ean" class="btn-success"><i class="fas fa-check"></i> 2. Potvrdiť a vykonať prepis DB</button>
+                        </div>
+                    `;
+
+                    resultsDiv.innerHTML = tableHtml;
+
+                    // Logika checkboxov a finálnej exekúcie
+                    const chkAll = document.getElementById('chk-all-ean');
+                    const itemChks = document.querySelectorAll('.chk-ean-item');
+                    chkAll.onchange = () => itemChks.forEach(c => c.checked = chkAll.checked);
+
+                    document.getElementById('btn-execute-ean').onclick = async () => {
+                        const selectedCids = Array.from(itemChks).filter(c => c.checked).map(c => parseInt(c.dataset.cid));
+                        if (selectedCids.length === 0) {
+                            alert('Na exekúciu musí byť zvolený aspoň jeden cenník.');
+                            return;
+                        }
+
+                        if (!confirm(`VAROVANIE: Táto operácia natvrdo prepíše EAN kódy v ${selectedCids.length} cenníkoch. V prípade kolízie budú existujúce nové EAN kódy premazané a nahradené cenou starého kódu. Pokračovať?`)) return;
+
+                        try {
+                            const execRes = await apiRequest('/api/kancelaria/catalog/execute_ean_replace', {
+                                method: 'POST',
+                                body: { old_ean: oldEan, new_ean: newEan, cennik_ids: selectedCids }
+                            });
+
+                            if (execRes.error) throw new Error(execRes.error);
+
+                            showStatus('Databázová transakcia prebehla úspešne.', false);
+                            hideModalCompat();
+                        } catch (e) {
+                            alert('Kritická chyba pri prepise: ' + e.message);
+                        }
+                    };
+
+                } catch (e) {
+                    resultsDiv.innerHTML = `<div style="color:#dc2626; padding:10px; border:1px solid #fca5a5; background:#fef2f2;">Zlyhanie analytického API: ${escapeHtml(e.message)}</div>`;
+                }
+            };
+        }
+    });
+}
 
         // --- SKLADOVÁ KARTA (MODAL) ---
 async function openStockCard(ean, name) {
