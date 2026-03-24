@@ -372,24 +372,28 @@ if (btnBulkEan) btnBulkEan.onclick = openBulkEanReplaceModal;
         renderTable();
 
 function openBulkEanReplaceModal() {
-    // Generovanie zoznamu produktov pre zamedzenie chybného vstupu (preklepov)
     const sortedProds = [...products].sort((a,b) => String(a.nazov_vyrobku).localeCompare(String(b.nazov_vyrobku), 'sk'));
-    const optionsHtml = sortedProds.map(p => `<option value="${escapeHtml(p.ean)}">${escapeHtml(p.nazov_vyrobku)} (${escapeHtml(p.ean)})</option>`).join('');
+    // Vytvorenie elementov pre vyhľadávanie v tvare "EAN - Názov"
+    const datalistOptions = sortedProds.map(p => `<option value="${escapeHtml(p.ean)} - ${escapeHtml(p.nazov_vyrobku)}">`).join('');
+
+    const extractEan = (val) => {
+        if (!val) return '';
+        const match = val.split(' - ')[0];
+        return match ? match.trim() : '';
+    };
 
     const modalHtml = `
+        <datalist id="bulk-ean-datalist">
+            ${datalistOptions}
+        </datalist>
+        
         <div class="form-group">
-            <label style="color:#dc2626; font-weight:bold;">Pôvodný produkt (EAN na vyradenie z cenníkov)</label>
-            <select id="bulk-old-ean" style="width:100%; padding:8px;" class="select-search">
-                <option value="">-- Vyberte produkt --</option>
-                ${optionsHtml}
-            </select>
+            <label style="color:#dc2626; font-weight:bold;">Pôvodný produkt (Vyhľadaj podľa EAN alebo názvu)</label>
+            <input id="bulk-old-ean-input" type="text" list="bulk-ean-datalist" placeholder="Začnite písať..." style="width:100%; padding:10px; border:1px solid #cbd5e1; border-radius:4px;">
         </div>
         <div class="form-group" style="margin-top:15px;">
-            <label style="color:#166534; font-weight:bold;">Nový produkt (EAN na nahradenie)</label>
-            <select id="bulk-new-ean" style="width:100%; padding:8px;" class="select-search">
-                <option value="">-- Vyberte produkt --</option>
-                ${optionsHtml}
-            </select>
+            <label style="color:#166534; font-weight:bold;">Nový produkt (Vyhľadaj podľa EAN alebo názvu)</label>
+            <input id="bulk-new-ean-input" type="text" list="bulk-ean-datalist" placeholder="Začnite písať..." style="width:100%; padding:10px; border:1px solid #cbd5e1; border-radius:4px;">
         </div>
         <div style="margin-top:20px; text-align:right;">
             <button id="btn-analyze-ean" class="btn-primary">1. Analyzovať výskyt</button>
@@ -402,15 +406,15 @@ function openBulkEanReplaceModal() {
         onReady: () => {
             const btnAnalyze = document.getElementById('btn-analyze-ean');
             const resultsDiv = document.getElementById('bulk-ean-results');
-            const selOld = document.getElementById('bulk-old-ean');
-            const selNew = document.getElementById('bulk-new-ean');
+            const inputOld = document.getElementById('bulk-old-ean-input');
+            const inputNew = document.getElementById('bulk-new-ean-input');
 
             btnAnalyze.onclick = async () => {
-                const oldEan = selOld.value;
-                const newEan = selNew.value;
+                const oldEan = extractEan(inputOld.value);
+                const newEan = extractEan(inputNew.value);
 
                 if (!oldEan || !newEan) {
-                    alert('Definujte pôvodný aj nový produkt.');
+                    alert('Definujte platný pôvodný aj nový produkt zo zoznamu.');
                     return;
                 }
                 if (oldEan === newEan) {
@@ -434,7 +438,6 @@ function openBulkEanReplaceModal() {
                         return;
                     }
 
-                    // Vykreslenie analytickej tabuľky
                     let tableHtml = `
                         <h4 style="margin:0 0 10px 0;">Detegované cenníky (${affected.length})</h4>
                         <table class="tbl" style="width:100%; font-size:0.85rem;">
@@ -454,7 +457,6 @@ function openBulkEanReplaceModal() {
                             ? '<span style="color:#dc2626; font-weight:bold;"><i class="fas fa-exclamation-triangle"></i> Duplicita (Zmaže sa)</span>' 
                             : '<span style="color:#166534;">Čistý prepis</span>';
                         
-                        // Kolízne cenníky zámerne nezaškrtneme predvolene, vyžaduje to explicitné vedomie používateľa
                         const isChecked = item.has_conflict ? '' : 'checked';
                         const rowBg = item.has_conflict ? 'background:#fef2f2;' : '';
 
@@ -480,7 +482,6 @@ function openBulkEanReplaceModal() {
 
                     resultsDiv.innerHTML = tableHtml;
 
-                    // Logika checkboxov a finálnej exekúcie
                     const chkAll = document.getElementById('chk-all-ean');
                     const itemChks = document.querySelectorAll('.chk-ean-item');
                     chkAll.onchange = () => itemChks.forEach(c => c.checked = chkAll.checked);
@@ -492,7 +493,7 @@ function openBulkEanReplaceModal() {
                             return;
                         }
 
-                        if (!confirm(`VAROVANIE: Táto operácia natvrdo prepíše EAN kódy v ${selectedCids.length} cenníkoch. V prípade kolízie budú existujúce nové EAN kódy premazané a nahradené cenou starého kódu. Pokračovať?`)) return;
+                        if (!confirm(`VAROVANIE: Operácia natvrdo prepíše EAN kódy v ${selectedCids.length} cenníkoch. V prípade kolízie budú existujúce nové EAN kódy premazané a nahradené cenou starého kódu. Pokračovať?`)) return;
 
                         try {
                             const execRes = await apiRequest('/api/kancelaria/catalog/execute_ean_replace', {

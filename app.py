@@ -447,14 +447,13 @@ def analyze_ean_replace():
     if not old_ean or not new_ean:
         return jsonify({"error": "Chýba starý alebo nový EAN."}), 400
 
-    # Explicitné mapovanie na B2B tabuľky
     sql = """
-        SELECT c.id AS cennik_id, c.nazov AS cennik_nazov,
-               p1.cena_bez_dph AS old_price,
-               p2.cena_bez_dph AS conflict_price
-        FROM b2b_cenniky c
-        JOIN b2b_cennik_polozky p1 ON c.id = p1.cennik_id AND p1.ean = %s
-        LEFT JOIN b2b_cennik_polozky p2 ON c.id = p2.cennik_id AND p2.ean = %s
+        SELECT c.id AS cennik_id, c.name AS cennik_nazov,
+               p1.price AS old_price,
+               p2.price AS conflict_price
+        FROM b2b_pricelists c
+        JOIN b2b_pricelist_items p1 ON c.id = p1.pricelist_id AND p1.ean = %s
+        LEFT JOIN b2b_pricelist_items p2 ON c.id = p2.pricelist_id AND p2.ean = %s
     """
     
     try:
@@ -489,17 +488,15 @@ def execute_ean_replace():
     cur = conn.cursor()
     try:
         for cid in confirmed_ids:
-            # 1. Odstránenie kolízneho nového EAN, ak existuje v danom cenníku
             cur.execute("""
-                DELETE FROM b2b_cennik_polozky 
-                WHERE cennik_id = %s AND ean = %s
+                DELETE FROM b2b_pricelist_items 
+                WHERE pricelist_id = %s AND ean = %s
             """, (cid, new_ean))
             
-            # 2. Prepis starého EAN na nový so zachovaním pôvodnej ceny (cena_bez_dph)
             cur.execute("""
-                UPDATE b2b_cennik_polozky 
+                UPDATE b2b_pricelist_items 
                 SET ean = %s 
-                WHERE cennik_id = %s AND ean = %s
+                WHERE pricelist_id = %s AND ean = %s
             """, (new_ean, cid, old_ean))
             
         conn.commit()
