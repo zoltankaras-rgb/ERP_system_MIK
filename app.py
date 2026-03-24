@@ -438,28 +438,39 @@ def upload_file():
 # === B2B Hromadné prepisovanie EANOV v cenníku ========
 # ======================================================
 
-def _detect_pricelist_schema():
+def _get_dynamic_pricelist_schema():
     """
-    Dynamická detekcia schémy cenníkov v DB.
-    Vracia: (table_main, table_items, col_main_id, col_item_fk, col_ean, col_price, col_name)
+    Dynamicky skenuje databázu a poskladá presné názvy tabuliek a stĺpcov.
+    Vracia: (table_main, table_items, col_id, col_fk, col_ean, col_price, col_name)
     """
-    # Overenie B2B cenníkov (Slovenská schéma)
-    if _table_has_col('b2b_cennik_polozky', 'ean'):
-        return 'b2b_cenniky', 'b2b_cennik_polozky', 'id', 'cennik_id', 'ean', 'cena_bez_dph', 'nazov'
-    if _table_has_col('b2b_cennik_polozky', 'ean_produktu'):
-        return 'b2b_cenniky', 'b2b_cennik_polozky', 'id', 'cennik_id', 'ean_produktu', 'cena_bez_dph', 'nazov'
+    # 1. Detekcia aktívnych tabuliek
+    if _table_exists('b2b_pricelists') and _table_exists('b2b_pricelist_items'):
+        t_main, t_items = 'b2b_pricelists', 'b2b_pricelist_items'
+    elif _table_exists('b2b_cenniky') and _table_exists('b2b_cennik_polozky'):
+        t_main, t_items = 'b2b_cenniky', 'b2b_cennik_polozky'
+    elif _table_exists('cennik') and _table_exists('polozka_cennika'):
+        t_main, t_items = 'cennik', 'polozka_cennika'
+    else:
+        return None
+
+    # 2. Detekcia stĺpca pre EAN
+    c_ean = 'ean_produktu' if _table_has_col(t_items, 'ean_produktu') else 'ean'
     
-    # Overenie SQLAlchemy modelov cenníkov (Základná schéma)
-    if _table_has_col('polozka_cennika', 'ean'):
-        return 'cennik', 'polozka_cennika', 'id', 'cennik_id', 'ean', 'cena', 'nazov'
-    if _table_has_col('polozka_cennika', 'ean_produktu'):
-        return 'cennik', 'polozka_cennika', 'id', 'cennik_id', 'ean_produktu', 'cena', 'nazov'
+    # 3. Detekcia stĺpca pre cenu
+    if _table_has_col(t_items, 'cena_bez_dph'): c_price = 'cena_bez_dph'
+    elif _table_has_col(t_items, 'price'): c_price = 'price'
+    else: c_price = 'cena'
+    
+    # 4. Detekcia cudzieho kľúča
+    if _table_has_col(t_items, 'cennik_id'): c_fk = 'cennik_id'
+    else: c_fk = 'pricelist_id'
+    
+    # 5. Detekcia stĺpca pre názov cenníka
+    if _table_has_col(t_main, 'nazov'): c_name = 'nazov'
+    else: c_name = 'name'
+    
+    return t_main, t_items, 'id', c_fk, c_ean, c_price, c_name
 
-    # Overenie B2B cenníkov (Anglická schéma)
-    if _table_has_col('b2b_pricelist_items', 'ean'):
-        return 'b2b_pricelists', 'b2b_pricelist_items', 'id', 'pricelist_id', 'ean', 'price', 'name'
-
-    return None
 
 @app.route('/api/kancelaria/catalog/analyze_ean_replace', methods=['POST'])
 @login_required(role=('kancelaria','veduci','admin'))
@@ -471,27 +482,26 @@ def analyze_ean_replace():
     if not old_ean or not new_ean:
         return jsonify({"error": "Chýba starý alebo nový EAN."}), 400
 
-    schema = _detect_pricelist_schema()
+    schema = _get_dynamic_pricelist_schema()
     if not schema:
-        return jsonify({"error": "Kritická chyba: Nepodarilo sa detegovať štruktúru cenníkov v databáze. Chýba platný stĺpec s EAN."}), 500
+        return jsonify({"error": "Kritická chyba: Nepodarilo sa detegovať štruktúru cenníkov v databáze."}), 500
 
     t_main, t_items, c_id, c_fk, c_ean, c_price, c_name = schema
 
-    # Dynamické vloženie správnych identifikátorov (parametrizácia hodnôt EAN chráni pred SQL injekciou)
+    # Ošetrenie EAN kolácií priamo v databáze, predíde chybám s kódovaním
     sql = f"""
         SELECT c.{c_id} AS cennik_id, c.{c_name} AS cennik_nazov,
                p1.{c_price} AS old_price,
                p2.{c_price} AS conflict_price
         FROM {t_main} c
-        JOIN {t_items} p1 ON c.{c_id} = p1.{c_fk} AND p1.{c_ean} = %s
-        LEFT JOIN {t_items} p2 ON c.{c_id} = p2.{c_fk} AND p2.{c_ean} = %s
+        JOIN {t_items} p1 ON c.{c_id} = p1.{c_fk} AND p1.{c_ean} COLLATE utf8mb4_unicode_ci = %s COLLATE utf8mb4_unicode_ci
+        LEFT JOIN {t_items} p2 ON c.{c_id} = p2.{c_fk} AND p2.{c_ean} COLLATE utf8mb4_unicode_ci = %s COLLATE utf8mb4_unicode_ci
     """
     
-    try:
-        rows = db_connector.execute_query(sql, (old_ean, new_ean), fetch='all') or []
-    except Exception as e:
-        print(f">>> ANALYZE EAN ERROR: {e}")
-        return jsonify({"error": f"Databázová chyba: {str(e)}"}), 500
+    # Pre zachytenie reálneho chybového výstupu
+    rows = db_connector.execute_query(sql, (old_ean, new_ean), fetch='all')
+    if rows is None:
+        return jsonify({"error": f"Analyzačná databázová chyba. Skontrolujte log servera."}), 500
     
     results = []
     for r in rows:
@@ -504,6 +514,7 @@ def analyze_ean_replace():
 
     return jsonify({"affected_pricelists": results})
 
+
 @app.route('/api/kancelaria/catalog/execute_ean_replace', methods=['POST'])
 @login_required(role=('kancelaria','veduci','admin'))
 def execute_ean_replace():
@@ -515,7 +526,7 @@ def execute_ean_replace():
     if not old_ean or not new_ean or not confirmed_ids:
         return jsonify({"error": "Neplatné vstupné dáta."}), 400
 
-    schema = _detect_pricelist_schema()
+    schema = _get_dynamic_pricelist_schema()
     if not schema:
         return jsonify({"error": "Kritická chyba: Nepodarilo sa detegovať štruktúru cenníkov v databáze."}), 500
 
