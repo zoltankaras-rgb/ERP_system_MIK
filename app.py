@@ -437,6 +437,30 @@ def upload_file():
 # ======================================================
 # === B2B Hromadné prepisovanie EANOV v cenníku ========
 # ======================================================
+
+def _detect_pricelist_schema():
+    """
+    Dynamická detekcia schémy cenníkov v DB.
+    Vracia: (table_main, table_items, col_main_id, col_item_fk, col_ean, col_price, col_name)
+    """
+    # Overenie B2B cenníkov (Slovenská schéma)
+    if _table_has_col('b2b_cennik_polozky', 'ean'):
+        return 'b2b_cenniky', 'b2b_cennik_polozky', 'id', 'cennik_id', 'ean', 'cena_bez_dph', 'nazov'
+    if _table_has_col('b2b_cennik_polozky', 'ean_produktu'):
+        return 'b2b_cenniky', 'b2b_cennik_polozky', 'id', 'cennik_id', 'ean_produktu', 'cena_bez_dph', 'nazov'
+    
+    # Overenie SQLAlchemy modelov cenníkov (Základná schéma)
+    if _table_has_col('polozka_cennika', 'ean'):
+        return 'cennik', 'polozka_cennika', 'id', 'cennik_id', 'ean', 'cena', 'nazov'
+    if _table_has_col('polozka_cennika', 'ean_produktu'):
+        return 'cennik', 'polozka_cennika', 'id', 'cennik_id', 'ean_produktu', 'cena', 'nazov'
+
+    # Overenie B2B cenníkov (Anglická schéma)
+    if _table_has_col('b2b_pricelist_items', 'ean'):
+        return 'b2b_pricelists', 'b2b_pricelist_items', 'id', 'pricelist_id', 'ean', 'price', 'name'
+
+    return None
+
 @app.route('/api/kancelaria/catalog/analyze_ean_replace', methods=['POST'])
 @login_required(role=('kancelaria','veduci','admin'))
 def analyze_ean_replace():
@@ -447,13 +471,20 @@ def analyze_ean_replace():
     if not old_ean or not new_ean:
         return jsonify({"error": "Chýba starý alebo nový EAN."}), 400
 
-    sql = """
-        SELECT c.id AS cennik_id, c.name AS cennik_nazov,
-               p1.price AS old_price,
-               p2.price AS conflict_price
-        FROM b2b_pricelists c
-        JOIN b2b_pricelist_items p1 ON c.id = p1.pricelist_id AND p1.ean = %s
-        LEFT JOIN b2b_pricelist_items p2 ON c.id = p2.pricelist_id AND p2.ean = %s
+    schema = _detect_pricelist_schema()
+    if not schema:
+        return jsonify({"error": "Kritická chyba: Nepodarilo sa detegovať štruktúru cenníkov v databáze. Chýba platný stĺpec s EAN."}), 500
+
+    t_main, t_items, c_id, c_fk, c_ean, c_price, c_name = schema
+
+    # Dynamické vloženie správnych identifikátorov (parametrizácia hodnôt EAN chráni pred SQL injekciou)
+    sql = f"""
+        SELECT c.{c_id} AS cennik_id, c.{c_name} AS cennik_nazov,
+               p1.{c_price} AS old_price,
+               p2.{c_price} AS conflict_price
+        FROM {t_main} c
+        JOIN {t_items} p1 ON c.{c_id} = p1.{c_fk} AND p1.{c_ean} = %s
+        LEFT JOIN {t_items} p2 ON c.{c_id} = p2.{c_fk} AND p2.{c_ean} = %s
     """
     
     try:
@@ -484,19 +515,25 @@ def execute_ean_replace():
     if not old_ean or not new_ean or not confirmed_ids:
         return jsonify({"error": "Neplatné vstupné dáta."}), 400
 
+    schema = _detect_pricelist_schema()
+    if not schema:
+        return jsonify({"error": "Kritická chyba: Nepodarilo sa detegovať štruktúru cenníkov v databáze."}), 500
+
+    t_main, t_items, c_id, c_fk, c_ean, c_price, c_name = schema
+
     conn = db_connector.get_connection()
     cur = conn.cursor()
     try:
         for cid in confirmed_ids:
-            cur.execute("""
-                DELETE FROM b2b_pricelist_items 
-                WHERE pricelist_id = %s AND ean = %s
+            cur.execute(f"""
+                DELETE FROM {t_items} 
+                WHERE {c_fk} = %s AND {c_ean} = %s
             """, (cid, new_ean))
             
-            cur.execute("""
-                UPDATE b2b_pricelist_items 
-                SET ean = %s 
-                WHERE pricelist_id = %s AND ean = %s
+            cur.execute(f"""
+                UPDATE {t_items} 
+                SET {c_ean} = %s 
+                WHERE {c_fk} = %s AND {c_ean} = %s
             """, (new_ean, cid, old_ean))
             
         conn.commit()
