@@ -438,40 +438,6 @@ def upload_file():
 # === B2B Hromadné prepisovanie EANOV v cenníku ========
 # ======================================================
 
-def _get_dynamic_pricelist_schema():
-    """
-    Dynamicky skenuje databázu a poskladá presné názvy tabuliek a stĺpcov.
-    Vracia: (table_main, table_items, col_id, col_fk, col_ean, col_price, col_name)
-    """
-    # 1. Detekcia aktívnych tabuliek
-    if _table_exists('b2b_pricelists') and _table_exists('b2b_pricelist_items'):
-        t_main, t_items = 'b2b_pricelists', 'b2b_pricelist_items'
-    elif _table_exists('b2b_cenniky') and _table_exists('b2b_cennik_polozky'):
-        t_main, t_items = 'b2b_cenniky', 'b2b_cennik_polozky'
-    elif _table_exists('cennik') and _table_exists('polozka_cennika'):
-        t_main, t_items = 'cennik', 'polozka_cennika'
-    else:
-        return None
-
-    # 2. Detekcia stĺpca pre EAN
-    c_ean = 'ean_produktu' if _table_has_col(t_items, 'ean_produktu') else 'ean'
-    
-    # 3. Detekcia stĺpca pre cenu
-    if _table_has_col(t_items, 'cena_bez_dph'): c_price = 'cena_bez_dph'
-    elif _table_has_col(t_items, 'price'): c_price = 'price'
-    else: c_price = 'cena'
-    
-    # 4. Detekcia cudzieho kľúča
-    if _table_has_col(t_items, 'cennik_id'): c_fk = 'cennik_id'
-    else: c_fk = 'pricelist_id'
-    
-    # 5. Detekcia stĺpca pre názov cenníka
-    if _table_has_col(t_main, 'nazov'): c_name = 'nazov'
-    else: c_name = 'name'
-    
-    return t_main, t_items, 'id', c_fk, c_ean, c_price, c_name
-
-
 @app.route('/api/kancelaria/catalog/analyze_ean_replace', methods=['POST'])
 @login_required(role=('kancelaria','veduci','admin'))
 def analyze_ean_replace():
@@ -482,26 +448,21 @@ def analyze_ean_replace():
     if not old_ean or not new_ean:
         return jsonify({"error": "Chýba starý alebo nový EAN."}), 400
 
-    schema = _get_dynamic_pricelist_schema()
-    if not schema:
-        return jsonify({"error": "Kritická chyba: Nepodarilo sa detegovať štruktúru cenníkov v databáze."}), 500
-
-    t_main, t_items, c_id, c_fk, c_ean, c_price, c_name = schema
-
-    # Ošetrenie EAN kolácií priamo v databáze, predíde chybám s kódovaním
-    sql = f"""
-        SELECT c.{c_id} AS cennik_id, c.{c_name} AS cennik_nazov,
-               p1.{c_price} AS old_price,
-               p2.{c_price} AS conflict_price
-        FROM {t_main} c
-        JOIN {t_items} p1 ON c.{c_id} = p1.{c_fk} AND p1.{c_ean} COLLATE utf8mb4_unicode_ci = %s COLLATE utf8mb4_unicode_ci
-        LEFT JOIN {t_items} p2 ON c.{c_id} = p2.{c_fk} AND p2.{c_ean} COLLATE utf8mb4_unicode_ci = %s COLLATE utf8mb4_unicode_ci
+    # Natvrdo zvolená B2B schéma a ošetrenie znakovej sady cez CONVERT
+    sql = """
+        SELECT c.id AS cennik_id, c.nazov AS cennik_nazov,
+               p1.cena_bez_dph AS old_price,
+               p2.cena_bez_dph AS conflict_price
+        FROM b2b_cenniky c
+        JOIN b2b_cennik_polozky p1 ON c.id = p1.cennik_id AND CONVERT(p1.ean USING utf8mb4) = CONVERT(%s USING utf8mb4)
+        LEFT JOIN b2b_cennik_polozky p2 ON c.id = p2.cennik_id AND CONVERT(p2.ean USING utf8mb4) = CONVERT(%s USING utf8mb4)
     """
     
-    # Pre zachytenie reálneho chybového výstupu
-    rows = db_connector.execute_query(sql, (old_ean, new_ean), fetch='all')
-    if rows is None:
-        return jsonify({"error": f"Analyzačná databázová chyba. Skontrolujte log servera."}), 500
+    try:
+        rows = db_connector.execute_query(sql, (old_ean, new_ean), fetch='all') or []
+    except Exception as e:
+        print(f">>> ANALYZE EAN ERROR: {e}")
+        return jsonify({"error": f"DB Chyba: {str(e)}"}), 500
     
     results = []
     for r in rows:
@@ -526,25 +487,19 @@ def execute_ean_replace():
     if not old_ean or not new_ean or not confirmed_ids:
         return jsonify({"error": "Neplatné vstupné dáta."}), 400
 
-    schema = _get_dynamic_pricelist_schema()
-    if not schema:
-        return jsonify({"error": "Kritická chyba: Nepodarilo sa detegovať štruktúru cenníkov v databáze."}), 500
-
-    t_main, t_items, c_id, c_fk, c_ean, c_price, c_name = schema
-
     conn = db_connector.get_connection()
     cur = conn.cursor()
     try:
         for cid in confirmed_ids:
-            cur.execute(f"""
-                DELETE FROM {t_items} 
-                WHERE {c_fk} = %s AND {c_ean} = %s
+            cur.execute("""
+                DELETE FROM b2b_cennik_polozky 
+                WHERE cennik_id = %s AND CONVERT(ean USING utf8mb4) = CONVERT(%s USING utf8mb4)
             """, (cid, new_ean))
             
-            cur.execute(f"""
-                UPDATE {t_items} 
-                SET {c_ean} = %s 
-                WHERE {c_fk} = %s AND {c_ean} = %s
+            cur.execute("""
+                UPDATE b2b_cennik_polozky 
+                SET ean = %s 
+                WHERE cennik_id = %s AND CONVERT(ean USING utf8mb4) = CONVERT(%s USING utf8mb4)
             """, (new_ean, cid, old_ean))
             
         conn.commit()
