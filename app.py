@@ -448,14 +448,14 @@ def analyze_ean_replace():
     if not old_ean or not new_ean:
         return jsonify({"error": "Chýba starý alebo nový EAN."}), 400
 
-    # Natvrdo zvolená B2B schéma a ošetrenie znakovej sady cez CONVERT
+    # 100% presné názvy stĺpcov podľa schema_prompt.md
     sql = """
-        SELECT c.id AS cennik_id, c.nazov AS cennik_nazov,
-               p1.cena_bez_dph AS old_price,
-               p2.cena_bez_dph AS conflict_price
+        SELECT c.id AS cennik_id, c.nazov_cennika AS cennik_nazov,
+               p1.cena AS old_price,
+               p2.cena AS conflict_price
         FROM b2b_cenniky c
-        JOIN b2b_cennik_polozky p1 ON c.id = p1.cennik_id AND CONVERT(p1.ean USING utf8mb4) = CONVERT(%s USING utf8mb4)
-        LEFT JOIN b2b_cennik_polozky p2 ON c.id = p2.cennik_id AND CONVERT(p2.ean USING utf8mb4) = CONVERT(%s USING utf8mb4)
+        JOIN b2b_cennik_polozky p1 ON c.id = p1.cennik_id AND CONVERT(p1.ean_produktu USING utf8mb4) = CONVERT(%s USING utf8mb4)
+        LEFT JOIN b2b_cennik_polozky p2 ON c.id = p2.cennik_id AND CONVERT(p2.ean_produktu USING utf8mb4) = CONVERT(%s USING utf8mb4)
     """
     
     try:
@@ -491,15 +491,17 @@ def execute_ean_replace():
     cur = conn.cursor()
     try:
         for cid in confirmed_ids:
+            # 1. Zmaže duplicitu (ak už nový EAN existuje v tomto cenníku)
             cur.execute("""
                 DELETE FROM b2b_cennik_polozky 
-                WHERE cennik_id = %s AND CONVERT(ean USING utf8mb4) = CONVERT(%s USING utf8mb4)
+                WHERE cennik_id = %s AND CONVERT(ean_produktu USING utf8mb4) = CONVERT(%s USING utf8mb4)
             """, (cid, new_ean))
             
+            # 2. Prepíše starý EAN na nový so zachovaním ceny
             cur.execute("""
                 UPDATE b2b_cennik_polozky 
-                SET ean = %s 
-                WHERE cennik_id = %s AND CONVERT(ean USING utf8mb4) = CONVERT(%s USING utf8mb4)
+                SET ean_produktu = %s 
+                WHERE cennik_id = %s AND CONVERT(ean_produktu USING utf8mb4) = CONVERT(%s USING utf8mb4)
             """, (new_ean, cid, old_ean))
             
         conn.commit()
