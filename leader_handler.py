@@ -723,44 +723,6 @@ def leader_b2b_notify_order():
 
     return jsonify({'message':'Objednávka spracovaná, CSV uložené pre sync.', 'order_id': order_id})
 
-# =============================================================================
-# TV Tabuľa: Ukladanie globálneho oznamu a stálych poznámok pre zákazníkov
-# ============================================================================
-@leader_bp.route('/tv_board/global_note', methods=['POST'])
-@login_required
-def save_global_note():
-    """Uloží globálny oznam pre expedíciu."""
-    data = request.json
-    note = data.get('note', '')
-    conn = _get_conn()
-    try:
-        cur = conn.cursor()
-        # Využijeme tabuľku system_settings
-        cur.execute("""
-            INSERT INTO system_settings (kluc, hodnota) 
-            VALUES ('expedicia_globalny_oznam', %s) 
-            ON DUPLICATE KEY UPDATE hodnota = %s, updated_at = NOW()
-        """, (note, note))
-        conn.commit()
-        return jsonify({"message": "Globálny oznam uložený."})
-    finally:
-        conn.close()
-
-@leader_bp.route('/tv_board/customer_note', methods=['POST'])
-@login_required
-def save_customer_note():
-    """Uloží stálu požiadavku ku konkrétnemu zákazníkovi."""
-    data = request.json
-    zakaznik_id = data.get('zakaznik_id')
-    note = data.get('note', '')
-    conn = _get_conn()
-    try:
-        cur = conn.cursor()
-        cur.execute("UPDATE b2b_zakaznici SET stala_poznamka_expedicia = %s WHERE zakaznik_id = %s", (note, zakaznik_id))
-        conn.commit()
-        return jsonify({"message": "Stála požiadavka uložená."})
-    finally:
-        conn.close()
 
 # =============================================================================
 # TV TABUĽA: Správa oznamov a stálych poznámok
