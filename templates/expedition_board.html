@@ -9,9 +9,10 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
 
   <style>
+    /* TVRDÝ ZÁKAZ ROLOVANIA */
     body, html {
-        margin: 0; padding: 0; height: 100%;
-        background-color: #f4f6f9; /* Farba pozadia z vášho ERP */
+        margin: 0; padding: 0; height: 100vh; overflow: hidden;
+        background-color: #f4f6f9; 
         font-family: 'Inter', sans-serif;
         color: #333;
     }
@@ -19,47 +20,61 @@
         display: flex;
         flex-direction: column;
         height: 100vh;
+        width: 100vw;
     }
+    
     /* Hlavička s logom, dátumom a časom */
     .tv-header {
+        flex: 0 0 auto;
         display: flex; justify-content: space-between; align-items: center;
         background-color: #ffffff;
         padding: 15px 30px;
         box-shadow: 0 4px 10px rgba(0,0,0,0.05);
-        border-bottom: 5px solid #d32f2f; /* Červený pruh MIK */
+        border-bottom: 5px solid #d32f2f;
     }
-    .logo-box img {
-        height: 70px; /* Vaše logo MIK */
-    }
-    .title-box {
-        text-align: center;
-    }
-    .title-box h1 {
-        margin: 0; font-size: 2.2rem; color: #2c3e50; font-weight: 800; text-transform: uppercase;
-    }
-    .title-box .target-date {
-        font-size: 1.5rem; color: #d32f2f; font-weight: 700; margin-top: 5px;
-    }
-    .time-box {
-        font-size: 3rem; font-weight: 800; color: #2c3e50;
-        font-variant-numeric: tabular-nums;
-        min-width: 150px;
-        text-align: right;
-    }
+    .logo-box img { height: 70px; }
+    .title-box { text-align: center; }
+    .title-box h1 { margin: 0; font-size: 2.2rem; color: #2c3e50; font-weight: 800; text-transform: uppercase; }
+    .title-box .target-date { font-size: 1.5rem; color: #d32f2f; font-weight: 700; margin-top: 5px; }
+    .time-box { font-size: 3rem; font-weight: 800; color: #2c3e50; font-variant-numeric: tabular-nums; min-width: 150px; text-align: right; }
     
-    /* Hlavný obsah */
+    /* GLOBÁLNY OZNAM OD VEDÚCEJ */
+    #global-note-container {
+        flex: 0 0 auto;
+        background-color: #ffc107; /* Žltá výstražná farba */
+        color: #000;
+        font-size: 2.4rem;
+        font-weight: 800;
+        text-align: center;
+        padding: 15px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+        display: none; /* Skryté v základe */
+        z-index: 10;
+        border-bottom: 2px solid #e0a800;
+    }
+
+    /* Hlavný priestor pre karty (vyplní zvyšok obrazovky) */
     .tv-content {
-        flex: 1;
-        padding: 30px;
-        overflow-y: auto; 
+        flex: 1 1 auto;
+        padding: 25px;
+        box-sizing: border-box;
+        display: flex;
+        align-items: stretch;
+        justify-content: center;
+        overflow: hidden; /* Nikdy sa to nebude scrollovať */
     }
     
     /* Mriežka pre karty objednávok */
     #obsah-tabule {
+        width: 100%;
         display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(450px, 1fr));
-        gap: 25px;
+        grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+        gap: 20px;
         align-content: start;
+        transform-origin: top center; /* Aby sa to zmenšovalo smerom nahor */
+        transition: transform 0.3s ease; /* Plynulé zmenšenie */
     }
 
     /* Úhľadná karta */
@@ -78,46 +93,22 @@
         border-bottom: 2px solid #f0f0f0;
         padding-bottom: 12px;
     }
-    .zakaznik-nazov {
-        font-size: 1.8rem; font-weight: 800; color: #2c3e50;
-    }
-    .objednavka-info {
-        font-size: 1.1rem; color: #7f8c8d; font-weight: 600;
-    }
+    .zakaznik-nazov { font-size: 1.8rem; font-weight: 800; color: #2c3e50; }
+    .objednavka-info { font-size: 1.1rem; color: #7f8c8d; font-weight: 600; }
 
     /* Poznámky */
-    .poznamka-riadok {
-        display: flex; align-items: flex-start; gap: 12px;
-        font-size: 1.3rem; font-weight: 600;
-        padding: 12px; border-radius: 8px;
-    }
-    .stala-poznamka {
-        background-color: #fff3cd; color: #856404; border: 1px solid #ffeeba;
-    }
-    .dnesna-poznamka {
-        background-color: #e2e3e5; color: #383d41; border: 1px solid #d6d8db;
-    }
+    .poznamka-riadok { display: flex; align-items: flex-start; gap: 12px; font-size: 1.3rem; font-weight: 600; padding: 12px; border-radius: 8px; }
+    .stala-poznamka { background-color: #fff3cd; color: #856404; border: 1px solid #ffeeba; }
+    .dnesna-poznamka { background-color: #e2e3e5; color: #383d41; border: 1px solid #d6d8db; }
     .ikona { font-size: 1.5rem; }
 
-    /* Ak je všetko vybavené */
-    .nic-nove {
-        grid-column: 1 / -1;
-        text-align: center;
-        font-size: 2.2rem;
-        color: #7f8c8d;
-        margin-top: 15vh;
-        font-weight: 600;
-    }
-    .nic-nove i {
-        font-size: 4rem; color: #2ecc71; margin-bottom: 20px; display: block;
-    }
   </style>
 </head>
 <body>
   <div class="tv-container">
       <div class="tv-header">
           <div class="logo-box">
-              <img src="/static/mik logo.jpg" alt="MIK Logo">
+              <img src="/static/mik logo.jpg" alt="MIK Logo"> 
           </div>
           <div class="title-box">
               <h1>Špeciálne požiadavky</h1>
@@ -126,9 +117,11 @@
           <div class="time-box" id="aktualny-cas">00:00:00</div>
       </div>
 
+      <div id="global-note-container"></div>
+
       <div class="tv-content">
           <div id="obsah-tabule">
-              <div class="nic-nove">Načítavam systém...</div>
+              <div style="grid-column: 1 / -1; text-align: center; font-size: 2.2rem; color: #7f8c8d; margin-top: 15vh;">Načítavam systém...</div>
           </div>
       </div>
   </div>

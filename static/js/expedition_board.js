@@ -14,10 +14,19 @@ function nacitajPoznamkyNaTabulu() {
         .then(data => {
             const obsah = document.getElementById('obsah-tabule');
             const datumElement = document.getElementById('cielovy-datum');
+            const globalNoteElement = document.getElementById('global-note-container');
             
-            // Aktualizácia hlavičky s cieľovým dátumom
+            // A. Aktualizácia hlavičky s cieľovým dátumom
             if (data.cielovy_datum) {
                 datumElement.innerHTML = `Chystáme na: <strong>${data.cielovy_datum}</strong>`;
+            }
+
+            // B. Zobrazenie GLOBÁLNEHO OZNAMU (Ak ho vedúca zadala)
+            if (data.global_note && data.global_note.trim() !== '') {
+                globalNoteElement.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i> OZNAM: ${data.global_note}`;
+                globalNoteElement.style.display = 'block';
+            } else {
+                globalNoteElement.style.display = 'none';
             }
 
             const poznamky = data.poznamky || [];
@@ -25,10 +34,11 @@ function nacitajPoznamkyNaTabulu() {
             // Ak na daný deň nie sú žiadne výnimky
             if (poznamky.length === 0) {
                 obsah.innerHTML = `
-                    <div class="nic-nove">
-                        <i class="fa-solid fa-circle-check"></i>
+                    <div style="grid-column: 1 / -1; text-align: center; font-size: 2.5rem; color: #7f8c8d; margin-top: 10vh; font-weight: 600;">
+                        <i class="fa-solid fa-circle-check" style="font-size: 5rem; color: #2ecc71; margin-bottom: 20px; display: block;"></i>
                         Všetky špeciálne požiadavky na ${data.cielovy_datum} sú pripravené.<br>Chystajte štandardne.
                     </div>`;
+                prisposobVelkost(); // Reset zmenšenia
                 return;
             }
 
@@ -53,7 +63,6 @@ function nacitajPoznamkyNaTabulu() {
                         </div>`;
                 }
 
-                // TUTO JE ZMENA: Pridaný červený dátum s ikonkou kalendára
                 html += `
                     <div class="karta">
                         <div class="zakaznik-hlavicka">
@@ -71,11 +80,41 @@ function nacitajPoznamkyNaTabulu() {
             });
             
             obsah.innerHTML = html;
+
+            // C. AUTO-SCALE: Zmenšenie mriežky, ak je tovaru veľa
+            setTimeout(prisposobVelkost, 50); // Mierne oneskorenie, kým prehliadač vykreslí nové karty
         })
         .catch(error => {
             console.error('Chyba spojenia s backendom tabule:', error);
         });
 }
+
+// 3. FUNKCIA NA STLAČENIE OBSAHU DO 1 OBRAZOVKY (Zákaz scrollovania)
+function prisposobVelkost() {
+    const contentArea = document.querySelector('.tv-content');
+    const board = document.getElementById('obsah-tabule');
+    
+    if (!contentArea || !board) return;
+
+    // Najskôr vrátime všetko do pôvodnej veľkosti (100%)
+    board.style.transform = 'scale(1)';
+    
+    // Zistíme, koľko máme miesta a aká vysoká je mriežka s kartami
+    const availableHeight = contentArea.clientHeight;
+    const currentHeight = board.scrollHeight;
+    
+    // Ak mriežka pretŕča z obrazovky von...
+    if (currentHeight > availableHeight && availableHeight > 0) {
+        // Vypočítame koeficient zmenšenia (necháme 2% rezervu, aby nebola prilepená úplne k okraju)
+        let scaleFactor = (availableHeight / currentHeight) * 0.98;
+        
+        // Aplikujeme CSS zmenšenie
+        board.style.transform = `scale(${scaleFactor})`;
+    }
+}
+
+// Prepočet aj pri ručnej zmene veľkosti okna (napr. ak sa TV prepne na inú obrazovku)
+window.addEventListener('resize', prisposobVelkost);
 
 // Spustenie po načítaní stránky
 document.addEventListener("DOMContentLoaded", function() {
