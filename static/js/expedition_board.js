@@ -1,7 +1,8 @@
 // static/js/expedition_board.js
 
 function nacitajPoznamkyNaTabulu() {
-    fetch('/api/expedition_board/data')
+    // TUTO JE ZMENA: Presne vaša cesta z app.py
+    fetch('/api/tv-board/data') 
         .then(response => response.json())
         .then(data => {
             const obsah = document.getElementById('obsah-tabule');
@@ -36,13 +37,11 @@ function nacitajPoznamkyNaTabulu() {
                 }
 
                 html += `
-                    <div class="karta">
-                        <div class="zakaznik-hlavicka">
-                            <div class="zakaznik-nazov">${obj.zakaznik}</div>
-                            <div class="objednavka-info">Dodanie: ${obj.datum_dodania} | ${obj.id_objednavky}</div>
-                        </div>
-                        ${poznamkyHtml}
+                    <div class="note-card-header">
+                        <div class="zakaznik-nazov">${obj.zakaznik}</div>
+                        <div class="order-info">Dodanie: ${obj.datum_dodania} | ${obj.id_objednavky}</div>
                     </div>
+                    ${poznamkyHtml}
                 `;
             });
             

@@ -4694,17 +4694,6 @@ def meat_report_supplier_product_api():
 # =================================================================
 # === Expedicia dashboard ==========================
 # =================================================================
-@app.route('/expedicia/board')
-def expedition_board_view():
-    # Zobrazenie samotnej html šablóny pre monitor na stene
-    return render_template('expedition_board.html')
-
-@app.route('/api/expedition_board/data')
-def api_expedition_board_data():
-    # Vráti čisté JSON dáta pre náš nový JS súbor
-    data = expedition_board_handler.get_special_expedition_notes()
-    return jsonify(data)
-
 
 @app.route('/expedicia/tv-board')
 def tv_board_view():
