@@ -23,83 +23,82 @@
         width: 100vw;
     }
     
-    /* Hlavička s logom, dátumom a časom */
+    /* Hlavička */
     .tv-header {
         flex: 0 0 auto;
         display: flex; justify-content: space-between; align-items: center;
         background-color: #ffffff;
-        padding: 15px 40px; /* Zväčšené odsadenie od okrajov */
+        padding: 20px 40px;
         box-shadow: 0 4px 10px rgba(0,0,0,0.05);
         border-bottom: 6px solid #d32f2f;
     }
-    .logo-box img { height: 80px; } /* Mierne zväčšené logo */
+    .logo-box img { height: 80px; }
     .title-box { text-align: center; }
-    .title-box h1 { margin: 0; font-size: 2.6rem; color: #2c3e50; font-weight: 800; text-transform: uppercase; }
-    .title-box .target-date { font-size: 1.8rem; color: #d32f2f; font-weight: 700; margin-top: 5px; }
-    .time-box { font-size: 3.5rem; font-weight: 800; color: #2c3e50; font-variant-numeric: tabular-nums; min-width: 180px; text-align: right; }
+    .title-box h1 { margin: 0; font-size: 2.8rem; color: #2c3e50; font-weight: 800; text-transform: uppercase; }
+    .title-box .target-date { font-size: 2rem; color: #d32f2f; font-weight: 700; margin-top: 5px; }
+    .time-box { font-size: 3.8rem; font-weight: 800; color: #2c3e50; font-variant-numeric: tabular-nums; min-width: 200px; text-align: right; }
     
     /* GLOBÁLNY OZNAM OD VEDÚCEJ */
     #global-note-container {
         flex: 0 0 auto;
-        background-color: #ffc107; /* Žltá výstražná farba */
+        background-color: #ffc107; 
         color: #000;
-        font-size: 2.6rem;
+        font-size: 2.8rem;
         font-weight: 800;
         text-align: center;
-        padding: 20px;
+        padding: 25px;
         text-transform: uppercase;
         letter-spacing: 1px;
         box-shadow: 0 4px 10px rgba(0,0,0,0.15);
-        display: none; /* Skryté v základe */
+        display: none;
         z-index: 10;
         border-bottom: 2px solid #e0a800;
     }
 
-    /* Hlavný priestor pre karty - odstránené centrovanie, pridaná plná šírka */
+    /* Hlavný priestor - Roztiahnutý na full */
     .tv-content {
         flex: 1 1 auto;
-        padding: 40px; /* Výrazné medzery od rámov TV */
+        padding: 40px; /* Odstupy od plastových okrajov TV */
         box-sizing: border-box;
         width: 100%;
-        display: block; /* Oprava: odstránený flex center, aby grid mohol dýchať */
-        overflow: hidden; /* Nikdy sa to nebude scrollovať */
+        overflow: hidden; 
     }
     
-    /* Mriežka pre karty objednávok - flexibilne roztiahnuté na celú šírku TV */
+    /* Mriežka */
     #obsah-tabule {
         width: 100%;
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(550px, 1fr)); /* Obrovské karty pre TV */
-        gap: 30px; /* Väčšie medzery medzi kartami */
+        /* KĽÚČOVÁ ZMENA: Min 30% znamená, že karty budú vždy roztiahnuté a max 3 vedľa seba */
+        grid-template-columns: repeat(auto-fit, minmax(30%, 1fr));
+        gap: 35px;
         align-content: start;
-        transform-origin: top center; 
-        transition: transform 0.3s ease; 
+        transform-origin: top left; /* Pri zmenšovaní sa zarovná k ľavému okraju, nie do stredu */
     }
 
-    /* Úhľadná karta - OVEĽA VÄČŠIA a výstrednejšia */
+    /* Úhľadná karta - OBRIA PRE TV */
     .karta {
         background: #ffffff;
         border-radius: 16px;
-        box-shadow: 0 8px 25px rgba(0,0,0,0.08);
-        border-left: 12px solid #d32f2f; /* Hrubší pruh */
-        padding: 30px; /* Dvojnásobné vnútorné odsadenie */
+        box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+        border-left: 15px solid #d32f2f;
+        padding: 35px;
         display: flex;
         flex-direction: column;
-        gap: 20px;
+        gap: 25px;
     }
     .zakaznik-hlavicka {
         display: flex; justify-content: space-between; align-items: baseline;
-        border-bottom: 2px solid #f0f0f0;
-        padding-bottom: 15px;
+        border-bottom: 3px solid #f0f0f0;
+        padding-bottom: 20px;
     }
-    .zakaznik-nazov { font-size: 2.3rem; font-weight: 800; color: #2c3e50; } /* Písmo prečítateľné z 10 metrov */
-    .objednavka-info { font-size: 1.5rem; color: #7f8c8d; font-weight: 600; }
+    .zakaznik-nazov { font-size: 2.8rem; font-weight: 800; color: #2c3e50; } 
+    .objednavka-info { font-size: 1.8rem; color: #7f8c8d; font-weight: 700; }
 
-    /* Poznámky - zväčšené */
-    .poznamka-riadok { display: flex; align-items: flex-start; gap: 15px; font-size: 1.7rem; font-weight: 600; padding: 18px; border-radius: 10px; }
-    .stala-poznamka { background-color: #fff3cd; color: #856404; border: 1px solid #ffeeba; }
-    .dnesna-poznamka { background-color: #e2e3e5; color: #383d41; border: 1px solid #d6d8db; }
-    .ikona { font-size: 2rem; }
+    /* Poznámky */
+    .poznamka-riadok { display: flex; align-items: flex-start; gap: 20px; font-size: 2.2rem; font-weight: 700; padding: 25px; border-radius: 12px; line-height: 1.4; }
+    .stala-poznamka { background-color: #fff3cd; color: #856404; border: 2px solid #ffeeba; }
+    .dnesna-poznamka { background-color: #e2e3e5; color: #383d41; border: 2px solid #d6d8db; }
+    .ikona { font-size: 2.5rem; }
 
   </style>
 </head>
@@ -120,7 +119,7 @@
 
       <div class="tv-content">
           <div id="obsah-tabule">
-              <div style="grid-column: 1 / -1; text-align: center; font-size: 2.8rem; color: #7f8c8d; margin-top: 15vh;">Načítavam systém...</div>
+              <div style="grid-column: 1 / -1; text-align: center; font-size: 3rem; color: #7f8c8d; margin-top: 15vh;">Načítavam systém...</div>
           </div>
       </div>
   </div>

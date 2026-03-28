@@ -1,13 +1,11 @@
 // static/js/expedition_board.js
 
-// 1. Hodiny v reálnom čase
 function aktualizujCas() {
     const teraz = new Date();
     const casString = teraz.toLocaleTimeString('sk-SK', { hour12: false });
     document.getElementById('aktualny-cas').textContent = casString;
 }
 
-// 2. Načítavanie poznámok
 function nacitajPoznamkyNaTabulu() {
     fetch('/api/tv-board/data') 
         .then(response => response.json())
@@ -16,12 +14,10 @@ function nacitajPoznamkyNaTabulu() {
             const datumElement = document.getElementById('cielovy-datum');
             const globalNoteElement = document.getElementById('global-note-container');
             
-            // A. Aktualizácia hlavičky s cieľovým dátumom
             if (data.cielovy_datum) {
                 datumElement.innerHTML = `Chystáme na: <strong>${data.cielovy_datum}</strong>`;
             }
 
-            // B. Zobrazenie GLOBÁLNEHO OZNAMU (Ak ho vedúca zadala)
             if (data.global_note && data.global_note.trim() !== '') {
                 globalNoteElement.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i> OZNAM: ${data.global_note}`;
                 globalNoteElement.style.display = 'block';
@@ -31,18 +27,16 @@ function nacitajPoznamkyNaTabulu() {
 
             const poznamky = data.poznamky || [];
 
-            // Ak na daný deň nie sú žiadne výnimky
             if (poznamky.length === 0) {
                 obsah.innerHTML = `
-                    <div style="grid-column: 1 / -1; text-align: center; font-size: 2.5rem; color: #7f8c8d; margin-top: 10vh; font-weight: 600;">
-                        <i class="fa-solid fa-circle-check" style="font-size: 5rem; color: #2ecc71; margin-bottom: 20px; display: block;"></i>
+                    <div style="grid-column: 1 / -1; text-align: center; font-size: 3rem; color: #7f8c8d; margin-top: 15vh; font-weight: 600;">
+                        <i class="fa-solid fa-circle-check" style="font-size: 6rem; color: #2ecc71; margin-bottom: 25px; display: block;"></i>
                         Všetky špeciálne požiadavky na ${data.cielovy_datum} sú pripravené.<br>Chystajte štandardne.
                     </div>`;
-                prisposobVelkost(); // Reset zmenšenia
+                prisposobVelkost(); 
                 return;
             }
 
-            // Generovanie úhľadných kariet pre zákazníkov
             let html = '';
             poznamky.forEach(obj => {
                 let poznamkyHtml = '';
@@ -68,7 +62,7 @@ function nacitajPoznamkyNaTabulu() {
                         <div class="zakaznik-hlavicka">
                             <div class="zakaznik-nazov">${obj.zakaznik}</div>
                             <div class="objednavka-info">
-                                <span style="color: #d32f2f; font-weight: 800; font-size: 1.3rem; margin-right: 12px; background: #ffebee; padding: 4px 8px; border-radius: 4px;">
+                                <span style="color: #d32f2f; font-weight: 800; font-size: 1.6rem; margin-right: 15px; background: #ffebee; padding: 6px 12px; border-radius: 6px;">
                                     <i class="fa-regular fa-calendar"></i> ${obj.datum_dodania}
                                 </span>
                                 ${obj.id_objednavky}
@@ -81,46 +75,44 @@ function nacitajPoznamkyNaTabulu() {
             
             obsah.innerHTML = html;
 
-            // C. AUTO-SCALE: Zmenšenie mriežky, ak je tovaru veľa
-            setTimeout(prisposobVelkost, 50); // Mierne oneskorenie, kým prehliadač vykreslí nové karty
+            // Počkáme 50ms kým prehliadač vykreslí prvky a potom zmenšíme, ak treba
+            setTimeout(prisposobVelkost, 50); 
         })
-        .catch(error => {
-            console.error('Chyba spojenia s backendom tabule:', error);
-        });
+        .catch(error => console.error('Chyba spojenia s backendom tabule:', error));
 }
 
-// 3. FUNKCIA NA STLAČENIE OBSAHU DO 1 OBRAZOVKY (Zákaz scrollovania)
 function prisposobVelkost() {
     const contentArea = document.querySelector('.tv-content');
     const board = document.getElementById('obsah-tabule');
     
     if (!contentArea || !board) return;
 
-    // Najskôr vrátime všetko do pôvodnej veľkosti (100%)
-    board.style.transform = 'scale(1)';
+    // 1. Resetujeme veľkosť na plnú obrazovku
+    board.style.transform = 'none';
+    board.style.width = '100%';
+    board.style.transformOrigin = 'top left'; // Sťahovať sa to bude zhora zľava
     
-    // Zistíme, koľko máme miesta a aká vysoká je mriežka s kartami
     const availableHeight = contentArea.clientHeight;
     const currentHeight = board.scrollHeight;
     
-    // Ak mriežka pretŕča z obrazovky von...
+    // 2. Ak objednávky pretekajú pod obrazovku
     if (currentHeight > availableHeight && availableHeight > 0) {
-        // Vypočítame koeficient zmenšenia (necháme 2% rezervu, aby nebola prilepená úplne k okraju)
+        // Vypočítame zmenšenie (necháme si 2% rezervu)
         let scaleFactor = (availableHeight / currentHeight) * 0.98;
         
-        // Aplikujeme CSS zmenšenie
+        // KĽÚČOVÁ VEC: Keďže sme to zmenšili napr. na 80%, musíme 
+        // umelo natiahnuť šírku na 125 %, aby to roztiahlo na plnú šírku TV!
         board.style.transform = `scale(${scaleFactor})`;
+        board.style.width = `${100 / scaleFactor}%`;
     }
 }
 
-// Prepočet aj pri ručnej zmene veľkosti okna (napr. ak sa TV prepne na inú obrazovku)
 window.addEventListener('resize', prisposobVelkost);
 
-// Spustenie po načítaní stránky
 document.addEventListener("DOMContentLoaded", function() {
     aktualizujCas();
-    setInterval(aktualizujCas, 1000); // Hodiny tikajú každú sekundu
+    setInterval(aktualizujCas, 1000); 
     
     nacitajPoznamkyNaTabulu();
-    setInterval(nacitajPoznamkyNaTabulu, 15000); // Dáta sa ťahajú každých 15 sekúnd
+    setInterval(nacitajPoznamkyNaTabulu, 15000); 
 });
