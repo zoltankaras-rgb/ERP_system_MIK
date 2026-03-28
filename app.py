@@ -57,6 +57,7 @@ import meat_calc_handler
 import chains_handler
 import nakup_handler
 import time
+import expedition_board_handler
 # Vynútenie časovej zóny pre bežiaci proces
 os.environ['TZ'] = 'Europe/Bratislava'
 if hasattr(time, 'tzset'):
@@ -4690,7 +4691,19 @@ def meat_supplier_delete_api():
 def meat_report_supplier_product_api():
     data = request.json or {}
     return handle_request(meat_calc_handler.supplier_product_stats, data)
+# =================================================================
+# === Expedicia dashboard ==========================
+# =================================================================
+@app.route('/expedicia/board')
+def expedition_board_view():
+    # Zobrazenie samotnej html šablóny pre monitor na stene
+    return render_template('expedition_board.html')
 
+@app.route('/api/expedition_board/data')
+def api_expedition_board_data():
+    # Vráti čisté JSON dáta pre náš nový JS súbor
+    data = expedition_board_handler.get_special_expedition_notes()
+    return jsonify(data)
 
 # =================================================================
 # === NOVÉ ROUTY PRE ŠABLÓNY -Meat calc (Templates) ==========================
