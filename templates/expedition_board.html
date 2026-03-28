@@ -5,98 +5,134 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>TV Dashboard - Expedícia</title>
 
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/kancelaria.css') }}?v=7" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
 
   <style>
-    /* Špecifické štýly pre full-screen TV obrazovku */
     body, html {
         margin: 0; padding: 0; height: 100%;
-        background-color: #f4f6f9; /* Svetlé pozadie ako v ERP */
+        background-color: #f4f6f9; /* Farba pozadia z vášho ERP */
         font-family: 'Inter', sans-serif;
+        color: #333;
     }
     .tv-container {
-        padding: 25px;
-        height: 100vh;
-        box-sizing: border-box;
         display: flex;
         flex-direction: column;
+        height: 100vh;
     }
+    /* Hlavička s logom, dátumom a časom */
     .tv-header {
         display: flex; justify-content: space-between; align-items: center;
-        background: #ffffff;
+        background-color: #ffffff;
         padding: 15px 30px;
-        border-radius: 8px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-        margin-bottom: 25px;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+        border-bottom: 5px solid #d32f2f; /* Červený pruh MIK */
     }
-    .tv-header h1 {
-        margin: 0; font-size: 2rem; color: #2c3e50; font-weight: 700;
+    .logo-box img {
+        height: 70px; /* Vaše logo MIK */
     }
-    #clock-time {
-        font-size: 2rem; font-weight: 700; color: #dc3545; letter-spacing: 2px;
+    .title-box {
+        text-align: center;
+    }
+    .title-box h1 {
+        margin: 0; font-size: 2.2rem; color: #2c3e50; font-weight: 800; text-transform: uppercase;
+    }
+    .title-box .target-date {
+        font-size: 1.5rem; color: #d32f2f; font-weight: 700; margin-top: 5px;
+    }
+    .time-box {
+        font-size: 3rem; font-weight: 800; color: #2c3e50;
+        font-variant-numeric: tabular-nums;
+        min-width: 150px;
+        text-align: right;
     }
     
-    /* Mriežka pre karty */
-    #obsah-tabule {
+    /* Hlavný obsah */
+    .tv-content {
         flex: 1;
+        padding: 30px;
+        overflow-y: auto; 
+    }
+    
+    /* Mriežka pre karty objednávok */
+    #obsah-tabule {
         display: grid;
         grid-template-columns: repeat(auto-fill, minmax(450px, 1fr));
         gap: 25px;
         align-content: start;
-        overflow-y: auto;
     }
 
-    /* Dizajn pre samotné B2B karty */
-    .note-card {
+    /* Úhľadná karta */
+    .karta {
         background: #ffffff;
-        border-radius: 8px;
-        box-shadow: 0 4px 10px rgba(0,0,0,0.08);
-        border-left: 8px solid #dc3545; /* Červený indikátor */
-        padding: 25px;
+        border-radius: 12px;
+        box-shadow: 0 6px 15px rgba(0,0,0,0.05);
+        border-left: 8px solid #d32f2f;
+        padding: 20px;
         display: flex;
         flex-direction: column;
         gap: 15px;
     }
-    .note-card-header {
-        display: flex; justify-content: space-between; align-items: flex-start;
+    .zakaznik-hlavicka {
+        display: flex; justify-content: space-between; align-items: baseline;
         border-bottom: 2px solid #f0f0f0;
-        padding-bottom: 15px;
+        padding-bottom: 12px;
     }
-    .customer-name {
-        font-size: 1.8rem; font-weight: 700; color: #2c3e50;
+    .zakaznik-nazov {
+        font-size: 1.8rem; font-weight: 800; color: #2c3e50;
     }
-    .order-info {
-        font-size: 1.1rem; color: #7f8c8d; text-align: right;
+    .objednavka-info {
+        font-size: 1.1rem; color: #7f8c8d; font-weight: 600;
     }
-    
-    /* Vizuálne odlíšené poznámky */
+
+    /* Poznámky */
+    .poznamka-riadok {
+        display: flex; align-items: flex-start; gap: 12px;
+        font-size: 1.3rem; font-weight: 600;
+        padding: 12px; border-radius: 8px;
+    }
     .stala-poznamka {
-        background: #fff3cd; color: #856404;
-        padding: 15px; border-radius: 6px; font-size: 1.3rem; font-weight: 600;
+        background-color: #fff3cd; color: #856404; border: 1px solid #ffeeba;
     }
     .dnesna-poznamka {
-        background: #e2e3e5; color: #383d41;
-        padding: 15px; border-radius: 6px; font-size: 1.3rem; font-weight: 600;
+        background-color: #e2e3e5; color: #383d41; border: 1px solid #d6d8db;
     }
+    .ikona { font-size: 1.5rem; }
+
+    /* Ak je všetko vybavené */
     .nic-nove {
-        grid-column: 1 / -1; text-align: center; font-size: 2.5rem; color: #95a5a6; margin-top: 20vh; font-weight: 500;
+        grid-column: 1 / -1;
+        text-align: center;
+        font-size: 2.2rem;
+        color: #7f8c8d;
+        margin-top: 15vh;
+        font-weight: 600;
+    }
+    .nic-nove i {
+        font-size: 4rem; color: #2ecc71; margin-bottom: 20px; display: block;
     }
   </style>
 </head>
 <body>
   <div class="tv-container">
-    <div class="tv-header">
-        <h1><i class="fas fa-desktop"></i> TV Dashboard: Špeciálne požiadavky</h1>
-        <div><div id="clock-time">--:--:--</div></div>
-    </div>
-    
-    <div id="obsah-tabule">
-        <div class="nic-nove"><i class="fas fa-spinner fa-spin"></i> Načítavam B2B dáta...</div>
-    </div>
+      <div class="tv-header">
+          <div class="logo-box">
+              <img src="/static/mik logo.jpg" alt="MIK Logo">
+          </div>
+          <div class="title-box">
+              <h1>Špeciálne požiadavky</h1>
+              <div class="target-date" id="cielovy-datum">Chystáme na: Načítavam...</div>
+          </div>
+          <div class="time-box" id="aktualny-cas">00:00:00</div>
+      </div>
+
+      <div class="tv-content">
+          <div id="obsah-tabule">
+              <div class="nic-nove">Načítavam systém...</div>
+          </div>
+      </div>
   </div>
-  
-  <script src="{{ url_for('static', filename='js/expedition_board.js') }}"></script>
+
+  <script src="/static/js/expedition_board.js"></script>
 </body>
 </html>

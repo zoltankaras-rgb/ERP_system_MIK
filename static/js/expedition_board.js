@@ -1,24 +1,42 @@
 // static/js/expedition_board.js
 
+// 1. Hodiny v reálnom čase
+function aktualizujCas() {
+    const teraz = new Date();
+    const casString = teraz.toLocaleTimeString('sk-SK', { hour12: false });
+    document.getElementById('aktualny-cas').textContent = casString;
+}
+
+// 2. Načítavanie poznámok
 function nacitajPoznamkyNaTabulu() {
-    // TUTO JE ZMENA: Presne vaša cesta z app.py
     fetch('/api/tv-board/data') 
         .then(response => response.json())
         .then(data => {
             const obsah = document.getElementById('obsah-tabule');
+            const datumElement = document.getElementById('cielovy-datum');
             
-            // Ak nie sú žiadne výnimky, ukážeme upokojujúcu správu
-            if (!data || data.length === 0) {
-                obsah.innerHTML = '<div class="nic-nove">✓ Žiadne špeciálne požiadavky.<br>Chystajte štandardne.</div>';
+            // Aktualizácia hlavičky s cieľovým dátumom
+            if (data.cielovy_datum) {
+                datumElement.innerHTML = `Chystáme na: <strong>${data.cielovy_datum}</strong>`;
+            }
+
+            const poznamky = data.poznamky || [];
+
+            // Ak na daný deň nie sú žiadne výnimky
+            if (poznamky.length === 0) {
+                obsah.innerHTML = `
+                    <div class="nic-nove">
+                        <i class="fa-solid fa-circle-check"></i>
+                        Všetky špeciálne požiadavky na ${data.cielovy_datum} sú pripravené.<br>Chystajte štandardne.
+                    </div>`;
                 return;
             }
 
-            // Generovanie kariet pre zákazníkov
+            // Generovanie úhľadných kariet pre zákazníkov
             let html = '';
-            data.forEach(obj => {
+            poznamky.forEach(obj => {
                 let poznamkyHtml = '';
                 
-                // Trvalá poznámka inštitúcie/zákazníka
                 if (obj.trvala_poznamka) {
                     poznamkyHtml += `
                         <div class="poznamka-riadok stala-poznamka">
@@ -27,21 +45,22 @@ function nacitajPoznamkyNaTabulu() {
                         </div>`;
                 }
                 
-                // Dnešná špeciálna poznámka k objednávke
                 if (obj.poznamka_objednavky) {
                     poznamkyHtml += `
                         <div class="poznamka-riadok dnesna-poznamka">
                             <span class="ikona">ℹ️</span>
-                            <div><strong>PRE TÚTO OBJ:</strong> ${obj.poznamka_objednavky}</div>
+                            <div><strong>POZNÁMKA:</strong> ${obj.poznamka_objednavky}</div>
                         </div>`;
                 }
 
                 html += `
-                    <div class="note-card-header">
-                        <div class="zakaznik-nazov">${obj.zakaznik}</div>
-                        <div class="order-info">Dodanie: ${obj.datum_dodania} | ${obj.id_objednavky}</div>
+                    <div class="karta">
+                        <div class="zakaznik-hlavicka">
+                            <div class="zakaznik-nazov">${obj.zakaznik}</div>
+                            <div class="objednavka-info">${obj.id_objednavky}</div>
+                        </div>
+                        ${poznamkyHtml}
                     </div>
-                    ${poznamkyHtml}
                 `;
             });
             
@@ -54,7 +73,9 @@ function nacitajPoznamkyNaTabulu() {
 
 // Spustenie po načítaní stránky
 document.addEventListener("DOMContentLoaded", function() {
+    aktualizujCas();
+    setInterval(aktualizujCas, 1000); // Hodiny tikajú každú sekundu
+    
     nacitajPoznamkyNaTabulu();
-    // Automatický refresh každých 15 sekúnd (15000 milisekúnd)
-    setInterval(nacitajPoznamkyNaTabulu, 15000);
+    setInterval(nacitajPoznamkyNaTabulu, 15000); // Dáta sa ťahajú každých 15 sekúnd
 });
