@@ -9,7 +9,7 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
 
   <style>
-    /* TVRDÝ ZÁKAZ ROLOVANIA */
+    /* TVRDÝ ZÁKAZ ROLOVANIA NA OBRAZOVKE */
     body, html {
         margin: 0; padding: 0; height: 100vh; overflow: hidden;
         background-color: #f4f6f9; 
@@ -23,59 +23,65 @@
         width: 100vw;
     }
     
-    /* Hlavička - Výrazne stenčená na výšku */
+    /* Kompaktná hlavička */
     .tv-header {
         flex: 0 0 auto;
         display: flex; justify-content: space-between; align-items: center;
         background-color: #ffffff;
-        padding: 10px 30px; /* Zmenšené odsadenie */
+        padding: 10px 30px;
         box-shadow: 0 4px 10px rgba(0,0,0,0.05);
         border-bottom: 4px solid #d32f2f;
     }
-    .logo-box img { height: 50px; } /* Zmenšené logo */
+    .logo-box img { height: 50px; }
     .title-box { text-align: center; }
     .title-box h1 { margin: 0; font-size: 2rem; color: #2c3e50; font-weight: 800; text-transform: uppercase; }
     .title-box .target-date { font-size: 1.4rem; color: #d32f2f; font-weight: 700; margin-top: 2px; }
     .time-box { font-size: 2.5rem; font-weight: 800; color: #2c3e50; font-variant-numeric: tabular-nums; min-width: 150px; text-align: right; }
     
-    /* GLOBÁLNY OZNAM - Kompaktnejší a elegantnejší */
+    /* GLOBÁLNY OZNAM */
     #global-note-container {
         flex: 0 0 auto;
         background-color: #ffc107; 
         color: #000;
-        font-size: 1.8rem; /* Rozumná veľkosť písma */
+        font-size: 1.8rem; 
         font-weight: 800;
         text-align: center;
-        padding: 12px 20px; /* Zmenšené odsadenie */
+        padding: 12px 20px;
         text-transform: uppercase;
         letter-spacing: 1px;
         box-shadow: 0 4px 10px rgba(0,0,0,0.15);
         display: none;
         z-index: 10;
         border-bottom: 2px solid #e0a800;
+        
+        /* FIX PRE DLHÉ OZNAMY: Zalamovanie textu */
+        word-wrap: break-word;
+        overflow-wrap: break-word;
+        line-height: 1.2;
     }
 
-    /* Hlavný priestor pre karty */
+    /* Hlavný priestor */
     .tv-content {
         flex: 1 1 auto;
-        padding: 25px 35px; /* Optimálne okraje */
+        padding: 25px 35px;
         box-sizing: border-box;
         width: 100%;
         overflow: hidden; 
     }
     
-    /* Mriežka pre karty - prispôsobí sa TV */
+    /* Mriežka - dôležité pre TV zobrazenie */
     #obsah-tabule {
         width: 100%;
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); /* Stabilná šírka kariet */
+        /* Mierne zväčšená minimálna šírka na 450px pre viac miesta */
+        grid-template-columns: repeat(auto-fit, minmax(450px, 1fr)); 
         gap: 25px;
         align-content: start;
         transform-origin: top left;
         transition: transform 0.2s ease;
     }
 
-    /* Úhľadná karta - Vyvážené proporcie */
+    /* Úhľadná karta s automatickou výškou */
     .karta {
         background: #ffffff;
         border-radius: 12px;
@@ -85,20 +91,59 @@
         display: flex;
         flex-direction: column;
         gap: 15px;
+        
+        /* FIX: Karta sa natiahne podľa obsahu, výška nie je fixná */
+        height: auto; 
     }
+    
     .zakaznik-hlavicka {
         display: flex; justify-content: space-between; align-items: baseline;
         border-bottom: 2px solid #f0f0f0;
         padding-bottom: 12px;
+        gap: 10px; /* Medzera medzi menom a ID */
     }
-    .zakaznik-nazov { font-size: 1.9rem; font-weight: 800; color: #2c3e50; } 
-    .objednavka-info { font-size: 1.3rem; color: #7f8c8d; font-weight: 700; }
+    
+    .zakaznik-nazov { 
+        font-size: 1.9rem; 
+        font-weight: 800; 
+        color: #2c3e50;
+        
+        /* FIX: Tvrdé vynútenie zalamovania pre dlhé mená */
+        word-wrap: break-word;
+        overflow-wrap: break-word;
+        line-height: 1.1; /* Tesnejší riadok pre veľké písmo */
+        margin: 0;
+    }
+    
+    .objednavka-info { 
+        font-size: 1.3rem; 
+        color: #7f8c8d; 
+        font-weight: 700;
+        white-space: nowrap; /* ID a dátum chceme na jednom riadku */
+        text-align: right;
+    }
 
-    /* Poznámky - Dobre čitateľné */
-    .poznamka-riadok { display: flex; align-items: flex-start; gap: 15px; font-size: 1.5rem; font-weight: 700; padding: 15px; border-radius: 8px; line-height: 1.3; }
+    /* Poznámky - flexibilné a čitateľné */
+    .poznamka-riadok { 
+        display: flex; 
+        align-items: flex-start; 
+        gap: 15px; 
+        font-size: 1.5rem; 
+        font-weight: 700; 
+        padding: 15px; 
+        border-radius: 8px; 
+        
+        /* FIX: Relatívna výška riadku, text nikdy nevytečie */
+        line-height: 1.3; 
+        
+        /* FIX: Zalamovanie textu v poznámke */
+        word-wrap: break-word;
+        overflow-wrap: break-word;
+    }
+    
     .stala-poznamka { background-color: #fff3cd; color: #856404; border: 2px solid #ffeeba; }
     .dnesna-poznamka { background-color: #e2e3e5; color: #383d41; border: 2px solid #d6d8db; }
-    .ikona { font-size: 1.8rem; margin-top: 2px; }
+    .ikona { font-size: 1.8rem; margin-top: 2px; flex-shrink: 0; } /* Ikona sa nezmenší */
 
   </style>
 </head>
