@@ -1,25 +1,102 @@
 <!DOCTYPE html>
 <html lang="sk">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-width=1.0">
-    <title>Expedičná tabuľa</title>
-    <style>
-        body { background-color: #0a0a0a; color: #fff; font-family: sans-serif; padding: 20px; }
-        .karta { background-color: #1e1e1e; border-left: 10px solid #d32f2f; margin-bottom: 20px; padding: 20px; border-radius: 5px; }
-        .zakaznik-nazov { font-size: 2.5rem; font-weight: bold; }
-        .stala-poznamka { color: #ffb300; font-size: 1.8rem; margin-top: 10px;}
-        .dnesna-poznamka { color: #4fc3f7; font-size: 1.8rem; margin-top: 10px;}
-        .nic-nove { text-align: center; font-size: 3rem; color: #555; margin-top: 20vh; }
-    </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TV Dashboard - Expedícia</title>
+
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/kancelaria.css') }}?v=7" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+
+  <style>
+    /* Špecifické štýly pre full-screen TV obrazovku */
+    body, html {
+        margin: 0; padding: 0; height: 100%;
+        background-color: #f4f6f9; /* Svetlé pozadie ako v ERP */
+        font-family: 'Inter', sans-serif;
+    }
+    .tv-container {
+        padding: 25px;
+        height: 100vh;
+        box-sizing: border-box;
+        display: flex;
+        flex-direction: column;
+    }
+    .tv-header {
+        display: flex; justify-content: space-between; align-items: center;
+        background: #ffffff;
+        padding: 15px 30px;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        margin-bottom: 25px;
+    }
+    .tv-header h1 {
+        margin: 0; font-size: 2rem; color: #2c3e50; font-weight: 700;
+    }
+    #clock-time {
+        font-size: 2rem; font-weight: 700; color: #dc3545; letter-spacing: 2px;
+    }
+    
+    /* Mriežka pre karty */
+    #obsah-tabule {
+        flex: 1;
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(450px, 1fr));
+        gap: 25px;
+        align-content: start;
+        overflow-y: auto;
+    }
+
+    /* Dizajn pre samotné B2B karty */
+    .note-card {
+        background: #ffffff;
+        border-radius: 8px;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.08);
+        border-left: 8px solid #dc3545; /* Červený indikátor */
+        padding: 25px;
+        display: flex;
+        flex-direction: column;
+        gap: 15px;
+    }
+    .note-card-header {
+        display: flex; justify-content: space-between; align-items: flex-start;
+        border-bottom: 2px solid #f0f0f0;
+        padding-bottom: 15px;
+    }
+    .customer-name {
+        font-size: 1.8rem; font-weight: 700; color: #2c3e50;
+    }
+    .order-info {
+        font-size: 1.1rem; color: #7f8c8d; text-align: right;
+    }
+    
+    /* Vizuálne odlíšené poznámky */
+    .stala-poznamka {
+        background: #fff3cd; color: #856404;
+        padding: 15px; border-radius: 6px; font-size: 1.3rem; font-weight: 600;
+    }
+    .dnesna-poznamka {
+        background: #e2e3e5; color: #383d41;
+        padding: 15px; border-radius: 6px; font-size: 1.3rem; font-weight: 600;
+    }
+    .nic-nove {
+        grid-column: 1 / -1; text-align: center; font-size: 2.5rem; color: #95a5a6; margin-top: 20vh; font-weight: 500;
+    }
+  </style>
 </head>
 <body>
-    <h1 style="text-align: center; color: #444; text-transform: uppercase;">Špeciálne požiadavky</h1>
+  <div class="tv-container">
+    <div class="tv-header">
+        <h1><i class="fas fa-desktop"></i> TV Dashboard: Špeciálne požiadavky</h1>
+        <div><div id="clock-time">--:--:--</div></div>
+    </div>
     
     <div id="obsah-tabule">
-        <div class="nic-nove">Načítavam systém...</div>
+        <div class="nic-nove"><i class="fas fa-spinner fa-spin"></i> Načítavam B2B dáta...</div>
     </div>
-
-    <script src="/static/js/expedition_board.js"></script>
+  </div>
+  
+  <script src="{{ url_for('static', filename='js/expedition_board.js') }}"></script>
 </body>
 </html>

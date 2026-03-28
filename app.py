@@ -4705,6 +4705,15 @@ def api_expedition_board_data():
     data = expedition_board_handler.get_special_expedition_notes()
     return jsonify(data)
 
+
+@app.route('/expedicia/tv-board')
+def tv_board_view():
+    return render_template('expedition_board.html')
+
+@app.route('/api/tv-board/data')
+def api_tv_board_data():
+    data = expedition_board_handler.get_b2b_special_notes()
+    return jsonify(data)
 # =================================================================
 # === NOVÉ ROUTY PRE ŠABLÓNY -Meat calc (Templates) ==========================
 # =================================================================
