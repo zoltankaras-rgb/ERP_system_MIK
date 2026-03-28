@@ -3024,7 +3024,84 @@ function printExpeditionBreakdown() {
     printWindow.document.write(printContent);
     printWindow.document.close();
 }
+// ========================= TV TABUĽA OZNAMY ===========================
+  let tvCustomersList = [];
 
+  async function loadTvBoardSettings() {
+      try {
+          const res = await apiRequest('/api/leader/tv_board/customers');
+          if (res.error) throw new Error(res.error);
+          
+          $('#tv-global-note').value = res.global_note || '';
+          tvCustomersList = res.customers || [];
+          
+          renderTvCustomerList(tvCustomersList);
+          
+          $('#tv-customer-note').value = '';
+          $('#tv-selected-customer-name').textContent = 'Vyberte zákazníka zo zoznamu vľavo';
+          $('#btn-save-customer-note').disabled = true;
+          $('#tv-customer-search').value = '';
+      } catch (err) {
+          console.error("TV Tabuľa chyba:", err);
+      }
+  }
+
+  function renderTvCustomerList(list) {
+      const select = $('#tv-customer-select');
+      select.innerHTML = '';
+      list.forEach(c => {
+          const opt = document.createElement('option');
+          opt.value = c.zakaznik_id;
+          // Ak má zákazník stálu poznámku, ukážeme pri ňom výkričník
+          const hasNote = (c.stala_poznamka_expedicia && c.stala_poznamka_expedicia.trim() !== '') ? '⚠️ ' : '';
+          opt.textContent = hasNote + c.nazov_firmy;
+          select.appendChild(opt);
+      });
+  }
+
+  // Vyhľadávanie v zákazníkoch
+  $('#tv-customer-search') && $('#tv-customer-search').addEventListener('input', (e) => {
+      const term = e.target.value.toLowerCase();
+      const filtered = tvCustomersList.filter(c => c.nazov_firmy.toLowerCase().includes(term));
+      renderTvCustomerList(filtered);
+  });
+
+  // Kliknutie na zákazníka
+  $('#tv-customer-select') && $('#tv-customer-select').addEventListener('change', (e) => {
+      const z_id = e.target.value;
+      const customer = tvCustomersList.find(c => c.zakaznik_id === z_id);
+      if (customer) {
+          $('#tv-selected-customer-name').textContent = customer.nazov_firmy;
+          $('#tv-customer-note').value = customer.stala_poznamka_expedicia || '';
+          $('#btn-save-customer-note').disabled = false;
+      }
+  });
+
+  // Uloženie globálneho oznamu
+  $('#btn-save-global-note') && $('#btn-save-global-note').addEventListener('click', async () => {
+      const note = $('#tv-global-note').value;
+      try {
+          await apiRequest('/api/leader/tv_board/global_note', {
+              method: 'POST',
+              body: JSON.stringify({ note })
+          });
+          alert('Hlavný odkaz bol úspešne odoslaný na TV tabuľu.');
+      } catch (e) { alert('Chyba pri ukladaní oznamu.'); }
+  });
+
+  // Uloženie stálej požiadavky zákazníka
+  $('#btn-save-customer-note') && $('#btn-save-customer-note').addEventListener('click', async () => {
+      const z_id = $('#tv-customer-select').value;
+      const note = $('#tv-customer-note').value;
+      try {
+          await apiRequest('/api/leader/tv_board/customer_note', {
+              method: 'POST',
+              body: JSON.stringify({ zakaznik_id: z_id, note })
+          });
+          alert('Stála požiadavka zákazníka bola uložená.');
+          loadTvBoardSettings(); // Obnoví zoznam (pridá výkričník)
+      } catch (e) { alert('Chyba pri ukladaní.'); }
+  });
 
   function boot(){
     $$('.sidebar-link').forEach(a=>{

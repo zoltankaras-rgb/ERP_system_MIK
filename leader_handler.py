@@ -722,7 +722,67 @@ def leader_b2b_notify_order():
         return jsonify({'error': f'Expedičný e-mail zlyhal: {e}'}), 500
 
     return jsonify({'message':'Objednávka spracovaná, CSV uložené pre sync.', 'order_id': order_id})
+# --- TV TABUĽA: Správa oznamov a stálych poznámok ---
 
+@leader_bp.route('/tv_board/customers', methods=['GET'])
+@login_required
+def get_tv_board_customers():
+    """Vráti zoznam B2B zákazníkov a aktuálny globálny oznam."""
+    conn = _get_conn()
+    try:
+        cur = conn.cursor(dictionary=True)
+        # Zákazníci
+        cur.execute("SELECT zakaznik_id, nazov_firmy, stala_poznamka_expedicia FROM b2b_zakaznici WHERE typ='B2B' ORDER BY nazov_firmy")
+        customers = cur.fetchall()
+        
+        # Globálny oznam
+        cur.execute("SELECT hodnota FROM system_settings WHERE kluc = 'expedicia_globalny_oznam'")
+        oznam_row = cur.fetchone()
+        globalny_oznam = oznam_row['hodnota'] if oznam_row else ""
+        
+        return jsonify({"customers": customers, "global_note": globalny_oznam})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        conn.close()
+# =============================================================================
+# TV Tabuľa: Ukladanie globálneho oznamu a stálych poznámok pre zákazníkov
+# ============================================================================
+@leader_bp.route('/tv_board/global_note', methods=['POST'])
+@login_required
+def save_global_note():
+    """Uloží globálny oznam pre expedíciu."""
+    data = request.json
+    note = data.get('note', '')
+    conn = _get_conn()
+    try:
+        cur = conn.cursor()
+        # Využijeme tabuľku system_settings
+        cur.execute("""
+            INSERT INTO system_settings (kluc, hodnota) 
+            VALUES ('expedicia_globalny_oznam', %s) 
+            ON DUPLICATE KEY UPDATE hodnota = %s, updated_at = NOW()
+        """, (note, note))
+        conn.commit()
+        return jsonify({"message": "Globálny oznam uložený."})
+    finally:
+        conn.close()
+
+@leader_bp.route('/tv_board/customer_note', methods=['POST'])
+@login_required
+def save_customer_note():
+    """Uloží stálu požiadavku ku konkrétnemu zákazníkovi."""
+    data = request.json
+    zakaznik_id = data.get('zakaznik_id')
+    note = data.get('note', '')
+    conn = _get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("UPDATE b2b_zakaznici SET stala_poznamka_expedicia = %s WHERE zakaznik_id = %s", (note, zakaznik_id))
+        conn.commit()
+        return jsonify({"message": "Stála požiadavka uložená."})
+    finally:
+        conn.close()
 # =============================================================================
 # Výrobný plán
 # =============================================================================
@@ -1549,7 +1609,7 @@ def leader_predictive_batch():
             'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             'predictions': [r for r in results if r['blind_pick_delta'] > 0]
         })
-
+    
     except Exception as e:
         return jsonify({'error': f'Zlyhanie prediktívneho algoritmu: {str(e)}'}), 500
     finally:

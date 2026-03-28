@@ -118,6 +118,8 @@
             </a>
           </li>
 
+          <li><a class="sidebar-link" href="#" data-section="leader-tv-board"><i class="fas fa-tv"></i> Nastavenie TV Tabule</a></li>
+
           <li><a class="sidebar-link" href="#" data-section="leader-meat-origin-labels"><i class="fas fa-tags"></i> Štítky pôvodu mäsa</a></li>
           <li><a class="sidebar-link" href="#" data-section="leader-plan"><i class="fas fa-calendar-alt"></i> Kalendár výroby</a></li>
           <li><a class="sidebar-link" href="#" data-section="leader-lowstock"><i class="fas fa-exclamation-triangle"></i> Sklad pod minimom</a></li>
@@ -196,6 +198,47 @@
           </div>
         </div>
 
+        <div id="leader-tv-board" class="content-section">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+            <h3 style="margin:0;">Riadiace centrum TV Tabule</h3>
+          </div>
+          
+          <div class="card" style="margin-bottom: 20px; border-left: 5px solid #f59e0b;">
+            <div class="card-header" style="background:#fffbeb; color:#92400e;">
+              <strong><i class="fas fa-bullhorn text-warning"></i> Hlavný odkaz pre expedíciu</strong>
+            </div>
+            <div class="card-body">
+              <p class="text-muted small">Tento text bude neustále zobrazený v hornej časti TV obrazovky, nezávisle od toho, aké sú objednávky.</p>
+              <div class="form-group">
+                  <textarea id="tv-global-note" class="form-control" rows="2" placeholder="Napr. Dnes chystáme zmeny o 30 minút skôr..."></textarea>
+              </div>
+              <button id="btn-save-global-note" class="btn btn-warning" style="font-weight:bold; color:#000;"><i class="fas fa-save"></i> Uložiť hlavný odkaz na TV</button>
+            </div>
+          </div>
+
+          <div class="card" style="border-left: 5px solid #ef4444;">
+            <div class="card-header" style="background:#fef2f2; color:#b91c1c;">
+              <strong><i class="fas fa-exclamation-triangle text-danger"></i> Stále upozornenia ku konkrétnym zákazníkom</strong>
+            </div>
+            <div class="card-body">
+              <p class="text-muted small">Vyberte zákazníka a napíšte trvalú požiadavku (napr. "Stehno len rozšálované"). Na TV to automaticky vyskočí pri každej jeho objednávke.</p>
+              <div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px;">
+                <div>
+                  <input type="text" id="tv-customer-search" class="form-control mb-2" placeholder="Hľadať zákazníka..." style="margin-bottom: 10px;">
+                  <select id="tv-customer-select" class="form-control" size="12" style="font-size: 14px; width: 100%; padding: 5px;">
+                    </select>
+                </div>
+                <div>
+                  <h4 id="tv-selected-customer-name" style="color:#b91c1c; margin-top:0;">Vyberte zákazníka zo zoznamu vľavo</h4>
+                  <div class="form-group">
+                      <textarea id="tv-customer-note" class="form-control" rows="8" placeholder="Tu napíšte špeciálnu úpravu alebo trvalé upozornenie pre tohto zákazníka..."></textarea>
+                  </div>
+                  <button id="btn-save-customer-note" class="btn btn-danger" disabled><i class="fas fa-save"></i> Uložiť stálu požiadavku</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
         <div id="leader-b2c" class="content-section">
           <h3>B2C objednávky (deň)</h3>
           <div class="card">

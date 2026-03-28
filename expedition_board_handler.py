@@ -38,13 +38,21 @@ def get_b2b_special_notes():
     
     rows = db_connector.execute_query(sql, (cielovy_datum_str,), fetch='all') or []
     
-    # Formátovanie dátumu do tvaru 29.03.2026
+    # Formátovanie dátumu do tvaru napr. 29.03.2026
     for r in rows:
         d = r.get('datum_dodania')
         if isinstance(d, (datetime, date)):
             r['datum_dodania'] = d.strftime('%d.%m.%Y')
             
+    # 3. Vytiahneme globálny oznam z tabuľky system_settings
+    oznam_row = db_connector.execute_query(
+        "SELECT hodnota FROM system_settings WHERE kluc = 'expedicia_globalny_oznam'", 
+        fetch='one'
+    )
+    global_note = oznam_row['hodnota'] if oznam_row and oznam_row.get('hodnota') else ""
+            
     return {
         "cielovy_datum": cielovy_datum_sk,
+        "global_note": global_note,
         "poznamky": rows
     }
