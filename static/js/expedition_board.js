@@ -26,33 +26,22 @@ function nacitajPoznamkyNaTabulu() {
             }
 
             const poznamky = data.poznamky || [];
-            const pocetKariet = poznamky.length;
 
-            // INTELIGENTNÉ PRISPÔSOBENIE VEĽKOSTI PÍSMA (Zohľadňuje aj nadpisy trás)
-            let baseSize = 22; 
-            if (pocetKariet === 0) baseSize = 24;
-            else if (pocetKariet <= 2) baseSize = 26; 
-            else if (pocetKariet <= 4) baseSize = 22; 
-            else if (pocetKariet <= 6) baseSize = 18; 
-            else if (pocetKariet <= 9) baseSize = 15; 
-            else baseSize = 13;                       
-
-            obsah.style.setProperty('--board-font-size', baseSize + 'px');
-
-            if (pocetKariet === 0) {
+            if (poznamky.length === 0) {
                 obsah.innerHTML = `
-                    <div style="text-align: center; font-size: 2em; color: #7f8c8d; margin-top: 15vh; font-weight: 600;">
-                        <i class="fa-solid fa-circle-check" style="font-size: 4em; color: #2ecc71; margin-bottom: 20px; display: block;"></i>
-                        Všetky špeciálne požiadavky na ${data.cielovy_datum} sú pripravené.<br>Chystajte štandardne.
+                    <div style="text-align: center; margin-top: 20vh;">
+                        <i class="fa-solid fa-check-circle" style="font-size: 6rem; color: #28a745; margin-bottom: 20px;"></i>
+                        <h2 style="font-size: 2.5rem; color: #495057;">Všetko je pripravené.</h2>
+                        <p style="font-size: 1.5rem; color: #6c757d;">Chystajte štandardne podľa objednávok.</p>
                     </div>`;
                 prisposobVelkost(); 
                 return;
             }
 
-            // ZOSKUPOVANIE DO TRÁS (Pomocou Map zachováme poradie z SQL)
+            // ROZDELENIE DO STĹPCOV PODĽA TRASY
             const skupinyTrasy = new Map();
             poznamky.forEach(obj => {
-                const trasa = obj.trasa_nazov;
+                const trasa = obj.trasa_nazov || 'Ostatné';
                 if (!skupinyTrasy.has(trasa)) {
                     skupinyTrasy.set(trasa, []);
                 }
@@ -61,77 +50,91 @@ function nacitajPoznamkyNaTabulu() {
 
             let html = '';
             
-            // Vykreslenie kategórií
+            // Vykreslenie každého stĺpca (Trasy)
             for (const [trasa, zoznamKariet] of skupinyTrasy.entries()) {
                 html += `
-                    <div class="trasa-sekcia">
-                        <h2 class="trasa-nadpis"><i class="fas fa-truck-fast"></i> ${trasa}</h2>
-                        <div class="trasa-grid">
+                    <div class="kanban-col">
+                        <div class="col-header"><i class="fas fa-truck-fast"></i> ${trasa}</div>
+                        <div class="col-body">
                 `;
                 
+                // Vykreslenie kariet v stĺpci
                 zoznamKariet.forEach(obj => {
                     let poznamkyHtml = '';
                     
                     if (obj.trvala_poznamka) {
                         poznamkyHtml += `
-                            <div class="poznamka-riadok stala-poznamka">
-                                <span class="ikona">⚠️</span>
+                            <div class="p-riadok stala-poznamka">
+                                <i class="fas fa-exclamation-circle"></i>
                                 <div><strong>VŽDY:</strong> ${obj.trvala_poznamka}</div>
                             </div>`;
                     }
                     
                     if (obj.poznamka_objednavky) {
                         poznamkyHtml += `
-                            <div class="poznamka-riadok dnesna-poznamka">
-                                <span class="ikona">ℹ️</span>
-                                <div><strong>POZNÁMKA:</strong> ${obj.poznamka_objednavky}</div>
+                            <div class="p-riadok dnesna-poznamka">
+                                <i class="fas fa-info-circle"></i>
+                                <div><strong>DOPLNENIE:</strong> ${obj.poznamka_objednavky}</div>
                             </div>`;
                     }
 
                     html += `
                         <div class="karta">
-                            <div class="zakaznik-hlavicka">
-                                <div class="zakaznik-nazov">${obj.zakaznik}</div>
-                                <div class="objednavka-info">
-                                    <span class="datum-tag">
-                                        <i class="fa-regular fa-calendar"></i> ${obj.datum_dodania}
-                                    </span>
-                                    <span>${obj.id_objednavky}</span>
-                                </div>
+                            <div class="z-nazov">${obj.zakaznik}</div>
+                            <div class="z-info">
+                                <span>${obj.id_objednavky}</span>
+                                <span class="z-tag">${obj.datum_dodania}</span>
                             </div>
                             ${poznamkyHtml}
                         </div>
                     `;
                 });
                 
-                html += `</div></div>`; // Uzavretie gridu a sekcie
+                html += `</div></div>`; // Koniec col-body a kanban-col
             }
             
             obsah.innerHTML = html;
 
+            // Okamžité prispôsobenie veľkosti
             setTimeout(prisposobVelkost, 50); 
         })
         .catch(error => console.error('Chyba spojenia s backendom tabule:', error));
 }
 
+// INTELIGENTNÉ PRISPÔSOBENIE NA OBRAZOVKU (Pre Kanban stĺpce)
 function prisposobVelkost() {
     const contentArea = document.querySelector('.tv-content');
     const board = document.getElementById('obsah-tabule');
     
     if (!contentArea || !board) return;
 
+    // Reset
     board.style.transform = 'none';
-    board.style.width = '100%';
-    board.style.transformOrigin = 'top left'; 
+    board.style.width = 'max-content'; // Umožní stĺpcom roztiahnuť sa
     
+    const availableWidth = contentArea.clientWidth;
     const availableHeight = contentArea.clientHeight;
+    
+    const currentWidth = board.scrollWidth;
     const currentHeight = board.scrollHeight;
     
+    // Zistíme, v akom smere nástenka pretŕča najviac
+    let scaleW = 1;
+    let scaleH = 1;
+    
+    if (currentWidth > availableWidth && availableWidth > 0) {
+        scaleW = availableWidth / currentWidth;
+    }
+    
     if (currentHeight > availableHeight && availableHeight > 0) {
-        let scaleFactor = (availableHeight / currentHeight) * 0.98;
-        
-        board.style.transform = `scale(${scaleFactor})`;
-        board.style.width = `${100 / scaleFactor}%`;
+        scaleH = availableHeight / currentHeight;
+    }
+    
+    // Použijeme menší koeficient (odrátame 2% aby to nebolo natlačené na hranách)
+    let finalScale = Math.min(scaleW, scaleH) * 0.98;
+    
+    if (finalScale < 1) {
+        board.style.transform = `scale(${finalScale})`;
     }
 }
 
