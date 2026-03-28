@@ -53,11 +53,17 @@ function nacitajPoznamkyNaTabulu() {
                         </div>`;
                 }
 
+                // TUTO JE ZMENA: Pridaný červený dátum s ikonkou kalendára
                 html += `
                     <div class="karta">
                         <div class="zakaznik-hlavicka">
                             <div class="zakaznik-nazov">${obj.zakaznik}</div>
-                            <div class="objednavka-info">${obj.id_objednavky}</div>
+                            <div class="objednavka-info">
+                                <span style="color: #d32f2f; font-weight: 800; font-size: 1.3rem; margin-right: 12px; background: #ffebee; padding: 4px 8px; border-radius: 4px;">
+                                    <i class="fa-regular fa-calendar"></i> ${obj.datum_dodania}
+                                </span>
+                                ${obj.id_objednavky}
+                            </div>
                         </div>
                         ${poznamkyHtml}
                     </div>
