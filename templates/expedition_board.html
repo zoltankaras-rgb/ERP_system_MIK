@@ -34,15 +34,15 @@
     .title-box .target-date { font-size: 1.4rem; color: #d32f2f; font-weight: 700; margin-top: 2px; }
     .time-box { font-size: 2.5rem; font-weight: 800; color: #2c3e50; font-variant-numeric: tabular-nums; min-width: 150px; text-align: right; }
     
-    /* GLOBÁLNY OZNAM */
+    /* GLOBÁLNY OZNAM - Výrazne zmenšené písmo a okraje */
     #global-note-container {
         flex: 0 0 auto;
         background-color: #ffc107; 
         color: #000;
-        font-size: 1.8rem; 
-        font-weight: 800;
+        font-size: 1.2rem; /* Zmenšené z 1.8rem */
+        font-weight: 700;
         text-align: center;
-        padding: 12px 20px;
+        padding: 8px 15px; /* Stenčený pásik */
         text-transform: uppercase;
         letter-spacing: 1px;
         box-shadow: 0 4px 10px rgba(0,0,0,0.15);
@@ -71,7 +71,6 @@
         transform-origin: top left;
         transition: transform 0.2s ease;
         
-        /* TOTO MENÍ JS PODĽA MNOŽSTVA OBJEDNÁVOK */
         font-size: var(--board-font-size, 18px); 
     }
 
@@ -88,7 +87,6 @@
         height: auto; 
     }
     
-    /* OPRAVA: Položky idú pod seba, aby číslo nevytrčalo von */
     .zakaznik-hlavicka {
         display: flex; 
         flex-direction: column; 
@@ -134,7 +132,6 @@
     .dnesna-poznamka { background-color: #e2e3e5; color: #383d41; border: 2px solid #d6d8db; }
     .ikona { font-size: 1.3em; margin-top: 0.1em; flex-shrink: 0; }
 
-    /* Indikátor pre Dátum */
     .datum-tag {
         color: #d32f2f; 
         background: #ffebee; 
