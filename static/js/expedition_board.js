@@ -26,11 +26,24 @@ function nacitajPoznamkyNaTabulu() {
             }
 
             const poznamky = data.poznamky || [];
+            const pocetKariet = poznamky.length;
 
-            if (poznamky.length === 0) {
+            // INTELIGENTNÉ PRISPÔSOBENIE VEĽKOSTI PÍSMA PODĽA MNOŽSTVA KARIET
+            let baseSize = 22; // štandard
+            if (pocetKariet === 0) baseSize = 24;
+            else if (pocetKariet <= 2) baseSize = 28; // Obrovské (1-2 karty)
+            else if (pocetKariet <= 4) baseSize = 24; // Veľké (3-4 karty)
+            else if (pocetKariet <= 6) baseSize = 20; // Stredné (5-6 kariet)
+            else if (pocetKariet <= 9) baseSize = 17; // Menšie (7-9 kariet)
+            else baseSize = 14;                       // Najmenšie (10+ kariet)
+
+            // Aplikujeme prepočítanú veľkosť na celú mriežku
+            obsah.style.setProperty('--board-font-size', baseSize + 'px');
+
+            if (pocetKariet === 0) {
                 obsah.innerHTML = `
-                    <div style="grid-column: 1 / -1; text-align: center; font-size: 3rem; color: #7f8c8d; margin-top: 15vh; font-weight: 600;">
-                        <i class="fa-solid fa-circle-check" style="font-size: 6rem; color: #2ecc71; margin-bottom: 25px; display: block;"></i>
+                    <div style="grid-column: 1 / -1; text-align: center; font-size: 2em; color: #7f8c8d; margin-top: 15vh; font-weight: 600;">
+                        <i class="fa-solid fa-circle-check" style="font-size: 4em; color: #2ecc71; margin-bottom: 20px; display: block;"></i>
                         Všetky špeciálne požiadavky na ${data.cielovy_datum} sú pripravené.<br>Chystajte štandardne.
                     </div>`;
                 prisposobVelkost(); 
@@ -62,10 +75,10 @@ function nacitajPoznamkyNaTabulu() {
                         <div class="zakaznik-hlavicka">
                             <div class="zakaznik-nazov">${obj.zakaznik}</div>
                             <div class="objednavka-info">
-                                <span style="color: #d32f2f; font-weight: 800; font-size: 1.6rem; margin-right: 15px; background: #ffebee; padding: 6px 12px; border-radius: 6px;">
+                                <span class="datum-tag">
                                     <i class="fa-regular fa-calendar"></i> ${obj.datum_dodania}
                                 </span>
-                                ${obj.id_objednavky}
+                                <span>${obj.id_objednavky}</span>
                             </div>
                         </div>
                         ${poznamkyHtml}
@@ -75,7 +88,7 @@ function nacitajPoznamkyNaTabulu() {
             
             obsah.innerHTML = html;
 
-            // Počkáme 50ms kým prehliadač vykreslí prvky a potom zmenšíme, ak treba
+            // Posledná poistka - ak by aj najmenšie písmo pretieklo cez výšku TV, CSS scale to jemne dorovná
             setTimeout(prisposobVelkost, 50); 
         })
         .catch(error => console.error('Chyba spojenia s backendom tabule:', error));
@@ -87,22 +100,19 @@ function prisposobVelkost() {
     
     if (!contentArea || !board) return;
 
-    // 1. Resetujeme veľkosť na plnú obrazovku
     board.style.transform = 'none';
     board.style.width = '100%';
-    board.style.transformOrigin = 'top left'; // Sťahovať sa to bude zhora zľava
+    board.style.transformOrigin = 'top left'; 
     
     const availableHeight = contentArea.clientHeight;
     const currentHeight = board.scrollHeight;
     
-    // 2. Ak objednávky pretekajú pod obrazovku
+    // Ak výška mriežky presahuje výšku voľného miesta na TV
     if (currentHeight > availableHeight && availableHeight > 0) {
-        // Vypočítame zmenšenie (necháme si 2% rezervu)
         let scaleFactor = (availableHeight / currentHeight) * 0.98;
         
-        // KĽÚČOVÁ VEC: Keďže sme to zmenšili napr. na 80%, musíme 
-        // umelo natiahnuť šírku na 125 %, aby to roztiahlo na plnú šírku TV!
         board.style.transform = `scale(${scaleFactor})`;
+        // Umelé natiahnutie šírky, aby neboli prázdne čierne pásy po bokoch
         board.style.width = `${100 / scaleFactor}%`;
     }
 }
