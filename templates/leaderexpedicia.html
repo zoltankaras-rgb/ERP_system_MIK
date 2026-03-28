@@ -221,24 +221,35 @@
               <strong><i class="fas fa-exclamation-triangle text-danger"></i> Stále upozornenia ku konkrétnym zákazníkom</strong>
             </div>
             <div class="card-body">
-              <p class="text-muted small">Vyberte zákazníka a napíšte trvalú požiadavku (napr. "Stehno len rozšálované"). Na TV to automaticky vyskočí pri každej jeho objednávke.</p>
+              <p class="text-muted small">Vyberte zákazníka a napíšte trvalú požiadavku. Na TV to automaticky vyskočí pri každej jeho objednávke.</p>
+              
               <div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px;">
                 <div>
-                  <input type="text" id="tv-customer-search" class="form-control mb-2" placeholder="Hľadať zákazníka..." style="margin-bottom: 10px;">
-                  <select id="tv-customer-select" class="form-control" size="12" style="font-size: 14px; width: 100%; padding: 5px;">
-                    </select>
+                  <div class="form-group product-search-wrapper">
+                      <label style="font-weight: 600; color: #b91c1c;">Vyhľadať odberateľa:</label>
+                      <input type="text" id="tv-customer-search" class="form-control" placeholder="Začnite písať ID alebo Názov firmy..." autocomplete="off">
+                      <div id="tv-customer-results" class="product-search-results"></div>
+                  </div>
+                  
+                  <h5 class="mt-4 mb-2 text-muted" style="font-size: 0.9rem;">Odberatelia s aktívnou požiadavkou:</h5>
+                  <div id="tv-active-notes-list" style="max-height: 250px; overflow-y: auto; border: 1px solid #e5e7eb; border-radius: 6px; background: #fafafa;">
+                      </div>
                 </div>
+
                 <div>
-                  <h4 id="tv-selected-customer-name" style="color:#b91c1c; margin-top:0;">Vyberte zákazníka zo zoznamu vľavo</h4>
+                  <h4 id="tv-selected-customer-name" style="color:#b91c1c; margin-top:0;">Najskôr vyhľadajte zákazníka</h4>
+                  <input type="hidden" id="tv-selected-customer-id">
                   <div class="form-group">
-                      <textarea id="tv-customer-note" class="form-control" rows="8" placeholder="Tu napíšte špeciálnu úpravu alebo trvalé upozornenie pre tohto zákazníka..."></textarea>
+                      <textarea id="tv-customer-note" class="form-control" rows="7" placeholder="Tu napíšte špeciálnu úpravu alebo trvalé upozornenie pre tohto zákazníka (napr. 'Stehno len rozšálované')..."></textarea>
                   </div>
                   <button id="btn-save-customer-note" class="btn btn-danger" disabled><i class="fas fa-save"></i> Uložiť stálu požiadavku</button>
                 </div>
               </div>
+
             </div>
           </div>
         </div>
+
         <div id="leader-b2c" class="content-section">
           <h3>B2C objednávky (deň)</h3>
           <div class="card">
