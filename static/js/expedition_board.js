@@ -56,11 +56,14 @@ function nacitajPoznamkyNaTabulu() {
 
             vsetkyStrany = [];
             skupinyTrasy.forEach((zoznamKariet, trasaNazov) => {
+                // Skóre celej trasy - koľko objednávok obsahuje dokopy
+                const pocetObjednavok = zoznamKariet.filter(k => k.ma_objednavku === 1).length;
                 const celkovoCasti = Math.ceil(zoznamKariet.length / MAX_KARIET_NA_OBRAZOVKU);
                 
                 for (let i = 0; i < zoznamKariet.length; i += MAX_KARIET_NA_OBRAZOVKU) {
                     vsetkyStrany.push({
                         trasa: trasaNazov,
+                        skoreObjednavok: pocetObjednavok,
                         cast: Math.floor(i / MAX_KARIET_NA_OBRAZOVKU) + 1,
                         celkovoCasti: celkovoCasti,
                         kartyNaZobrazenie: zoznamKariet.slice(i, i + MAX_KARIET_NA_OBRAZOVKU)
@@ -93,20 +96,35 @@ function vykresliStranu() {
     const hlavnyNadpis = document.getElementById('hlavny-nazov-trasy');
     const stranaData = vsetkyStrany[aktualnaStranaIndex];
 
-    // Namiesto vykresľovania dnu, ho posielame úplne hore!
     let castInfo = '';
     if (stranaData.celkovoCasti > 1) {
-        castInfo = ` <span style="font-size: 0.6em; color: #6c757d; font-weight: 600;">(ČASŤ ${stranaData.cast}/${stranaData.celkovoCasti})</span>`;
+        castInfo = ` <span style="font-size: 0.6em; color: #6c757d; font-weight: 600; margin-left: 10px;">(ČASŤ ${stranaData.cast}/${stranaData.celkovoCasti})</span>`;
     }
-    hlavnyNadpis.innerHTML = `<i class="fas fa-truck-fast"></i> ${stranaData.trasa} ${castInfo}`;
+    
+    // Nové počítadlo skóre
+    let scoreBadge = `<span class="route-score"><i class="fas fa-boxes"></i> SPOLU: ${stranaData.skoreObjednavok} OBJEDNÁVOK</span>`;
+    hlavnyNadpis.innerHTML = `<i class="fas fa-truck-fast"></i> ${stranaData.trasa} ${scoreBadge} ${castInfo}`;
 
-    // Samotná šachovnica už obsahuje IBA karty zákazníkov
     let html = `<div class="customers-grid">`;
 
     stranaData.kartyNaZobrazenie.forEach(obj => {
         const maPoznamku = obj.trvala_poznamka || obj.poznamka_objednavky;
-        const cssClass = maPoznamku ? 'has-notes' : 'has-order';
+        let cssClass = maPoznamku ? 'has-notes' : 'has-order';
+        
+        let uzavierkaHtml = '';
+        if (obj.po_uzavierke) {
+            cssClass += ' po-uzavierke'; // Pridá pulzovanie karty z CSS
+            uzavierkaHtml = `<div class="uzavierka-badge"><i class="fas fa-fire"></i> PO UZÁVIERKE (>12:00)</div>`;
+        }
+
         const badge = `<span class="status-badge badge-order"><i class="fas fa-box"></i> Objednané</span>`;
+
+        // Logika pre vizuál váhy
+        let vahaIkonka = '🧺';
+        if (obj.vaha_kategoria === 'velka') vahaIkonka = '🚛';
+        else if (obj.vaha_kategoria === 'stredna') vahaIkonka = '🛒';
+        
+        let vahaHtml = `<span class="vaha-badge">${vahaIkonka} ${Math.round(obj.vaha_kg)} kg</span>`;
 
         let poznamkyHtml = '';
         if (maPoznamku) {
@@ -130,12 +148,16 @@ function vykresliStranu() {
 
         html += `
             <div class="karta ${cssClass}">
+                ${uzavierkaHtml}
                 <div class="z-nazov">
                     ${nazovFirmy} 
                     ${adresaHtml}
                 </div>
                 <div class="z-info">
-                    <span>${obj.id_objednavky || '-'}</span>
+                    <div style="display: flex; gap: 15px; align-items: center;">
+                        <span>${obj.id_objednavky || '-'}</span>
+                        ${vahaHtml}
+                    </div>
                     ${badge}
                 </div>
                 ${poznamkyHtml}
@@ -163,7 +185,7 @@ function prisposobVelkostVertical() {
     if (!contentArea || !board) return;
 
     board.style.transform = 'none';
-    const availableHeight = contentArea.clientHeight - 30; // Menej miesta na okraje
+    const availableHeight = contentArea.clientHeight - 30; 
     const currentHeight = board.scrollHeight;
 
     if (currentHeight > availableHeight && availableHeight > 0) {
