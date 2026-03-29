@@ -197,7 +197,9 @@ function prisposobVelkostVertical() {
 
     if (currentHeight > availableHeight && availableHeight > 0) {
         let finalScale = (availableHeight / currentHeight) * 0.98;
-        board.style.transform = `scale(${finalScale})`;
+        // OPRAVA HUSPENINY: Zaokrúhlenie na 2 desatinné miesta a vynútenie GPU
+        finalScale = Math.floor(finalScale * 100) / 100;
+        board.style.transform = `scale(${finalScale}) translateZ(0)`;
     }
 }
 

@@ -37,6 +37,7 @@
     #coop-promo-container {
         flex: 0 0 auto; background-color: #e3f2fd; border-bottom: 2px solid #90caf9;
         box-shadow: 0 2px 8px rgba(0,0,0,0.05); display: none;
+        transform: translateZ(0); /* Zastaví trasenie kvôli bežiacemu textu */
     }
     .promo-ticker-flex {
         display: flex; align-items: center; color: #0d47a1; font-size: 1.6rem; 
@@ -55,13 +56,20 @@
         flex: 1 1 auto; padding: 25px 40px; width: 100%; box-sizing: border-box;
         display: flex; flex-direction: column; overflow: hidden;
     }
-    #obsah-tabule { flex: 1 1 auto; display: flex; flex-direction: column; transform-origin: top center; }
+    
+    /* VYNÚTENIE HARDVÉROVEJ AKCELERÁCIE (Koniec "huspeniny") */
+    #obsah-tabule { 
+        flex: 1 1 auto; display: flex; flex-direction: column; transform-origin: top center; 
+        will-change: transform; backface-visibility: hidden;
+    }
 
     .customers-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(500px, 1fr)); gap: 25px; align-content: flex-start; }
 
     .karta {
         border-radius: 12px; padding: 25px; box-shadow: 0 4px 12px rgba(0,0,0,0.08);
         display: flex; flex-direction: column; gap: 12px; border: 2px solid transparent; transition: all 0.3s ease;
+        transform: translateZ(0); /* Zastaví trasenie jednotlivých kariet */
+        backface-visibility: hidden;
     }
     .karta.has-notes { background: #ffffff; border-left: 10px solid #d32f2f; }
     .karta.has-order { background: #f8f9fa; border-left: 10px solid #28a745; }
@@ -151,6 +159,6 @@
           <div id="paginacia-container"></div>
       </div>
   </div>
-  <script src="/static/js/expedition_board.js?v=2"></script>
+  <script src="/static/js/expedition_board.js?v=3"></script>
 </body>
 </html>
