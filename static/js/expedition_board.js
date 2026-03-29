@@ -91,18 +91,27 @@ function vykresliTrasnu() {
             if (obj.poznamka_objednavky) poznamkyHtml += `<div class="p-riadok dnesna-poznamka"><i class="fas fa-info-circle"></i><div><strong>DOPLNENIE:</strong> ${obj.poznamka_objednavky}</div></div>`;
         }
 
-        // Zobrazenie Adresy (Napr. Vlčany 063) ak je zadaná
+        // 1. Zostavenie názvu presne ako z Dispečingu (napr. "[057] Trnovec n/Váhom")
+        let nazovFirmy = obj.zakaznik;
+        if (obj.cislo_prevadzky) {
+            // Kontrola, aby sme nezdvojili zátvorky, ak už v názve náhodou sú
+            if (!nazovFirmy.includes(`[${obj.cislo_prevadzky}]`)) {
+                nazovFirmy = `[${obj.cislo_prevadzky}] ${nazovFirmy}`;
+            }
+        }
+
+        // 2. Jemná adresa pod názvom (pre lepšiu orientáciu)
         let adresaHtml = '';
         if (obj.adresa) {
-            adresaHtml = `<div style="font-size: 1.3rem; margin-top: 6px; font-weight: 600; opacity: 0.7;">
-                            <i class="fas fa-map-marker-alt" style="margin-right: 5px;"></i>${obj.adresa}
+            adresaHtml = `<div style="font-size: 1.2rem; margin-top: 6px; font-weight: 500; opacity: 0.7;">
+                            ${obj.adresa}
                           </div>`;
         }
 
         html += `
             <div class="karta ${cssClass}">
                 <div class="z-nazov">
-                    ${obj.zakaznik}
+                    ${nazovFirmy}
                     ${adresaHtml}
                 </div>
                 <div class="z-info">
