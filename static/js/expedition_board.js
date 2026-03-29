@@ -82,8 +82,6 @@ function vykresliTrasnu() {
 
     trasaData.zoznamKariet.forEach(obj => {
         const maPoznamku = obj.trvala_poznamka || obj.poznamka_objednavky;
-        
-        // Zákazníci tu už SÚ iba ak majú objednávku
         const cssClass = maPoznamku ? 'has-notes' : 'has-order';
         const badge = `<span class="status-badge badge-order"><i class="fas fa-box"></i> Objednané</span>`;
 
@@ -93,9 +91,12 @@ function vykresliTrasnu() {
             if (obj.poznamka_objednavky) poznamkyHtml += `<div class="p-riadok dnesna-poznamka"><i class="fas fa-info-circle"></i><div><strong>DOPLNENIE:</strong> ${obj.poznamka_objednavky}</div></div>`;
         }
 
+        // PRIDANÉ: <span style="opacity: 0.5; font-size: 0.8em; margin-right: 8px;">#${obj.cislo_prevadzky}</span>
         html += `
             <div class="karta ${cssClass}">
-                <div class="z-nazov">${obj.zakaznik}</div>
+                <div class="z-nazov">
+                    <span style="opacity: 0.5; font-size: 0.8em; margin-right: 8px;">[${obj.cislo_prevadzky}]</span>${obj.zakaznik}
+                </div>
                 <div class="z-info">
                     <span>${obj.id_objednavky || '-'}</span>
                     ${badge}

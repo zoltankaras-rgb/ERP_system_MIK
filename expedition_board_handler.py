@@ -15,10 +15,11 @@ def get_b2b_special_notes():
     cielovy_datum_str = cielovy_datum.strftime('%Y-%m-%d')
     cielovy_datum_sk = cielovy_datum.strftime('%d.%m.%Y')
 
-    # NOVÝ SQL DOPYT: Iba tí zákazníci na trase, ktorí MAJÚ objednávku
+    # PRIDANÉ: z.zakaznik_id AS cislo_prevadzky
     sql = """
         SELECT 
             COALESCE(t.nazov, 'Nezaradené') AS trasa_nazov,
+            z.zakaznik_id AS cislo_prevadzky,
             z.nazov_firmy AS zakaznik,
             z.stala_poznamka_expedicia AS trvala_poznamka,
             o.cislo_objednavky AS id_objednavky,
