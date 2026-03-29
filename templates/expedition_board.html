@@ -9,7 +9,6 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
 
   <style>
-    /* ZÁKLAD (Denný režim) */
     body, html {
         margin: 0; padding: 0; height: 100vh; overflow: hidden;
         background-color: #e9ecef; font-family: 'Inter', sans-serif;
@@ -19,14 +18,17 @@
     
     .tv-header {
         flex: 0 0 auto; display: flex; justify-content: space-between; align-items: center;
-        background-color: #ffffff; padding: 10px 30px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        border-bottom: 4px solid #d32f2f; z-index: 20;
+        background-color: #ffffff; padding: 15px 30px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        border-bottom: 5px solid #d32f2f; z-index: 20;
     }
-    .logo-box img { height: 45px; }
-    .title-box { text-align: center; }
-    .title-box h1 { margin: 0; font-size: 2.2rem; color: #212529; font-weight: 800; letter-spacing: 1px; }
-    .title-box .target-date { font-size: 1.5rem; color: #d32f2f; font-weight: 600; }
-    .time-box { font-size: 2.8rem; font-weight: 800; color: #212529; font-variant-numeric: tabular-nums; }
+    .logo-box img { height: 50px; }
+    .title-box { text-align: center; flex-grow: 1; }
+    
+    /* TOTO JE NOVÝ HLAVNÝ NÁDPIS TRASY */
+    .title-box h1 { margin: 0; font-size: 3.5rem; color: #d32f2f; font-weight: 800; text-transform: uppercase; line-height: 1.1; }
+    .title-box .target-date { font-size: 1.6rem; color: #6c757d; font-weight: 800; margin-top: 5px; text-transform: uppercase; }
+    
+    .time-box { font-size: 3rem; font-weight: 800; color: #212529; font-variant-numeric: tabular-nums; }
     
     #global-note-container {
         flex: 0 0 auto; background-color: #ffc107; color: #000;
@@ -52,20 +54,11 @@
     }
 
     .tv-content {
-        flex: 1 1 auto; padding: 20px 40px; width: 100%; box-sizing: border-box;
+        flex: 1 1 auto; padding: 25px 40px; width: 100%; box-sizing: border-box;
         display: flex; flex-direction: column; overflow: hidden;
     }
     #obsah-tabule { flex: 1 1 auto; display: flex; flex-direction: column; transform-origin: top center; }
 
-    .full-route-header {
-        background: #343a40; color: #ffffff; padding: 15px 30px; font-size: 3.5rem; font-weight: 800; 
-        border-radius: 12px; border-bottom: 6px solid #d32f2f; text-transform: uppercase; 
-        text-align: center; margin-bottom: 25px; box-shadow: 0 4px 15px rgba(0,0,0,0.1);
-        display: flex; justify-content: center; align-items: center; gap: 20px;
-    }
-    .route-page-info { font-size: 2rem; opacity: 0.8; font-weight: 600; }
-
-    /* GRID OPTIMALIZOVANÝ PRE TV (Širšie karty, lepšie rozloženie) */
     .customers-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(500px, 1fr)); gap: 25px; align-content: flex-start; }
 
     .karta {
@@ -93,8 +86,9 @@
     /* TMAVÝ REŽIM */
     body.dark-mode { background-color: #121212; color: #e0e0e0; }
     body.dark-mode .tv-header { background-color: #1e1e1e; border-bottom-color: #b71c1c; }
-    body.dark-mode .tv-header h1, body.dark-mode .time-box { color: #ffffff; }
-    body.dark-mode .full-route-header { background: #000; border-bottom-color: #b71c1c; }
+    body.dark-mode .tv-header h1 { color: #ff5252; }
+    body.dark-mode .time-box { color: #ffffff; }
+    body.dark-mode .title-box .target-date { color: #aaa; }
     
     body.dark-mode .karta.has-notes { background: #2a2a2a; border-left-color: #b71c1c; }
     body.dark-mode .karta.has-order { background: #1e1e1e; border-left-color: #28a745; }
@@ -115,8 +109,8 @@
       <div class="tv-header">
           <div class="logo-box"><img src="/static/mik logo.jpg" alt="MIK Logo"></div>
           <div class="title-box">
-              <h1>Kompletný prehľad trás</h1>
-              <div class="target-date" id="cielovy-datum">Chystáme na: Načítavam...</div>
+              <h1 id="hlavny-nazov-trasy"><i class="fas fa-spinner fa-spin"></i> Načítavam systém...</h1>
+              <div class="target-date" id="cielovy-datum">Chystáme na: ...</div>
           </div>
           <div class="time-box" id="aktualny-cas">00:00:00</div>
       </div>
@@ -131,9 +125,7 @@
       </div>
 
       <div class="tv-content">
-          <div id="obsah-tabule">
-              <h2 style="color: #6c757d; margin-top: 15vh; font-size: 3rem; text-align: center;">Načítavam trasy...</h2>
-          </div>
+          <div id="obsah-tabule"></div>
           <div id="paginacia-container"></div>
       </div>
   </div>

@@ -1,10 +1,10 @@
 // static/js/expedition_board.js
 
-let vsetkyStrany = []; // Bude obsahovať už rozsekané časti trás
+let vsetkyStrany = []; 
 let aktualnaStranaIndex = 0; 
 let rotaciaInterval = null;
 
-const MAX_KARIET_NA_OBRAZOVKU = 8; // Bezpečný limit pre masívne TV písmo
+const MAX_KARIET_NA_OBRAZOVKU = 8; 
 
 function aktualizujCas() {
     const teraz = new Date();
@@ -23,7 +23,7 @@ function nacitajPoznamkyNaTabulu() {
     fetch('/api/tv-board/data') 
         .then(response => response.json())
         .then(data => {
-            if (data.cielovy_datum) document.getElementById('cielovy-datum').innerHTML = `Chystáme na: <strong>${data.cielovy_datum}</strong>`;
+            if (data.cielovy_datum) document.getElementById('cielovy-datum').innerHTML = `CHYSTÁME NA: ${data.cielovy_datum}`;
 
             const gn = document.getElementById('global-note-container');
             if (data.global_note && data.global_note.trim() !== '') {
@@ -41,12 +41,12 @@ function nacitajPoznamkyNaTabulu() {
 
             if (poznamky.length === 0) {
                 zastavRotaciu();
+                document.getElementById('hlavny-nazov-trasy').innerHTML = `<i class="fas fa-check-circle"></i> VŠETKO JE HOTOVÉ`;
                 document.getElementById('paginacia-container').innerHTML = '';
                 document.getElementById('obsah-tabule').innerHTML = `<h2 style="text-align:center; margin-top:20vh; color:#6c757d; font-size: 3rem;">Zatiaľ nie sú naplánované žiadne objednávky na trase.</h2>`;
                 return;
             }
 
-            // 1. Zoskupenie kariet podľa trasy
             const skupinyTrasy = new Map();
             poznamky.forEach(obj => {
                 const trasa = obj.trasa_nazov;
@@ -54,7 +54,6 @@ function nacitajPoznamkyNaTabulu() {
                 skupinyTrasy.get(trasa).push(obj);
             });
 
-            // 2. Rozsekanie veľkých trás na menšie strany (stránkovanie pre TV)
             vsetkyStrany = [];
             skupinyTrasy.forEach((zoznamKariet, trasaNazov) => {
                 const celkovoCasti = Math.ceil(zoznamKariet.length / MAX_KARIET_NA_OBRAZOVKU);
@@ -73,7 +72,6 @@ function nacitajPoznamkyNaTabulu() {
 
             vykresliStranu();
 
-            // Rotácia preblikne každú "stranu" (nie nutne celú trasu naraz)
             if (vsetkyStrany.length > 1) {
                 if (!rotaciaInterval) {
                     rotaciaInterval = setInterval(() => {
@@ -92,20 +90,18 @@ function nacitajPoznamkyNaTabulu() {
 function vykresliStranu() {
     const obsah = document.getElementById('obsah-tabule');
     const paginacia = document.getElementById('paginacia-container');
+    const hlavnyNadpis = document.getElementById('hlavny-nazov-trasy');
     const stranaData = vsetkyStrany[aktualnaStranaIndex];
 
-    // Ak má trasa viac častí, zobrazíme napr. (1/2) v hlavičke
+    // Namiesto vykresľovania dnu, ho posielame úplne hore!
     let castInfo = '';
     if (stranaData.celkovoCasti > 1) {
-        castInfo = `<span class="route-page-info">(Časť ${stranaData.cast}/${stranaData.celkovoCasti})</span>`;
+        castInfo = ` <span style="font-size: 0.6em; color: #6c757d; font-weight: 600;">(ČASŤ ${stranaData.cast}/${stranaData.celkovoCasti})</span>`;
     }
+    hlavnyNadpis.innerHTML = `<i class="fas fa-truck-fast"></i> ${stranaData.trasa} ${castInfo}`;
 
-    let html = `
-        <div class="full-route-header">
-            <i class="fas fa-truck-fast"></i> ${stranaData.trasa} ${castInfo}
-        </div>
-        <div class="customers-grid">
-    `;
+    // Samotná šachovnica už obsahuje IBA karty zákazníkov
+    let html = `<div class="customers-grid">`;
 
     stranaData.kartyNaZobrazenie.forEach(obj => {
         const maPoznamku = obj.trvala_poznamka || obj.poznamka_objednavky;
@@ -158,7 +154,6 @@ function vykresliStranu() {
     }
     paginacia.innerHTML = paginaciaHtml;
 
-    // Aplikujeme jemné prispôsobenie len ako absolútnu záchranu, text by už nemal byť mikroskopický
     setTimeout(prisposobVelkostVertical, 50);
 }
 
@@ -168,7 +163,7 @@ function prisposobVelkostVertical() {
     if (!contentArea || !board) return;
 
     board.style.transform = 'none';
-    const availableHeight = contentArea.clientHeight - 60; 
+    const availableHeight = contentArea.clientHeight - 30; // Menej miesta na okraje
     const currentHeight = board.scrollHeight;
 
     if (currentHeight > availableHeight && availableHeight > 0) {
