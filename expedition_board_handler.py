@@ -15,11 +15,9 @@ def get_b2b_special_notes():
     cielovy_datum_str = cielovy_datum.strftime('%Y-%m-%d')
     cielovy_datum_sk = cielovy_datum.strftime('%d.%m.%Y')
 
-    # Pridané: z.zakaznik_id AS cislo_prevadzky, COALESCE(adresa_dorucenia, adresa)
     sql = """
         SELECT 
             COALESCE(t.nazov, 'Nezaradené') AS trasa_nazov,
-            z.zakaznik_id AS cislo_prevadzky,
             z.nazov_firmy AS zakaznik,
             COALESCE(z.adresa_dorucenia, z.adresa, '') AS adresa,
             z.stala_poznamka_expedicia AS trvala_poznamka,
