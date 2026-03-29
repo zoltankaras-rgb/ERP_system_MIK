@@ -1,8 +1,10 @@
 // static/js/expedition_board.js
 
-let vsetkyTrasy = []; 
-let aktualnaTrasaIndex = 0; 
+let vsetkyStrany = []; // Bude obsahovať už rozsekané časti trás
+let aktualnaStranaIndex = 0; 
 let rotaciaInterval = null;
+
+const MAX_KARIET_NA_OBRAZOVKU = 8; // Bezpečný limit pre masívne TV písmo
 
 function aktualizujCas() {
     const teraz = new Date();
@@ -40,10 +42,11 @@ function nacitajPoznamkyNaTabulu() {
             if (poznamky.length === 0) {
                 zastavRotaciu();
                 document.getElementById('paginacia-container').innerHTML = '';
-                document.getElementById('obsah-tabule').innerHTML = `<h2 style="text-align:center; margin-top:20vh; color:#6c757d; font-size: 2.5rem;">Zatiaľ nie sú naplánované žiadne objednávky na trase.</h2>`;
+                document.getElementById('obsah-tabule').innerHTML = `<h2 style="text-align:center; margin-top:20vh; color:#6c757d; font-size: 3rem;">Zatiaľ nie sú naplánované žiadne objednávky na trase.</h2>`;
                 return;
             }
 
+            // 1. Zoskupenie kariet podľa trasy
             const skupinyTrasy = new Map();
             poznamky.forEach(obj => {
                 const trasa = obj.trasa_nazov;
@@ -51,18 +54,32 @@ function nacitajPoznamkyNaTabulu() {
                 skupinyTrasy.get(trasa).push(obj);
             });
 
-            vsetkyTrasy = Array.from(skupinyTrasy, ([trasa, zoznamKariet]) => ({ trasa, zoznamKariet }));
+            // 2. Rozsekanie veľkých trás na menšie strany (stránkovanie pre TV)
+            vsetkyStrany = [];
+            skupinyTrasy.forEach((zoznamKariet, trasaNazov) => {
+                const celkovoCasti = Math.ceil(zoznamKariet.length / MAX_KARIET_NA_OBRAZOVKU);
+                
+                for (let i = 0; i < zoznamKariet.length; i += MAX_KARIET_NA_OBRAZOVKU) {
+                    vsetkyStrany.push({
+                        trasa: trasaNazov,
+                        cast: Math.floor(i / MAX_KARIET_NA_OBRAZOVKU) + 1,
+                        celkovoCasti: celkovoCasti,
+                        kartyNaZobrazenie: zoznamKariet.slice(i, i + MAX_KARIET_NA_OBRAZOVKU)
+                    });
+                }
+            });
 
-            if (aktualnaTrasaIndex >= vsetkyTrasy.length) aktualnaTrasaIndex = 0;
+            if (aktualnaStranaIndex >= vsetkyStrany.length) aktualnaStranaIndex = 0;
 
-            vykresliTrasnu();
+            vykresliStranu();
 
-            if (vsetkyTrasy.length > 1) {
+            // Rotácia preblikne každú "stranu" (nie nutne celú trasu naraz)
+            if (vsetkyStrany.length > 1) {
                 if (!rotaciaInterval) {
                     rotaciaInterval = setInterval(() => {
-                        aktualnaTrasaIndex++;
-                        if (aktualnaTrasaIndex >= vsetkyTrasy.length) aktualnaTrasaIndex = 0;
-                        vykresliTrasnu();
+                        aktualnaStranaIndex++;
+                        if (aktualnaStranaIndex >= vsetkyStrany.length) aktualnaStranaIndex = 0;
+                        vykresliStranu();
                     }, 12000); 
                 }
             } else {
@@ -72,15 +89,25 @@ function nacitajPoznamkyNaTabulu() {
         .catch(error => console.error('Chyba spojenia s backendom tabule:', error));
 }
 
-function vykresliTrasnu() {
+function vykresliStranu() {
     const obsah = document.getElementById('obsah-tabule');
     const paginacia = document.getElementById('paginacia-container');
-    const trasaData = vsetkyTrasy[aktualnaTrasaIndex];
+    const stranaData = vsetkyStrany[aktualnaStranaIndex];
 
-    let html = `<div class="full-route-header"><i class="fas fa-truck-fast"></i> ${trasaData.trasa}</div>`;
-    html += `<div class="customers-grid">`;
+    // Ak má trasa viac častí, zobrazíme napr. (1/2) v hlavičke
+    let castInfo = '';
+    if (stranaData.celkovoCasti > 1) {
+        castInfo = `<span class="route-page-info">(Časť ${stranaData.cast}/${stranaData.celkovoCasti})</span>`;
+    }
 
-    trasaData.zoznamKariet.forEach(obj => {
+    let html = `
+        <div class="full-route-header">
+            <i class="fas fa-truck-fast"></i> ${stranaData.trasa} ${castInfo}
+        </div>
+        <div class="customers-grid">
+    `;
+
+    stranaData.kartyNaZobrazenie.forEach(obj => {
         const maPoznamku = obj.trvala_poznamka || obj.poznamka_objednavky;
         const cssClass = maPoznamku ? 'has-notes' : 'has-order';
         const badge = `<span class="status-badge badge-order"><i class="fas fa-box"></i> Objednané</span>`;
@@ -91,18 +118,16 @@ function vykresliTrasnu() {
             if (obj.poznamka_objednavky) poznamkyHtml += `<div class="p-riadok dnesna-poznamka"><i class="fas fa-info-circle"></i><div><strong>DOPLNENIE:</strong> ${obj.poznamka_objednavky}</div></div>`;
         }
 
-        // Tvarovanie Názvu s Číslom Prevádzky (ak existuje)
         let nazovFirmy = obj.zakaznik;
         if (obj.cislo_prevadzky && obj.cislo_prevadzky.trim() !== '') {
-             // Ak už nie je "omylom" vpísané aj v názve, pridáme ho so šedými hranatými zátvorkami
              if (!nazovFirmy.includes(`[${obj.cislo_prevadzky}]`)) {
-                  nazovFirmy = `<span style="color: #6c757d; margin-right: 5px;">[${obj.cislo_prevadzky}]</span>${nazovFirmy}`;
+                  nazovFirmy = `<span style="color: #6c757d; margin-right: 8px;">[${obj.cislo_prevadzky}]</span>${nazovFirmy}`;
              }
         }
 
         let adresaHtml = '';
         if (obj.adresa) {
-            adresaHtml = `<div style="font-size: 1.2rem; margin-top: 6px; font-weight: 500; opacity: 0.7;">
+            adresaHtml = `<div style="font-size: 1.3rem; margin-top: 8px; font-weight: 500; opacity: 0.7;">
                             ${obj.adresa}
                           </div>`;
         }
@@ -126,13 +151,14 @@ function vykresliTrasnu() {
     obsah.innerHTML = html;
 
     let paginaciaHtml = '';
-    if (vsetkyTrasy.length > 1) {
-        for (let i = 0; i < vsetkyTrasy.length; i++) {
-            paginaciaHtml += `<div class="dot ${i === aktualnaTrasaIndex ? 'active' : ''}"></div>`;
+    if (vsetkyStrany.length > 1) {
+        for (let i = 0; i < vsetkyStrany.length; i++) {
+            paginaciaHtml += `<div class="dot ${i === aktualnaStranaIndex ? 'active' : ''}"></div>`;
         }
     }
     paginacia.innerHTML = paginaciaHtml;
 
+    // Aplikujeme jemné prispôsobenie len ako absolútnu záchranu, text by už nemal byť mikroskopický
     setTimeout(prisposobVelkostVertical, 50);
 }
 
@@ -142,7 +168,7 @@ function prisposobVelkostVertical() {
     if (!contentArea || !board) return;
 
     board.style.transform = 'none';
-    const availableHeight = contentArea.clientHeight - 50; 
+    const availableHeight = contentArea.clientHeight - 60; 
     const currentHeight = board.scrollHeight;
 
     if (currentHeight > availableHeight && availableHeight > 0) {
