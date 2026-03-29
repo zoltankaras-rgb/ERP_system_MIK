@@ -1,4 +1,12 @@
 # expedition_board_handler.py
+import os
+import time
+
+# VYNÚTENIE SLOVENSKÉHO ČASU PRE SERVER (rieši letný/zimný čas aj uzávierky)
+os.environ['TZ'] = 'Europe/Bratislava'
+if hasattr(time, 'tzset'):
+    time.tzset()
+
 import db_connector
 from datetime import datetime, date, timedelta
 
@@ -15,7 +23,6 @@ def get_b2b_special_notes():
     cielovy_datum_str = cielovy_datum.strftime('%Y-%m-%d')
     cielovy_datum_sk = cielovy_datum.strftime('%d.%m.%Y')
 
-    # PRIDANÉ: Výpočet kg z položiek (celkova_vaha_kg) a kontrola času (datum_objednavky)
     sql = """
         SELECT 
             COALESCE(t.nazov, 'Nezaradené') AS trasa_nazov,
@@ -39,19 +46,16 @@ def get_b2b_special_notes():
     
     rows = db_connector.execute_query(sql, (cielovy_datum_str,), fetch='all') or []
     
-    # SPRACOVANIE VÝNIMIEK A VÁHY
     for r in rows:
-        # 1. Kontrola uzávierky (Ak bola objednávka nahodená o 12:00 a neskôr)
         is_late = False
         if r.get('datum_objednavky'):
             dt = r['datum_objednavky']
+            # Vďaka timezone poistke hore bude dt.hour zaručene slovenský čas
             if isinstance(dt, datetime) and dt.hour >= 12:
                 is_late = True
-            # Serializácia pre JSON
             r['datum_objednavky'] = str(r['datum_objednavky'])
         r['po_uzavierke'] = is_late
         
-        # 2. Kategorizácia váhy podľa kg
         weight = float(r.get('celkova_vaha_kg') or 0)
         r['vaha_kg'] = weight
         if weight >= 100:

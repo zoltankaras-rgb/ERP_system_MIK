@@ -8,9 +8,21 @@ const MAX_KARIET_NA_OBRAZOVKU = 8;
 
 function aktualizujCas() {
     const teraz = new Date();
-    const hodina = teraz.getHours();
     
-    document.getElementById('aktualny-cas').textContent = teraz.toLocaleTimeString('sk-SK', { hour12: false });
+    // VYNÚTENIE ČASOVÉHO PÁSMA PRE HODINY NA OBRAZOVKE
+    const casString = teraz.toLocaleTimeString('sk-SK', { 
+        timeZone: 'Europe/Bratislava', 
+        hour12: false 
+    });
+    document.getElementById('aktualny-cas').textContent = casString;
+
+    // VYNÚTENIE ČASOVÉHO PÁSMA PRE DARK MODE (od 16:00 do 06:00)
+    const hodinaFormat = new Intl.DateTimeFormat('sk-SK', {
+        timeZone: 'Europe/Bratislava',
+        hour: 'numeric',
+        hour12: false
+    });
+    const hodina = parseInt(hodinaFormat.format(teraz), 10);
 
     if (hodina >= 16 || hodina < 6) {
         document.body.classList.add('dark-mode');
@@ -56,7 +68,6 @@ function nacitajPoznamkyNaTabulu() {
 
             vsetkyStrany = [];
             skupinyTrasy.forEach((zoznamKariet, trasaNazov) => {
-                // Skóre celej trasy - koľko objednávok obsahuje dokopy
                 const pocetObjednavok = zoznamKariet.filter(k => k.ma_objednavku === 1).length;
                 const celkovoCasti = Math.ceil(zoznamKariet.length / MAX_KARIET_NA_OBRAZOVKU);
                 
@@ -101,7 +112,6 @@ function vykresliStranu() {
         castInfo = ` <span style="font-size: 0.6em; color: #6c757d; font-weight: 600; margin-left: 10px;">(ČASŤ ${stranaData.cast}/${stranaData.celkovoCasti})</span>`;
     }
     
-    // Nové počítadlo skóre
     let scoreBadge = `<span class="route-score"><i class="fas fa-boxes"></i> SPOLU: ${stranaData.skoreObjednavok} OBJEDNÁVOK</span>`;
     hlavnyNadpis.innerHTML = `<i class="fas fa-truck-fast"></i> ${stranaData.trasa} ${scoreBadge} ${castInfo}`;
 
@@ -113,13 +123,12 @@ function vykresliStranu() {
         
         let uzavierkaHtml = '';
         if (obj.po_uzavierke) {
-            cssClass += ' po-uzavierke'; // Pridá pulzovanie karty z CSS
+            cssClass += ' po-uzavierke';
             uzavierkaHtml = `<div class="uzavierka-badge"><i class="fas fa-fire"></i> PO UZÁVIERKE (>12:00)</div>`;
         }
 
         const badge = `<span class="status-badge badge-order"><i class="fas fa-box"></i> Objednané</span>`;
 
-        // Logika pre vizuál váhy
         let vahaIkonka = '🧺';
         if (obj.vaha_kategoria === 'velka') vahaIkonka = '🚛';
         else if (obj.vaha_kategoria === 'stredna') vahaIkonka = '🛒';
