@@ -73,20 +73,6 @@
     .karta.has-notes { background: #ffffff; border-left: 10px solid #d32f2f; }
     .karta.has-order { background: #f8f9fa; border-left: 10px solid #28a745; }
     
-    /* OPRAVA: ODSTRÁNENÁ ANIMÁCIA (Huspenina) */
-    .karta.po-uzavierke { 
-        /* Hrubý statický oranžový okraj, žiadne pulzovanie */
-        border: 5px solid #ff9800 !important; 
-        background-color: #fffbef !important; /* Veľmi jemný oranžový podmaz */
-        box-shadow: 0 4px 15px rgba(255, 152, 0, 0.2);
-    }
-    
-    .uzavierka-badge {
-        background: #ffc107; color: #000; padding: 6px 12px; border-radius: 8px; 
-        font-size: 1.3rem; font-weight: 800; display: inline-flex; align-items: center; gap: 8px;
-        align-self: flex-start; margin-bottom: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-    }
-    
     .z-nazov { font-size: 2.2rem; font-weight: 800; line-height: 1.1; margin: 0; word-wrap: break-word; color: #000; }
     .z-info { font-size: 1.4rem; font-weight: 600; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(0,0,0,0.1); padding-bottom: 10px; }
     
@@ -126,16 +112,9 @@
     body.dark-mode .karta.has-notes { background: #2a2a2a; border-left-color: #b71c1c; }
     body.dark-mode .karta.has-order { background: #1e1e1e; border-left-color: #28a745; }
     
-    /* OPRAVA TMAVÉHO REŽIMU PRE UZÁVIERKU */
-    body.dark-mode .karta.po-uzavierke {
-        border-color: #ff9800 !important;
-        background-color: #241c00 !important; /* Tmavooranžový podmaz */
-    }
-
     body.dark-mode .z-nazov { color: #fff; }
     body.dark-mode .z-info { border-bottom-color: #444; color: #aaa; }
     body.dark-mode .vaha-badge { background: #333; color: #e0e0e0; }
-    body.dark-mode .uzavierka-badge { background: #b08d00; color: #fff; box-shadow: none;}
     body.dark-mode .badge-order { background: #0f3d1b; color: #84d399; }
     body.dark-mode .stala-poznamka { color: #ffb74d; }
     body.dark-mode .dnesna-poznamka { color: #64b5f6; }
@@ -170,6 +149,6 @@
           <div id="paginacia-container"></div>
       </div>
   </div>
-  <script src="/static/js/expedition_board.js?v=5"></script>
+  <script src="/static/js/expedition_board.js?v=6"></script>
 </body>
 </html>

@@ -2,7 +2,6 @@
 import os
 import time
 
-# VYNÚTENIE SLOVENSKÉHO ČASU
 os.environ['TZ'] = 'Europe/Bratislava'
 if hasattr(time, 'tzset'):
     time.tzset()
@@ -23,7 +22,6 @@ def get_b2b_special_notes():
     cielovy_datum_str = cielovy_datum.strftime('%Y-%m-%d')
     cielovy_datum_sk = cielovy_datum.strftime('%d.%m.%Y')
 
-    # VYLEPŠENÉ: Ak je MJ v kusoch (ks), prepočíta to na gramy a vydelí 1000, aby sme mali presné kg
     sql = """
         SELECT 
             COALESCE(t.nazov, 'Nezaradené') AS trasa_nazov,
@@ -33,7 +31,6 @@ def get_b2b_special_notes():
             z.stala_poznamka_expedicia AS trvala_poznamka,
             o.cislo_objednavky AS id_objednavky,
             o.poznamka AS poznamka_objednavky,
-            o.datum_objednavky,
             (SELECT COALESCE(SUM(
                 CASE 
                     WHEN LOWER(mj) = 'ks' THEN mnozstvo * (COALESCE(vaha_balenia_g, 0) / 1000.0)
@@ -53,14 +50,6 @@ def get_b2b_special_notes():
     rows = db_connector.execute_query(sql, (cielovy_datum_str,), fetch='all') or []
     
     for r in rows:
-        is_late = False
-        if r.get('datum_objednavky'):
-            dt = r['datum_objednavky']
-            if isinstance(dt, datetime) and dt.hour >= 12:
-                is_late = True
-            r['datum_objednavky'] = str(r['datum_objednavky'])
-        r['po_uzavierke'] = is_late
-        
         weight = float(r.get('celkova_vaha_kg') or 0)
         r['vaha_kg'] = weight
         if weight >= 100:

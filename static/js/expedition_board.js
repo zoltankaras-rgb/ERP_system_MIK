@@ -118,12 +118,6 @@ function vykresliStranu() {
     stranaData.kartyNaZobrazenie.forEach(obj => {
         const maPoznamku = obj.trvala_poznamka || obj.poznamka_objednavky;
         let cssClass = maPoznamku ? 'has-notes' : 'has-order';
-        
-        let uzavierkaHtml = '';
-        if (obj.po_uzavierke) {
-            cssClass += ' po-uzavierke';
-            uzavierkaHtml = `<div class="uzavierka-badge"><i class="fas fa-fire"></i> PO UZÁVIERKE (>12:00)</div>`;
-        }
 
         const badge = `<span class="status-badge badge-order"><i class="fas fa-box"></i> Objednané</span>`;
 
@@ -155,7 +149,6 @@ function vykresliStranu() {
 
         html += `
             <div class="karta ${cssClass}">
-                ${uzavierkaHtml}
                 <div class="z-nazov">
                     ${nazovFirmy} 
                     ${adresaHtml}
@@ -197,7 +190,6 @@ function prisposobVelkostVertical() {
 
     if (currentHeight > availableHeight && availableHeight > 0) {
         let finalScale = (availableHeight / currentHeight) * 0.98;
-        // OPRAVA HUSPENINY: Zaokrúhlenie na 2 desatinné miesta a vynútenie GPU
         finalScale = Math.floor(finalScale * 100) / 100;
         board.style.transform = `scale(${finalScale}) translateZ(0)`;
     }
