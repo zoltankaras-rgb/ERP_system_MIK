@@ -91,7 +91,15 @@ function vykresliTrasnu() {
             if (obj.poznamka_objednavky) poznamkyHtml += `<div class="p-riadok dnesna-poznamka"><i class="fas fa-info-circle"></i><div><strong>DOPLNENIE:</strong> ${obj.poznamka_objednavky}</div></div>`;
         }
 
-        // Jemná adresa pod názvom ako poistka (ako to máte na fotke v Dispečingu)
+        // Tvarovanie Názvu s Číslom Prevádzky (ak existuje)
+        let nazovFirmy = obj.zakaznik;
+        if (obj.cislo_prevadzky && obj.cislo_prevadzky.trim() !== '') {
+             // Ak už nie je "omylom" vpísané aj v názve, pridáme ho so šedými hranatými zátvorkami
+             if (!nazovFirmy.includes(`[${obj.cislo_prevadzky}]`)) {
+                  nazovFirmy = `<span style="color: #6c757d; margin-right: 5px;">[${obj.cislo_prevadzky}]</span>${nazovFirmy}`;
+             }
+        }
+
         let adresaHtml = '';
         if (obj.adresa) {
             adresaHtml = `<div style="font-size: 1.2rem; margin-top: 6px; font-weight: 500; opacity: 0.7;">
@@ -102,7 +110,7 @@ function vykresliTrasnu() {
         html += `
             <div class="karta ${cssClass}">
                 <div class="z-nazov">
-                    ${obj.zakaznik} 
+                    ${nazovFirmy} 
                     ${adresaHtml}
                 </div>
                 <div class="z-info">

@@ -18,6 +18,7 @@ def get_b2b_special_notes():
     sql = """
         SELECT 
             COALESCE(t.nazov, 'Nezaradené') AS trasa_nazov,
+            z.cislo_prevadzky,
             z.nazov_firmy AS zakaznik,
             COALESCE(z.adresa_dorucenia, z.adresa, '') AS adresa,
             z.stala_poznamka_expedicia AS trvala_poznamka,
