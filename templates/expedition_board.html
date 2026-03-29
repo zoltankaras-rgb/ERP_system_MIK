@@ -55,50 +55,63 @@
     }
 
     /* ==========================================================
-       OPRAVENÉ: CSS PRE AKCIE COOP JEDNOTA (Dramaticky zmenšené) 
+       TV SPRAVODAJSKÁ LIŠTA PRE AKCIE (Bežiaci text zľava doprava) 
        ========================================================== */
     #coop-promo-container {
         flex: 0 0 auto;
-        background-color: #e3f2fd; color: #0d47a1;
-        
-        /* Drastické zmenšenie textu pre banner */
-        font-size: 0.9rem; /* Pôvodne 1.6rem */
-        font-weight: 800; text-align: center;
-        
-        /* Stenčený pásik, aby nezaberal miesto */
-        padding: 8px 20px; 
-        
-        text-transform: uppercase;
-        display: none; 
+        background-color: #e3f2fd; 
         border-bottom: 2px solid #90caf9;
         box-shadow: 0 2px 8px rgba(0,0,0,0.05);
-        transition: background-color 0.8s ease, color 0.8s ease;
-        
-        /* ABSOLÚTNY ZÁKAZ ZALAMOVANIA TEXTU */
-        white-space: nowrap; 
-        overflow: hidden; /* Poistka: Ak by aj tak, oreže */
+        display: none; /* Ovláda to Javascript */
+        transition: background-color 0.8s ease, border-color 0.8s ease;
     }
-    
-    /* Zmenšenie ikony, aby ladila s menším písmom */
-    #coop-promo-container i {
-        font-size: 1.2rem;
-        margin-right: 8px;
+
+    .promo-ticker-flex {
+        display: flex;
+        align-items: center;
+        color: #0d47a1;
+        font-size: 1.5rem; /* Písmo je opäť veľké, lebo beží */
+        font-weight: 800;
+        padding: 8px 20px;
+        text-transform: uppercase;
+        overflow: hidden; /* Skryje text, ktorý je mimo obrazovky */
+    }
+
+    .promo-label {
+        flex-shrink: 0;
+        margin-right: 20px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        z-index: 2; /* Drží label nad bežiacim textom */
+    }
+
+    .marquee-wrapper {
+        flex-grow: 1;
+        overflow: hidden;
+        white-space: nowrap;
+    }
+
+    /* Samotná animácia bežiaceho pásu */
+    .marquee-content {
+        display: inline-block;
+        padding-left: 100%; /* Začína úplne na pravom okraji mimo obrazovky */
+        animation: marquee-scroll 25s linear infinite; /* 25 sekúnd trvá jedno prebehnutie */
+    }
+
+    @keyframes marquee-scroll {
+        0% { transform: translateX(0); }
+        100% { transform: translateX(-100%); } /* Prejde úplne doľava a zmizne */
     }
 
     .promo-highlight {
-        color: #d32f2f; background: #ffffff;
-        
-        /* Stenčené podfarbenie okolo produktov */
-        padding: 1px 6px; 
-        border-radius: 4px;
+        color: #d32f2f; 
+        background: #ffffff;
+        padding: 3px 10px; 
+        border-radius: 6px;
         border: 1px solid #bbdefb; 
-        
-        /* Menšie medzery medzi položkami */
-        margin: 0 3px; 
-        
-        /* Ešte menšie písmo pre samotné produkty */
-        font-size: 0.8rem; 
-        
+        margin: 0 8px; 
+        font-size: 1.4rem; 
         transition: background-color 0.8s ease, color 0.8s ease;
     }
 
@@ -192,12 +205,13 @@
     body.dark-mode .dot { background: #444; }
     body.dark-mode .dot.active { background: #b71c1c; }
     
-    /* Tmavý režim pre COOP AKCIE - Aktualizované pre menšie písmo */
+    /* Tmavý režim pre BEŽIACU LIŠTU */
     body.dark-mode #coop-promo-container {
-        background-color: #002171; color: #e3f2fd; border-bottom-color: #00154d;
+        background-color: #002171; border-bottom-color: #00154d;
     }
+    body.dark-mode .promo-ticker-flex { color: #e3f2fd; }
     body.dark-mode .promo-highlight {
-        background-color: #00154d; color: #ff8a80; border-color: #002171;
+        background-color: #00154d; color: #ff8a80; border-color: #0d47a1;
     }
 
   </style>
@@ -218,8 +232,14 @@
       <div id="global-note-container"></div>
       
       <div id="coop-promo-container">
-          <i class="fas fa-tags" style="color:#d32f2f;"></i> 
-          COOP JEDNOTA DNES V AKCII: <span id="coop-promo-list"></span>
+          <div class="promo-ticker-flex">
+              <div class="promo-label">
+                  <i class="fas fa-tags" style="color:#d32f2f;"></i> COOP JEDNOTA V AKCII:
+              </div>
+              <div class="marquee-wrapper">
+                  <div id="coop-promo-list" class="marquee-content"></div>
+              </div>
+          </div>
       </div>
 
       <div class="tv-content">
