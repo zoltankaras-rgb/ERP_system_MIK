@@ -1,8 +1,8 @@
 // static/js/expedition_board.js
 
-let vsetkyTrasy = []; // Sem si uložíme zoskupené trasy
+let vsetkyTrasy = []; 
 let aktualnaStrana = 0;
-let pocetNaStranu = 3; // Bezpečná hodnota pre gigantický text
+let pocetNaStranu = 3; 
 let rotaciaInterval = null;
 
 function aktualizujCas() {
@@ -26,11 +26,15 @@ function nacitajPoznamkyNaTabulu() {
         .then(data => {
             const datumElement = document.getElementById('cielovy-datum');
             const globalNoteElement = document.getElementById('global-note-container');
+            const promoContainer = document.getElementById('coop-promo-container');
+            const promoList = document.getElementById('coop-promo-list');
             
+            // 1. Zobrazenie dátumu
             if (data.cielovy_datum) {
                 datumElement.innerHTML = `Chystáme na: <strong>${data.cielovy_datum}</strong>`;
             }
 
+            // 2. Zobrazenie Globálneho oznamu
             if (data.global_note && data.global_note.trim() !== '') {
                 globalNoteElement.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i> OZNAM: ${data.global_note}`;
                 globalNoteElement.style.display = 'block';
@@ -38,8 +42,18 @@ function nacitajPoznamkyNaTabulu() {
                 globalNoteElement.style.display = 'none';
             }
 
+            // 3. Zobrazenie AKCIÍ COOP JEDNOTA
+            if (data.akcie_coop && data.akcie_coop.length > 0) {
+                const naformatovaneAkcie = data.akcie_coop.map(produkt => `<span class="promo-highlight">${produkt}</span>`).join(' • ');
+                promoList.innerHTML = naformatovaneAkcie;
+                promoContainer.style.display = 'block';
+            } else {
+                promoContainer.style.display = 'none';
+            }
+
             const poznamky = data.poznamky || [];
 
+            // 4. Ak nie sú žiadne trasy/výnimky
             if (poznamky.length === 0) {
                 vsetkyTrasy = [];
                 zastavRotaciu();
@@ -64,30 +78,27 @@ function nacitajPoznamkyNaTabulu() {
                 skupinyTrasy.get(trasa).push(obj);
             });
 
-            // Prevod na pole pre stránkovanie
             vsetkyTrasy = Array.from(skupinyTrasy, ([trasa, zoznamKariet]) => ({ trasa, zoznamKariet }));
 
-            // Inteligentný výpočet koľko stĺpcov sa zmestí na TV vedľa seba (Stĺpec má 480px)
-            const availableWidth = window.innerWidth - 40; // 40px je padding
+            const availableWidth = window.innerWidth - 40; 
             pocetNaStranu = Math.max(1, Math.floor(availableWidth / 500)); 
 
-            // Bezpečnostná kontrola, ak zrazu nejaké trasy zmiznú a sme na neexistujúcej strane
             if (aktualnaStrana * pocetNaStranu >= vsetkyTrasy.length) {
                 aktualnaStrana = 0;
             }
 
             vykresliStranu();
 
-            // Ak je trás viac než sa zmestí na obrazovku, spustíme Carousel
+            // Carousel rotácia
             if (vsetkyTrasy.length > pocetNaStranu) {
                 if (!rotaciaInterval) {
                     rotaciaInterval = setInterval(() => {
                         aktualnaStrana++;
                         if (aktualnaStrana * pocetNaStranu >= vsetkyTrasy.length) {
-                            aktualnaStrana = 0; // Návrat na prvú stranu
+                            aktualnaStrana = 0; 
                         }
                         vykresliStranu();
-                    }, 12000); // 12 sekúnd na prečítanie jednej obrazovky
+                    }, 12000); 
                 }
             } else {
                 zastavRotaciu();
@@ -100,7 +111,6 @@ function vykresliStranu() {
     const obsah = document.getElementById('obsah-tabule');
     const paginacia = document.getElementById('paginacia-container');
     
-    // Výber stĺpcov pre aktuálnu stranu
     const start = aktualnaStrana * pocetNaStranu;
     const end = start + pocetNaStranu;
     const trasyNaZobrazenie = vsetkyTrasy.slice(start, end);
@@ -139,7 +149,6 @@ function vykresliStranu() {
     
     obsah.innerHTML = html;
 
-    // Vykreslenie guličiek (paginácie) dole
     const pocetStran = Math.ceil(vsetkyTrasy.length / pocetNaStranu);
     let paginaciaHtml = '';
     if (pocetStran > 1) {
@@ -149,7 +158,6 @@ function vykresliStranu() {
     }
     paginacia.innerHTML = paginaciaHtml;
 
-    // Aplikovanie vertikálneho prispôsobenia len ak by bol jeden stĺpec extrémne dlhý smerom dole
     setTimeout(prisposobVelkostVertical, 50);
 }
 
@@ -159,7 +167,7 @@ function prisposobVelkostVertical() {
     if (!contentArea || !board) return;
 
     board.style.transform = 'none';
-    const availableHeight = contentArea.clientHeight - 50; // Mínus výška pre guličky
+    const availableHeight = contentArea.clientHeight - 50; 
     const currentHeight = board.scrollHeight;
 
     if (currentHeight > availableHeight && availableHeight > 0) {
@@ -177,8 +185,8 @@ function zastavRotaciu() {
 
 document.addEventListener("DOMContentLoaded", function() {
     aktualizujCas();
-    setInterval(aktualizujCas, 1000); // Každú sekundu mení čas a kontroluje tmavý režim
+    setInterval(aktualizujCas, 1000); 
     
     nacitajPoznamkyNaTabulu();
-    setInterval(nacitajPoznamkyNaTabulu, 15000); // Každých 15 sek. overí, či nie sú nové dáta z kancelárie
+    setInterval(nacitajPoznamkyNaTabulu, 15000); 
 });

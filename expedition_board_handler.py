@@ -40,7 +40,6 @@ def get_b2b_special_notes():
     
     rows = db_connector.execute_query(sql, (cielovy_datum_str,), fetch='all') or []
     
-    # Formátovanie dátumu do tvaru napr. 29.03.2026
     for r in rows:
         d = r.get('datum_dodania')
         if isinstance(d, (datetime, date)):
@@ -52,9 +51,26 @@ def get_b2b_special_notes():
         fetch='one'
     )
     global_note = oznam_row['hodnota'] if oznam_row and oznam_row.get('hodnota') else ""
+
+    # 4. Vytiahneme AKCIE PRE COOP JEDNOTU na daný deň (podľa schémy)
+    akcie_coop = []
+    try:
+        sql_akcie = """
+            SELECT p.product_name 
+            FROM b2b_promotions p
+            JOIN b2b_retail_chains c ON p.chain_id = c.id
+            WHERE LOWER(c.name) LIKE '%coop%'
+              AND %s BETWEEN p.start_date AND p.end_date
+              AND c.is_active = 1
+        """
+        akcie_rows = db_connector.execute_query(sql_akcie, (cielovy_datum_str,), fetch='all') or []
+        akcie_coop = [r['product_name'] for r in akcie_rows if r.get('product_name')]
+    except Exception as e:
+        print(f"Chyba pri načítaní akcií z DB: {e}")
             
     return {
         "cielovy_datum": cielovy_datum_sk,
         "global_note": global_note,
+        "akcie_coop": akcie_coop,
         "poznamky": rows
     }

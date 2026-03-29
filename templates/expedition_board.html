@@ -54,6 +54,23 @@
         transition: background-color 0.8s ease;
     }
 
+    /* CSS PRE AKCIE COOP JEDNOTA (Denný režim) */
+    #coop-promo-container {
+        flex: 0 0 auto;
+        background-color: #e3f2fd; color: #0d47a1;
+        font-size: 1.6rem; font-weight: 800; text-align: center;
+        padding: 12px 20px; text-transform: uppercase;
+        display: none; border-bottom: 2px solid #90caf9;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        transition: background-color 0.8s ease, color 0.8s ease;
+    }
+    .promo-highlight {
+        color: #d32f2f; background: #ffffff;
+        padding: 2px 8px; border-radius: 6px;
+        border: 1px solid #bbdefb; margin: 0 5px;
+        transition: background-color 0.8s ease, color 0.8s ease;
+    }
+
     /* KANBAN PRIESTOR */
     .tv-content {
         flex: 1 1 auto;
@@ -70,7 +87,7 @@
         flex: 1 1 auto;
         display: flex;
         align-items: flex-start;
-        justify-content: center; /* Vycentrovanie stĺpcov */
+        justify-content: center;
         gap: 20px;
         transform-origin: top center;
         transition: transform 0.2s ease;
@@ -80,7 +97,7 @@
     .kanban-col {
         background: #f8f9fa; 
         border-radius: 12px;
-        width: 480px; /* Širší stĺpec pre obrovské texty */
+        width: 480px; 
         display: flex;
         flex-direction: column;
         box-shadow: 0 4px 15px rgba(0,0,0,0.05);
@@ -143,6 +160,14 @@
     body.dark-mode #global-note-container { background-color: #8c6d00; color: #fff; border-bottom-color: #664f00; }
     body.dark-mode .dot { background: #444; }
     body.dark-mode .dot.active { background: #b71c1c; }
+    
+    /* Tmavý režim pre COOP AKCIE */
+    body.dark-mode #coop-promo-container {
+        background-color: #0d47a1; color: #e3f2fd; border-bottom-color: #002171;
+    }
+    body.dark-mode .promo-highlight {
+        background-color: #002171; color: #ff8a80; border-color: #0d47a1;
+    }
 
   </style>
 </head>
@@ -160,6 +185,11 @@
       </div>
 
       <div id="global-note-container"></div>
+      
+      <div id="coop-promo-container">
+          <i class="fas fa-tags" style="color:#d32f2f; font-size: 1.8rem; margin-right: 10px;"></i> 
+          COOP JEDNOTA DNES V AKCII (CHYSTAŤ VO VEĽKOM): <span id="coop-promo-list"></span>
+      </div>
 
       <div class="tv-content">
           <div id="obsah-tabule">
