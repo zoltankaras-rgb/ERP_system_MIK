@@ -9,14 +9,12 @@ const MAX_KARIET_NA_OBRAZOVKU = 8;
 function aktualizujCas() {
     const teraz = new Date();
     
-    // VYNÚTENIE ČASOVÉHO PÁSMA PRE HODINY NA OBRAZOVKE
     const casString = teraz.toLocaleTimeString('sk-SK', { 
         timeZone: 'Europe/Bratislava', 
         hour12: false 
     });
     document.getElementById('aktualny-cas').textContent = casString;
 
-    // VYNÚTENIE ČASOVÉHO PÁSMA PRE DARK MODE (od 16:00 do 06:00)
     const hodinaFormat = new Intl.DateTimeFormat('sk-SK', {
         timeZone: 'Europe/Bratislava',
         hour: 'numeric',
