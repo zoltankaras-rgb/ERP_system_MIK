@@ -1,18 +1,15 @@
 // static/js/expedition_board.js
 
 let vsetkyTrasy = []; 
-let aktualnaStrana = 0;
-let pocetNaStranu = 3; 
+let aktualnaTrasaIndex = 0; 
 let rotaciaInterval = null;
 
 function aktualizujCas() {
     const teraz = new Date();
     const hodina = teraz.getHours();
     
-    const casString = teraz.toLocaleTimeString('sk-SK', { hour12: false });
-    document.getElementById('aktualny-cas').textContent = casString;
+    document.getElementById('aktualny-cas').textContent = teraz.toLocaleTimeString('sk-SK', { hour12: false });
 
-    // TMavý režim (Dark Mode) - od 16:00 večer do 05:59 ráno
     if (hodina >= 16 || hodina < 6) {
         document.body.classList.add('dark-mode');
     } else {
@@ -24,80 +21,48 @@ function nacitajPoznamkyNaTabulu() {
     fetch('/api/tv-board/data') 
         .then(response => response.json())
         .then(data => {
-            const datumElement = document.getElementById('cielovy-datum');
-            const globalNoteElement = document.getElementById('global-note-container');
-            const promoContainer = document.getElementById('coop-promo-container');
-            const promoList = document.getElementById('coop-promo-list');
-            
-            // 1. Zobrazenie dátumu
-            if (data.cielovy_datum) {
-                datumElement.innerHTML = `Chystáme na: <strong>${data.cielovy_datum}</strong>`;
-            }
+            if (data.cielovy_datum) document.getElementById('cielovy-datum').innerHTML = `Chystáme na: <strong>${data.cielovy_datum}</strong>`;
 
-            // 2. Zobrazenie Globálneho oznamu
+            const gn = document.getElementById('global-note-container');
             if (data.global_note && data.global_note.trim() !== '') {
-                globalNoteElement.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i> OZNAM: ${data.global_note}`;
-                globalNoteElement.style.display = 'block';
-            } else {
-                globalNoteElement.style.display = 'none';
-            }
+                gn.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i> OZNAM: ${data.global_note}`;
+                gn.style.display = 'block';
+            } else { gn.style.display = 'none'; }
 
-            // 3. Zobrazenie AKCIÍ COOP JEDNOTA
+            const promo = document.getElementById('coop-promo-container');
             if (data.akcie_coop && data.akcie_coop.length > 0) {
-                const naformatovaneAkcie = data.akcie_coop.map(produkt => `<span class="promo-highlight">${produkt}</span>`).join(' • ');
-                promoList.innerHTML = naformatovaneAkcie;
-                promoContainer.style.display = 'block';
-            } else {
-                promoContainer.style.display = 'none';
-            }
+                document.getElementById('coop-promo-list').innerHTML = data.akcie_coop.map(p => `<span class="promo-highlight">${p}</span>`).join(' • ');
+                promo.style.display = 'block';
+            } else { promo.style.display = 'none'; }
 
             const poznamky = data.poznamky || [];
 
-            // 4. Ak nie sú žiadne trasy/výnimky
             if (poznamky.length === 0) {
-                vsetkyTrasy = [];
                 zastavRotaciu();
                 document.getElementById('paginacia-container').innerHTML = '';
-                document.getElementById('obsah-tabule').innerHTML = `
-                    <div style="text-align: center; margin-top: 15vh;">
-                        <i class="fa-solid fa-check-circle" style="font-size: 6rem; color: #28a745; margin-bottom: 20px;"></i>
-                        <h2 style="font-size: 2.5rem; color: var(--text-main);">Všetko je pripravené.</h2>
-                        <p style="font-size: 1.5rem; color: #6c757d;">Chystajte štandardne podľa objednávok.</p>
-                    </div>`;
-                document.getElementById('obsah-tabule').style.transform = 'none';
+                document.getElementById('obsah-tabule').innerHTML = `<h2 style="text-align:center; margin-top:20vh; color:#6c757d; font-size: 2.5rem;">Zatiaľ nie sú naplánované žiadne objednávky na trase.</h2>`;
                 return;
             }
 
-            // Rozdelenie do stĺpcov podľa trasy
             const skupinyTrasy = new Map();
             poznamky.forEach(obj => {
-                const trasa = obj.trasa_nazov || 'Ostatné';
-                if (!skupinyTrasy.has(trasa)) {
-                    skupinyTrasy.set(trasa, []);
-                }
+                const trasa = obj.trasa_nazov;
+                if (!skupinyTrasy.has(trasa)) skupinyTrasy.set(trasa, []);
                 skupinyTrasy.get(trasa).push(obj);
             });
 
             vsetkyTrasy = Array.from(skupinyTrasy, ([trasa, zoznamKariet]) => ({ trasa, zoznamKariet }));
 
-            const availableWidth = window.innerWidth - 40; 
-            pocetNaStranu = Math.max(1, Math.floor(availableWidth / 500)); 
+            if (aktualnaTrasaIndex >= vsetkyTrasy.length) aktualnaTrasaIndex = 0;
 
-            if (aktualnaStrana * pocetNaStranu >= vsetkyTrasy.length) {
-                aktualnaStrana = 0;
-            }
+            vykresliTrasnu();
 
-            vykresliStranu();
-
-            // Carousel rotácia
-            if (vsetkyTrasy.length > pocetNaStranu) {
+            if (vsetkyTrasy.length > 1) {
                 if (!rotaciaInterval) {
                     rotaciaInterval = setInterval(() => {
-                        aktualnaStrana++;
-                        if (aktualnaStrana * pocetNaStranu >= vsetkyTrasy.length) {
-                            aktualnaStrana = 0; 
-                        }
-                        vykresliStranu();
+                        aktualnaTrasaIndex++;
+                        if (aktualnaTrasaIndex >= vsetkyTrasy.length) aktualnaTrasaIndex = 0;
+                        vykresliTrasnu();
                     }, 12000); 
                 }
             } else {
@@ -107,53 +72,46 @@ function nacitajPoznamkyNaTabulu() {
         .catch(error => console.error('Chyba spojenia s backendom tabule:', error));
 }
 
-function vykresliStranu() {
+function vykresliTrasnu() {
     const obsah = document.getElementById('obsah-tabule');
     const paginacia = document.getElementById('paginacia-container');
-    
-    const start = aktualnaStrana * pocetNaStranu;
-    const end = start + pocetNaStranu;
-    const trasyNaZobrazenie = vsetkyTrasy.slice(start, end);
+    const trasaData = vsetkyTrasy[aktualnaTrasaIndex];
 
-    let html = '';
-    trasyNaZobrazenie.forEach(skupina => {
+    let html = `<div class="full-route-header"><i class="fas fa-truck-fast"></i> ${trasaData.trasa}</div>`;
+    html += `<div class="customers-grid">`;
+
+    trasaData.zoznamKariet.forEach(obj => {
+        const maPoznamku = obj.trvala_poznamka || obj.poznamka_objednavky;
+        
+        // Zákazníci tu už SÚ iba ak majú objednávku
+        const cssClass = maPoznamku ? 'has-notes' : 'has-order';
+        const badge = `<span class="status-badge badge-order"><i class="fas fa-box"></i> Objednané</span>`;
+
+        let poznamkyHtml = '';
+        if (maPoznamku) {
+            if (obj.trvala_poznamka) poznamkyHtml += `<div class="p-riadok stala-poznamka"><i class="fas fa-exclamation-circle"></i><div><strong>VŽDY:</strong> ${obj.trvala_poznamka}</div></div>`;
+            if (obj.poznamka_objednavky) poznamkyHtml += `<div class="p-riadok dnesna-poznamka"><i class="fas fa-info-circle"></i><div><strong>DOPLNENIE:</strong> ${obj.poznamka_objednavky}</div></div>`;
+        }
+
         html += `
-            <div class="kanban-col">
-                <div class="col-header"><i class="fas fa-truck-fast"></i> ${skupina.trasa}</div>
-                <div class="col-body">
-        `;
-        
-        skupina.zoznamKariet.forEach(obj => {
-            let poznamkyHtml = '';
-            if (obj.trvala_poznamka) {
-                poznamkyHtml += `<div class="p-riadok stala-poznamka"><i class="fas fa-exclamation-circle"></i><div><strong>VŽDY:</strong> ${obj.trvala_poznamka}</div></div>`;
-            }
-            if (obj.poznamka_objednavky) {
-                poznamkyHtml += `<div class="p-riadok dnesna-poznamka"><i class="fas fa-info-circle"></i><div><strong>DOPLNENIE:</strong> ${obj.poznamka_objednavky}</div></div>`;
-            }
-
-            html += `
-                <div class="karta">
-                    <div class="z-nazov">${obj.zakaznik}</div>
-                    <div class="z-info">
-                        <span>${obj.id_objednavky}</span>
-                        <span class="z-tag">${obj.datum_dodania}</span>
-                    </div>
-                    ${poznamkyHtml}
+            <div class="karta ${cssClass}">
+                <div class="z-nazov">${obj.zakaznik}</div>
+                <div class="z-info">
+                    <span>${obj.id_objednavky || '-'}</span>
+                    ${badge}
                 </div>
-            `;
-        });
-        
-        html += `</div></div>`;
+                ${poznamkyHtml}
+            </div>
+        `;
     });
     
+    html += `</div>`;
     obsah.innerHTML = html;
 
-    const pocetStran = Math.ceil(vsetkyTrasy.length / pocetNaStranu);
     let paginaciaHtml = '';
-    if (pocetStran > 1) {
-        for (let i = 0; i < pocetStran; i++) {
-            paginaciaHtml += `<div class="dot ${i === aktualnaStrana ? 'active' : ''}"></div>`;
+    if (vsetkyTrasy.length > 1) {
+        for (let i = 0; i < vsetkyTrasy.length; i++) {
+            paginaciaHtml += `<div class="dot ${i === aktualnaTrasaIndex ? 'active' : ''}"></div>`;
         }
     }
     paginacia.innerHTML = paginaciaHtml;
@@ -186,7 +144,6 @@ function zastavRotaciu() {
 document.addEventListener("DOMContentLoaded", function() {
     aktualizujCas();
     setInterval(aktualizujCas, 1000); 
-    
     nacitajPoznamkyNaTabulu();
     setInterval(nacitajPoznamkyNaTabulu, 15000); 
 });
