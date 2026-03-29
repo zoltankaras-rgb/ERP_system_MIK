@@ -91,11 +91,19 @@ function vykresliTrasnu() {
             if (obj.poznamka_objednavky) poznamkyHtml += `<div class="p-riadok dnesna-poznamka"><i class="fas fa-info-circle"></i><div><strong>DOPLNENIE:</strong> ${obj.poznamka_objednavky}</div></div>`;
         }
 
-        // PRIDANÉ: <span style="opacity: 0.5; font-size: 0.8em; margin-right: 8px;">#${obj.cislo_prevadzky}</span>
+        // Zobrazenie Adresy (Napr. Vlčany 063) ak je zadaná
+        let adresaHtml = '';
+        if (obj.adresa) {
+            adresaHtml = `<div style="font-size: 1.3rem; margin-top: 6px; font-weight: 600; opacity: 0.7;">
+                            <i class="fas fa-map-marker-alt" style="margin-right: 5px;"></i>${obj.adresa}
+                          </div>`;
+        }
+
         html += `
             <div class="karta ${cssClass}">
                 <div class="z-nazov">
-                    <span style="opacity: 0.5; font-size: 0.8em; margin-right: 8px;">[${obj.cislo_prevadzky}]</span>${obj.zakaznik}
+                    ${obj.zakaznik}
+                    ${adresaHtml}
                 </div>
                 <div class="z-info">
                     <span>${obj.id_objednavky || '-'}</span>
