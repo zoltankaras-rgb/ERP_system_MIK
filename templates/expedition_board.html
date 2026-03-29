@@ -54,20 +54,51 @@
         transition: background-color 0.8s ease;
     }
 
-    /* CSS PRE AKCIE COOP JEDNOTA (Denný režim) */
+    /* ==========================================================
+       OPRAVENÉ: CSS PRE AKCIE COOP JEDNOTA (Dramaticky zmenšené) 
+       ========================================================== */
     #coop-promo-container {
         flex: 0 0 auto;
         background-color: #e3f2fd; color: #0d47a1;
-        font-size: 1.6rem; font-weight: 800; text-align: center;
-        padding: 12px 20px; text-transform: uppercase;
-        display: none; border-bottom: 2px solid #90caf9;
+        
+        /* Drastické zmenšenie textu pre banner */
+        font-size: 0.9rem; /* Pôvodne 1.6rem */
+        font-weight: 800; text-align: center;
+        
+        /* Stenčený pásik, aby nezaberal miesto */
+        padding: 8px 20px; 
+        
+        text-transform: uppercase;
+        display: none; 
+        border-bottom: 2px solid #90caf9;
         box-shadow: 0 2px 8px rgba(0,0,0,0.05);
         transition: background-color 0.8s ease, color 0.8s ease;
+        
+        /* ABSOLÚTNY ZÁKAZ ZALAMOVANIA TEXTU */
+        white-space: nowrap; 
+        overflow: hidden; /* Poistka: Ak by aj tak, oreže */
     }
+    
+    /* Zmenšenie ikony, aby ladila s menším písmom */
+    #coop-promo-container i {
+        font-size: 1.2rem;
+        margin-right: 8px;
+    }
+
     .promo-highlight {
         color: #d32f2f; background: #ffffff;
-        padding: 2px 8px; border-radius: 6px;
-        border: 1px solid #bbdefb; margin: 0 5px;
+        
+        /* Stenčené podfarbenie okolo produktov */
+        padding: 1px 6px; 
+        border-radius: 4px;
+        border: 1px solid #bbdefb; 
+        
+        /* Menšie medzery medzi položkami */
+        margin: 0 3px; 
+        
+        /* Ešte menšie písmo pre samotné produkty */
+        font-size: 0.8rem; 
+        
         transition: background-color 0.8s ease, color 0.8s ease;
     }
 
@@ -87,7 +118,7 @@
         flex: 1 1 auto;
         display: flex;
         align-items: flex-start;
-        justify-content: center;
+        justify-content: center; /* Vycentrovanie stĺpcov */
         gap: 20px;
         transform-origin: top center;
         transition: transform 0.2s ease;
@@ -97,7 +128,7 @@
     .kanban-col {
         background: #f8f9fa; 
         border-radius: 12px;
-        width: 480px; 
+        width: 480px; /* Širší stĺpec pre obrovské texty */
         display: flex;
         flex-direction: column;
         box-shadow: 0 4px 15px rgba(0,0,0,0.05);
@@ -161,12 +192,12 @@
     body.dark-mode .dot { background: #444; }
     body.dark-mode .dot.active { background: #b71c1c; }
     
-    /* Tmavý režim pre COOP AKCIE */
+    /* Tmavý režim pre COOP AKCIE - Aktualizované pre menšie písmo */
     body.dark-mode #coop-promo-container {
-        background-color: #0d47a1; color: #e3f2fd; border-bottom-color: #002171;
+        background-color: #002171; color: #e3f2fd; border-bottom-color: #00154d;
     }
     body.dark-mode .promo-highlight {
-        background-color: #002171; color: #ff8a80; border-color: #0d47a1;
+        background-color: #00154d; color: #ff8a80; border-color: #002171;
     }
 
   </style>
@@ -187,8 +218,8 @@
       <div id="global-note-container"></div>
       
       <div id="coop-promo-container">
-          <i class="fas fa-tags" style="color:#d32f2f; font-size: 1.8rem; margin-right: 10px;"></i> 
-          COOP JEDNOTA DNES V AKCII (CHYSTAŤ VO VEĽKOM): <span id="coop-promo-list"></span>
+          <i class="fas fa-tags" style="color:#d32f2f;"></i> 
+          COOP JEDNOTA DNES V AKCII: <span id="coop-promo-list"></span>
       </div>
 
       <div class="tv-content">
