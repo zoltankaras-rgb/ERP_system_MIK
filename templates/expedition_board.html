@@ -9,18 +9,19 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
 
   <style>
-    /* ZÁKLAD (TV obrazovka) */
+    /* ZÁKLAD (Denný režim) */
     body, html {
         margin: 0; padding: 0; height: 100vh; overflow: hidden;
-        background-color: #e9ecef; /* Tlmené sivé pozadie */
+        background-color: #e9ecef; 
         font-family: 'Inter', sans-serif;
         color: #212529;
+        transition: background-color 0.8s ease, color 0.8s ease;
     }
     .tv-container {
         display: flex; flex-direction: column; height: 100vh; width: 100vw;
     }
     
-    /* HLAVIČKA - Úzka a čistá */
+    /* HLAVIČKA */
     .tv-header {
         flex: 0 0 auto;
         display: flex; justify-content: space-between; align-items: center;
@@ -29,6 +30,7 @@
         box-shadow: 0 2px 10px rgba(0,0,0,0.1);
         border-bottom: 4px solid #d32f2f;
         z-index: 20;
+        transition: background-color 0.8s ease;
     }
     .logo-box img { height: 45px; }
     .title-box { text-align: center; }
@@ -49,23 +51,26 @@
         display: none;
         z-index: 10;
         border-bottom: 1px solid #d39e00;
+        transition: background-color 0.8s ease;
     }
 
-    /* KANBAN PRIESTOR (Stĺpce) */
+    /* KANBAN PRIESTOR */
     .tv-content {
         flex: 1 1 auto;
-        padding: 20px;
+        padding: 20px 20px 0 20px;
         width: 100%;
         box-sizing: border-box;
         overflow: hidden; 
         display: flex;
-        justify-content: center; /* Vycentruje stĺpce, ak ich je málo */
+        flex-direction: column;
     }
     
-    /* Samotná nástenka */
+    /* ROTUJÚCA NÁSTENKA */
     #obsah-tabule {
+        flex: 1 1 auto;
         display: flex;
         align-items: flex-start;
+        justify-content: center; /* Vycentrovanie stĺpcov */
         gap: 20px;
         transform-origin: top center;
         transition: transform 0.2s ease;
@@ -73,89 +78,71 @@
 
     /* JEDEN STĹPEC (TRASA) */
     .kanban-col {
-        background: #f8f9fa; /* Jemne odlíšené pozadie stĺpca */
+        background: #f8f9fa; 
         border-radius: 12px;
-        width: 450px; /* Fixná šírka stĺpca pre dobrú čitateľnosť */
+        width: 480px; /* Širší stĺpec pre obrovské texty */
         display: flex;
         flex-direction: column;
         box-shadow: 0 4px 15px rgba(0,0,0,0.05);
         border: 1px solid #dee2e6;
+        transition: background-color 0.8s ease, border-color 0.8s ease;
     }
 
-    /* HLAVIČKA STĹPCA */
     .col-header {
-        background: #343a40; /* Tmavá hlavička pre kontrast */
-        color: #ffffff;
-        padding: 15px;
-        font-size: 1.8rem;
-        font-weight: 800;
-        text-align: center;
-        border-radius: 12px 12px 0 0;
-        border-bottom: 4px solid #d32f2f;
+        background: #343a40; color: #ffffff;
+        padding: 15px; font-size: 1.8rem; font-weight: 800; text-align: center;
+        border-radius: 12px 12px 0 0; border-bottom: 4px solid #d32f2f;
         text-transform: uppercase;
+        transition: background-color 0.8s ease;
     }
 
-    /* TELO STĹPCA (Zoznam kariet) */
-    .col-body {
-        padding: 15px;
-        display: flex;
-        flex-direction: column;
-        gap: 15px;
-    }
+    .col-body { padding: 15px; display: flex; flex-direction: column; gap: 15px; }
 
-    /* KARTA OBJEDNÁVKY - Čistá a minimalistická */
+    /* KARTA OBJEDNÁVKY */
     .karta {
         background: #ffffff;
-        border-radius: 8px;
-        padding: 18px;
-        border-left: 6px solid #d32f2f;
+        border-radius: 8px; padding: 18px; border-left: 6px solid #d32f2f;
         box-shadow: 0 2px 8px rgba(0,0,0,0.05);
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
+        display: flex; flex-direction: column; gap: 10px;
+        transition: background-color 0.8s ease;
     }
     
-    .z-nazov { 
-        font-size: 1.8rem; 
-        font-weight: 800; 
-        color: #000;
-        line-height: 1.1; 
-        margin: 0;
-        word-wrap: break-word;
-    }
-    
-    .z-info { 
-        font-size: 1.2rem; 
-        color: #6c757d; 
-        font-weight: 600;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        border-bottom: 1px solid #eee;
-        padding-bottom: 8px;
-    }
-
-    .z-tag {
-        color: #d32f2f; 
-        background: #ffebee; 
-        padding: 2px 8px; 
-        border-radius: 4px;
-    }
-
-    /* POZNÁMKY - Bez zbytočných farieb, iba čistý text a ikona */
-    .p-riadok { 
-        display: flex; 
-        align-items: flex-start; 
-        gap: 10px; 
-        font-size: 1.4rem; 
-        font-weight: 600; 
-        line-height: 1.3; 
-        word-wrap: break-word;
-    }
+    .z-nazov { font-size: 1.8rem; font-weight: 800; color: #000; line-height: 1.1; margin: 0; word-wrap: break-word; }
+    .z-info { font-size: 1.2rem; color: #6c757d; font-weight: 600; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #eee; padding-bottom: 8px; }
+    .z-tag { color: #d32f2f; background: #ffebee; padding: 2px 8px; border-radius: 4px; }
+    .p-riadok { display: flex; align-items: flex-start; gap: 10px; font-size: 1.4rem; font-weight: 600; line-height: 1.3; word-wrap: break-word; }
     .p-riadok i { font-size: 1.6rem; margin-top: 3px; }
     
-    .stala-poznamka { color: #d35400; } /* Oranžová pre stále */
-    .dnesna-poznamka { color: #025ce2; } /* Modrá pre dnešné */
+    .stala-poznamka { color: #d35400; }
+    .dnesna-poznamka { color: #025ce2; }
+
+    /* CAROUSEL PAGINÁCIA (Guličky) */
+    #paginacia-container {
+        flex: 0 0 auto;
+        display: flex; justify-content: center; gap: 15px;
+        padding: 15px 0 25px 0;
+    }
+    .dot { width: 18px; height: 18px; background: #adb5bd; border-radius: 50%; transition: all 0.3s ease; }
+    .dot.active { background: #d32f2f; transform: scale(1.3); }
+
+    /* =========================================
+       TMAVÝ REŽIM (DARK MODE) - Od 16:00 do 06:00
+       ========================================= */
+    body.dark-mode { background-color: #121212; color: #e0e0e0; }
+    body.dark-mode .tv-header { background-color: #1e1e1e; border-bottom-color: #b71c1c; box-shadow: 0 2px 10px rgba(0,0,0,0.5); }
+    body.dark-mode .tv-header .title-box h1, body.dark-mode .tv-header .time-box { color: #ffffff; }
+    body.dark-mode .kanban-col { background: #1e1e1e; border-color: #333; }
+    body.dark-mode .col-header { background: #000000; color: #ffffff; border-bottom-color: #b71c1c; }
+    body.dark-mode .karta { background: #2a2a2a; border-left-color: #b71c1c; box-shadow: 0 4px 15px rgba(0,0,0,0.3); }
+    body.dark-mode .z-nazov { color: #ffffff; }
+    body.dark-mode .z-info { color: #999; border-bottom-color: #444; }
+    body.dark-mode .z-tag { background: #4a1414; color: #ff8a80; }
+    body.dark-mode .p-riadok { color: #e0e0e0; }
+    body.dark-mode .stala-poznamka { color: #ffb74d; }
+    body.dark-mode .dnesna-poznamka { color: #64b5f6; }
+    body.dark-mode #global-note-container { background-color: #8c6d00; color: #fff; border-bottom-color: #664f00; }
+    body.dark-mode .dot { background: #444; }
+    body.dark-mode .dot.active { background: #b71c1c; }
 
   </style>
 </head>
@@ -176,8 +163,9 @@
 
       <div class="tv-content">
           <div id="obsah-tabule">
-              <h2 style="color: #6c757d;">Načítavam systém...</h2>
+              <h2 style="color: #6c757d; margin-top: 15vh; font-size: 2rem;">Načítavam systém...</h2>
           </div>
+          <div id="paginacia-container"></div>
       </div>
   </div>
 
