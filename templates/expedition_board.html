@@ -37,7 +37,7 @@
     #coop-promo-container {
         flex: 0 0 auto; background-color: #e3f2fd; border-bottom: 2px solid #90caf9;
         box-shadow: 0 2px 8px rgba(0,0,0,0.05); display: none;
-        transform: translateZ(0); /* Zastaví trasenie kvôli bežiacemu textu */
+        transform: translateZ(0); 
     }
     .promo-ticker-flex {
         display: flex; align-items: center; color: #0d47a1; font-size: 1.6rem; 
@@ -57,7 +57,6 @@
         display: flex; flex-direction: column; overflow: hidden;
     }
     
-    /* VYNÚTENIE HARDVÉROVEJ AKCELERÁCIE (Koniec "huspeniny") */
     #obsah-tabule { 
         flex: 1 1 auto; display: flex; flex-direction: column; transform-origin: top center; 
         will-change: transform; backface-visibility: hidden;
@@ -68,7 +67,7 @@
     .karta {
         border-radius: 12px; padding: 25px; box-shadow: 0 4px 12px rgba(0,0,0,0.08);
         display: flex; flex-direction: column; gap: 12px; border: 2px solid transparent; transition: all 0.3s ease;
-        transform: translateZ(0); /* Zastaví trasenie jednotlivých kariet */
+        transform: translateZ(0);
         backface-visibility: hidden;
     }
     .karta.has-notes { background: #ffffff; border-left: 10px solid #d32f2f; }
@@ -106,7 +105,12 @@
         box-shadow: 0 2px 10px rgba(0,0,0,0.1); margin-left: 15px;
     }
 
-    #paginacia-container { flex: 0 0 auto; display: flex; justify-content: center; gap: 18px; padding: 20px 0; }
+    /* PRESUNUTÉ BODKY DOPRAVA */
+    #paginacia-container { 
+        flex: 0 0 auto; display: flex; 
+        justify-content: flex-end; /* Namiesto center */
+        gap: 18px; padding: 20px 0; 
+    }
     .dot { width: 22px; height: 22px; background: #adb5bd; border-radius: 50%; transition: all 0.3s ease; }
     .dot.active { background: #d32f2f; transform: scale(1.3); }
 
@@ -159,6 +163,6 @@
           <div id="paginacia-container"></div>
       </div>
   </div>
-  <script src="/static/js/expedition_board.js?v=3"></script>
+  <script src="/static/js/expedition_board.js?v=4"></script>
 </body>
 </html>
