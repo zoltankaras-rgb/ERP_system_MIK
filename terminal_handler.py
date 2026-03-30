@@ -90,7 +90,7 @@ def process_terminal_files():
                 interny_ean = None
                 try:
                     map_db = db_connector.execute_query("""
-                        SELECT interny_ean FROM b2b_edi_mapping 
+                        SELECT interny_ean FROM edi_produkty_mapovanie 
                         WHERE edi_ean = %s OR edi_ean = %s LIMIT 1
                     """, (ean, ean_clean), fetch="one")
                     
