@@ -30,19 +30,17 @@ def process_terminal_files():
         print(f">>> [TERMINAL] Začínam spracovávať: {filename}")
         
         try:
-            # Rozdelíme názov pre všetky možné zhody
-            parts = base_name.split('_')
-            prefix = parts[0]
-            suffix = parts[-1]
+            # PRISPÔSOBENIE PRE DB: 000004_2026... zmeníme na 000004-2026...
+            search_pattern = "%" + base_name.replace('_', '-') + "%"
             
-            # Hľadáme objednávku (vyskúša CELÝ názov, aj prvú časť, aj druhú časť)
+            # Hľadáme pomocou LIKE (nájde to B2B-000004-20260330091344)
             order_db = db_connector.execute_query(
-                "SELECT id, cislo_objednavky FROM b2b_objednavky WHERE cislo_objednavky IN (%s, %s, %s) LIMIT 1", 
-                (base_name, suffix, prefix), fetch="one"
+                "SELECT id, cislo_objednavky FROM b2b_objednavky WHERE cislo_objednavky LIKE %s LIMIT 1", 
+                (search_pattern,), fetch="one"
             )
             
             if not order_db:
-                print(f"Chyba: Objednávka pre súbor '{filename}' neexistuje v databáze!")
+                print(f"Chyba: Objednávka podobná '{base_name}' neexistuje v databáze!")
                 dest_path = os.path.join(TERMINAL_ERROR_DIR, filename)
                 if os.path.exists(dest_path):
                     dest_path = os.path.join(TERMINAL_ERROR_DIR, f"{base_name}_{datetime.now().strftime('%Y%m%d%H%M%S')}.csv")
@@ -71,7 +69,6 @@ def process_terminal_files():
                 except ValueError:
                     real_weight = 0.0
                     
-                # Orežeme nuly, lebo v DB to EANy nemajú
                 ean_clean = ean.lstrip('0') if ean.lstrip('0') != '' else ean
                 
                 # Zápis reálnej váhy
@@ -81,7 +78,7 @@ def process_terminal_files():
                     WHERE objednavka_id = %s AND (ean_produktu = %s OR ean_produktu = %s)
                 """, (real_weight, order_id, ean, ean_clean), fetch="none")
             
-            # Prepočet finálnej sumy a DPH
+            # Prepočet finálnej sumy
             sum_db = db_connector.execute_query("""
                 SELECT SUM(mnozstvo * cena_bez_dph) as suma_bez_dph 
                 FROM b2b_objednavky_polozky 
@@ -92,7 +89,7 @@ def process_terminal_files():
             finalna_suma_s_dph = finalna_suma_bez_dph * 1.20 
             now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             
-            # Zápis nového stavu a súm
+            # Zmena stavu na Hotová
             db_connector.execute_query("""
                 UPDATE b2b_objednavky 
                 SET stav = 'Hotová', 
@@ -101,7 +98,7 @@ def process_terminal_files():
                 WHERE id = %s
             """, (now_str, finalna_suma_s_dph, order_id), fetch="none")
             
-            # Presun do zložky spracované
+            # Presun do spracovane
             dest_path = os.path.join(TERMINAL_PROCESSED_DIR, filename)
             if os.path.exists(dest_path):
                 dest_path = os.path.join(TERMINAL_PROCESSED_DIR, f"{base_name}_{datetime.now().strftime('%Y%m%d%H%M%S')}.csv")
