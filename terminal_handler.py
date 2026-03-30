@@ -26,20 +26,24 @@ def process_terminal_files():
         
     for file_path in csv_files:
         filename = os.path.basename(file_path)
+        base_name = os.path.splitext(filename)[0] # Odstráni .csv (napr. 000004_20260330091344)
         print(f">>> [TERMINAL] Začínam spracovávať: {filename}")
         
         try:
-            # 1. Vytiahneme ČÍSLO objednávky (string) z názvu (napr. "000004")
-            order_number = filename.split('_')[0].strip()
+            # 1. Hľadáme objednávku v DB presne podľa názvu súboru (alebo aspoň jeho druhej časti)
+            order_no_part = base_name.split('_')[-1] if '_' in base_name else base_name
             
-            # 2. Hľadáme podľa cislo_objednavky (nie podľa ID!)
             order_db = db_connector.execute_query(
-                "SELECT id FROM b2b_objednavky WHERE cislo_objednavky = %s LIMIT 1", 
-                (order_number,), fetch="one"
+                "SELECT id FROM b2b_objednavky WHERE cislo_objednavky IN (%s, %s) LIMIT 1", 
+                (base_name, order_no_part), fetch="one"
             )
             
             if not order_db:
-                print(f"Chyba: Objednávka s číslom '{order_number}' neexistuje v databáze!")
+                print(f"Chyba: Objednávka pre súbor '{filename}' neexistuje v databáze!")
+                dest_path = os.path.join(TERMINAL_ERROR_DIR, filename)
+                if os.path.exists(dest_path):
+                    dest_path = os.path.join(TERMINAL_ERROR_DIR, f"{base_name}_{datetime.now().strftime('%Y%m%d%H%M%S')}.csv")
+                shutil.move(file_path, dest_path)
                 continue
                 
             order_id = order_db["id"]
@@ -49,7 +53,7 @@ def process_terminal_files():
                 lines = f.readlines()
             
             for line in lines:
-                # Ak riadok nezačína medzerami, je to hlavička, preskočíme
+                # Ak to nezačína 2 medzerami a nie je to dlhé, je to hlavička, tú ignorujeme
                 if not line.startswith("  ") or len(line) < 127:
                     continue
                     
@@ -64,17 +68,16 @@ def process_terminal_files():
                 except ValueError:
                     real_weight = 0.0
                     
-                # 3. Orežeme nuly z exportu (0000000232360 -> 232360)
                 ean_clean = ean.lstrip('0') if ean.lstrip('0') != '' else ean
                 
-                # 4. Zápis reálnej váhy
+                # 2. Zápis reálnej váhy
                 db_connector.execute_query("""
                     UPDATE b2b_objednavky_polozky 
                     SET mnozstvo = %s 
                     WHERE objednavka_id = %s AND (ean_produktu = %s OR ean_produktu = %s)
                 """, (real_weight, order_id, ean, ean_clean), fetch="none")
             
-            # 5. Prepočet finálnej sumy
+            # 3. Prepočet finálnej sumy
             sum_db = db_connector.execute_query("""
                 SELECT SUM(mnozstvo * cena_bez_dph) as suma_bez_dph 
                 FROM b2b_objednavky_polozky 
@@ -85,7 +88,7 @@ def process_terminal_files():
             finalna_suma_s_dph = finalna_suma_bez_dph * 1.20 
             now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             
-            # 6. KONEČNÁ ZMENA STAVU NA HOTOVÁ
+            # 4. Zmena stavu na Hotová
             db_connector.execute_query("""
                 UPDATE b2b_objednavky 
                 SET stav = 'Hotová', 
@@ -94,18 +97,17 @@ def process_terminal_files():
                 WHERE id = %s
             """, (now_str, finalna_suma_s_dph, order_id), fetch="none")
             
+            # 5. Presun do spracovane
             dest_path = os.path.join(TERMINAL_PROCESSED_DIR, filename)
             if os.path.exists(dest_path):
-                name, ext = os.path.splitext(filename)
-                dest_path = os.path.join(TERMINAL_PROCESSED_DIR, f"{name}_{datetime.now().strftime('%Y%m%d%H%M%S')}{ext}")
-                
+                dest_path = os.path.join(TERMINAL_PROCESSED_DIR, f"{base_name}_{datetime.now().strftime('%Y%m%d%H%M%S')}.csv")
             shutil.move(file_path, dest_path)
-            print(f">>> [TERMINAL] Objednávka '{order_number}' úspešne nastavená na Hotová!")
+            print(f">>> [TERMINAL] Objednávka zo súboru '{filename}' úspešne nastavená na Hotová!")
             
         except Exception as e:
             print(f">>> [TERMINAL] CHYBA pri súbore {filename}: {e}")
+            base_name = os.path.splitext(filename)[0]
             dest_path = os.path.join(TERMINAL_ERROR_DIR, filename)
             if os.path.exists(dest_path):
-                name, ext = os.path.splitext(filename)
-                dest_path = os.path.join(TERMINAL_ERROR_DIR, f"{name}_{datetime.now().strftime('%Y%m%d%H%M%S')}{ext}")
+                dest_path = os.path.join(TERMINAL_ERROR_DIR, f"{base_name}_{datetime.now().strftime('%Y%m%d%H%M%S')}.csv")
             shutil.move(file_path, dest_path)
