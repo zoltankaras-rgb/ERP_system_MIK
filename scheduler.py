@@ -25,7 +25,7 @@ from apscheduler.triggers.cron import CronTrigger
 from pytz import timezone
 
 import db_connector
-
+import terminal_handler
 import hygiene_handler
 from tasks import (
     uloha_kontrola_skladu,
@@ -179,6 +179,18 @@ def _schedule_builtin_jobs(sched: BlockingScheduler) -> None:
         coalesce=True,
     )
     log.info("Calendar notifications naplánované každú minútu.")
+
+# 3) Kontrola zložky vyprobjed pre CSV z terminálu (každú minútu)
+    sched.add_job(
+        terminal_handler.process_terminal_files,
+        CronTrigger(minute="*", timezone=TZ),
+        id="terminal_sync_job",
+        replace_existing=True,
+        misfire_grace_time=60,
+        max_instances=1,
+        coalesce=True,
+    )
+    log.info("Spracovanie CSV z terminálu naplánované každú minútu.")
 
 
 def _load_db_tasks(sched: BlockingScheduler) -> None:
