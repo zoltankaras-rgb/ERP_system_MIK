@@ -3222,9 +3222,11 @@ def get_b2b_order_details_route(order_id):
 @app.route('/api/kancelaria/b2b/print_order_pdf/<int:order_id>')
 @login_required(role=('kancelaria','veduci','admin'))
 def print_b2b_order_pdf_route(order_id):
-    # KĽÚČOVÁ ZMENA: Namiesto surových dát (get_b2b_order_details) použijeme 
-    # formátovač, ktorý pripraví dáta PRESNE ako pre e-mail pre zákazníka
-    order_payload = b2b_handler.build_order_pdf_payload_admin(order_id)
+    # 1. Zachytíme, či prišiel z JavaScriptu parameter ?type=finished
+    req_type = request.args.get('type')
+
+    # 2. Pošleme tento parameter do handlera
+    order_payload = b2b_handler.build_order_pdf_payload_admin(order_id, req_type)
     
     if not order_payload or 'error' in order_payload:
         err_msg = order_payload.get('error', 'Neznáma chyba') if order_payload else 'Objednávka neexistuje.'

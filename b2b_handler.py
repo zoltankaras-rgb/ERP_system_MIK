@@ -1585,7 +1585,7 @@ def build_order_pdf_for_customer(order_id: int, user_id: int):
     
     return {"pdf": pdf_bytes, "filename": f"objednavka_{head['cislo_objednavky']}.pdf"}
 
-def build_order_pdf_payload_admin(order_id: int) -> dict:
+def build_order_pdf_payload_admin(order_id: int, req_type: str = None) -> dict:
     """
     Admin payload pre pdf_generator.create_order_files() – bez kontroly vlastníka.
     DPH sa berie z 'produkty', súhrny sú spočítané, posielajú sa aj aliasy.
@@ -1653,9 +1653,13 @@ def build_order_pdf_payload_admin(order_id: int) -> dict:
 
     total_gross = total_net + total_vat
 
-    # URČENIE NADPISU PODĽA STAVU
+    # URČENIE NADPISU PODĽA PARAMETRA Z TLAČIDLA
     stav = head.get("stav") or ""
-    doc_title = "Návrh vypracovanej objednávky" if stav == "Hotová" else "Objednávka"
+    
+    if req_type == "finished":
+        doc_title = "Návrh vypracovanej objednávky"
+    else:
+        doc_title = "Objednávka"
 
     payload = {
         "order_number": head["cislo_objednavky"],
