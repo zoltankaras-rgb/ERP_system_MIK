@@ -84,12 +84,39 @@ def process_terminal_files():
                     
                 ean_clean = ean.lstrip('0') if ean.lstrip('0') != '' else ean
                 
+                # ---------------------------------------------------------
+                # KÚZLO: Preklad z EDI EAN na interný EAN cez tvoje mapovanie
+                # ---------------------------------------------------------
+                interny_ean = None
+                try:
+                    map_db = db_connector.execute_query("""
+                        SELECT interny_ean FROM b2b_edi_mapping 
+                        WHERE edi_ean = %s OR edi_ean = %s LIMIT 1
+                    """, (ean, ean_clean), fetch="one")
+                    
+                    if map_db:
+                        interny_ean = map_db["interny_ean"]
+                except Exception:
+                    pass # Ak mapovanie neexistuje, ideme ďalej
+                    
+                # Ak sme našli preklad, použijeme ho. Inak hľadáme pôvodný kód z váhy.
+                if interny_ean:
+                    hladany_ean = interny_ean
+                    hladany_clean = interny_ean.lstrip('0') if interny_ean.lstrip('0') != '' else interny_ean
+                else:
+                    hladany_ean = ean
+                    hladany_clean = ean_clean
+                
                 # Zápis do nového stĺpca dodane_mnozstvo
                 db_connector.execute_query("""
                     UPDATE b2b_objednavky_polozky 
                     SET dodane_mnozstvo = %s 
-                    WHERE objednavka_id = %s AND (ean_produktu = %s OR ean_produktu = %s)
-                """, (real_weight, order_id, ean, ean_clean), fetch="none")
+                    WHERE objednavka_id = %s AND (
+                        ean_produktu = %s OR 
+                        ean_produktu = %s OR
+                        ean_produktu LIKE %s
+                    )
+                """, (real_weight, order_id, hladany_ean, hladany_clean, f"%{hladany_clean}%"), fetch="none")
             
             # Prepočet celkovej sumy s prihliadnutím na dodané množstvá
             sum_db = db_connector.execute_query("""
@@ -102,6 +129,7 @@ def process_terminal_files():
             finalna_suma_s_dph = finalna_suma_bez_dph * 1.20 
             now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             
+            # Zmena stavu a uloženie finálnej sumy
             db_connector.execute_query("""
                 UPDATE b2b_objednavky 
                 SET stav = 'Hotová', 
@@ -110,6 +138,7 @@ def process_terminal_files():
                 WHERE id = %s
             """, (now_str, finalna_suma_s_dph, order_id), fetch="none")
             
+            # Presun spracovaného súboru
             dest_path = os.path.join(TERMINAL_PROCESSED_DIR, filename)
             if os.path.exists(dest_path):
                 dest_path = os.path.join(TERMINAL_PROCESSED_DIR, f"{base_name}_{datetime.now().strftime('%Y%m%d%H%M%S')}.csv")
