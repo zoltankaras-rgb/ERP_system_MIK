@@ -29,26 +29,27 @@ def process_terminal_files():
         print(f">>> [TERMINAL] Začínam spracovávať: {filename}")
         
         try:
-            # 1. Vytiahneme ID objednávky rovno z názvu súboru (000004_... -> 4)
-            try:
-                order_id = int(filename.split('_')[0])
-            except ValueError:
-                print(f"Preskakujem: Neplatný názov súboru {filename}")
-                continue
+            # 1. Vytiahneme ČÍSLO objednávky (string) z názvu (napr. "000004")
+            order_number = filename.split('_')[0].strip()
             
-            # 2. Overíme, či objednávka existuje
+            # 2. Hľadáme podľa cislo_objednavky (nie podľa ID!)
             order_db = db_connector.execute_query(
-                "SELECT id FROM b2b_objednavky WHERE id = %s", (order_id,), fetch="one"
+                "SELECT id FROM b2b_objednavky WHERE cislo_objednavky = %s LIMIT 1", 
+                (order_number,), fetch="one"
             )
             
             if not order_db:
-                print(f"Chyba: Objednávka s ID {order_id} neexistuje v databáze!")
+                print(f"Chyba: Objednávka s číslom '{order_number}' neexistuje v databáze!")
                 continue
+                
+            order_id = order_db["id"]
+            print(f"Nájdené interné ID objednávky: {order_id}")
                 
             with open(file_path, mode='r', encoding='cp1250', errors='replace') as f:
                 lines = f.readlines()
             
             for line in lines:
+                # Ak riadok nezačína medzerami, je to hlavička, preskočíme
                 if not line.startswith("  ") or len(line) < 127:
                     continue
                     
@@ -99,9 +100,12 @@ def process_terminal_files():
                 dest_path = os.path.join(TERMINAL_PROCESSED_DIR, f"{name}_{datetime.now().strftime('%Y%m%d%H%M%S')}{ext}")
                 
             shutil.move(file_path, dest_path)
-            print(f">>> [TERMINAL] Objednávka {order_id} nastavená na Hotová!")
+            print(f">>> [TERMINAL] Objednávka '{order_number}' úspešne nastavená na Hotová!")
             
         except Exception as e:
             print(f">>> [TERMINAL] CHYBA pri súbore {filename}: {e}")
             dest_path = os.path.join(TERMINAL_ERROR_DIR, filename)
+            if os.path.exists(dest_path):
+                name, ext = os.path.splitext(filename)
+                dest_path = os.path.join(TERMINAL_ERROR_DIR, f"{name}_{datetime.now().strftime('%Y%m%d%H%M%S')}{ext}")
             shutil.move(file_path, dest_path)
