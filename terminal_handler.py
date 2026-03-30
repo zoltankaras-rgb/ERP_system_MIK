@@ -30,14 +30,32 @@ def process_terminal_files():
         print(f">>> [TERMINAL] Začínam spracovávať: {filename}")
         
         try:
+            # 1. POKUS: Hľadáme podľa názvu súboru (funguje pre B2B)
             search_pattern = "%" + base_name.replace('_', '-') + "%"
             order_db = db_connector.execute_query(
                 "SELECT id, cislo_objednavky FROM b2b_objednavky WHERE cislo_objednavky LIKE %s LIMIT 1", 
                 (search_pattern,), fetch="one"
             )
             
+            # 2. POKUS: Ak terminál premenoval súbor (ako pri EDI), čítame hlavičku CSV
             if not order_db:
-                print(f"Chyba: Objednávka podobná '{base_name}' neexistuje v databáze!")
+                with open(file_path, mode='r', encoding='cp1250', errors='replace') as f:
+                    first_line = f.readline()
+                    
+                # Overíme, či je to hlavička (nezačína medzerami a má bodkočiarky)
+                if first_line and not first_line.startswith("  ") and ";" in first_line:
+                    parts = first_line.strip().split(";")
+                    cust_id = parts[-1].strip() # Vytiahne 321547 z konca
+                    
+                    # Nájdeme najnovšiu nevybavenú objednávku tohto zákazníka
+                    order_db = db_connector.execute_query(
+                        "SELECT id, cislo_objednavky FROM b2b_objednavky WHERE zakaznik_id = %s AND stav IN ('Nová', 'Prijatá') ORDER BY id DESC LIMIT 1",
+                        (cust_id,), fetch="one"
+                    )
+            
+            # Ak to nenájde ani tak, preskakujeme
+            if not order_db:
+                print(f"Chyba: Objednávka pre súbor '{filename}' nenájdená ani podľa názvu, ani podľa zákazníka!")
                 dest_path = os.path.join(TERMINAL_ERROR_DIR, filename)
                 if os.path.exists(dest_path):
                     dest_path = os.path.join(TERMINAL_ERROR_DIR, f"{base_name}_{datetime.now().strftime('%Y%m%d%H%M%S')}.csv")
@@ -46,6 +64,7 @@ def process_terminal_files():
                 
             order_id = order_db["id"]
             db_cislo = order_db["cislo_objednavky"]
+            print(f"Nájdená objednávka: ID {order_id} (Číslo v DB: {db_cislo})")
                 
             with open(file_path, mode='r', encoding='cp1250', errors='replace') as f:
                 lines = f.readlines()
@@ -65,14 +84,14 @@ def process_terminal_files():
                     
                 ean_clean = ean.lstrip('0') if ean.lstrip('0') != '' else ean
                 
-                # ZÁPIS DO NOVÉHO STĹPCA dodane_mnozstvo
+                # Zápis do nového stĺpca dodane_mnozstvo
                 db_connector.execute_query("""
                     UPDATE b2b_objednavky_polozky 
                     SET dodane_mnozstvo = %s 
                     WHERE objednavka_id = %s AND (ean_produktu = %s OR ean_produktu = %s)
                 """, (real_weight, order_id, ean, ean_clean), fetch="none")
             
-            # PREPOČET SUMY (Ak je dodane_mnozstvo prázdne, zoberie pôvodné mnozstvo)
+            # Prepočet celkovej sumy s prihliadnutím na dodané množstvá
             sum_db = db_connector.execute_query("""
                 SELECT SUM(COALESCE(dodane_mnozstvo, mnozstvo) * cena_bez_dph) as suma_bez_dph 
                 FROM b2b_objednavky_polozky 
@@ -99,5 +118,8 @@ def process_terminal_files():
             
         except Exception as e:
             print(f">>> [TERMINAL] CHYBA pri súbore {filename}: {e}")
+            base_name = os.path.splitext(filename)[0]
             dest_path = os.path.join(TERMINAL_ERROR_DIR, filename)
+            if os.path.exists(dest_path):
+                dest_path = os.path.join(TERMINAL_ERROR_DIR, f"{base_name}_{datetime.now().strftime('%Y%m%d%H%M%S')}.csv")
             shutil.move(file_path, dest_path)
