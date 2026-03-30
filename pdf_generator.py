@@ -302,8 +302,9 @@ def _make_pdf(order):
     story = []
 
     # --- HLAVIČKA PDF ---
+    doc_title = order.get("document_title", "Potvrdenie objednávky")
     left_top = [
-        Paragraph("Potvrdenie objednávky", styles['Title']),
+        Paragraph(doc_title, styles['Title']),
         Paragraph(f"Číslo: {html_escape(str(order['order_no']))}", styles['Small']),
         Paragraph(f"Dátum dodania: {_safe_date_str(order['delivery_date'])}", styles['Small']),
     ]
@@ -622,6 +623,7 @@ def create_order_files(order_data: dict):
         "vat_by_rate":  vat_by_rate,
         "company_logo_path": order_data.get("company_logo_path"),
         "customer_code": cust_code,
+        "document_title": order_data.get("document_title", "Potvrdenie objednávky"),
     }
 
     # 1. Generovanie binárneho obsahu súborov

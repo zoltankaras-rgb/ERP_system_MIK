@@ -1593,9 +1593,10 @@ def build_order_pdf_payload_admin(order_id: int) -> dict:
     if not order_id:
         return {"error": "Chýba id objednávky."}
 
+    # PRIDANÝ 'stav' DO SELECTU (nič iné sa tu nemení)
     head = db_connector.execute_query(
         "SELECT id, cislo_objednavky, zakaznik_id, nazov_firmy, adresa, "
-        "       pozadovany_datum_dodania, datum_objednavky, celkova_suma_s_dph, poznamka "
+        "       pozadovany_datum_dodania, datum_objednavky, celkova_suma_s_dph, poznamka, stav "
         "FROM b2b_objednavky WHERE id=%s",
         (order_id,), fetch="one"
     )
@@ -1618,14 +1619,15 @@ def build_order_pdf_payload_admin(order_id: int) -> dict:
         ) or []
         pmap = {pr["ean"]: pr for pr in prod_rows}
 
+    from typing import List, Dict, Any
     items: List[Dict[str, Any]] = []
     total_net = 0.0
     total_vat = 0.0
     for r in rows:
-        qty   = _to_float(r.get("mnozstvo"))
-        price = _to_float(r.get("cena_bez_dph"))
+        qty   = float(r.get("mnozstvo") or 0.0)
+        price = float(r.get("cena_bez_dph") or 0.0)
         pm    = pmap.get(r.get("ean_produktu")) or {}
-        dph   = abs(_to_float(pm.get("dph", r.get("dph"))))
+        dph   = abs(float(pm.get("dph", r.get("dph")) or 0.0))
         line_net = price * qty
         line_vat = line_net * (dph / 100.0)
         total_net += line_net
@@ -1651,6 +1653,10 @@ def build_order_pdf_payload_admin(order_id: int) -> dict:
 
     total_gross = total_net + total_vat
 
+    # URČENIE NADPISU PODĽA STAVU
+    stav = head.get("stav") or ""
+    doc_title = "Návrh vypracovanej objednávky" if stav == "Hotová" else "Objednávka"
+
     payload = {
         "order_number": head["cislo_objednavky"],
         "customer_name": head["nazov_firmy"],
@@ -1662,6 +1668,10 @@ def build_order_pdf_payload_admin(order_id: int) -> dict:
         "total_net": total_net,
         "total_vat": total_vat,
         "total_with_vat": total_gross,
+        
+        # PRIDANÉ NOVÉ PREMENNÉ PRE PDF GENERATOR
+        "document_title": doc_title,
+        "stav": stav,
 
         # aliasy
         "orderNumber": head["cislo_objednavky"],
