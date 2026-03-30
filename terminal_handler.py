@@ -26,16 +26,19 @@ def process_terminal_files():
         
     for file_path in csv_files:
         filename = os.path.basename(file_path)
-        base_name = os.path.splitext(filename)[0] # Odstráni .csv (napr. 000004_20260330091344)
+        base_name = os.path.splitext(filename)[0]
         print(f">>> [TERMINAL] Začínam spracovávať: {filename}")
         
         try:
-            # 1. Hľadáme objednávku v DB presne podľa názvu súboru (alebo aspoň jeho druhej časti)
-            order_no_part = base_name.split('_')[-1] if '_' in base_name else base_name
+            # Rozdelíme názov pre všetky možné zhody
+            parts = base_name.split('_')
+            prefix = parts[0]
+            suffix = parts[-1]
             
+            # Hľadáme objednávku (vyskúša CELÝ názov, aj prvú časť, aj druhú časť)
             order_db = db_connector.execute_query(
-                "SELECT id FROM b2b_objednavky WHERE cislo_objednavky IN (%s, %s) LIMIT 1", 
-                (base_name, order_no_part), fetch="one"
+                "SELECT id, cislo_objednavky FROM b2b_objednavky WHERE cislo_objednavky IN (%s, %s, %s) LIMIT 1", 
+                (base_name, suffix, prefix), fetch="one"
             )
             
             if not order_db:
@@ -47,13 +50,13 @@ def process_terminal_files():
                 continue
                 
             order_id = order_db["id"]
-            print(f"Nájdené interné ID objednávky: {order_id}")
+            db_cislo = order_db["cislo_objednavky"]
+            print(f"Nájdená objednávka: ID {order_id} (Číslo v DB: {db_cislo})")
                 
             with open(file_path, mode='r', encoding='cp1250', errors='replace') as f:
                 lines = f.readlines()
             
             for line in lines:
-                # Ak to nezačína 2 medzerami a nie je to dlhé, je to hlavička, tú ignorujeme
                 if not line.startswith("  ") or len(line) < 127:
                     continue
                     
@@ -68,16 +71,17 @@ def process_terminal_files():
                 except ValueError:
                     real_weight = 0.0
                     
+                # Orežeme nuly, lebo v DB to EANy nemajú
                 ean_clean = ean.lstrip('0') if ean.lstrip('0') != '' else ean
                 
-                # 2. Zápis reálnej váhy
+                # Zápis reálnej váhy
                 db_connector.execute_query("""
                     UPDATE b2b_objednavky_polozky 
                     SET mnozstvo = %s 
                     WHERE objednavka_id = %s AND (ean_produktu = %s OR ean_produktu = %s)
                 """, (real_weight, order_id, ean, ean_clean), fetch="none")
             
-            # 3. Prepočet finálnej sumy
+            # Prepočet finálnej sumy a DPH
             sum_db = db_connector.execute_query("""
                 SELECT SUM(mnozstvo * cena_bez_dph) as suma_bez_dph 
                 FROM b2b_objednavky_polozky 
@@ -88,7 +92,7 @@ def process_terminal_files():
             finalna_suma_s_dph = finalna_suma_bez_dph * 1.20 
             now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             
-            # 4. Zmena stavu na Hotová
+            # Zápis nového stavu a súm
             db_connector.execute_query("""
                 UPDATE b2b_objednavky 
                 SET stav = 'Hotová', 
@@ -97,12 +101,12 @@ def process_terminal_files():
                 WHERE id = %s
             """, (now_str, finalna_suma_s_dph, order_id), fetch="none")
             
-            # 5. Presun do spracovane
+            # Presun do zložky spracované
             dest_path = os.path.join(TERMINAL_PROCESSED_DIR, filename)
             if os.path.exists(dest_path):
                 dest_path = os.path.join(TERMINAL_PROCESSED_DIR, f"{base_name}_{datetime.now().strftime('%Y%m%d%H%M%S')}.csv")
             shutil.move(file_path, dest_path)
-            print(f">>> [TERMINAL] Objednávka zo súboru '{filename}' úspešne nastavená na Hotová!")
+            print(f">>> [TERMINAL] Objednávka '{db_cislo}' úspešne nastavená na Hotová!")
             
         except Exception as e:
             print(f">>> [TERMINAL] CHYBA pri súbore {filename}: {e}")
