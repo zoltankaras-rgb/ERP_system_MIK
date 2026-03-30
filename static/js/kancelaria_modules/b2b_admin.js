@@ -362,20 +362,36 @@
                   }
 
                   // OPRAVA TU: Formátovanie názvu firmy s číslom prevádzky (odstránenie prípadnej duplicity)
+                  // OPRAVA TU: Formátovanie názvu firmy s číslom prevádzky (odstránenie prípadnej duplicity)
                   let zobrazenyNazov = escapeHtml(o.nazov_firmy);
                   if (o.cislo_prevadzky) {
                       let cistyNazov = o.nazov_firmy.replace(new RegExp('^' + o.cislo_prevadzky + '\\s*-?\\s*'), '');
                       zobrazenyNazov = `<strong>[${escapeHtml(o.cislo_prevadzky)}]</strong> ${escapeHtml(cistyNazov)}`;
                   }
 
+                  // 1. Zobrazenie vypracovania
+                  let vypracovaneHtml = o.datum_vypracovania ? `<br><span style="color:#22c55e; font-size:0.85em;"><strong>Vypracované:</strong> ${o.datum_vypracovania}</span>` : '';
+
+                  // 2. Zobrazenie súm (Predpoklad vs Finálna)
+                  let sumaHtml = `<div style="color: gray; font-size: 0.9em;">Predpoklad: ${Number(o.celkova_suma_s_dph).toFixed(2)} €</div>`;
+                  if (o.stav === 'Hotová' && o.finalna_suma) {
+                      sumaHtml += `<div style="color:#22c55e; font-weight:bold;">Finálna: ${Number(o.finalna_suma).toFixed(2)} €</div>`;
+                  }
+
+                  // 3. Tlačidlá
+                  let buttonsHtml = `<button class="btn btn-outline-secondary btn-sm mb-1" onclick="window.open('/api/kancelaria/b2b/print_order_pdf/${o.id}','_blank')" style="width: 100%;">Tlačiť zadanie</button>`;
+                  if (o.stav === 'Hotová') {
+                      buttonsHtml += `<br><button class="btn btn-success btn-sm" onclick="window.printFinishedOrder(${o.id})" style="width: 100%;">Vypracovaná (PDF)</button>`;
+                  }
+
                   html += `<tr>
                     <td>${o.cislo_objednavky}</td>
                     <td>${zobrazenyNazov}</td>
                     <td>${formatVytvorenia}</td>
-                    <td><strong>${formatDodania}</strong></td>
-                    <td>${Number(o.celkova_suma_s_dph).toFixed(2)} €</td>
+                    <td><strong>${formatDodania}</strong>${vypracovaneHtml}</td>
+                    <td>${sumaHtml}</td>
                     <td><span style="background:${statusColor};color:white;padding:2px 5px;border-radius:4px;font-size:0.8em;">${o.stav}</span></td>
-                    <td><button class="btn btn-secondary btn-sm" onclick="window.open('/api/kancelaria/b2b/print_order_pdf/${o.id}','_blank')">PDF</button></td>
+                    <td>${buttonsHtml}</td>
                   </tr>`;
               });
               html += '</tbody></table>';
@@ -388,6 +404,11 @@
       
       loadOrders();
   }
+  // Pridajte toto tesne nad window.showDailySummary
+  window.printFinishedOrder = function(orderId) {
+      window.open(`/api/kancelaria/b2b/print_order_pdf/${orderId}?type=finished`, '_blank');
+  };
+
 
   window.showDailySummary = function() {
       const tomorrow = new Date(new Date().getTime() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);

@@ -58,7 +58,8 @@ import chains_handler
 import nakup_handler
 import time
 import expedition_board_handler
-# Vynútenie časovej zóny pre bežiaci proces
+import terminal_handler
+
 os.environ['TZ'] = 'Europe/Bratislava'
 if hasattr(time, 'tzset'):
     time.tzset()
@@ -161,6 +162,7 @@ except Exception as e:
     print("VAROVANIE: Nepodarilo sa spustiť temperature_handler.start_generator():", e)
 erp_bp = Blueprint("erp_bp", __name__)
 app.register_blueprint(pricelist_bp)
+app.register_blueprint(terminal_handler.terminal_bp)
 # =================================================================
 # === DEKORÁTORY A POMOCNÉ FUNKCIE ===
 # =================================================================

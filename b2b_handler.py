@@ -1467,6 +1467,8 @@ def get_all_b2b_orders(filters=None):
             o.pozadovany_datum_dodania, 
             o.stav, 
             o.celkova_suma_s_dph,
+            o.datum_vypracovania,   -- PRIDANÝ STĹPEC
+            o.finalna_suma,         -- PRIDANÝ STĹPEC
             z.cislo_prevadzky
         FROM b2b_objednavky o
         LEFT JOIN b2b_zakaznici z ON o.zakaznik_id = z.zakaznik_id
