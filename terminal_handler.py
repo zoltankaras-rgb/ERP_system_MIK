@@ -30,10 +30,7 @@ def process_terminal_files():
         print(f">>> [TERMINAL] Začínam spracovávať: {filename}")
         
         try:
-            # PRISPÔSOBENIE PRE DB: 000004_2026... zmeníme na 000004-2026...
             search_pattern = "%" + base_name.replace('_', '-') + "%"
-            
-            # Hľadáme pomocou LIKE (nájde to B2B-000004-20260330091344)
             order_db = db_connector.execute_query(
                 "SELECT id, cislo_objednavky FROM b2b_objednavky WHERE cislo_objednavky LIKE %s LIMIT 1", 
                 (search_pattern,), fetch="one"
@@ -49,7 +46,6 @@ def process_terminal_files():
                 
             order_id = order_db["id"]
             db_cislo = order_db["cislo_objednavky"]
-            print(f"Nájdená objednávka: ID {order_id} (Číslo v DB: {db_cislo})")
                 
             with open(file_path, mode='r', encoding='cp1250', errors='replace') as f:
                 lines = f.readlines()
@@ -60,10 +56,8 @@ def process_terminal_files():
                     
                 ean = line[2:15].strip()
                 weight_str = line[117:127].strip().replace(',', '.')
-                
                 if not ean:
                     continue
-                    
                 try:
                     real_weight = float(weight_str)
                 except ValueError:
@@ -71,16 +65,16 @@ def process_terminal_files():
                     
                 ean_clean = ean.lstrip('0') if ean.lstrip('0') != '' else ean
                 
-                # Zápis reálnej váhy
+                # ZÁPIS DO NOVÉHO STĹPCA dodane_mnozstvo
                 db_connector.execute_query("""
                     UPDATE b2b_objednavky_polozky 
-                    SET mnozstvo = %s 
+                    SET dodane_mnozstvo = %s 
                     WHERE objednavka_id = %s AND (ean_produktu = %s OR ean_produktu = %s)
                 """, (real_weight, order_id, ean, ean_clean), fetch="none")
             
-            # Prepočet finálnej sumy
+            # PREPOČET SUMY (Ak je dodane_mnozstvo prázdne, zoberie pôvodné mnozstvo)
             sum_db = db_connector.execute_query("""
-                SELECT SUM(mnozstvo * cena_bez_dph) as suma_bez_dph 
+                SELECT SUM(COALESCE(dodane_mnozstvo, mnozstvo) * cena_bez_dph) as suma_bez_dph 
                 FROM b2b_objednavky_polozky 
                 WHERE objednavka_id = %s
             """, (order_id,), fetch="one")
@@ -89,7 +83,6 @@ def process_terminal_files():
             finalna_suma_s_dph = finalna_suma_bez_dph * 1.20 
             now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             
-            # Zmena stavu na Hotová
             db_connector.execute_query("""
                 UPDATE b2b_objednavky 
                 SET stav = 'Hotová', 
@@ -98,7 +91,6 @@ def process_terminal_files():
                 WHERE id = %s
             """, (now_str, finalna_suma_s_dph, order_id), fetch="none")
             
-            # Presun do spracovane
             dest_path = os.path.join(TERMINAL_PROCESSED_DIR, filename)
             if os.path.exists(dest_path):
                 dest_path = os.path.join(TERMINAL_PROCESSED_DIR, f"{base_name}_{datetime.now().strftime('%Y%m%d%H%M%S')}.csv")
@@ -107,8 +99,5 @@ def process_terminal_files():
             
         except Exception as e:
             print(f">>> [TERMINAL] CHYBA pri súbore {filename}: {e}")
-            base_name = os.path.splitext(filename)[0]
             dest_path = os.path.join(TERMINAL_ERROR_DIR, filename)
-            if os.path.exists(dest_path):
-                dest_path = os.path.join(TERMINAL_ERROR_DIR, f"{base_name}_{datetime.now().strftime('%Y%m%d%H%M%S')}.csv")
             shutil.move(file_path, dest_path)

@@ -1586,14 +1586,9 @@ def build_order_pdf_for_customer(order_id: int, user_id: int):
     return {"pdf": pdf_bytes, "filename": f"objednavka_{head['cislo_objednavky']}.pdf"}
 
 def build_order_pdf_payload_admin(order_id: int, req_type: str = None) -> dict:
-    """
-    Admin payload pre pdf_generator.create_order_files() – bez kontroly vlastníka.
-    DPH sa berie z 'produkty', súhrny sú spočítané, posielajú sa aj aliasy.
-    """
     if not order_id:
         return {"error": "Chýba id objednávky."}
 
-    # PRIDANÝ 'stav' DO SELECTU (nič iné sa tu nemení)
     head = db_connector.execute_query(
         "SELECT id, cislo_objednavky, zakaznik_id, nazov_firmy, adresa, "
         "       pozadovany_datum_dodania, datum_objednavky, celkova_suma_s_dph, poznamka, stav "
@@ -1603,8 +1598,9 @@ def build_order_pdf_payload_admin(order_id: int, req_type: str = None) -> dict:
     if not head:
         return {"error": "Objednávka neexistuje."}
 
+    # PRIDALI SME DO VÝBERU dodane_mnozstvo
     rows = db_connector.execute_query(
-        "SELECT ean_produktu, nazov_vyrobku, mnozstvo, mj, dph, cena_bez_dph "
+        "SELECT ean_produktu, nazov_vyrobku, mnozstvo, dodane_mnozstvo, mj, dph, cena_bez_dph "
         "FROM b2b_objednavky_polozky WHERE objednavka_id=%s ORDER BY id",
         (order_id,)
     ) or []
@@ -1624,7 +1620,18 @@ def build_order_pdf_payload_admin(order_id: int, req_type: str = None) -> dict:
     total_net = 0.0
     total_vat = 0.0
     for r in rows:
-        qty   = float(r.get("mnozstvo") or 0.0)
+        # Tu sa deje kúzlo: Zistíme pôvodné aj dodané množstvo
+        ordered_qty = float(r.get("mnozstvo") or 0.0)
+        delivered_qty_raw = r.get("dodane_mnozstvo")
+        delivered_qty = float(delivered_qty_raw) if delivered_qty_raw is not None else ordered_qty
+        
+        # Ak klikol na "Vypracovaná", použije sa dodané množstvo (reálna váha). 
+        # Inak sa natvrdo použije pôvodná objednávka zákazníka.
+        if req_type == "finished":
+            qty = delivered_qty
+        else:
+            qty = ordered_qty
+
         price = float(r.get("cena_bez_dph") or 0.0)
         pm    = pmap.get(r.get("ean_produktu")) or {}
         dph   = abs(float(pm.get("dph", r.get("dph")) or 0.0))
@@ -1653,9 +1660,6 @@ def build_order_pdf_payload_admin(order_id: int, req_type: str = None) -> dict:
 
     total_gross = total_net + total_vat
 
-    # URČENIE NADPISU PODĽA PARAMETRA Z TLAČIDLA
-    stav = head.get("stav") or ""
-    
     if req_type == "finished":
         doc_title = "Návrh vypracovanej objednávky"
     else:
@@ -1668,16 +1672,11 @@ def build_order_pdf_payload_admin(order_id: int, req_type: str = None) -> dict:
         "delivery_date": delivery,
         "note": head.get("poznamka") or "",
         "items": items,
-
         "total_net": total_net,
         "total_vat": total_vat,
         "total_with_vat": total_gross,
-        
-        # PRIDANÉ NOVÉ PREMENNÉ PRE PDF GENERATOR
         "document_title": doc_title,
-        "stav": stav,
-
-        # aliasy
+        "stav": head.get("stav") or "",
         "orderNumber": head["cislo_objednavky"],
         "customerName": head["nazov_firmy"],
         "customerAddress": head["adresa"],
