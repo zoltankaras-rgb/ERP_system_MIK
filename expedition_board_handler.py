@@ -32,6 +32,9 @@ def get_b2b_special_notes():
             o.cislo_objednavky AS id_objednavky,
             o.poznamka AS poznamka_objednavky,
             o.stav,
+            (SELECT GROUP_CONCAT(CONCAT(nazov_vyrobku, ': ', poznamka) SEPARATOR ' | ') 
+             FROM b2b_objednavky_polozky 
+             WHERE objednavka_id = o.id AND poznamka IS NOT NULL AND poznamka != '') AS poznamka_poloziek,
             (SELECT COALESCE(SUM(
                 CASE 
                     WHEN LOWER(mj) = 'ks' THEN mnozstvo * (COALESCE(vaha_balenia_g, 0) / 1000.0)
@@ -53,6 +56,13 @@ def get_b2b_special_notes():
     for r in rows:
         weight = float(r.get('celkova_vaha_kg') or 0)
         r['vaha_kg'] = weight
+        
+        # Spojenie hlavnej poznámky s poznámkami k jednotlivým položkám
+        po = r.get('poznamka_objednavky') or ""
+        pp = r.get('poznamka_poloziek') or ""
+        if pp:
+            r['poznamka_objednavky'] = f"{po} | Špecifické: {pp}" if po else f"Špecifické: {pp}"
+            
         if weight >= 100:
             r['vaha_kategoria'] = 'velka'
         elif weight >= 50:

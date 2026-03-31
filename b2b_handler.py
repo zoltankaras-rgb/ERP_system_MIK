@@ -1243,13 +1243,14 @@ def submit_b2b_order(data: dict):
                 pm.get("typ_polozky"),
                 i["price"],
                 _normalize_date_to_str(delivery_date),
+                i.get("item_note") or "",  # <-- PRIDANÁ POZNÁMKA POLOŽKY
             ))
         
         cur.executemany(
             """
             INSERT INTO b2b_objednavky_polozky
-              (objednavka_id, ean_produktu, nazov_vyrobku, mnozstvo, mj, dph, predajna_kategoria, vaha_balenia_g, typ_polozky, cena_bez_dph, pozadovany_datum_dodania)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+              (objednavka_id, ean_produktu, nazov_vyrobku, mnozstvo, mj, dph, predajna_kategoria, vaha_balenia_g, typ_polozky, cena_bez_dph, pozadovany_datum_dodania, poznamka)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             """,
             lines
         )
