@@ -31,6 +31,7 @@ def get_b2b_special_notes():
             z.stala_poznamka_expedicia AS trvala_poznamka,
             o.cislo_objednavky AS id_objednavky,
             o.poznamka AS poznamka_objednavky,
+            o.stav,
             (SELECT COALESCE(SUM(
                 CASE 
                     WHEN LOWER(mj) = 'ks' THEN mnozstvo * (COALESCE(vaha_balenia_g, 0) / 1000.0)
@@ -41,7 +42,7 @@ def get_b2b_special_notes():
         FROM b2b_objednavky o
         JOIN b2b_zakaznici z ON o.zakaznik_id = z.zakaznik_id
         LEFT JOIN logistika_trasy t ON z.trasa_id = t.id
-        WHERE o.stav NOT IN ('Hotová', 'Zrušená', 'Expedovaná')
+        WHERE o.stav != 'Zrušená'
           AND z.typ = 'B2B'
           AND o.pozadovany_datum_dodania = %s
         ORDER BY ISNULL(t.id), t.nazov ASC, z.trasa_poradie ASC, z.nazov_firmy ASC
