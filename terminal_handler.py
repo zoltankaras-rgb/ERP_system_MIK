@@ -65,6 +65,14 @@ def process_terminal_files():
             order_id = order_db["id"]
             db_cislo = order_db["cislo_objednavky"]
             print(f"Nájdená objednávka: ID {order_id} (Číslo v DB: {db_cislo})")
+            
+            # PREDNAČÍTANIE CIEN: Získame ceny všetkých položiek z objednávky dopredu,
+            # aby sme ich mohli bezpečne odstrihnúť z konca riadku z terminálu.
+            order_items_db = db_connector.execute_query(
+                "SELECT ean_produktu, cena_bez_dph FROM b2b_objednavky_polozky WHERE objednavka_id = %s",
+                (order_id,), fetch="all"
+            ) or []
+            prices_map = {str(item["ean_produktu"]).lstrip('0'): f"{float(item['cena_bez_dph']):.2f}" for item in order_items_db if item.get("ean_produktu")}
                 
             with open(file_path, mode='r', encoding='cp1250', errors='replace') as f:
                 lines = f.readlines()
@@ -74,19 +82,12 @@ def process_terminal_files():
                     continue
                     
                 ean = line[2:15].strip()
-                weight_str = line[117:127].strip().replace(',', '.')
                 if not ean:
                     continue
-                try:
-                    real_weight = float(weight_str)
-                except ValueError:
-                    real_weight = 0.0
                     
                 ean_clean = ean.lstrip('0') if ean.lstrip('0') != '' else ean
                 
-                # ---------------------------------------------------------
-                # KÚZLO: Preklad z EDI EAN na interný EAN cez tvoje mapovanie
-                # ---------------------------------------------------------
+                # Preklad z EDI EAN na interný EAN cez tvoje mapovanie
                 interny_ean = None
                 try:
                     map_db = db_connector.execute_query("""
@@ -97,15 +98,32 @@ def process_terminal_files():
                     if map_db:
                         interny_ean = map_db["interny_ean"]
                 except Exception:
-                    pass # Ak mapovanie neexistuje, ideme ďalej
+                    pass 
                     
-                # Ak sme našli preklad, použijeme ho. Inak hľadáme pôvodný kód z váhy.
-                if interny_ean:
-                    hladany_ean = interny_ean
-                    hladany_clean = interny_ean.lstrip('0') if interny_ean.lstrip('0') != '' else interny_ean
+                hladany_ean = interny_ean if interny_ean else ean
+                hladany_clean = interny_ean.lstrip('0') if interny_ean and interny_ean.lstrip('0') != '' else ean_clean
+                
+                # ---------------------------------------------------------
+                # OPRAVA pre váhu >= 100 kg (Zabránenie prekrytiu s cenou)
+                # ---------------------------------------------------------
+                expected_price_str = prices_map.get(hladany_clean) or prices_map.get(ean_clean) or ""
+                
+                # Vezmeme si úplný koniec riadku
+                tail = line[105:].strip()
+                
+                if expected_price_str and tail.endswith(expected_price_str):
+                    # Odstrihneme cenu z konca riadku. Čokoľvek, čo zostane pred ňou, je váha!
+                    weight_str = tail[:-len(expected_price_str)].strip()
                 else:
-                    hladany_ean = ean
-                    hladany_clean = ean_clean
+                    # Ak cena z nejakého dôvodu nesedí, použije sa pôvodný fallback
+                    weight_str = line[117:127].strip()
+
+                weight_str = weight_str.replace(',', '.')
+                
+                try:
+                    real_weight = float(weight_str)
+                except ValueError:
+                    real_weight = 0.0
                 
                 # Zápis do nového stĺpca dodane_mnozstvo
                 db_connector.execute_query("""
