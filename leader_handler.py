@@ -249,6 +249,23 @@ def leader_dashboard():
     rows_b2b = db_connector.execute_query(
         f"SELECT * FROM b2b_objednavky WHERE DATE({b2b_date})=%s", (d,)
     ) or []
+@leader_bp.get('/dashboard')
+@login_required(role=('veduci','admin'))
+def leader_dashboard():
+    from email.utils import parsedate_to_datetime # Import pre spracovanie GMT času
+    
+    d = _d(request.args.get('date'))
+    b2c_cols = _table_cols('b2c_objednavky')
+    b2b_cols = _table_cols('b2b_objednavky')
+    b2c_date = 'pozadovany_datum_dodania' if 'pozadovany_datum_dodania' in b2c_cols else 'datum_objednavky'
+    b2b_date = 'pozadovany_datum_dodania' if 'pozadovany_datum_dodania' in b2b_cols else 'datum_objednavky'
+
+    rows_b2c = db_connector.execute_query(
+        f"SELECT * FROM b2c_objednavky WHERE DATE({b2c_date})=%s", (d,)
+    ) or []
+    rows_b2b = db_connector.execute_query(
+        f"SELECT * FROM b2b_objednavky WHERE DATE({b2b_date})=%s", (d,)
+    ) or []
 
     def _items_count(rows):
         import json
@@ -271,8 +288,90 @@ def leader_dashboard():
                    + sum(float(r.get('celkova_suma_s_dph') or 0) for r in rows_b2b),
     }
 
+    # --- NOVÁ LOGIKA PRE VÝPOČET TEMPA A ODHADU KONCA ---
+    hotove_casy = []
+    zostava_chystat = 0
+    
+    # Prejdeme všetky dnešné objednávky B2C aj B2B
+    for r in rows_b2c + rows_b2b:
+        stav = r.get('stav', '')
+        if stav in ('Hotová', 'Expedovaná'):
+            # Hľadáme časový údaj (napr. v stĺpci vypracovane)
+            cas = r.get('vypracovane') or r.get('cas_dokoncenia') or r.get('updated_at')
+            if cas:
+                hotove_casy.append(cas)
+        elif stav not in ('Hotová', 'Expedovaná', 'Zrušená'):
+            zostava_chystat += 1
+
+    tempo_minuty = 0
+    odhad_konca = ""
+    
+    if len(hotove_casy) > 1:
+        parsed_casy = []
+        for c in hotove_casy:
+            if isinstance(c, datetime):
+                parsed_casy.append(c)
+            elif isinstance(c, str):
+                try:
+                    # Spracuje formát: Tue, 31 Mar 2026 12:11:00 GMT
+                    parsed_casy.append(parsedate_to_datetime(c))
+                except Exception:
+                    try:
+                        parsed_casy.append(datetime.fromisoformat(c.replace('Z', '+00:00')))
+                    except Exception:
+                        pass
+        
+        if len(parsed_casy) > 1:
+            parsed_casy.sort()
+            # Celkový časový rozdiel medzi prvou a poslednou hotovou objednávkou
+            diff_seconds = (parsed_casy[-1] - parsed_casy[0]).total_seconds()
+            
+            # Priemerný čas na jednu objednávku (delíme počtom medzier)
+            tempo_minuty = round((diff_seconds / 60.0) / (len(parsed_casy) - 1), 1)
+            
+            # Ochrana proti anomáliám (napr. ak je tempo viac ako hodina, asi mali prestávku)
+            if 0.5 < tempo_minuty < 60 and zostava_chystat > 0:
+                odhad_dt = datetime.now() + timedelta(minutes=(zostava_chystat * tempo_minuty))
+                odhad_konca = odhad_dt.strftime('%H:%M')
+
+    # Pridáme vypočítané dáta do KPI
+    kpi['zostava_chystat'] = zostava_chystat
+    kpi['tempo_minuty'] = tempo_minuty
+    kpi['odhad_konca'] = odhad_konca
+    # --- KONIEC NOVEJ LOGIKY ---
+
     start_date = datetime.strptime(d, "%Y-%m-%d").date()
     days = [ (start_date + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(7) ]
+
+    def _count(table: str, date_col: str, the_day: str) -> int:
+        row = db_connector.execute_query(
+            f"SELECT COUNT(*) AS c FROM {table} WHERE DATE({date_col})=%s",
+            (the_day,), fetch='one'
+        ) or {}
+        return int(row.get('c') or 0)
+
+    next7_orders = []
+    for day in days:
+        c_b2c = _count('b2c_objednavky', b2c_date, day)
+        c_b2b = _count('b2b_objednavky', b2b_date, day)
+        next7_orders.append({'date': day, 'b2c': c_b2c, 'b2b': c_b2b, 'total': c_b2c + c_b2b})
+
+    workdays = _workdays(start_date, 7)
+    tomorrow = (date.today() + timedelta(days=1)).strftime("%Y-%m-%d")
+    plan = [{'date': dd, 'note': 'auto', 'items': [], 'is_tomorrow': (dd == tomorrow)} for dd in workdays]
+
+    sources = {
+        'promotions_source': '/api/kancelaria/get_promotions_data',
+        'forecast_source':   '/api/kancelaria/get_7_day_forecast',
+    }
+
+    return jsonify({
+        'date': d,
+        'kpi': kpi,
+        'next7_orders': next7_orders,
+        'production_plan_preview': plan,
+        'sources': sources
+    })
 
     def _count(table: str, date_col: str, the_day: str) -> int:
         row = db_connector.execute_query(

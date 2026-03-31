@@ -126,6 +126,10 @@
       if($id('kpi-b2b')) $id('kpi-b2b').textContent    = (r.kpi && r.kpi.b2b_count!=null)    ? r.kpi.b2b_count    : '—';
       if($id('kpi-items')) $id('kpi-items').textContent = (r.kpi && r.kpi.items_total!=null) ? r.kpi.items_total : '—';
       if($id('kpi-sum')) $id('kpi-sum').textContent    = (r.kpi && r.kpi.sum_total!=null)    ? `${fmt2(r.kpi.sum_total)} €` : '—';
+      if($id('kpi-zostava')) $id('kpi-zostava').textContent = (r.kpi && r.kpi.zostava_chystat != null) ? r.kpi.zostava_chystat + ' obj.' : '0 obj.';
+      if($id('kpi-tempo')) $id('kpi-tempo').textContent = (r.kpi && r.kpi.tempo_minuty > 0) ? r.kpi.tempo_minuty + ' min/obj' : '—';
+      if($id('kpi-odhad')) $id('kpi-odhad').textContent = (r.kpi && r.kpi.odhad_konca) ? r.kpi.odhad_konca : '—';
+     
 
       const planHost = $id('plan-preview');
       if (planHost) {
