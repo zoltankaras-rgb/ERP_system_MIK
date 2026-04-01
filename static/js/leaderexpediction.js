@@ -2256,6 +2256,128 @@ window.printDailySummary = async function() {
       // TÁTO PREMENNÁ CHÝBALA (Pamätá si položky z cenníka)
       let activePricelistItems = {};
 
+      // ================= AUTO-SAVE KONCEPTU =================
+      function saveManualB2BDraft() {
+          const section = $('#leader-manual-b2b');
+          if (!section || !section.classList.contains('active')) return;
+
+          const customer = {
+              interne_cislo: $('#man-cust-id').value,
+              nazov_firmy: $('#man-cust-name').value,
+              adresa: $('#man-cust-addr').value,
+              kontakt: $('#man-cust-contact').value,
+              is_registered: $('#man-cust-is-registered').value
+          };
+
+          const order = {
+              date: $('#man-order-date').value,
+              note: $('#man-order-note').value
+          };
+
+          const items = [];
+          $$('#man-order-items tbody tr:not(#man-empty-row)').forEach(tr => {
+              const qtyInput = tr.querySelector('.mo-qty');
+              const priceInput = tr.querySelector('.mo-price');
+              const unitSelect = tr.querySelector('.mo-unit');
+              
+              if (qtyInput && priceInput) {
+                  items.push({
+                      ean: tr.dataset.ean,
+                      name: tr.dataset.name,
+                      dph: tr.dataset.dph,
+                      quantity: qtyInput.value,
+                      unit: unitSelect ? unitSelect.value : 'kg',
+                      price: priceInput.value
+                  });
+              }
+          });
+
+          // Ulož len ak je aspoň niečo vyplnené (id, názov, košík alebo poznámka)
+          if (customer.interne_cislo || customer.nazov_firmy || items.length > 0 || order.note) {
+              const draft = { customer, order, items, timestamp: new Date().getTime() };
+              localStorage.setItem('manualB2BDraft', JSON.stringify(draft));
+              
+              // Vizuálny indikátor uloženia
+              const titleEl = document.querySelector('#leader-manual-b2b h3');
+              if (titleEl && !titleEl.innerHTML.includes('fa-cloud-arrow-up')) {
+                   const orig = titleEl.innerHTML;
+                   titleEl.innerHTML = orig + ' <i class="fas fa-cloud-arrow-up" style="font-size:0.6em; color:#10b981; margin-left:10px; transition: opacity 1s;" id="draft-indicator" title="Koncept sa automaticky ukladá"></i>';
+              }
+              const ind = document.getElementById('draft-indicator');
+              if(ind) {
+                  ind.style.opacity = '1';
+                  setTimeout(() => { if(ind) ind.style.opacity = '0.3'; }, 1000);
+              }
+          } else {
+              localStorage.removeItem('manualB2BDraft');
+              const ind = document.getElementById('draft-indicator');
+              if(ind) ind.remove();
+          }
+      }
+
+      function restoreManualB2BDraft() {
+          const draftStr = localStorage.getItem('manualB2BDraft');
+          if (!draftStr) return;
+
+          try {
+              const draft = JSON.parse(draftStr);
+              const itemName = draft.customer.nazov_firmy ? `pre <b>${escapeHtml(draft.customer.nazov_firmy)}</b>` : 'bez zákazníka';
+              
+              modalConfirm({
+                  title: 'Našiel sa rozpísaný koncept',
+                  message: `Máte rozpísanú manuálnu objednávku ${itemName} s <b>${draft.items.length}</b> položkami.<br><br>Chcete ju obnoviť a pokračovať?`,
+                  okText: 'Áno, obnoviť',
+                  cancelText: 'Zahodiť'
+              }).then(res => {
+                  if (res) {
+                      // Obnova zákazníka
+                      $('#man-cust-id').value = draft.customer.interne_cislo || '';
+                      $('#man-cust-name').value = draft.customer.nazov_firmy || '';
+                      $('#man-cust-addr').value = draft.customer.adresa || '';
+                      $('#man-cust-contact').value = draft.customer.kontakt || '';
+                      $('#man-cust-is-registered').value = draft.customer.is_registered || '0';
+
+                      // Obnova dátumu a poznámky
+                      if (draft.order.date) $('#man-order-date').value = draft.order.date;
+                      $('#man-order-note').value = draft.order.note || '';
+
+                      // Obnova košíka
+                      const tbody = $('#man-order-items tbody');
+                      tbody.innerHTML = '';
+                      
+                      if (draft.items.length === 0) {
+                          tbody.innerHTML = '<tr id="man-empty-row"><td colspan="6" style="text-align:center;" class="muted">Zatiaľ neboli pridané žiadne položky.</td></tr>';
+                      } else {
+                          // Pridávame odzadu, pretože funkcia vkladá vždy na vrch tabuľky
+                          [...draft.items].reverse().forEach(it => {
+                              const p = {
+                                  ean: it.ean,
+                                  name: it.name,
+                                  dph: it.dph,
+                                  mj: it.unit,
+                                  price: parseFloat(it.price) || 0
+                              };
+                              addManualOrderRow(p, parseFloat(it.quantity) || 0);
+                          });
+                      }
+                      showStatus('Koncept bol úspešne obnovený.', false);
+                  } else {
+                      // Ak klikne Zahodiť, pamäť sa vymaže
+                      localStorage.removeItem('manualB2BDraft');
+                  }
+              });
+          } catch (e) {
+              localStorage.removeItem('manualB2BDraft');
+          }
+      }
+
+      // Spustenie autosave na pozadí (každé 3 sekundy)
+      setInterval(saveManualB2BDraft, 3000);
+      
+      // Pokus o obnovu pri načítaní stránky
+      setTimeout(restoreManualB2BDraft, 500);
+      // ======================================================
+
       const loadFullPricelist = async (plId) => {
           if(!plTbody) return;
           plTbody.innerHTML = '<tr><td colspan="4" class="text-center muted">Načítavam položky cenníka...</td></tr>';
@@ -2504,6 +2626,13 @@ window.printDailySummary = async function() {
           try {
               const res = await apiRequest('/api/leader/manual_order/submit', {method: 'POST', body: payload});
               showStatus(res.message, false);
+              
+              // ============================================
+              // VYMAZANIE KONCEPTU PO ÚSPEŠNOM ODOSLANÍ
+              localStorage.removeItem('manualB2BDraft');
+              const ind = document.getElementById('draft-indicator');
+              if(ind) ind.remove();
+              // ============================================
               
               const pdfUrl = `/api/kancelaria/b2b/print_order_pdf/${res.order_id}`;
               window.open(pdfUrl, '_blank');
