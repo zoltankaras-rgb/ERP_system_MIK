@@ -37,77 +37,90 @@ def process_terminal_files():
                 (search_pattern,), fetch="one"
             )
             
-            # 2. POKUS: Ak terminál premenoval súbor (ako pri COOP EDI), čítame hlavičku CSV
+            # 2. POKUS: Ak ide o COOP/EDI formát (XXX_YYYYYYYY.csv)
             if not order_db:
                 with open(file_path, mode='r', encoding='cp1250', errors='replace') as f:
                     lines = f.readlines()
                     
                 first_line = lines[0] if lines else ""
                 
-                # Overíme, či je to hlavička (nezačína medzerami a má bodkočiarky)
                 if first_line and not first_line.startswith("  ") and ";" in first_line:
-                    parts = first_line.strip().split(";")
-                    cust_id = parts[-1].strip() # Vytiahne ID zákazníka z konca hlavičky
+                    parts = [p.strip() for p in first_line.split(";")]
+                    cust_id = next((p for p in reversed(parts) if p), "")
                     
-                    # SMART MATCHING: Identifikujeme správnu objednávku podľa toho, aký tovar je v súbore
-                    vzorka_ean = None
+                    # Extrakcia kódu pobočky z názvu súboru (napr. '022' z '022_43489684.csv')
+                    branch_code = base_name.split('_')[0] if '_' in base_name else ""
+                    
+                    # Získanie všetkých EAN kódov, ktoré sa nachádzajú v tomto konkrétnom lístku z váhy
+                    vsetky_eany = set()
                     for line in lines:
                         if line.startswith("  ") and len(line) >= 127:
-                            ean_kandidat = line[2:15].strip()
-                            if ean_kandidat:
-                                vzorka_ean = ean_kandidat
-                                break
+                            ean_kand = line[2:15].strip()
+                            if ean_kand:
+                                vsetky_eany.add(ean_kand)
                     
-                    if vzorka_ean:
-                        ean_clean = vzorka_ean.lstrip('0') if vzorka_ean.lstrip('0') != '' else vzorka_ean
+                    # Nájdeme VŠETKY otvorené (alebo dnes/včera uzavreté) objednávky pre tohto zákazníka
+                    # Matching podľa ID alebo presného hľadania tagu [022] v názve firmy
+                    kandidati_objednavky = db_connector.execute_query(
+                        """
+                        SELECT id, cislo_objednavky 
+                        FROM b2b_objednavky 
+                        WHERE (zakaznik_id = %s OR zakaznik_id = %s OR nazov_firmy LIKE %s)
+                          AND (
+                              stav IN ('Nová', 'Prijatá') 
+                              OR (stav = 'Hotová' AND DATE(pozadovany_datum_dodania) >= CURDATE() - INTERVAL 2 DAY)
+                          )
+                        ORDER BY id DESC
+                        """,
+                        (cust_id, branch_code, f"%[{branch_code}]%"), 
+                        fetch="all"
+                    ) or []
+                    
+                    # SMART MATCHING: Prejdeme všetky nájdené objednávky a vyberieme tú, 
+                    # v ktorej sa nachádza aspoň jeden tovar z tohto lístka. 
+                    for o in kandidati_objednavky:
+                        polozky_db = db_connector.execute_query(
+                            "SELECT ean_produktu FROM b2b_objednavky_polozky WHERE objednavka_id = %s",
+                            (o["id"],), fetch="all"
+                        ) or []
                         
-                        # Preklad z EDI EAN na interný EAN
-                        interny_ean = None
-                        try:
-                            map_db = db_connector.execute_query("""
-                                SELECT interny_ean FROM edi_produkty_mapovanie 
-                                WHERE edi_ean = %s OR edi_ean = %s LIMIT 1
-                            """, (vzorka_ean, ean_clean), fetch="one")
-                            if map_db:
-                                interny_ean = map_db["interny_ean"]
-                        except Exception:
-                            pass 
+                        db_eans = [str(p["ean_produktu"]).strip() for p in polozky_db if p.get("ean_produktu")]
+                        db_eans_clean = [e.lstrip('0') for e in db_eans]
+                        
+                        zhoda = False
+                        for f_ean in vsetky_eany:
+                            f_ean_clean = f_ean.lstrip('0')
                             
-                        hladany_ean = interny_ean if interny_ean else vzorka_ean
-                        hladany_clean = interny_ean.lstrip('0') if interny_ean and interny_ean.lstrip('0') != '' else ean_clean
-
-                        # Hľadáme objednávku pre tohto zákazníka, ktorá REÁLNE OBSAHUJE TENTO TOVAR
-                        order_db = db_connector.execute_query(
-                            """
-                            SELECT DISTINCT o.id, o.cislo_objednavky 
-                            FROM b2b_objednavky o
-                            JOIN b2b_objednavky_polozky pol ON o.id = pol.objednavka_id
-                            WHERE o.zakaznik_id = %s 
-                              AND (
-                                  o.stav IN ('Nová', 'Prijatá') 
-                                  OR (o.stav = 'Hotová' AND DATE(o.pozadovany_datum_dodania) >= CURDATE() - INTERVAL 2 DAY)
-                              )
-                              AND (pol.ean_produktu = %s OR pol.ean_produktu = %s OR pol.ean_produktu LIKE %s)
-                            ORDER BY o.id DESC LIMIT 1
-                            """,
-                            (cust_id, hladany_ean, hladany_clean, f"%{hladany_clean}%"), fetch="one"
-                        )
-
-                    # Záchranné koleso, ak by EAN matching predsa len zlyhal (zoberie poslednú otvorenú)
-                    if not order_db:
-                        order_db = db_connector.execute_query(
-                            """
-                            SELECT id, cislo_objednavky 
-                            FROM b2b_objednavky 
-                            WHERE zakaznik_id = %s 
-                              AND (
-                                  stav IN ('Nová', 'Prijatá') 
-                                  OR (stav = 'Hotová' AND DATE(pozadovany_datum_dodania) >= CURDATE() - INTERVAL 2 DAY)
-                              )
-                            ORDER BY id DESC LIMIT 1
-                            """,
-                            (cust_id,), fetch="one"
-                        )
+                            # Aplikujeme EDI preklad kódov, aby sa to našlo na 100%
+                            mapped_ean = None
+                            try:
+                                map_db = db_connector.execute_query(
+                                    "SELECT interny_ean FROM edi_produkty_mapovanie WHERE edi_ean = %s OR edi_ean = %s LIMIT 1",
+                                    (f_ean, f_ean_clean), fetch="one"
+                                )
+                                if map_db: mapped_ean = str(map_db["interny_ean"]).strip()
+                            except:
+                                pass
+                                
+                            check_list = [f_ean, f_ean_clean]
+                            if mapped_ean:
+                                check_list.extend([mapped_ean, mapped_ean.lstrip('0')])
+                                
+                            # Ak sme našli EAN v tejto objednávke, máme víťaza
+                            for c in check_list:
+                                if c in db_eans or c in db_eans_clean:
+                                    zhoda = True
+                                    break
+                            
+                            if zhoda: break
+                            
+                        if zhoda:
+                            order_db = o
+                            break
+                            
+                    # Záchranné koleso: Ak sme tovar vôbec nespárovali, ale máme len 1 objednávku, priradíme ju tam
+                    if not order_db and kandidati_objednavky:
+                        order_db = kandidati_objednavky[0]
             
             if not order_db:
                 print(f"Chyba: Objednávka pre súbor '{filename}' nenájdená ani podľa názvu, ani podľa zákazníka a EAN!")
@@ -121,7 +134,7 @@ def process_terminal_files():
             db_cislo = order_db["cislo_objednavky"]
             print(f"Nájdená objednávka: ID {order_id} (Číslo v DB: {db_cislo})")
             
-            # PREDNAČÍTANIE CIEN pre lepšie odstrihnutie váhy (z predchádzajúcej opravy)
+            # PREDNAČÍTANIE CIEN (aby sme predišli problému 100+ kg)
             order_items_db = db_connector.execute_query(
                 "SELECT ean_produktu, cena_bez_dph FROM b2b_objednavky_polozky WHERE objednavka_id = %s",
                 (order_id,), fetch="all"
@@ -149,6 +162,7 @@ def process_terminal_files():
                     
                 ean_clean = ean.lstrip('0') if ean.lstrip('0') != '' else ean
                 
+                # Preklad z EDI EAN na interný EAN
                 interny_ean = None
                 try:
                     map_db = db_connector.execute_query("""
@@ -183,6 +197,7 @@ def process_terminal_files():
                 except ValueError:
                     real_weight = 0.0
                 
+                # Zápis do nového stĺpca dodane_mnozstvo
                 db_connector.execute_query("""
                     UPDATE b2b_objednavky_polozky 
                     SET dodane_mnozstvo = %s 
@@ -193,6 +208,7 @@ def process_terminal_files():
                     )
                 """, (real_weight, order_id, hladany_ean, hladany_clean, f"%{hladany_clean}%"), fetch="none")
             
+            # Prepočet celkovej sumy
             sum_db = db_connector.execute_query("""
                 SELECT SUM(COALESCE(dodane_mnozstvo, mnozstvo) * cena_bez_dph) as suma_bez_dph 
                 FROM b2b_objednavky_polozky 
@@ -203,6 +219,7 @@ def process_terminal_files():
             finalna_suma_s_dph = finalna_suma_bez_dph * 1.20 
             now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             
+            # Zmena stavu a uloženie finálnej sumy
             db_connector.execute_query("""
                 UPDATE b2b_objednavky 
                 SET stav = 'Hotová', 
@@ -211,6 +228,7 @@ def process_terminal_files():
                 WHERE id = %s
             """, (now_str, finalna_suma_s_dph, order_id), fetch="none")
             
+            # Presun spracovaného súboru
             dest_path = os.path.join(TERMINAL_PROCESSED_DIR, filename)
             if os.path.exists(dest_path):
                 dest_path = os.path.join(TERMINAL_PROCESSED_DIR, f"{base_name}_{datetime.now().strftime('%Y%m%d%H%M%S')}.csv")
