@@ -1324,19 +1324,23 @@ def submit_b2b_order(data: dict):
                     except Exception as e:
                         print(f"Nepodarilo sa odoslať kópiu na {cc_mail}: {e}")
         
-        # C) Email expedícii - Tu ide PDF a aj nové PREMAPOVANÉ CSV (s nulami) pre váhový terminál
+        # C) Email expedícii - Tu ide PDF (CSV sa ukladá už len na server)
         try:
             notification_handler.send_order_confirmation_email(
                 to=EXPEDITION_EMAIL, 
                 order_number=order_number, 
                 pdf_content=pdf_bytes, 
-                csv_content=csv_bytes,
-                csv_filename=csv_filename
+                customer_name=cust['nazov_firmy'],     
+                delivery_date=delivery_date            
             )
         except Exception:
             try:
                 notification_handler.send_order_confirmation_email(
-                    to=EXPEDITION_EMAIL, order_number=order_number, pdf_content=pdf_bytes, csv_content=csv_bytes
+                    to=EXPEDITION_EMAIL, 
+                    order_number=order_number, 
+                    pdf_content=pdf_bytes, 
+                    customer_name=cust['nazov_firmy'], 
+                    delivery_date=delivery_date        
                 )
             except: pass
 

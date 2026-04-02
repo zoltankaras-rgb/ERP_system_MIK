@@ -586,16 +586,18 @@ def send_password_reset_email(to: str, token: str):
     """
     _send_email(to, "Reset hesla – B2B",
                 html=_brand_html("Reset hesla", html, "Reset hesla – token v správe"))
+    
 def send_order_confirmation_email(to: str | list[str],
                                   order_number: str,
                                   pdf_content: bytes | None = None,
                                   csv_content: bytes | None = None,
-                                  csv_filename: str | None = None):  # <--- PRIDANÝ PARAMETER
+                                  csv_filename: str | None = None,
+                                  customer_name: str | None = None,
+                                  delivery_date: str | None = None):  # <--- PRIDANÉ PARAMETRE
     """
     B2B potvrdenie objednávky.
-    UPRAVENÉ:
-    - ZÁKAZNÍK: dostane len PDF.
-    - EXPEDÍCIA (EXPEDITION_EMAIL): dostane PDF + CSV (so správnym názvom).
+    ZÁKAZNÍK: dostane len PDF.
+    EXPEDÍCIA: dostane PDF + CSV (s upraveným predmetom).
     """
     subject = f"Potvrdenie objednávky {order_number}"
     html_body = f"""
@@ -611,22 +613,17 @@ def send_order_confirmation_email(to: str | list[str],
     else:
         recipients = [str(to).strip()] if to else []
 
-    # rozdeľ na expedíciu vs ostatní
-    # (EXPEDITION_EMAIL_L musí byť definované na začiatku tvojho súboru ako global)
     to_exped = [r for r in recipients if r.lower() == EXPEDITION_EMAIL_L]
     to_others = [r for r in recipients if r.lower() != EXPEDITION_EMAIL_L]
 
-    # priprava príloh
+    # priprava príloh (NEDOTKNUTÉ)
     atts_pdf_only = []
     if pdf_content:
         atts_pdf_only.append((f"objednavka_{order_number}.pdf", pdf_content, "application/pdf"))
 
     atts_pdf_csv = list(atts_pdf_only)
     if csv_content:
-        # === TU JE OPRAVA NÁZVU ===
-        # Ak sme dostali csv_filename, použijeme ho. Inak použijeme starý.
         final_csv_name = csv_filename if csv_filename else f"objednavka_{order_number}.csv"
-        
         atts_pdf_csv.append((final_csv_name, csv_content, "text/csv"))
 
     # 1) pošli ostatným (zákazník) – LEN PDF
@@ -641,12 +638,28 @@ def send_order_confirmation_email(to: str | list[str],
 
     # 2) pošli expedícii – PDF + CSV
     if EXPEDITION_EMAIL:
-         _send_email(
+        # --- ZAČIATOK BEZPEČNEJ ÚPRAVY PREDMETU ---
+        exped_subject = f"KOPIA (B2B): {subject}"
+        if customer_name and delivery_date:
+            try:
+                # Konverzia dátumu RRRR-MM-DD na DD.MM.RRRR pre krajšie zobrazenie
+                if "-" in str(delivery_date) and len(str(delivery_date)) >= 10:
+                    d_obj = datetime.strptime(str(delivery_date)[:10], "%Y-%m-%d")
+                    fmt_date = d_obj.strftime("%d.%m.%Y")
+                else:
+                    fmt_date = delivery_date
+            except Exception:
+                fmt_date = delivery_date
+            
+            exped_subject = f"KOPIA (B2B): {customer_name} {fmt_date} {subject}"
+        # --- KONIEC ÚPRAVY PREDMETU ---
+
+        _send_email(
             to=EXPEDITION_EMAIL,
-            subject=f"KOPIA (B2B): {subject}",
+            subject=exped_subject,
             text=None,
             html=html,
-            atts=atts_pdf_csv
+            atts=atts_pdf_csv  # <--- PRÍLOHY (AJ CSV) SA POSIELAJÚ BEZ ZMENY
         )
 # =================================================================
 # =========================  B2C NOTIFIKÁCIE  =====================
