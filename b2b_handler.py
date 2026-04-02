@@ -1304,10 +1304,13 @@ def submit_b2b_order(data: dict):
         except Exception as e:
             print(f"Chyba pri ukladani CSV na disk: {e}")
         
-        # A) Hlavný e-mail zákazníkovi (Rodič) - Ide iba PDF s internými kódmi
+        # A) Hlavný e-mail zákazníkovi - TU VYPNEME AUTOMATICKÚ KÓPIU
         try:
             notification_handler.send_order_confirmation_email(
-                to=customer_email, order_number=order_number, pdf_content=pdf_bytes, csv_content=None
+                to=customer_email, 
+                order_number=order_number, 
+                pdf_content=pdf_bytes, 
+                send_exped_copy=False  # <--- TOTO ZABRÁNI PRVÉMU DUPLICITNÉMU MAILU
             )
         except Exception as e:
             print(f"Chyba emailu zakaznikovi: {e}")
@@ -1324,16 +1327,32 @@ def submit_b2b_order(data: dict):
                     except Exception as e:
                         print(f"Nepodarilo sa odoslať kópiu na {cc_mail}: {e}")
         
-        # C) Email expedícii - Tu ide PDF (CSV sa ukladá už len na server)
+        # A) Hlavný e-mail zákazníkovi - TU VYPNEME AUTOMATICKÚ KÓPIU
+        try:
+            notification_handler.send_order_confirmation_email(
+                to=customer_email, 
+                order_number=order_number, 
+                pdf_content=pdf_bytes, 
+                send_exped_copy=False  # <--- TOTO ZABRÁNI PRVÉMU DUPLICITNÉMU MAILU
+            )
+        except Exception as e:
+            print(f"Chyba emailu zakaznikovi: {e}")
+
+        # ... (kód pre kópie CC ostáva rovnaký) ...
+
+        # C) Email expedícii - TU POŠLEME TEN SPRÁVNY MAIL (BEZ CSV)
         try:
             notification_handler.send_order_confirmation_email(
                 to=EXPEDITION_EMAIL, 
                 order_number=order_number, 
                 pdf_content=pdf_bytes, 
-                customer_name=cust['nazov_firmy'],     
-                delivery_date=delivery_date            
+                customer_name=cust['nazov_firmy'], # Pre predmet
+                delivery_date=delivery_date        # Pre predmet
+                # csv_content a csv_filename TU NEUVÁDZAME -> e-mail odíde bez CSV
             )
-        except Exception:
+        except Exception as e:
+            print(f"Chyba pri odosielaní personalizovanej kópie: {e}")
+            
             try:
                 notification_handler.send_order_confirmation_email(
                     to=EXPEDITION_EMAIL, 
