@@ -1416,8 +1416,9 @@ def submit_manual_order():
         import pdf_generator
         import notification_handler
         
-        pdf_bytes, _, csv_filename = pdf_generator.create_order_files(order_payload)
+        pdf_bytes, _, csv_filename_raw = pdf_generator.create_order_files(order_payload)
 
+        # Mapovanie a generovanie CSV pre váhový terminál
         csv_payload = copy.deepcopy(order_payload)
         mapping_db = db_connector.execute_query("SELECT interny_ean, objednavkovy_kod FROM b2b_ean_mapovanie", fetch='all') or []
         ean_map = {str(m['interny_ean']).strip().lstrip('0'): str(m['objednavkovy_kod']).strip() for m in mapping_db if m.get('interny_ean')}
@@ -1429,28 +1430,42 @@ def submit_manual_order():
 
         _, csv_bytes, _ = pdf_generator.create_order_files(csv_payload)
 
+        # Fyzické uloženie CSV na disk
         export_dir = os.getenv("B2B_CSV_EXPORT_DIR", "/var/app/data/b2bobjednavky")
         os.makedirs(export_dir, exist_ok=True)
-        file_name = csv_filename or f"objednavka_{order_number}.csv"
+        file_name = csv_filename_raw if csv_filename_raw else f"objednavka_{order_number}.csv"
         file_path = os.path.join(export_dir, file_name)
         
         if csv_bytes:
             with open(file_path, "wb") as f:
                 f.write(csv_bytes)
                 
+        # Odosielanie E-mailov (BEZ CSV a s upraveným predmetom)
         expedition_email = os.getenv("B2B_EXPEDITION_EMAIL") or "miksroexpedicia@gmail.com"
         
         try:
+            # 1. EXPEDÍCIA: Dostane e-mail s novým predmetom a BEZ CSV (CSV už je na serveri)
             notification_handler.send_order_confirmation_email(
-                to=expedition_email, order_number=order_number, pdf_content=pdf_bytes, csv_content=csv_bytes, csv_filename=file_name
+                to=expedition_email, 
+                order_number=order_number, 
+                pdf_content=pdf_bytes, 
+                csv_content=None,                       # ZABRÁNI PRILOŽENIU CSV
+                csv_filename=None,                      # ZABRÁNI PRILOŽENIU CSV
+                customer_name=customer['nazov_firmy'],  # DO PREDMETU
+                delivery_date=delivery_date             # DO PREDMETU
             )
         except Exception as e:
             print(f"Chyba pri maili na expediciu: {e}")
 
         if is_registered and cust_email and '@' in cust_email:
             try:
+                # 2. ZÁKAZNÍK: Dostane len PDF a zakážeme duplicitnú kópiu na expedíciu
                 notification_handler.send_order_confirmation_email(
-                    to=cust_email, order_number=order_number, pdf_content=pdf_bytes, csv_content=None
+                    to=cust_email, 
+                    order_number=order_number, 
+                    pdf_content=pdf_bytes, 
+                    csv_content=None,
+                    send_exped_copy=False               # ZABRÁNI DUPLICITNÉMU E-MAILU
                 )
             except Exception as e:
                 print(f"Chyba pri maili zákazníkovi: {e}")
