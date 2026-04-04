@@ -12,6 +12,7 @@ from datetime import datetime, date, timedelta
 def get_b2b_special_notes():
     dnes = date.today()
     
+    # Základný posun pre ďalší deň
     if dnes.weekday() == 4: # Piatok
         cielovy_datum = dnes + timedelta(days=3)
     elif dnes.weekday() == 5: # Sobota
@@ -19,6 +20,29 @@ def get_b2b_special_notes():
     else: # Nedeľa až Štvrtok
         cielovy_datum = dnes + timedelta(days=1)
         
+    # --- DYNAMICKÁ KONTROLA SVIATKOV A VÍKENDOV ---
+    # Bude posúvať dátum dopredu, kým nenájde bežný pracovný deň
+    while True:
+        posun_nastal = False
+        
+        # Ak by to padlo na Sobotu (5) alebo Nedeľu (6), posuň na Pondelok
+        if cielovy_datum.weekday() == 5:
+            cielovy_datum += timedelta(days=2)
+            posun_nastal = True
+        elif cielovy_datum.weekday() == 6:
+            cielovy_datum += timedelta(days=1)
+            posun_nastal = True
+            
+        # Ak je to Sviatok zaznamenaný v kalendári, posuň o 1 deň
+        if is_holiday(cielovy_datum):
+            cielovy_datum += timedelta(days=1)
+            posun_nastal = True
+            
+        # Ak sme v tomto cykle nemuseli robiť žiadny posun, máme finálny pracovný deň
+        if not posun_nastal:
+            break
+    # ----------------------------------------------
+
     cielovy_datum_str = cielovy_datum.strftime('%Y-%m-%d')
     cielovy_datum_sk = cielovy_datum.strftime('%d.%m.%Y')
 
@@ -98,3 +122,17 @@ def get_b2b_special_notes():
         "akcie_coop": akcie_coop,
         "poznamky": rows
     }
+def is_holiday(check_date):
+    """
+    Overí v databáze kalendára, či je na daný deň naplánovaný sviatok (HOLIDAY).
+    """
+    date_str = check_date.strftime('%Y-%m-%d')
+    sql = """
+        SELECT id FROM calendar_events 
+        WHERE event_type = 'HOLIDAY' 
+          AND DATE(start_at) <= %s 
+          AND (DATE(end_at) >= %s OR end_at IS NULL)
+          AND is_cancelled = 0
+    """
+    row = db_connector.execute_query(sql, (date_str, date_str), fetch='one')
+    return bool(row) # Vráti True ak nájde sviatok, inak False

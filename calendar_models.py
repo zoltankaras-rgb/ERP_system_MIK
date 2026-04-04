@@ -26,7 +26,7 @@ class EventType(str, enum.Enum):
     SERVICE = "SERVICE"              # servis / správa majetku
     DEADLINE = "DEADLINE"            # deadline bez projektu
     TASK = "TASK"                    # úloha naviazaná na projekt
-
+    HOLIDAY = "HOLIDAY"              # štátny sviatok / deň pracovného pokoja
 
 class MeetingType(str, enum.Enum):
     INTERNAL = "INTERNAL"
