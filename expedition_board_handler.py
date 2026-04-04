@@ -59,6 +59,14 @@ def get_b2b_special_notes():
             (SELECT GROUP_CONCAT(CONCAT(nazov_vyrobku, ': ', poznamka) SEPARATOR ' | ') 
              FROM b2b_objednavky_polozky 
              WHERE objednavka_id = o.id AND poznamka IS NOT NULL AND poznamka != '') AS poznamka_poloziek,
+             
+            (SELECT GROUP_CONCAT(DISTINCT CONCAT(pol.nazov_vyrobku, ' ', (pol.mnozstvo + 0), ' ', pol.mj) SEPARATOR ' | ')
+             FROM b2b_objednavky_polozky pol
+             LEFT JOIN produkty pr ON pr.nazov_vyrobku = pol.nazov_vyrobku
+             WHERE pol.objednavka_id = o.id 
+               AND (LOWER(pr.predajna_kategoria) LIKE '%%mrazen%%' OR LOWER(pol.nazov_vyrobku) LIKE '%%mrazen%%')
+            ) AS mrazene_polozky,
+
             (SELECT COALESCE(SUM(
                 CASE 
                     WHEN LOWER(mj) = 'ks' THEN mnozstvo * (COALESCE(vaha_balenia_g, 0) / 1000.0)

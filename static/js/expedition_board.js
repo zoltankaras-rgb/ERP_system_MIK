@@ -151,7 +151,7 @@ function vykresliStranu() {
         let html = `<div class="customers-grid">`;
 
         stranaData.kartyNaZobrazenie.forEach(obj => {
-            const maPoznamku = obj.trvala_poznamka || obj.poznamka_objednavky;
+            const maPoznamku = obj.trvala_poznamka || obj.poznamka_objednavky || obj.mrazene_polozky;
             let cssClass = maPoznamku ? 'has-notes' : 'has-order';
 
             const badge = `<span class="status-badge badge-order"><i class="fas fa-box"></i> Objednané</span>`;
@@ -166,8 +166,8 @@ function vykresliStranu() {
             if (maPoznamku) {
                 if (obj.trvala_poznamka) poznamkyHtml += `<div class="p-riadok stala-poznamka"><i class="fas fa-exclamation-circle"></i><div><strong>VŽDY:</strong> ${obj.trvala_poznamka}</div></div>`;
                 if (obj.poznamka_objednavky) poznamkyHtml += `<div class="p-riadok dnesna-poznamka"><i class="fas fa-info-circle"></i><div><strong>DOPLNENIE:</strong> ${obj.poznamka_objednavky}</div></div>`;
+                if (obj.mrazene_polozky) poznamkyHtml += `<div class="p-riadok mrazena-poznamka"><i class="fas fa-snowflake"></i><div><strong>MRAZENÉ:</strong> ${obj.mrazene_polozky}</div></div>`;
             }
-
             let nazovFirmy = obj.zakaznik;
             if (obj.cislo_prevadzky && obj.cislo_prevadzky.trim() !== '') {
                  if (!nazovFirmy.includes(`[${obj.cislo_prevadzky}]`)) {
