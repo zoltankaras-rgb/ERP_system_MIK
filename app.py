@@ -2518,15 +2518,15 @@ def api_calendar_contacts_save():
     return jsonify({"id": new_id})
 # ===================== Enterprise Calendar – Udalosti ==========================
 
+@app.route('/api/calendar/employees', methods=['GET'])
+@login_required(role=('kancelaria', 'veduci', 'admin'))
+def api_calendar_employees():
+    import hr_handler
+    return jsonify(hr_handler.list_employees())
+
 @app.route('/api/calendar/events', methods=['GET'])
 @login_required(role='kancelaria')
 def api_calendar_events_list():
-    """
-    Zoznam udalostí pre kalendár.
-
-    Frontend posiela:
-      GET /api/calendar/events?start=YYYY-MM-DDTHH:MM&end=YYYY-MM-DDTHH:MM
-    """
     start_str = request.args.get('start')
     end_str   = request.args.get('end')
 
@@ -2584,6 +2584,35 @@ def api_calendar_events_list():
             "description": r.get("description"),
             "status": r.get("status") or EVENT_STATUS_OPEN,
         })
+        
+    # --- PRIDANÉ: Načítanie HR dovoleniek ---
+    d_end = end_dt.strftime("%Y-%m-%d") if end_dt else "2100-01-01"
+    d_start = start_dt.strftime("%Y-%m-%d") if start_dt else "2000-01-01"
+    hr_query = """
+        SELECT l.id, l.employee_id, e.full_name, l.date_from, l.date_to, l.leave_type, l.note
+        FROM hr_leaves l
+        JOIN hr_employees e ON l.employee_id = e.id
+        WHERE l.date_from <= %s AND l.date_to >= %s
+    """
+    hr_rows = db_connector.execute_query(hr_query, (d_end, d_start)) or []
+    for r in hr_rows:
+        leave_type = r["leave_type"]
+        title = f"Dovolenka - {r['full_name']}" if leave_type == 'VACATION' else f"Absencia - {r['full_name']}"
+        color = "#f59e0b" if leave_type == 'VACATION' else "#ef4444"
+        events.append({
+            "id": f"HR-{r['id']}", 
+            "title": title,
+            "type": "VACATION" if leave_type == 'VACATION' else "ABSENCE",
+            "start": str(r["date_from"]) + "T00:00:00",
+            "end": str(r["date_to"]) + "T23:59:59",
+            "all_day": True,
+            "priority": "NORMAL",
+            "color_hex": color,
+            "description": r["note"] or "",
+            "employee_id": r["employee_id"],
+            "is_hr": True
+        })
+    # ----------------------------------------
 
     return jsonify(events)
 
@@ -2591,35 +2620,38 @@ def api_calendar_events_list():
 @app.route('/api/calendar/events', methods=['POST'])
 @login_required(role='kancelaria')
 def api_calendar_event_create_or_update():
-    """
-    Vytvorenie / úprava udalosti z frontendu.
-
-    Očakávaný JSON payload (calendar.js):
-
-    {
-      "id": 123,                      # voliteľné, pri editácii
-      "title": "Skuska kalendara",
-      "type": "TENDER",               # MEETING / SERVICE / VACATION / ...
-      "start_at": "2025-11-22T09:00",
-      "end_at":   "2025-11-22T10:00",
-      "all_day": false,
-      "priority": "HIGH",             # LOW / NORMAL / HIGH / CRITICAL
-      "location": "...",
-      "description": "...",
-      "status": "OPEN"|"DONE"|"CANCELLED" (voliteľné),
-      "reminders": [
-        {
-          "channel": "EMAIL"|"SMS",
-          "minutes_before": 60,
-          "contact_id": 1,
-          "target_email": "x@y.z",
-          "target_phone": "+421..."
-        },
-        ...
-      ]
-    }
-    """
     data = request.get_json(force=True) or {}
+    
+    raw_id = data.get('id')
+    ev_type = (data.get('type') or "MEETING").strip().upper()
+    status = (data.get('status') or EVENT_STATUS_OPEN).strip().upper()
+
+    # --- PRIDANÉ: Spracovanie uloženia do HR modulu ---
+    import hr_handler
+    if ev_type in ("VACATION", "ABSENCE") or (isinstance(raw_id, str) and str(raw_id).startswith("HR-")):
+        hr_id = int(str(raw_id).replace("HR-", "")) if raw_id and str(raw_id).startswith("HR-") else None
+        
+        if status == "CANCELLED" and hr_id:
+            hr_handler.delete_leave({"id": hr_id})
+            return jsonify({"message": "Dovolenka zrušená."})
+            
+        emp_id = data.get("employee_id")
+        if not emp_id:
+            return jsonify({"error": "Pre dovolenku musíte vybrať zamestnanca!"}), 400
+            
+        leave_data = {
+            "id": hr_id,
+            "employee_id": emp_id,
+            "date_from": data.get("start_date") or data.get("start_at")[:10],
+            "date_to": data.get("end_date") or data.get("end_at")[:10],
+            "leave_type": "VACATION" if ev_type == "VACATION" else "OTHER",
+            "full_day": True,
+            "note": data.get("description", "")
+        }
+        res = hr_handler.save_leave(leave_data)
+        if "error" in res: return jsonify(res), 400
+        return jsonify({"message": "Neprítomnosť uložená v HR.", "id": f"HR-{res.get('id')}"})
+    # ----------------------------------------------------
 
     title = (data.get('title') or '').strip()
     if not title:
@@ -2638,16 +2670,13 @@ def api_calendar_event_create_or_update():
     except Exception:
         return jsonify({"error": "Neplatný formát dátumu."}), 400
 
-    ev_type   = (data.get('type') or "MEETING").strip().upper()
     priority  = (data.get('priority') or "NORMAL").strip().upper()
     location  = (data.get('location') or '').strip() or None
     desc      = (data.get('description') or '').strip() or None
     all_day   = 1 if data.get('all_day') else 0
-    status    = (data.get('status') or EVENT_STATUS_OPEN).strip().upper()
     if status not in (EVENT_STATUS_OPEN, EVENT_STATUS_DONE, EVENT_STATUS_CANCELLED):
         status = EVENT_STATUS_OPEN
 
-    raw_id = data.get('id')
     event_id = None
     if raw_id not in (None, "", 0, "0"):
         try:
@@ -2657,7 +2686,6 @@ def api_calendar_event_create_or_update():
 
     # INSERT alebo UPDATE
     if event_id is None:
-        # nový záznam
         db_connector.execute_query(
             """
             INSERT INTO calendar_events
@@ -2675,235 +2703,108 @@ def api_calendar_event_create_or_update():
         row = db_connector.execute_query("SELECT LAST_INSERT_ID() AS id", fetch='one') or {}
         event_id = int(row.get('id') or 0)
     else:
-        # update existujúcej udalosti
         db_connector.execute_query(
             """
             UPDATE calendar_events
-               SET title=%s,
-                   type=%s,
-                   start_at=%s,
-                   end_at=%s,
-                   all_day=%s,
-                   priority=%s,
-                   location=%s,
-                   description=%s,
-                   status=%s,
-                   updated_at=NOW()
+               SET title=%s, type=%s, start_at=%s, end_at=%s, all_day=%s,
+                   priority=%s, location=%s, description=%s, status=%s, updated_at=NOW()
              WHERE id=%s
             """,
-            (
-                title, ev_type, start_dt, end_dt, all_day, priority,
-                location, desc, status, event_id
-            ),
+            (title, ev_type, start_dt, end_dt, all_day, priority, location, desc, status, event_id),
             fetch=None
         )
-
-        # pri update môžeš, ak chceš, zmazať staré notifikácie:
         db_connector.execute_query(
             "DELETE FROM calendar_event_notifications WHERE event_id=%s",
             (event_id,), fetch=None
         )
 
-       # Reminders -> naplánovanie do calendar_event_notifications
-
-    # 1) Backward kompatibilita – ak backend dostane pole "reminders"
-    #    v pôvodnom formáte, použijeme ho tak ako doteraz.
+    # REMINDERS LOGIKA PONECHANÁ:
     reminders = data.get("reminders")
-
-    # 2) Jednoduchý režim z calendar.js:
-    #    notify_before + notify_channel + notify_target
     if not reminders:
         reminders = []
-        try:
-            notify_before = int(data.get("notify_before") or 0)
-        except Exception:
-            notify_before = 0
-
+        try: notify_before = int(data.get("notify_before") or 0)
+        except: notify_before = 0
         notify_channel = (data.get("notify_channel") or "").strip().upper()
         notify_target = (data.get("notify_target") or "").strip().upper() or "CREATOR"
 
         if notify_before > 0 and notify_channel in ("EMAIL", "SMS", "BOTH"):
-            # kontaktná osoba z formulára (calendar_contacts.id)
             raw_contact_id = data.get("contact_id")
-            contact_id = None
-            if raw_contact_id not in (None, "", 0, "0"):
-                try:
-                    contact_id = int(raw_contact_id)
-                except Exception:
-                    contact_id = None
-
-            # tvorca udalosti – z internal_users
+            contact_id = int(raw_contact_id) if raw_contact_id not in (None, "", 0, "0") else None
+            
             creator_email = None
-            user = session.get("user") or {}
-            creator_id = user.get("id")
+            creator_id = session.get("user", {}).get("id")
             if creator_id:
-                try:
-                    row = db_connector.execute_query(
-                        "SELECT email FROM internal_users WHERE id=%s",
-                        (creator_id,),
-                        fetch="one",
-                    ) or {}
-                    creator_email = (row.get("email") or "").strip() or None
-                except Exception:
-                    creator_email = None
+                row = db_connector.execute_query("SELECT email FROM internal_users WHERE id=%s", (creator_id,), fetch="one") or {}
+                creator_email = (row.get("email") or "").strip() or None
 
             recipients = []
-
-            if notify_target == "CONTACT":
-                # pošleme notifikáciu len kontaktnej osobe
-                if contact_id:
-                    recipients.append(
-                        {
-                            "contact_id": contact_id,
-                            "target_email": None,
-                            "target_phone": None,
-                        }
-                    )
-
-            elif notify_target == "CREATOR":
-                # pošleme notifikáciu tvorcovi udalosti (email z internal_users)
-                if creator_email:
-                    recipients.append(
-                        {
-                            "contact_id": None,
-                            "target_email": creator_email,
-                            "target_phone": None,
-                        }
-                    )
-
+            if notify_target == "CONTACT" and contact_id:
+                recipients.append({"contact_id": contact_id, "target_email": None, "target_phone": None})
+            elif notify_target == "CREATOR" and creator_email:
+                recipients.append({"contact_id": None, "target_email": creator_email, "target_phone": None})
             elif notify_target == "ALL_ATTENDEES":
-                # jednoduchá verzia – tvorca + kontaktná osoba
-                if creator_email:
-                    recipients.append(
-                        {
-                            "contact_id": None,
-                            "target_email": creator_email,
-                            "target_phone": None,
-                        }
-                    )
-                if contact_id:
-                    recipients.append(
-                        {
-                            "contact_id": contact_id,
-                            "target_email": None,
-                            "target_phone": None,
-                        }
-                    )
-
+                if creator_email: recipients.append({"contact_id": None, "target_email": creator_email, "target_phone": None})
+                if contact_id: recipients.append({"contact_id": contact_id, "target_email": None, "target_phone": None})
             else:
-                # fallback – notifikácia tvorcovi
-                if creator_email:
-                    recipients.append(
-                        {
-                            "contact_id": None,
-                            "target_email": creator_email,
-                            "target_phone": None,
-                        }
-                    )
+                if creator_email: recipients.append({"contact_id": None, "target_email": creator_email, "target_phone": None})
 
-            # mapovanie kanálov – EMAIL / SMS / BOTH
-            if notify_channel == "BOTH":
-                channels = ["EMAIL", "SMS"]
-            else:
-                channels = [notify_channel]
-
-            # z jednej jednoduchej voľby v UI spravíme X konkrétnych notifikácií
+            channels = ["EMAIL", "SMS"] if notify_channel == "BOTH" else [notify_channel]
             for ch in channels:
                 for rcpt in recipients:
-                    reminders.append(
-                        {
-                            "channel": ch,
-                            "minutes_before": notify_before,
-                            "contact_id": rcpt.get("contact_id"),
-                            "target_email": rcpt.get("target_email"),
-                            "target_phone": rcpt.get("target_phone"),
-                        }
-                    )
+                    reminders.append({
+                        "channel": ch, "minutes_before": notify_before,
+                        "contact_id": rcpt.get("contact_id"), "target_email": rcpt.get("target_email"),
+                        "target_phone": rcpt.get("target_phone"),
+                    })
 
-    # 3) finálne uloženie do calendar_event_notifications
-    reminders = reminders or []
-    for r in reminders:
+    for r in (reminders or []):
         try:
             channel = (r.get("channel") or "EMAIL").strip().upper()
-            if channel not in ("EMAIL", "SMS"):
-                continue
-
-            minutes_before = int(r.get("minutes_before") or 0)
-            if minutes_before < 0:
-                minutes_before = 0
-
-            contact_id = r.get("contact_id")
-            if contact_id in ("", None, 0, "0"):
-                contact_id = None
-
-            target_email = (r.get("target_email") or "").strip() or None
-            target_phone = (r.get("target_phone") or "").strip() or None
-
+            if channel not in ("EMAIL", "SMS"): continue
+            minutes_before = max(int(r.get("minutes_before") or 0), 0)
+            contact_id = r.get("contact_id") if r.get("contact_id") not in ("", None, 0, "0") else None
             planned_at = start_dt - timedelta(minutes=minutes_before)
 
             db_connector.execute_query(
                 """
                 INSERT INTO calendar_event_notifications(
-                    event_id,
-                    event_title, event_type,
-                    event_start, event_end,
-                    channel, contact_id,
-                    target_email, target_phone,
-                    minutes_before, planned_at,
-                    status, created_at
-                )
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'PENDING',NOW())
+                    event_id, event_title, event_type, event_start, event_end,
+                    channel, contact_id, target_email, target_phone,
+                    minutes_before, planned_at, status, created_at
+                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'PENDING',NOW())
                 """,
-                (
-                    event_id,
-                    title,
-                    ev_type,
-                    start_dt,
-                    end_dt,
-                    channel,
-                    contact_id,
-                    target_email,
-                    target_phone,
-                    minutes_before,
-                    planned_at,
-                ),
+                (event_id, title, ev_type, start_dt, end_dt, channel, contact_id, r.get("target_email"), r.get("target_phone"), minutes_before, planned_at),
                 fetch=None,
             )
         except Exception as e:
             print("[calendar] Nepodarilo sa uložiť reminder:", e)
 
-
     return jsonify({"id": event_id})
 
-@app.route('/api/calendar/events/<int:event_id>', methods=['DELETE'])
+@app.route('/api/calendar/events/<string:event_id>', methods=['DELETE'])
 @login_required(role='kancelaria')
 def api_calendar_event_delete(event_id):
-    """
-    Soft delete udalosti – nastaví is_deleted=1.
-    Historická stopa ostáva v DB, ale neukazuje sa v kalendári.
-    """
+    # --- PRIDANÉ: Zmazanie z HR ---
+    if str(event_id).startswith("HR-"):
+        import hr_handler
+        real_id = int(event_id.replace("HR-", ""))
+        hr_handler.delete_leave({"id": real_id})
+        return jsonify({"message": "Dovolenka vymazaná."})
+    # ------------------------------
+
     db_connector.execute_query(
         "UPDATE calendar_events SET is_deleted=1, updated_at=NOW() WHERE id=%s",
-        (event_id,), fetch=None
+        (int(event_id),), fetch=None
     )
-    # notifikácie k tejto udalosti môžeš tiež deaktivovať:
     db_connector.execute_query(
         "UPDATE calendar_event_notifications SET status='CANCELLED' WHERE event_id=%s AND status='PENDING'",
-        (event_id,), fetch=None
+        (int(event_id),), fetch=None
     )
     return jsonify({"message": "Udalosť vymazaná."})
+
 @app.route('/api/calendar/notifications/history', methods=['GET'])
 @login_required(role='kancelaria')
 def api_calendar_notifications_history():
-    """
-    Jednoduchý report histórie notifikácií.
-
-    Query parametre (voliteľné):
-      date_from: YYYY-MM-DD
-      date_to:   YYYY-MM-DD
-      status:    PENDING|SENT|FAILED
-      channel:   EMAIL|SMS
-    """
     date_from = request.args.get('date_from')
     date_to   = request.args.get('date_to')
     status    = request.args.get('status')
@@ -2960,14 +2861,11 @@ def api_calendar_notifications_history():
 
     rows = db_connector.execute_query(sql, tuple(params), fetch='all') or []
     return jsonify(rows)
-# niekde pri ostatných kalendárových routach
+
+
 @app.route('/api/calendar/events/status', methods=['POST'])
 @login_required(role='kancelaria')
 def api_calendar_event_status():
-    """
-    Zmena stavu udalosti (OPEN / DONE / CANCELLED).
-    Udalosť sa NEMAŽE, len sa jej upraví status.
-    """
     data = request.get_json(force=True) or {}
     raw_id = data.get('id')
     status = (data.get('status') or '').upper()
@@ -2975,20 +2873,26 @@ def api_calendar_event_status():
     if status not in ('OPEN', 'DONE', 'CANCELLED'):
         return jsonify({"error": "Neplatný stav udalosti."}), 400
 
+    # --- PRIDANÉ: Ak ide o HR event, riešime cez delete ---
+    if isinstance(raw_id, str) and raw_id.startswith("HR-"):
+        if status == "CANCELLED":
+            import hr_handler
+            real_id = int(raw_id.replace("HR-", ""))
+            hr_handler.delete_leave({"id": real_id})
+            return jsonify({"ok": True, "message": "Zrušené v HR."})
+        return jsonify({"ok": True})
+    # ------------------------------------------------------
+
     try:
         ev_id = int(raw_id)
     except (TypeError, ValueError):
         return jsonify({"error": "Neplatné ID udalosti."}), 400
 
-    for ev in CAL_EVENTS_MEMORY:
-        if int(ev.get('id')) == ev_id:
-            ev['status'] = status
-            break
-    else:
-        return jsonify({"error": "Udalosť sa nenašla."}), 404
-
+    db_connector.execute_query(
+        "UPDATE calendar_events SET status=%s, updated_at=NOW() WHERE id=%s",
+        (status, ev_id), fetch=None
+    )
     return jsonify({"ok": True})
-
 # =========================== KANCELÁRIA – PLÁNOVANIE VÝROBY =============================
 
 
