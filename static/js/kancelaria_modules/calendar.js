@@ -4,6 +4,7 @@
 // - klik na deň -> modal s udalosťami + formulár
 // - kontaktné osoby (calendar_contacts)
 // - status udalosti: OPEN / DONE / CANCELLED
+// - PREPOJENIE NA HR (Dovolenky, Absencie, Sviatky)
 // ======================================================================
 
 (function(){
@@ -225,6 +226,13 @@
     const root = document.getElementById('section-calendar');
     if (!root) return;
 
+    // --- Načítanie zamestnancov pre HR prepojenie ---
+    let ALL_EMPLOYEES = [];
+    calendarApi('/api/calendar/employees').then(res => {
+        if(res && res.employees) ALL_EMPLOYEES = res.employees;
+    });
+    // ------------------------------------------------
+
     root.innerHTML = `
       <h3>Enterprise Plánovací Kalendár</h3>
       <div class="analysis-card">
@@ -284,14 +292,32 @@
       const byDay = {};
 
       list.forEach(ev => {
-        const d = new Date(ev.start || ev.start_at);
-        if (isNaN(d)) return;
-        const key = calDateKey(d);
-        if (!byDay[key]) byDay[key] = [];
-        // doplň defaulty
-        ev.priority = (ev.priority || 'NORMAL').toString().toUpperCase();
-        ev.status   = (ev.status || 'OPEN').toString().toUpperCase();
-        byDay[key].push(ev);
+        // Podpora pre viacdňové udalosti (dovolenky/absencie)
+        const dStart = new Date(ev.start || ev.start_at);
+        const dEnd = new Date(ev.end || ev.end_at || dStart);
+        if (isNaN(dStart)) return;
+
+        // Iterujeme od start date po end date a vkladáme event do každého dňa
+        let currentD = new Date(dStart);
+        currentD.setHours(0,0,0,0);
+        dEnd.setHours(23,59,59,999);
+
+        while (currentD <= dEnd) {
+            const key = calDateKey(currentD);
+            if (!byDay[key]) byDay[key] = [];
+            
+            // Vytvoríme kópiu eventu pre daný deň
+            let evCopy = Object.assign({}, ev);
+            evCopy.priority = (evCopy.priority || 'NORMAL').toString().toUpperCase();
+            evCopy.status   = (evCopy.status || 'OPEN').toString().toUpperCase();
+            
+            // Nechceme duplikáty v jednom dni
+            if(!byDay[key].find(e => e.id === evCopy.id)) {
+                byDay[key].push(evCopy);
+            }
+            
+            currentD.setDate(currentD.getDate() + 1);
+        }
       });
 
       st.eventsByDay = byDay;
@@ -332,7 +358,11 @@
           if (pr === 'HIGH')      prioClass = 'high';
           if (pr === 'CRITICAL')  prioClass = 'critical';
           const doneClass = (stStatus === 'DONE' || stStatus === 'CANCELLED') ? 'done' : '';
-          pills += `<div class="erp-calendar-event-pill ${prioClass} ${doneClass}">${CAL_ESC(ev.title)}</div>`;
+          
+          let colorStyle = ev.color_hex ? `background-color:${ev.color_hex}; color:#fff; border:none;` : '';
+          if(ev.color_hex) prioClass = ''; // ak má custom farbu, prepíšeme classu
+
+          pills += `<div class="erp-calendar-event-pill ${prioClass} ${doneClass}" style="${colorStyle}">${CAL_ESC(ev.title)}</div>`;
         });
         if (events.length > 3){
           pills += `<div class="erp-calendar-more">+${events.length - 3} ďalších.</div>`;
@@ -386,6 +416,7 @@
             const pr = (ev.priority || '').toString().toUpperCase();
             const stStatus = (ev.status || 'OPEN').toString().toUpperCase();
             const timePart = (() => {
+              if(ev.all_day) return ' (Celý deň)';
               const d = new Date(ev.start || ev.start_at);
               if (isNaN(d)) return '';
               const hh = calPad(d.getHours());
@@ -427,7 +458,7 @@
                 <input type="hidden" name="event_id">
                 <div class="form-grid" style="grid-template-columns:repeat(2,minmax(140px,1fr));gap:.5rem;">
                   <div class="form-group" style="grid-column:1/-1;">
-                    <label>Názov udalosti</label>
+                    <label>Názov udalosti (Alebo meno, ak ide o neprítomnosť)</label>
                     <input name="title" required>
                   </div>
                   <div class="form-group">
@@ -437,9 +468,9 @@
                       <option value="TENDER">Verejné obstarávanie / Súťaž</option>
                       <option value="TASK">Úloha / Deadline</option>
                       <option value="SERVICE">Servis / STK / EK</option>
-                      <option value="VACATION">Dovolenka</option>
-                      <option value="ABSENCE">Absencia</option>
-                      <option value="HOLIDAY" style="color: #d32f2f; font-weight: bold;">Sviatok / Deň pracovného pokoja</option>
+                      <option value="VACATION" style="color: #ea580c; font-weight: bold;">Dovolenka (Prepojené s HR)</option>
+                      <option value="ABSENCE" style="color: #ea580c; font-weight: bold;">Absencia (Prepojené s HR)</option>
+                      <option value="HOLIDAY" style="color: #d32f2f; font-weight: bold;">Sviatok / Pracovný pokoj</option>
                     </select>
                   </div>
                   <div class="form-group">
@@ -467,23 +498,35 @@
                   </div>
                 </div>
 
+                <div class="form-group" id="hr-employee-group" style="display:none; background:#fff7ed; padding:10px; border-radius:6px; border:1px solid #fed7aa; margin-top:0.5rem;">
+                  <label style="color:#c2410c; font-weight:bold;"><i class="fas fa-user"></i> Zamestnanec z HR modulu</label>
+                  <select name="employee_id" id="cal-employee-select" style="border-color:#fdba74;">
+                    <option value="">-- Vyberte zamestnanca --</option>
+                  </select>
+                </div>
+
                 <div class="form-grid" style="grid-template-columns:repeat(2,minmax(140px,1fr));gap:.5rem;margin-top:.5rem;">
                   <div class="form-group">
-                    <label>Dátum</label>
-                    <input type="date" name="date" value="${dateKey}" required>
+                    <label>Dátum OD</label>
+                    <input type="date" name="start_date" value="${dateKey}" required>
                   </div>
                   <div class="form-group">
-                    <label>Začiatok</label>
+                    <label>Dátum DO</label>
+                    <input type="date" name="end_date" value="${dateKey}" required>
+                  </div>
+                  <div class="form-group">
+                    <label>Čas začiatok</label>
                     <input type="time" name="start_time" value="08:00">
                   </div>
                   <div class="form-group">
-                    <label>Koniec</label>
+                    <label>Čas koniec</label>
                     <input type="time" name="end_time" value="09:00">
                   </div>
-                  <div class="form-group">
-                    <label>Miesto / Asset</label>
-                    <input name="location" placeholder="Zasadačka / Vozidlo / Projekt">
-                  </div>
+                </div>
+
+                <div class="form-group" style="margin-top:.5rem;" id="location-group">
+                  <label>Miesto / Asset</label>
+                  <input name="location" placeholder="Zasadačka / Vozidlo / Projekt">
                 </div>
 
                 <div class="form-group" style="margin-top:.5rem;">
@@ -491,7 +534,7 @@
                   <textarea name="description" rows="3"></textarea>
                 </div>
 
-                <fieldset style="margin-top:.75rem;">
+                <fieldset id="contacts-fieldset-1" style="margin-top:.75rem;">
                   <legend>Kontakt – osoba pre notifikácie</legend>
                   <div class="form-grid" style="grid-template-columns:minmax(140px,1fr) auto;gap:.5rem;">
                     <div class="form-group">
@@ -502,13 +545,13 @@
                     </div>
                     <div class="form-group" style="align-self:end;">
                       <button type="button" class="btn btn-secondary btn-xs" id="cal-contact-manage">
-                        <i class="fas fa-user-plus"></i> Nový / Upraviť kontakt
+                        <i class="fas fa-user-plus"></i> Nový / Upraviť
                       </button>
                     </div>
                   </div>
                 </fieldset>
 
-                <fieldset style="margin-top:.75rem;">
+                <fieldset id="contacts-fieldset-2" style="margin-top:.75rem;">
                   <legend>Notifikácia (jednoduchá pripomienka)</legend>
                   <div class="form-grid" style="grid-template-columns:repeat(3,minmax(120px,1fr));gap:.5rem;">
                     <div class="form-group">
@@ -536,7 +579,7 @@
                 </fieldset>
 
                 <div class="form-group" style="margin-top:.75rem;">
-                  <button class="btn btn-success w-full"><i class="fas fa-save"></i> Uložiť udalosť</button>
+                  <button class="btn btn-success w-full"><i class="fas fa-save"></i> Uložiť</button>
                 </div>
               </form>
             </div>
@@ -550,9 +593,24 @@
             const allDayCheckbox = f.querySelector('input[name="all_day"]');
             const startTimeInput = f.querySelector('input[name="start_time"]');
             const endTimeInput   = f.querySelector('input[name="end_time"]');
+            
+            // HR / Kontakty Switche
+            const typeSelect = f.querySelector('select[name="type"]');
+            const hrGroup = document.getElementById('hr-employee-group');
+            const locGroup = document.getElementById('location-group');
+            const contactsFieldset1 = document.getElementById('contacts-fieldset-1');
+            const contactsFieldset2 = document.getElementById('contacts-fieldset-2');
+            const empSelect = document.getElementById('cal-employee-select');
+            
             const contactNameInput = document.getElementById('cal-contact-name');
             const contactIdInput   = document.getElementById('cal-contact-id');
             const contactManageBtn = document.getElementById('cal-contact-manage');
+
+            // Naplnenie roletky zo stiahnutých dát HR
+            if(empSelect) {
+                empSelect.innerHTML = '<option value="">-- Vyberte zamestnanca --</option>' + 
+                    ALL_EMPLOYEES.map(e => `<option value="${e.id}">${e.full_name} (${e.section})</option>`).join('');
+            }
 
             function syncAllDay(){
               const allDay = allDayCheckbox.checked;
@@ -560,7 +618,25 @@
               endTimeInput.disabled   = allDay;
             }
             allDayCheckbox.addEventListener('change', syncAllDay);
+
+            function toggleHrVisibility() {
+                const isHr = ['VACATION', 'ABSENCE'].includes(typeSelect.value);
+                if(hrGroup) hrGroup.style.display = isHr ? 'block' : 'none';
+                if(locGroup) locGroup.style.display = isHr ? 'none' : 'block';
+                if(contactsFieldset1) contactsFieldset1.style.display = isHr ? 'none' : 'block';
+                if(contactsFieldset2) contactsFieldset2.style.display = isHr ? 'none' : 'block';
+                
+                if(isHr) {
+                    allDayCheckbox.checked = true;
+                    syncAllDay();
+                    if (!f.title.value || f.title.value === 'Nová udalosť') f.title.value = "Dovolenka";
+                }
+            }
+            typeSelect.addEventListener('change', toggleHrVisibility);
+            
+            // Inicializácia pri otvorení modalu
             syncAllDay();
+            toggleHrVisibility();
 
             // načítaj kontakty do datalistu
             await loadContactsIntoDatalist(contactNameInput, contactIdInput);
@@ -628,25 +704,28 @@
     }
 
     async function quickUpdateStatus(ev, newStatus){
-      // backend musí vedieť UPDATE podľa id
       const payload = {
         id: ev.id,
         title: ev.title,
         type: ev.type,
-        start_at: ev.start || ev.start_at,
-        end_at: ev.end || ev.end_at,
+        start_date: ev.start ? ev.start.split('T')[0] : '',
+        end_date: ev.end ? ev.end.split('T')[0] : '',
         all_day: !!ev.all_day,
         priority: ev.priority || 'NORMAL',
         location: ev.location || '',
         description: ev.description || '',
         status: newStatus
       };
+      
+      // Ak mažeme/updatujeme HR záznam, pridáme ID zamestnanca aby backend vedel
+      if(ev.is_hr) payload.employee_id = ev.employee_id;
+      
       const res = await calendarCreateOrUpdateEvent(payload);
       if (res && res.error){
         showStatus(res.error, true);
         return;
       }
-      showStatus(`Udalosť #${ev.id} označená ako ${newStatus}.`, false);
+      showStatus(`Udalosť označená ako ${newStatus}.`, false);
       await reloadMonth();
       const summaryEl = document.getElementById('erp-cal-day-summary');
       if (summaryEl){
@@ -666,16 +745,17 @@
 
       const d = new Date(ev.start || ev.start_at);
       if (!isNaN(d)){
-        f.date.value = calDateKey(d);
+        f.start_date.value = calDateKey(d);
         const hh = calPad(d.getHours());
         const mm = calPad(d.getMinutes());
         f.start_time.value = `${hh}:${mm}`;
       } else {
-        f.date.value = dateKey;
+        f.start_date.value = dateKey;
       }
 
-      const d2 = new Date(ev.end || ev.end_at);
+      const d2 = new Date(ev.end || ev.end_at || d);
       if (!isNaN(d2)){
+        f.end_date.value = calDateKey(d2);
         const hh = calPad(d2.getHours());
         const mm = calPad(d2.getMinutes());
         f.end_time.value = `${hh}:${mm}`;
@@ -694,8 +774,18 @@
       if (document.getElementById('cal-contact-id')){
         document.getElementById('cal-contact-id').value = ev.contact_id || '';
       }
-
-      // jednoduchá notifikácia – nechávam defaulty, detailnejšie riešenie je na backend-e
+      
+      // HR Zamestnanec znovunačítanie
+      const empSelect = document.getElementById('cal-employee-select');
+      if(ev.employee_id && empSelect) {
+          setTimeout(() => { empSelect.value = ev.employee_id; }, 50);
+      }
+      
+      // Spustíme prepínač viditeľnosti (pre prepnutie formulára podľa ev.type)
+      setTimeout(() => {
+          const typeSelect = f.querySelector('select[name="type"]');
+          if (typeSelect) typeSelect.dispatchEvent(new Event('change'));
+      }, 50);
     }
 
     async function submitEventForm(f, dateKey, state){
@@ -703,19 +793,20 @@
       const raw = Object.fromEntries(fd.entries());
 
       const title = (raw.title || '').trim();
-      if (!title){
+      if (!title && !['VACATION', 'ABSENCE'].includes(raw.type)){
         showStatus('Názov udalosti je povinný.', true);
         return;
       }
 
-      const date = raw.date || dateKey;
+      const start_date = raw.start_date || dateKey;
+      const end_date = raw.end_date || start_date;
       const allDay = raw.all_day === 'on';
 
-      let startStr = date + 'T' + (raw.start_time || '08:00');
-      let endStr   = date + 'T' + (raw.end_time   || '09:00');
+      let startStr = start_date + 'T' + (raw.start_time || '08:00');
+      let endStr   = end_date + 'T' + (raw.end_time   || '09:00');
       if (allDay){
-        startStr = date + 'T00:00';
-        endStr   = date + 'T23:59';
+        startStr = start_date + 'T00:00';
+        endStr   = end_date + 'T23:59';
       }
 
       const payload = {
@@ -725,13 +816,15 @@
         priority: raw.priority || 'NORMAL',
         status: (raw.status || 'OPEN').toUpperCase(),
         all_day: allDay,
+        start_date: start_date,  // Dôležité pre HR
+        end_date: end_date,      // Dôležité pre HR
         start_at: startStr,
         end_at: endStr,
+        employee_id: raw.employee_id || null, // Dôležité pre HR
         location: raw.location || '',
         description: raw.description || '',
         contact_id: raw.contact_id || null,
         contact_name: raw.contact_name || '',
-        // jednoduchá pripomienka – nechávame backend-u na spracovanie
         notify_before: raw.notify_before ? Number(raw.notify_before) : null,
         notify_channel: raw.notify_channel || '',
         notify_target: raw.notify_target || ''
@@ -743,7 +836,7 @@
         return;
       }
 
-      showStatus('Udalosť uložená.', false);
+      showStatus('Uložené.', false);
       document.getElementById('modal-container').style.display = 'none';
       await reloadMonth();
     }
