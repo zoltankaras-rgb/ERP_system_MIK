@@ -439,7 +439,9 @@
                       <option value="SERVICE">Servis / STK / EK</option>
                       <option value="VACATION">Dovolenka</option>
                       <option value="ABSENCE">Absencia</option>
+                      <option value="HOLIDAY" style="color: #d32f2f; font-weight: bold;">Sviatok / Deň pracovného pokoja</option>
                     </select>
+                  </div>>
                   </div>
                   <div class="form-group">
                     <label>Priorita</label>
