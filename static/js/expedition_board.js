@@ -8,25 +8,11 @@ const MAX_KARIET_NA_OBRAZOVKU = 8;
 
 function aktualizujCas() {
     const teraz = new Date();
-    
-    const casString = teraz.toLocaleTimeString('sk-SK', { 
-        timeZone: 'Europe/Bratislava', 
-        hour12: false 
-    });
+    const casString = teraz.toLocaleTimeString('sk-SK', { timeZone: 'Europe/Bratislava', hour12: false });
     document.getElementById('aktualny-cas').textContent = casString;
-
-    const hodinaFormat = new Intl.DateTimeFormat('sk-SK', {
-        timeZone: 'Europe/Bratislava',
-        hour: 'numeric',
-        hour12: false
-    });
-    const hodina = parseInt(hodinaFormat.format(teraz), 10);
-
-    if (hodina >= 16 || hodina < 6) {
-        document.body.classList.add('dark-mode');
-    } else {
-        document.body.classList.remove('dark-mode');
-    }
+    const hodina = parseInt(new Intl.DateTimeFormat('sk-SK', { timeZone: 'Europe/Bratislava', hour: 'numeric', hour12: false }).format(teraz), 10);
+    if (hodina >= 16 || hodina < 6) { document.body.classList.add('dark-mode'); } 
+    else { document.body.classList.remove('dark-mode'); }
 }
 
 function nacitajPoznamkyNaTabulu() {
@@ -61,48 +47,55 @@ function nacitajPoznamkyNaTabulu() {
             poznamky.forEach(obj => {
                 const trasa = obj.trasa_nazov;
                 if (!skupinyTrasy.has(trasa)) skupinyTrasy.set(trasa, { vsetky: [], pending: [] });
-                
                 skupinyTrasy.get(trasa).vsetky.push(obj);
-                // Iba nehotove sa ukazu na tabuli
                 if (obj.stav !== 'Hotová' && obj.stav !== 'Expedovaná') {
                     skupinyTrasy.get(trasa).pending.push(obj);
                 }
             });
 
-            vsetkyStrany = [];
+            let noveStrany = [];
             skupinyTrasy.forEach((dataTrasy, trasaNazov) => {
                 const pocetCelkom = dataTrasy.vsetky.filter(k => k.ma_objednavku === 1).length;
                 const pocetHotovych = dataTrasy.vsetky.filter(k => k.ma_objednavku === 1 && (k.stav === 'Hotová' || k.stav === 'Expedovaná')).length;
-                
                 const zoznamKariet = dataTrasy.pending;
                 
                 if (zoznamKariet.length === 0) {
-                    // Trasa je uplne hotova, ukazeme iba pochvalu
-                    vsetkyStrany.push({
-                        trasa: trasaNazov,
-                        skoreObjednavok: pocetCelkom,
-                        hotovychObjednavok: pocetHotovych,
-                        cast: 1,
-                        celkovoCasti: 1,
-                        kartyNaZobrazenie: []
+                    noveStrany.push({
+                        trasa: trasaNazov, skoreObjednavok: pocetCelkom, hotovychObjednavok: pocetHotovych,
+                        cast: 1, celkovoCasti: 1, kartyNaZobrazenie: [], jeMrazeneSumar: false
                     });
                 } else {
                     const celkovoCasti = Math.ceil(zoznamKariet.length / MAX_KARIET_NA_OBRAZOVKU);
                     for (let i = 0; i < zoznamKariet.length; i += MAX_KARIET_NA_OBRAZOVKU) {
-                        vsetkyStrany.push({
-                            trasa: trasaNazov,
-                            skoreObjednavok: pocetCelkom,
-                            hotovychObjednavok: pocetHotovych,
-                            cast: Math.floor(i / MAX_KARIET_NA_OBRAZOVKU) + 1,
-                            celkovoCasti: celkovoCasti,
-                            kartyNaZobrazenie: zoznamKariet.slice(i, i + MAX_KARIET_NA_OBRAZOVKU)
+                        noveStrany.push({
+                            trasa: trasaNazov, skoreObjednavok: pocetCelkom, hotovychObjednavok: pocetHotovych,
+                            cast: Math.floor(i / MAX_KARIET_NA_OBRAZOVKU) + 1, celkovoCasti: celkovoCasti,
+                            kartyNaZobrazenie: zoznamKariet.slice(i, i + MAX_KARIET_NA_OBRAZOVKU), jeMrazeneSumar: false
                         });
                     }
                 }
             });
 
-            if (aktualnaStranaIndex >= vsetkyStrany.length) aktualnaStranaIndex = 0;
+            // --- NOVÉ: PRIDÁME SUMÁR MRAZENÉHO TOVARU NA ZÁVER ROTÁCIE ---
+            const mrazeneKarty = poznamky.filter(obj => obj.mrazene_polozky && obj.mrazene_polozky.trim() !== '');
+            if (mrazeneKarty.length > 0) {
+                const celkovoCastiMrazene = Math.ceil(mrazeneKarty.length / MAX_KARIET_NA_OBRAZOVKU);
+                for (let i = 0; i < mrazeneKarty.length; i += MAX_KARIET_NA_OBRAZOVKU) {
+                    noveStrany.push({
+                        trasa: '❄️ SUMÁR: MRAZENÝ TOVAR',
+                        skoreObjednavok: mrazeneKarty.length,
+                        hotovychObjednavok: 0,
+                        cast: Math.floor(i / MAX_KARIET_NA_OBRAZOVKU) + 1,
+                        celkovoCasti: celkovoCastiMrazene,
+                        kartyNaZobrazenie: mrazeneKarty.slice(i, i + MAX_KARIET_NA_OBRAZOVKU),
+                        jeMrazeneSumar: true
+                    });
+                }
+            }
 
+            vsetkyStrany = noveStrany;
+
+            if (aktualnaStranaIndex >= vsetkyStrany.length) aktualnaStranaIndex = 0;
             vykresliStranu();
 
             if (vsetkyStrany.length > 1) {
@@ -131,10 +124,15 @@ function vykresliStranu() {
         castInfo = ` <span style="font-size: 0.6em; color: #6c757d; font-weight: 600; margin-left: 10px;">(ČASŤ ${stranaData.cast}/${stranaData.celkovoCasti})</span>`;
     }
     
-    let scoreBadge = `<span class="route-score">
-        <i class="fas fa-boxes"></i> SPOLU: ${stranaData.skoreObjednavok} 
-        <span class="hotove-text">| <i class="fas fa-check-circle"></i> HOTOVÉ: ${stranaData.hotovychObjednavok}</span>
-    </span>`;
+    let scoreBadge = '';
+    if (stranaData.jeMrazeneSumar) {
+         scoreBadge = `<span class="route-score" style="color: #0284c7; border: 1px solid #0284c7;"><i class="fas fa-snowflake"></i> MRAZÁK: ${stranaData.skoreObjednavok} PREVÁDZOK</span>`;
+    } else {
+         scoreBadge = `<span class="route-score">
+            <i class="fas fa-boxes"></i> SPOLU: ${stranaData.skoreObjednavok} 
+            <span class="hotove-text">| <i class="fas fa-check-circle"></i> HOTOVÉ: ${stranaData.hotovychObjednavok}</span>
+        </span>`;
+    }
     
     hlavnyNadpis.innerHTML = `<i class="fas fa-truck-fast"></i> ${stranaData.trasa} ${scoreBadge} ${castInfo}`;
 
@@ -151,10 +149,28 @@ function vykresliStranu() {
         let html = `<div class="customers-grid">`;
 
         stranaData.kartyNaZobrazenie.forEach(obj => {
-            const maPoznamku = obj.trvala_poznamka || obj.poznamka_objednavky || obj.mrazene_polozky;
-            let cssClass = maPoznamku ? 'has-notes' : 'has-order';
+            let cssClass = '';
+            let poznamkyHtml = '';
+            let badge = '';
 
-            const badge = `<span class="status-badge badge-order"><i class="fas fa-box"></i> Objednané</span>`;
+            // Dizajn pre špeciálnu Sumárnu stranu
+            if (stranaData.jeMrazeneSumar) {
+                cssClass = 'mrazene-sumar-karta';
+                badge = `<span class="status-badge" style="background:#e0f2fe; color:#0284c7; border: 1px solid #bae6fd;"><i class="fas fa-snowflake"></i> Chystať z mrazáku</span>`;
+                poznamkyHtml = `<div class="p-riadok mrazena-poznamka"><i class="fas fa-snowflake" style="font-size: 1.5rem; margin-top: 5px;"></i><div style="font-size: 1.6rem;"><strong>MRAZENÉ:</strong> ${obj.mrazene_polozky}</div></div>`;
+            } 
+            // Dizajn pre klasické strany
+            else {
+                const maPoznamku = obj.trvala_poznamka || obj.poznamka_objednavky || obj.mrazene_polozky;
+                cssClass = maPoznamku ? 'has-notes' : 'has-order';
+                badge = `<span class="status-badge badge-order"><i class="fas fa-box"></i> Objednané</span>`;
+
+                if (maPoznamku) {
+                    if (obj.trvala_poznamka) poznamkyHtml += `<div class="p-riadok stala-poznamka"><i class="fas fa-exclamation-circle"></i><div><strong>VŽDY:</strong> ${obj.trvala_poznamka}</div></div>`;
+                    if (obj.poznamka_objednavky) poznamkyHtml += `<div class="p-riadok dnesna-poznamka"><i class="fas fa-info-circle"></i><div><strong>DOPLNENIE:</strong> ${obj.poznamka_objednavky}</div></div>`;
+                    if (obj.mrazene_polozky) poznamkyHtml += `<div class="p-riadok mrazena-poznamka"><i class="fas fa-snowflake"></i><div><strong>MRAZENÉ:</strong> ${obj.mrazene_polozky}</div></div>`;
+                }
+            }
 
             let vahaIkonka = '🧺';
             if (obj.vaha_kategoria === 'velka') vahaIkonka = '🚛';
@@ -162,12 +178,6 @@ function vykresliStranu() {
             
             let vahaHtml = `<span class="vaha-badge">${vahaIkonka} ${Math.round(obj.vaha_kg)} kg</span>`;
 
-            let poznamkyHtml = '';
-            if (maPoznamku) {
-                if (obj.trvala_poznamka) poznamkyHtml += `<div class="p-riadok stala-poznamka"><i class="fas fa-exclamation-circle"></i><div><strong>VŽDY:</strong> ${obj.trvala_poznamka}</div></div>`;
-                if (obj.poznamka_objednavky) poznamkyHtml += `<div class="p-riadok dnesna-poznamka"><i class="fas fa-info-circle"></i><div><strong>DOPLNENIE:</strong> ${obj.poznamka_objednavky}</div></div>`;
-                if (obj.mrazene_polozky) poznamkyHtml += `<div class="p-riadok mrazena-poznamka"><i class="fas fa-snowflake"></i><div><strong>MRAZENÉ:</strong> ${obj.mrazene_polozky}</div></div>`;
-            }
             let nazovFirmy = obj.zakaznik;
             if (obj.cislo_prevadzky && obj.cislo_prevadzky.trim() !== '') {
                  if (!nazovFirmy.includes(`[${obj.cislo_prevadzky}]`)) {
