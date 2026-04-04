@@ -127,12 +127,14 @@ def is_holiday(check_date):
     Overí v databáze kalendára, či je na daný deň naplánovaný sviatok (HOLIDAY).
     """
     date_str = check_date.strftime('%Y-%m-%d')
+    
+    # OPRAVA: Zmenené 'event_type' na 'type'
     sql = """
         SELECT id FROM calendar_events 
-        WHERE event_type = 'HOLIDAY' 
+        WHERE type = 'HOLIDAY' 
           AND DATE(start_at) <= %s 
           AND (DATE(end_at) >= %s OR end_at IS NULL)
           AND is_cancelled = 0
     """
     row = db_connector.execute_query(sql, (date_str, date_str), fetch='one')
-    return bool(row) # Vráti True ak nájde sviatok, inak False
+    return bool(row)
