@@ -128,13 +128,14 @@ def is_holiday(check_date):
     """
     date_str = check_date.strftime('%Y-%m-%d')
     
-    # OPRAVA: Zmenené 'event_type' na 'type'
+    # Používame správne stĺpce z vašej databázy: type, is_deleted a status
     sql = """
         SELECT id FROM calendar_events 
         WHERE type = 'HOLIDAY' 
           AND DATE(start_at) <= %s 
           AND (DATE(end_at) >= %s OR end_at IS NULL)
-          AND is_cancelled = 0
+          AND is_deleted = 0
+          AND status != 'CANCELLED'
     """
     row = db_connector.execute_query(sql, (date_str, date_str), fetch='one')
     return bool(row)
