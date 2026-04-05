@@ -1647,12 +1647,15 @@ def build_order_pdf_payload_admin(order_id: int, req_type: str = None) -> dict:
         # Tu sa deje kúzlo: Zistíme pôvodné aj dodané množstvo
         ordered_qty = float(r.get("mnozstvo") or 0.0)
         delivered_qty_raw = r.get("dodane_mnozstvo")
-        delivered_qty = float(delivered_qty_raw) if delivered_qty_raw is not None else ordered_qty
         
-        # Ak klikol na "Vypracovaná", použije sa dodané množstvo (reálna váha). 
-        # Inak sa natvrdo použije pôvodná objednávka zákazníka.
+        # Ak tlačíme "Návrh vypracovanej objednávky", chceme vidieť tvrdú realitu z terminálu
         if req_type == "finished":
-            qty = delivered_qty
+            # Ak terminál zapísal váhu (aj nulu!), použije sa. Ak tam terminál ešte nebol (je to None), vezme sa objednané.
+            if delivered_qty_raw is not None:
+                qty = float(delivered_qty_raw)
+            else:
+                qty = ordered_qty
+        # Ak tlačíme originál "Objednávka", vždy a za každých okolností berieme pôvodné naklikané množstvo!
         else:
             qty = ordered_qty
 
