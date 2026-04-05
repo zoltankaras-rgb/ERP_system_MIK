@@ -10,7 +10,7 @@
 # ===========================================
 
 from __future__ import annotations
-import app
+from app import app
 from vezg_scraper import fetch_vezg_prices
 import argparse
 import logging
