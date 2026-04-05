@@ -15,6 +15,7 @@ from vezg_scraper import fetch_vezg_prices
 import argparse
 import logging
 import os
+import functools
 from pathlib import Path
 from typing import List, Optional
 
@@ -60,6 +61,33 @@ def _setup_logging(verbose: bool) -> None:
         format="%(asctime)s %(levelname)s [scheduler] %(message)s",
     )
     log.info("Timezone = %s", TZ)
+
+
+# =================================================================
+# UNIVERZÁLNY OBAL PRE ÚLOHY (OŽIVENIE DB A FLASK KONTEXT)
+# =================================================================
+def s_db_kontextom(func):
+    """
+    Univerzálny obaľovač (wrapper) pre všetky úlohy v scheduleri.
+    Zabezpečí Flask kontext a 'oživí' pripojenie k databáze pred každým spustením úlohy.
+    Predchádza chybe 'MySQL server has gone away'.
+    """
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        # 1. Vytvorí čistý Flask kontext
+        with app.app_context():
+            # 2. Otestuje a oživí spojenie z Poolu
+            try:
+                conn = db_connector.get_connection()
+                if hasattr(conn, 'ping'):
+                    conn.ping(reconnect=True)
+                conn.close()
+            except Exception as e:
+                log.warning(f"Oživovanie DB spojenia pre {func.__name__} zlyhalo: {e}")
+            
+            # 3. Spustí samotnú naplánovanú úlohu
+            return func(*args, **kwargs)
+    return wrapper
 
 
 def _add_event_listeners(sched: BlockingScheduler) -> None:
@@ -154,7 +182,7 @@ def _schedule_builtin_jobs(sched: BlockingScheduler) -> None:
     email_to = os.getenv("LOW_STOCK_EMAIL", "").strip()
     if email_to:
         sched.add_job(
-            uloha_kontrola_skladu,
+            s_db_kontextom(uloha_kontrola_skladu), # <--- PRIDANÝ WRAPPER
             CronTrigger(hour=14, minute=0, timezone=TZ),
             args=[email_to],
             id=low_stock_job_id,
@@ -170,7 +198,7 @@ def _schedule_builtin_jobs(sched: BlockingScheduler) -> None:
 
     # 2) Enterprise kalendár – kontrola notifikácií každú minútu
     sched.add_job(
-        check_calendar_notifications,
+        s_db_kontextom(check_calendar_notifications), # <--- PRIDANÝ WRAPPER
         CronTrigger(minute="*", timezone=TZ),
         id="calendar_notifications",
         replace_existing=True,
@@ -180,9 +208,9 @@ def _schedule_builtin_jobs(sched: BlockingScheduler) -> None:
     )
     log.info("Calendar notifications naplánované každú minútu.")
 
-# 3) Kontrola zložky vyprobjed pre CSV z terminálu (každú minútu)
+    # 3) Kontrola zložky vyprobjed pre CSV z terminálu (každú minútu)
     sched.add_job(
-        terminal_handler.process_terminal_files,
+        s_db_kontextom(terminal_handler.process_terminal_files), # <--- PRIDANÝ WRAPPER
         CronTrigger(minute="*", timezone=TZ),
         id="terminal_sync_job",
         replace_existing=True,
@@ -197,10 +225,18 @@ def _load_db_tasks(sched: BlockingScheduler) -> None:
     """
     Načíta a zaregistruje automatizované úlohy z tabuľky automatizovane_ulohy.
     """
-    rows = db_connector.execute_query(
-        "SELECT * FROM automatizovane_ulohy WHERE is_enabled=1",
-        fetch="all",
-    ) or []
+    # Použitie čistého pripojenia pre samotné načítanie úloh (bez kontextu nebeží samotná úloha)
+    with app.app_context():
+        try:
+            conn = db_connector.get_connection()
+            if hasattr(conn, 'ping'): conn.ping(reconnect=True)
+            conn.close()
+        except: pass
+        
+        rows = db_connector.execute_query(
+            "SELECT * FROM automatizovane_ulohy WHERE is_enabled=1",
+            fetch="all",
+        ) or []
 
     desired_job_ids = set()
 
@@ -223,7 +259,7 @@ def _load_db_tasks(sched: BlockingScheduler) -> None:
         desired_job_ids.add(job_id)
 
         job = sched.add_job(
-            vykonaj_db_ulohu,
+            s_db_kontextom(vykonaj_db_ulohu), # <--- PRIDANÝ WRAPPER
             trig,
             args=[tid],
             id=job_id,
@@ -260,6 +296,7 @@ def _schedule_hygiene_autostart(sched: BlockingScheduler) -> None:
     Hygiena – auto-štart úloh podľa scheduled_time.
     Volá hygiene_handler.run_hygiene_autostart_tick každú minútu.
     """
+    @s_db_kontextom # <--- PRIDANÝ WRAPPER
     def run_job():
         try:
             result = hygiene_handler.run_hygiene_autostart_tick()
@@ -285,6 +322,7 @@ def _schedule_hygiene_autostart(sched: BlockingScheduler) -> None:
 def _schedule_b2c_birthday_bonus(sched: BlockingScheduler) -> None:
     """
     Spúšťa B2C narodeninový bonus cez HTTP endpoint raz denne.
+    TOTO NEMUSÍME OBALOVAŤ, KEĎŽE JE TO HTTP POŽIADAVKA NA VLASTNÝ ENDPOINT.
     """
     job_id = "b2c_birthday_bonus"
 
@@ -338,10 +376,12 @@ def _refresh_all(sched: BlockingScheduler) -> None:
     _schedule_hygiene_autostart(sched)
     _dump_jobs(sched)
 
+
+@s_db_kontextom # <--- PRIDANÝ WRAPPER
 def _run_vezg_scraper_job():
     """Obaľovacia funkcia pre vytvorenie Flask kontextu pred prácou s DB."""
-    with app.app_context():
-        fetch_vezg_prices()
+    fetch_vezg_prices()
+
 
 def build_scheduler() -> BlockingScheduler:
     sched = BlockingScheduler(
@@ -393,18 +433,19 @@ def _diagnose() -> None:
     log.info("ENV B2C_BDAY_SECRET=%s", "SET" if os.getenv("B2C_BDAY_SECRET") else "")
 
     try:
-        rows = db_connector.execute_query(
-            "SELECT id, cron_retazec, is_enabled FROM automatizovane_ulohy ORDER BY id",
-            fetch="all",
-        ) or []
-        log.info("DB automatizovane_ulohy rows=%d", len(rows))
-        for r in rows:
-            log.info(
-                " - id=%s enabled=%s cron='%s'",
-                r.get("id"),
-                r.get("is_enabled"),
-                (r.get("cron_retazec") or "").strip(),
-            )
+        with app.app_context(): # <-- doplnený kontext pre diagnose
+            rows = db_connector.execute_query(
+                "SELECT id, cron_retazec, is_enabled FROM automatizovane_ulohy ORDER BY id",
+                fetch="all",
+            ) or []
+            log.info("DB automatizovane_ulohy rows=%d", len(rows))
+            for r in rows:
+                log.info(
+                    " - id=%s enabled=%s cron='%s'",
+                    r.get("id"),
+                    r.get("is_enabled"),
+                    (r.get("cron_retazec") or "").strip(),
+                )
     except Exception:
         log.exception("Diagnose: DB query failed")
 
