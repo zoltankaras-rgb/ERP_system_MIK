@@ -194,6 +194,7 @@ function renderCurrentView(){
   }
 }
 
+
 // ----- SUMMARY --------------------------------------------------------------
 function renderSummaryView(calculations, dept){
   const c = document.getElementById('profitability-content');
@@ -201,6 +202,12 @@ function renderSummaryView(calculations, dept){
     c.innerHTML = '<h4>Celkový prehľad ziskovosti</h4><p class="error">Dáta sa nepodarilo načítať.</p>';
     return;
   }
+  
+  // Vytiahneme vypočítané premenné z backendu
+  const pracDni = calculations.passed_working_days || 0;
+  const dennyPriemer = calculations.daily_average_profit || 0;
+  const pracDniText = pracDni > 0 ? `(za ${pracDni} odprac. dní)` : '(zatiaľ žiadne prac. dni)';
+
   c.innerHTML = `
     <div style="display:flex; justify-content:flex-end; margin-bottom:1rem;">
       <button class="btn-info" onclick="handlePrintProfitabilityReport('summary')"><i class="fas fa-print"></i> Tlačiť Report</button>
@@ -213,13 +220,22 @@ function renderSummaryView(calculations, dept){
         <tr><td>Zisk z Výroby</td><td>${safeToFixed(calculations.production_profit)} €</td></tr>
         <tr style="font-weight:700;"><td>Celkové náklady</td>
           <td><input type="number" step="0.01" id="general_costs_summary" value="${(dept||{}).general_costs || ''}"></td></tr>
-        <tr style="font-weight:700; font-size:1.1rem; background:#fafafa;"><td>Firemný zisk</td><td>${safeToFixed(calculations.total_profit)} €</td></tr>
+        
+        <tr style="font-weight:700; font-size:1.1rem; background:#fafafa;">
+            <td>Firemný zisk celkom</td>
+            <td>${safeToFixed(calculations.total_profit)} €</td>
+        </tr>
+        
+        <tr style="font-weight:700; color:#0284c7; background:#f0f9ff; font-size:1.1rem;">
+            <td>Priemerný denný zisk <span style="font-weight:normal; font-size:0.9rem; color:#0369a1;">${pracDniText}</span></td>
+            <td>${safeToFixed(dennyPriemer)} € / deň</td>
+        </tr>
+
       </tbody></table>
     </div>
     <button class="btn-success" style="width:100%; margin-top:1rem;" onclick="saveDepartmentData()">Uložiť celkové náklady</button>
   `;
 }
-
 async function saveDepartmentData(){
   const d = {
     year: profitabilityState.year, month: profitabilityState.month,

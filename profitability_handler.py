@@ -6,7 +6,7 @@ import db_connector
 from datetime import datetime, date
 from flask import render_template, make_response
 import fleet_handler
-
+import calendar
 COLL = "utf8mb4_0900_ai_ci"
 
 
@@ -208,6 +208,27 @@ def get_profitability_data(year, month):
         - float(dept_data.get("general_costs", 0) or 0)
     )
 
+    # =========================================================================
+    # NOVÉ: Výpočet uplynutých pracovných dní a priemerného denného zisku
+    # =========================================================================
+    today = date.today()
+    passed_working_days = 0
+    
+    # Zistíme, pokiaľ máme počítať dni
+    if year == today.year and month == today.month:
+        limit_day = today.day # Aktuálny mesiac -> po dnešok
+    elif (year > today.year) or (year == today.year and month > today.month):
+        limit_day = 0         # Budúci mesiac -> 0 dní
+    else:
+        limit_day = calendar.monthrange(year, month)[1] # Minulý mesiac -> všetky dni v mesiaci
+
+    # Spočítame pracovné dni (pondelok = 0, utorok = 1 ... piatok = 4)
+    for d in range(1, limit_day + 1):
+        if date(year, month, d).weekday() < 5:
+            passed_working_days += 1
+            
+    daily_average_profit = (total_profit / passed_working_days) if passed_working_days > 0 else 0.0
+
     dept_data_out = dict(dept_data)
     dept_data_out["exp_from_prod_strict"] = strict_total
     dept_data_out["exp_from_prod_used"] = exp_from_prod_used
@@ -231,6 +252,8 @@ def get_profitability_data(year, month):
             "butchering_revaluation": butcher_revaluation,
             "production_profit": production_view_data["summary"]["total_profit"],
             "total_profit": total_profit,
+            "passed_working_days": passed_working_days,       # Pridaný počet dní
+            "daily_average_profit": daily_average_profit      # Pridaný priemer
         },
     }
 
