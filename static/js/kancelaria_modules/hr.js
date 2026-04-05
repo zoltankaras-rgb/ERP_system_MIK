@@ -1,4 +1,4 @@
-// hr.js – HR & dochádzka modul (Kancelária) - MODERN UI s interaktívnym generátorom pre mzdárku a opraveným načítavaním absencií
+// hr.js – HR & dochádzka modul (Kancelária) - MODERN UI s interaktívnym generátorom a 1x A4 Printom
 
 (function () {
   // Pomocná funkcia na prepočet desatinných hodín na "X hod Y min"
@@ -19,22 +19,13 @@
       if (val instanceof Date) return new Date(val.getFullYear(), val.getMonth(), val.getDate());
       
       if (typeof val === 'string') {
-          // Najprv skúsime YYYY-MM-DD
           const match = val.match(/(\d{4})-(\d{2})-(\d{2})/);
-          if (match) {
-              return new Date(parseInt(match[1], 10), parseInt(match[2], 10) - 1, parseInt(match[3], 10));
-          }
-          // Potom skúsime DD.MM.YYYY
+          if (match) return new Date(parseInt(match[1], 10), parseInt(match[2], 10) - 1, parseInt(match[3], 10));
           const match2 = val.match(/(\d{2})\.(\d{2})\.(\d{4})/);
-          if (match2) {
-              return new Date(parseInt(match2[3], 10), parseInt(match2[2], 10) - 1, parseInt(match2[1], 10));
-          }
+          if (match2) return new Date(parseInt(match2[3], 10), parseInt(match2[2], 10) - 1, parseInt(match2[1], 10));
       }
-      // Fallback pre iné formáty (napr. anglické stringy)
       const d = new Date(val);
-      if (!isNaN(d.getTime())) {
-          return new Date(d.getFullYear(), d.getMonth(), d.getDate());
-      }
+      if (!isNaN(d.getTime())) return new Date(d.getFullYear(), d.getMonth(), d.getDate());
       return new Date(0);
   };
 
@@ -91,9 +82,6 @@
         .catch(console.error);
     },
 
-    // ------------------------------------------------------------------
-    // VYLEPŠENÝ LAYOUT
-    // ------------------------------------------------------------------
     renderLayout() {
       this.dom.section.innerHTML = `
         <div style="background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); border-radius: 12px; padding: 25px; color: white; margin-bottom: 25px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
@@ -124,20 +112,16 @@
         </div>
 
         <div class="hr-tabs">
-
           <section id="hr-tab-employees" class="hr-tab" data-hr-panel="employees" style="display:none;">
             <div style="display:flex; flex-wrap:wrap; gap:25px;">
-                
                 <div style="flex:0 0 350px; background: #fff; padding: 25px; border-radius: 12px; border: 1px solid #e2e8f0; box-shadow: 0 1px 3px rgba(0,0,0,0.05); align-self: flex-start;">
                     <h4 style="margin-top: 0; color: #0f172a; border-bottom: 2px solid #f1f5f9; padding-bottom: 10px;">Vytvoriť / Upraviť profil</h4>
                     <form id="hr-employee-form">
                         <input type="hidden" id="hr-employee-id" />
-
                         <div class="form-group" style="margin-bottom: 15px;">
                         <label style="font-weight: 600; color: #475569;">Meno a priezvisko</label>
                         <input type="text" id="hr-employee-name" class="filter-input" style="width: 100%;" required />
                         </div>
-
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
                             <div class="form-group">
                                 <label style="font-weight: 600; color: #475569;">PIN do terminálu</label>
@@ -156,17 +140,13 @@
                                 </select>
                             </div>
                         </div>
-                        
                         <div style="display: none;"><input type="text" id="hr-employee-code" /></div>
-
                         <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 15px; margin: 20px 0;">
                             <label style="font-weight: 600; color: #0369a1; display: block; margin-bottom: 10px;"><i class="fas fa-coins"></i> Platové podmienky</label>
-                            
                             <div class="form-group" style="margin-bottom: 15px;">
                                 <label>Fixná mesačná mzda (€)</label>
                                 <input type="number" step="0.01" id="hr-employee-salary" class="filter-input" style="width: 100%; font-weight: bold; color: #166534;" />
                             </div>
-
                             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
                                 <div class="form-group">
                                     <label>Norma hodín</label>
@@ -178,19 +158,16 @@
                                 </div>
                             </div>
                         </div>
-
                         <div class="form-group" style="display: flex; align-items: center; gap: 10px; margin-bottom: 20px;">
                             <input type="checkbox" id="hr-employee-active" checked style="transform: scale(1.3); cursor: pointer;" />
                             <label for="hr-employee-active" style="margin: 0; font-weight: 600; cursor: pointer;">Zamestnanec je aktívny</label>
                         </div>
-
                         <div style="display:flex; gap:10px;">
                         <button type="submit" class="btn btn-primary" style="flex: 1; padding: 10px; font-weight: bold;">💾 Uložiť</button>
                         <button type="button" id="hr-employee-reset" class="btn btn-secondary" style="padding: 10px;"><i class="fas fa-redo"></i></button>
                         </div>
                     </form>
                 </div>
-
                 <div style="flex:1; min-width: 500px;">
                     <div style="background: #fff; border-radius: 12px; border: 1px solid #e2e8f0; box-shadow: 0 1px 3px rgba(0,0,0,0.05); overflow: hidden;">
                         <table class="table-refined" id="hr-employees-table" style="margin: 0; width: 100%;">
@@ -245,7 +222,6 @@
                   </div>
                 </div>
             </div>
-
             <div style="display:flex; flex-wrap:wrap; gap:25px;">
                 <div style="flex:0 0 320px; background: #f0fdf4; padding: 25px; border-radius: 12px; border: 1px solid #bbf7d0; box-shadow: 0 1px 3px rgba(0,0,0,0.05); align-self: flex-start;">
                     <h4 style="margin-top: 0; color: #166534; border-bottom: 2px solid #dcfce7; padding-bottom: 10px;"><i class="fas fa-clock"></i> Manuálna úprava pichnutia</h4>
@@ -282,7 +258,6 @@
                         </div>
                     </form>
                 </div>
-
                 <div style="flex:1; min-width: 500px;">
                     <div style="background: #fff; border-radius: 12px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
                         <table class="table-refined" id="hr-att-table" style="margin: 0; width: 100%;">
@@ -325,7 +300,6 @@
                   </div>
                 </div>
             </div>
-
             <div style="display:flex; flex-wrap:wrap; gap:25px;">
                 <div style="flex:0 0 320px; background: #fff7ed; padding: 25px; border-radius: 12px; border: 1px solid #fed7aa; box-shadow: 0 1px 3px rgba(0,0,0,0.05); align-self: flex-start;">
                     <h4 style="margin-top: 0; color: #9a3412; border-bottom: 2px solid #ffedd5; padding-bottom: 10px;"><i class="fas fa-plane"></i> Zadať neprítomnosť</h4>
@@ -372,7 +346,6 @@
                         </div>
                     </form>
                 </div>
-
                 <div style="flex:1; min-width: 500px;">
                     <div style="background: #fff; border-radius: 12px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
                         <table class="table-refined" id="hr-leave-table" style="margin: 0; width: 100%;">
@@ -410,10 +383,8 @@
                 </div>
                 <div id="hr-sum-period-text" style="color: #64748b; font-weight: 600;"></div>
             </div>
-
             <div id="hr-sum-totals" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin-bottom: 30px;">
             </div>
-
             <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 25px;">
                 <div style="background: #fff; border-radius: 12px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.05); align-self: flex-start;">
                     <h4 style="margin: 0; padding: 15px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; color: #0f172a;"><i class="fas fa-building" style="color:#64748b; margin-right:8px;"></i> Náklady podľa sekcie</h4>
@@ -428,7 +399,6 @@
                     <tbody></tbody>
                     </table>
                 </div>
-
                 <div style="background: #fff; border-radius: 12px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
                     <h4 style="margin: 0; padding: 15px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; color: #0f172a;"><i class="fas fa-user-tie" style="color:#64748b; margin-right:8px;"></i> Presný rozpis na zamestnanca</h4>
                     <table class="table-refined" id="hr-sum-employees-table" style="margin: 0; width: 100%;">
@@ -450,7 +420,7 @@
           <section id="hr-tab-official" class="hr-tab" data-hr-panel="official" style="display:none;">
             <div style="background: #eef2ff; padding: 25px; border-radius: 12px; border: 1px solid #c7d2fe; margin-bottom: 25px;">
                <h4 style="margin-top: 0; color: #3730a3;"><i class="fas fa-magic"></i> Šablóna Oficialnej Dochádzky (Pre Mzdárku)</h4>
-               <p style="color: #4f46e5; margin-bottom: 0;">Tento nástroj vygeneruje tabuľku dochádzky na vybraný mesiac. Automaticky si stiahne <strong>VŠETKY dovolenky, PN, priepustky aj OČR</strong>. Tabuľka je <strong>plne upraviteľná</strong> – stačí pred tlačou kliknúť do akejkoľvek bunky a prepísať ju. Spodný súčet hodín sa pri prepísaní riadka okamžite prepočíta.</p>
+               <p style="color: #4f46e5; margin-bottom: 0;">Tento nástroj vygeneruje tabuľku dochádzky na vybraný mesiac. Automaticky si stiahne <strong>VŠETKY dovolenky, PN, priepustky aj OČR</strong>. Tabuľka je <strong>plne interaktívna</strong> – kliknite do akejkoľvek bunky (čas, hodiny, poznámka) a prepíšte ju. Tlačový výstup je optimalizovaný pre <strong>1x stranu A4</strong>.</p>
                
                <div style="display:flex; gap:15px; flex-wrap:wrap; margin-top: 20px; background: #fff; padding: 15px; border-radius: 8px; border: 1px solid #e2e8f0;">
                  <div class="form-group">
@@ -491,9 +461,6 @@
       `;
     },
 
-    // ------------------------------------------------------------------
-    // TABY
-    // ------------------------------------------------------------------
     bindTabs() {
       this.dom.tabButtons = this.dom.section.querySelectorAll(".hr-tab-btn");
       this.dom.tabPanels = this.dom.section.querySelectorAll(".hr-tab");
@@ -541,9 +508,6 @@
       else if (tabName === 'summary') this.loadSummary().catch(console.error);
     },
 
-    // ------------------------------------------------------------------
-    // CACHE DOM
-    // ------------------------------------------------------------------
     cacheDom() {
       this.dom.empForm = document.getElementById("hr-employee-form");
       this.dom.empId = document.getElementById("hr-employee-id");
@@ -611,9 +575,6 @@
       this.dom.offPreview = document.getElementById("hr-off-preview");
     },
 
-    // ------------------------------------------------------------------
-    // DÁTUMY
-    // ------------------------------------------------------------------
     initDefaultDates() {
       const today = new Date();
       const first = new Date(today.getFullYear(), today.getMonth(), 1);
@@ -637,9 +598,6 @@
       }
     },
 
-    // ------------------------------------------------------------------
-    // ZAMESTNANCI
-    // ------------------------------------------------------------------
     async loadEmployees() {
       const data = await api.get("/api/kancelaria/hr/employees");
       this.employees = data.employees || [];
@@ -650,10 +608,8 @@
     renderEmployees() {
       if (!this.dom.empTableBody) return;
       this.dom.empTableBody.innerHTML = "";
-
       this.employees.forEach((emp) => {
         const tr = document.createElement("tr");
-
         const vacTotal = parseFloat(emp.vacation_days_total || 0) || 0;
         const vacUsed = parseFloat(emp.vacation_days_used || 0) || 0;
         const vacBal = vacTotal - vacUsed;
@@ -686,7 +642,6 @@
         `;
         this.dom.empTableBody.appendChild(tr);
       });
-
       this.dom.empTableBody.querySelectorAll(".hr-emp-edit").forEach(btn => btn.addEventListener("click", () => this.fillEmployeeForm(btn.dataset.id)));
       this.dom.empTableBody.querySelectorAll(".hr-emp-delete").forEach(btn => btn.addEventListener("click", () => this.deleteEmployee(btn.dataset.id)));
     },
@@ -708,7 +663,6 @@
           optAll.textContent = "-- Zobraz všetkých --";
           sel.appendChild(optAll);
         }
-
         this.employees.filter(e => e.is_active).forEach(emp => {
             const opt = document.createElement("option");
             opt.value = emp.id;
@@ -742,7 +696,6 @@
 
     bindEmployeeForm() {
       if (!this.dom.empForm) return;
-
       this.dom.empForm.addEventListener("submit", async (e) => {
         e.preventDefault();
         try {
@@ -762,7 +715,6 @@
           this.resetEmployeeForm();
         } catch (err) { alert(err.message || "Chyba pri ukladaní."); }
       });
-
       if (this.dom.empReset) {
         this.dom.empReset.addEventListener("click", () => this.resetEmployeeForm());
       }
@@ -778,12 +730,8 @@
       } catch (err) { alert(err.message || "Chyba pri mazaní."); }
     },
 
-    // ------------------------------------------------------------------
-    // DOCHÁDZKA REÁLNA
-    // ------------------------------------------------------------------
     bindAttendanceForm() {
       if (!this.dom.attForm) return;
-
       this.dom.attForm.addEventListener("submit", async (e) => {
         e.preventDefault();
         try {
@@ -877,10 +825,8 @@
             const tIn = it.time_in ? it.time_in.slice(0, 5) : '-';
             const tOut = it.time_out ? it.time_out.slice(0, 5) : '-';
             const activeSec = it.section_override || it.section || '-';
-            
             const hours = Number(it.worked_hours || 0);
             totalHours += hours;
-            
             const timeStr = hours > 0 ? formatHM(hours) : "0 hod 0 min";
             
             html += `
@@ -976,9 +922,6 @@
       } catch (err) { alert(err.message || "Chyba pri mazaní."); }
     },
 
-    // ------------------------------------------------------------------
-    // NEPRÍTOMNOSTI
-    // ------------------------------------------------------------------
     bindLeaveForm() {
       if (!this.dom.leaveForm) return;
 
@@ -1086,9 +1029,6 @@
       } catch (err) { alert(err.message || "Chyba pri mazaní."); }
     },
 
-    // ------------------------------------------------------------------
-    // SÚHRN NÁKLADOV
-    // ------------------------------------------------------------------
     bindSummary() {
       if (!this.dom.sumRefresh) return;
       this.dom.sumRefresh.addEventListener("click", () => this.loadSummary());
@@ -1197,7 +1137,6 @@
         let leaves = [];
         if (contract === "TPP") {
             try {
-                // Bezpečne pridané parametre cez URLSearchParams pre dobré kódovanie
                 const params = new URLSearchParams();
                 params.append("date_from", dateFrom);
                 params.append("date_to", dateTo);
@@ -1238,11 +1177,10 @@
             const dout = new Date(`1970-01-01T${timeOut}:00`);
             let diff = (dout - din) / 3600000;
             if (diff > 6.0) diff -= 0.5; 
-            defaultHrs = diff;
+            defaultHrs = Math.max(0, diff);
         } catch(e) {}
 
         for(let i=1; i<=lastDay; i++) {
-            // Vytvorenie presného času polnoc v lokálnej zóne pre daný deň v mesiaci
             const dObj = new Date(year, parseInt(month, 10)-1, i);
             const dTime = dObj.getTime();
             const dayOfWeek = dObj.getDay();
@@ -1254,7 +1192,6 @@
             let fWeight = "";
 
             if (contract === "TPP") {
-                // Bezpečné porovnávanie cez .getTime() a nový robustný parser
                 let activeLeave = leaves.find(l => {
                     const lf = parseDateOnly(l.date_from).getTime();
                     const lt = parseDateOnly(l.date_to).getTime();
@@ -1275,7 +1212,6 @@
                     status = "Práca"; cWork++;
                 }
             } else {
-                // Režim Brigádnik
                 if (isWeekend) {
                     bg = "background: #f8fafc;";
                     tIn = ""; tOut = ""; hrs = 0; status = "Víkend";
@@ -1286,13 +1222,12 @@
 
             if(hrs > 0) totalHours += hrs;
             
-            // Editable fields with contenteditable
             html += `
                 <tr style="${bg}">
                     <td style="border: 1px solid #e2e8f0; padding: 8px;"><strong>${String(i).padStart(2, '0')}.${month}.${year}</strong></td>
                     <td style="border: 1px solid #e2e8f0; padding: 8px; color: #64748b;">${daysStr[dayOfWeek]}</td>
-                    <td contenteditable="true" style="border: 1px solid #e2e8f0; padding: 8px; cursor:text; text-align:center;">${tIn}</td>
-                    <td contenteditable="true" style="border: 1px solid #e2e8f0; padding: 8px; cursor:text; text-align:center;">${tOut}</td>
+                    <td contenteditable="true" class="calc-time-in" style="border: 1px solid #e2e8f0; padding: 8px; cursor:text; text-align:center;">${tIn}</td>
+                    <td contenteditable="true" class="calc-time-out" style="border: 1px solid #e2e8f0; padding: 8px; cursor:text; text-align:center;">${tOut}</td>
                     <td contenteditable="true" class="calc-hour-cell" style="border: 2px solid #a5b4fc; padding: 8px; background:#fff; font-weight:bold; cursor:text; text-align:center;">${hrs > 0 ? hrs.toFixed(2) : ''}</td>
                     <td contenteditable="true" style="border: 1px solid #e2e8f0; padding: 8px; cursor:text; ${fWeight}">${status === 'Práca' || status === 'Víkend' ? '' : status}</td>
                 </tr>
@@ -1307,7 +1242,7 @@
                 <div style="background: #e0e7ff; padding: 20px; border-radius: 8px; flex: 1; min-width: 300px;">
                     <div style="color: #4f46e5; font-size: 0.9rem; font-weight:bold; text-transform:uppercase;">Mesačný fond celkom</div>
                     <strong style="color: #3730a3; font-size: 1.8rem; display:block; margin-top:5px;" id="off-total-hours">${formatHM(totalHours)}</strong>
-                    <div style="font-size: 0.85rem; color: #6366f1; margin-top: 5px;"><i class="fas fa-info-circle"></i> Súčet sa zmení, ak hore prepíšete stĺpec "Odpracované hod."</div>
+                    <div style="font-size: 0.85rem; color: #6366f1; margin-top: 5px;"><i class="fas fa-info-circle"></i> Súčet sa mení podľa hodín v tabuľke. Ak zmažete hodiny, zmizne aj čas.</div>
                 </div>
         `;
 
@@ -1336,19 +1271,62 @@
             totalHours
         };
 
-        // Zavesíme poslucháča na PREPOČÍTAVANIE tabuľky!
+        // ZAVESENIE INTELIGENTNEJ REAKTIVITY (Výpočty času vs hodín)
         previewDiv.removeEventListener('input', this._calcOffHours);
         this._calcOffHours = (e) => {
-            if(e.target.classList.contains('calc-hour-cell')) {
-                let currentTotal = 0;
-                previewDiv.querySelectorAll('.calc-hour-cell').forEach(cell => {
-                    let val = parseFloat(cell.innerText.replace(',', '.'));
-                    if(!isNaN(val) && val > 0) currentTotal += val;
-                });
-                const sumEl = document.getElementById('off-total-hours');
-                if(sumEl) sumEl.innerText = formatHM(currentTotal);
+            const target = e.target;
+            const tr = target.closest('tr');
+            if(!tr) return;
+
+            const tInCell = tr.querySelector('.calc-time-in');
+            const tOutCell = tr.querySelector('.calc-time-out');
+            const hrCell = tr.querySelector('.calc-hour-cell');
+
+            if (target.classList.contains('calc-time-in') || target.classList.contains('calc-time-out')) {
+                let tInRaw = (tInCell.innerText || "").trim();
+                let tOutRaw = (tOutCell.innerText || "").trim();
+                
+                let hrs = 0;
+                const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
+                
+                if (timeRegex.test(tInRaw) && timeRegex.test(tOutRaw)) {
+                    let tInStr = tInRaw.length === 4 ? "0" + tInRaw : tInRaw;
+                    let tOutStr = tOutRaw.length === 4 ? "0" + tOutRaw : tOutRaw;
+
+                    let din = new Date(`1970-01-01T${tInStr}:00`);
+                    let dout = new Date(`1970-01-01T${tOutStr}:00`);
+                    if (dout < din) dout.setDate(dout.getDate() + 1);
+                    
+                    let diff = (dout - din) / 3600000;
+                    if (diff > 6.0) diff -= 0.5;
+                    hrs = Math.max(0, diff);
+                }
+                
+                if (hrs > 0) {
+                    hrCell.innerText = hrs.toFixed(2);
+                } else {
+                    hrCell.innerText = '';
+                }
+            } 
+            else if (target.classList.contains('calc-hour-cell')) {
+                let valText = hrCell.innerText.replace(',', '.').trim();
+                let val = parseFloat(valText);
+                
+                if (valText === "" || isNaN(val) || val <= 0) {
+                    if (tInCell) tInCell.innerText = '';
+                    if (tOutCell) tOutCell.innerText = '';
+                }
             }
+
+            let currentTotal = 0;
+            previewDiv.querySelectorAll('.calc-hour-cell').forEach(cell => {
+                let val = parseFloat(cell.innerText.replace(',', '.'));
+                if(!isNaN(val) && val > 0) currentTotal += val;
+            });
+            const sumEl = document.getElementById('off-total-hours');
+            if(sumEl) sumEl.innerText = formatHM(currentTotal);
         };
+        
         previewDiv.addEventListener('input', this._calcOffHours);
     },
 
@@ -1356,6 +1334,7 @@
         const tableNode = this.dom.offPreview.querySelector('table');
         if (!tableNode) return;
 
+        // Vytiahneme HTML a odoberieme editable atribúty, aby bola tabuľka pekná a statická
         let cleanTableHtml = tableNode.outerHTML.replace(/contenteditable="true"/g, '');
         const totalHoursText = document.getElementById('off-total-hours').innerText;
         
@@ -1365,28 +1344,34 @@
             sumDaysHtml = `<div class="summary-days">${sumDaysDiv.innerHTML}</div>`;
         }
 
+        // --- CSS optimalizované a zúžené vyslovene na GARANCU 1 strany A4 ---
         let html = `
         <html>
         <head>
             <title>Výkaz Dochádzky - ${this.currentOfficialMeta.empName}</title>
             <style>
-                @page { size: A4 portrait; margin: 10mm; }
-                body { font-family: Arial, sans-serif; padding: 10px; margin: 0; font-size: 11px; color: #000; }
-                .header { text-align: center; margin-bottom: 10px; }
-                h2 { margin: 0; font-size: 18px; text-transform: uppercase; }
-                h3 { margin: 3px 0 0 0; font-weight: normal; font-size: 14px; color: #444; }
-                table { width: 100%; border-collapse: collapse; margin-top: 5px; }
-                th, td { border: 1px solid #333; padding: 3px 5px; text-align: center; }
-                th { background-color: #eee; font-weight: bold; }
-                td:nth-child(2), td:nth-child(6) { text-align: left; }
-                td.calc-hour-cell { font-weight: bold; font-size: 12px; }
-                .summary { margin-top: 15px; font-size: 13px; font-weight: bold; border: 2px solid #000; padding: 8px; display: inline-block; }
-                .summary-days { margin-top: 15px; font-size: 12px; border: 1px solid #000; padding: 8px; display: inline-block; background: #fafafa;}
-                .signatures { margin-top: 30px; display: flex; justify-content: space-between; }
-                .sig-box { width: 180px; border-top: 1px solid #000; text-align: center; padding-top: 5px; font-size: 11px; }
+                @page { size: A4 portrait; margin: 8mm; }
+                body { font-family: Arial, sans-serif; padding: 0; margin: 0; font-size: 10.5px; color: #000; line-height: 1.1; }
+                .header { text-align: center; margin-bottom: 5px; }
+                h2 { margin: 0; font-size: 16px; text-transform: uppercase; }
+                h3 { margin: 2px 0 0 0; font-weight: normal; font-size: 13px; color: #333; }
+                
+                /* TÝMTO PREBIJEME VŠETKY INLINE ŠTÝLY Z NÁHĽADU ABY BOLA TABUĽKA NA 1 STRANE A4 */
+                table { width: 100% !important; border-collapse: collapse !important; margin-top: 5px !important; font-size: 10.5px !important; }
+                th, td { border: 1px solid #000 !important; padding: 2px 4px !important; text-align: center !important; height: 18px !important; }
+                th { background-color: #eee !important; font-weight: bold !important; }
+                td:nth-child(2), td:nth-child(6) { text-align: left !important; }
+                td strong { font-size: 10.5px !important; }
+                
+                .weekend { background-color: #f5f5f5 !important; color: #555 !important; }
+                .summary { margin-top: 10px; font-size: 12px; font-weight: bold; border: 2px solid #000; padding: 6px; display: inline-block; }
+                .summary-days { margin-top: 10px; font-size: 11px; border: 1px solid #000; padding: 6px; display: inline-block; background: #fafafa;}
+                .signatures { margin-top: 20px; display: flex; justify-content: space-between; }
+                .sig-box { width: 180px; border-top: 1px solid #000; text-align: center; padding-top: 3px; font-size: 10px; }
+                
                 @media print { 
-                    .no-print { display: none; } 
-                    body { padding: 0; } 
+                    .no-print { display: none !important; } 
+                    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
                 }
             </style>
         </head>
