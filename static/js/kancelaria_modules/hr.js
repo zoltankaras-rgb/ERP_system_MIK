@@ -1,4 +1,4 @@
-// hr.js – HR & dochádzka modul (Kancelária) - MODERN UI s generátorom oficiálnej dochádzky a formátovaním času
+// hr.js – HR & dochádzka modul (Kancelária) - MODERN UI s interaktívnym generátorom pre mzdárku
 
 (function () {
   // Pomocná funkcia na prepočet desatinných hodín na "X hod Y min"
@@ -36,7 +36,6 @@
   const HR = {
     employees: [],
     currentAttendanceData: [],
-    currentOfficialData: [],
     currentOfficialMeta: {},
     dom: {},
 
@@ -426,10 +425,16 @@
           <section id="hr-tab-official" class="hr-tab" data-hr-panel="official" style="display:none;">
             <div style="background: #eef2ff; padding: 25px; border-radius: 12px; border: 1px solid #c7d2fe; margin-bottom: 25px;">
                <h4 style="margin-top: 0; color: #3730a3;"><i class="fas fa-magic"></i> Šablóna Oficialnej Dochádzky (Pre Mzdárku)</h4>
-               <p style="color: #4f46e5; margin-bottom: 0;">Tento nástroj vygeneruje ideálnu tabuľkovú dochádzky zamestnanca na vybraný mesiac s predvolenými príchodmi/odchodmi. 
-               Automaticky vynechá víkendy a automaticky na príslušné dni doplní riadne zapísané dovolenky/PN z karty "Neprítomnosti". Všetko funguje bez zásahu do reálnych hodín.</p>
+               <p style="color: #4f46e5; margin-bottom: 0;">Tento nástroj vygeneruje tabuľku dochádzky na vybraný mesiac. Tabuľka je <strong>plne upraviteľná</strong> – stačí pred tlačou kliknúť do akejkoľvek bunky (čas, hodiny, poznámka) a prepísať ju. Spodný súčet sa pri zmene hodín automaticky prepočíta.</p>
                
-               <div style="display:flex; gap:15px; flex-wrap:wrap; margin-top: 20px;">
+               <div style="display:flex; gap:15px; flex-wrap:wrap; margin-top: 20px; background: #fff; padding: 15px; border-radius: 8px; border: 1px solid #e2e8f0;">
+                 <div class="form-group">
+                   <label style="font-weight: bold; color: #3730a3;">Úväzok</label>
+                   <select id="hr-off-contract" class="filter-input" style="min-width:200px; font-weight: bold;">
+                     <option value="TPP">TPP (Automatické Dovolenky a PN)</option>
+                     <option value="BRIGADA">Brigádnik / Dohodár (Čistá šablóna)</option>
+                   </select>
+                 </div>
                  <div class="form-group">
                    <label style="font-weight: bold; color: #3730a3;">Zamestnanec</label>
                    <select id="hr-off-employee" class="filter-input" style="min-width:220px;"></select>
@@ -447,7 +452,7 @@
                    <input type="time" id="hr-off-time-out" class="filter-input" value="14:30" />
                  </div>
                  <div class="form-group" style="align-self: flex-end;">
-                   <button type="button" id="hr-off-generate" class="btn btn-primary" style="background: #4f46e5; border-color: #4f46e5;"><i class="fas fa-cogs"></i> Generovať pre Mzdárku</button>
+                   <button type="button" id="hr-off-generate" class="btn btn-primary" style="background: #4f46e5; border-color: #4f46e5;"><i class="fas fa-cogs"></i> Generovať Tabuľku</button>
                    <button type="button" id="hr-off-print" class="btn btn-secondary" style="margin-left:10px; display:none; background: #312e81;"><i class="fas fa-print"></i> Vytlačiť Výkaz</button>
                  </div>
                </div>
@@ -571,6 +576,7 @@
       this.dom.sumEmployeesBody = document.querySelector("#hr-sum-employees-table tbody");
 
       // OFICIALNA
+      this.dom.offContract = document.getElementById("hr-off-contract");
       this.dom.offEmployee = document.getElementById("hr-off-employee");
       this.dom.offMonth = document.getElementById("hr-off-month");
       this.dom.offTimeIn = document.getElementById("hr-off-time-in");
@@ -810,18 +816,19 @@
         <head>
             <title>Report Reálnej Dochádzky</title>
             <style>
-                body { font-family: Arial, sans-serif; padding: 20px; font-size: 12px; }
-                h2 { margin-top: 0; }
-                table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-                th, td { border: 1px solid #000; padding: 6px 8px; text-align: left; }
-                th { background-color: #f1f5f9; font-weight: bold; }
-                .note { margin-top: 20px; font-weight: bold; }
+                @page { size: A4 portrait; margin: 10mm; }
+                body { font-family: Arial, sans-serif; padding: 10px; font-size: 11px; margin: 0; color: #000;}
+                h2 { margin-top: 0; margin-bottom: 10px; font-size: 18px; }
+                table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+                th, td { border: 1px solid #000; padding: 4px 5px; text-align: left; }
+                th { background-color: #eee; font-weight: bold; text-align: center; }
+                td:nth-child(1), td:nth-child(4), td:nth-child(5), td:nth-child(6) { text-align: center; }
                 @media print { .no-print { display: none; } }
             </style>
         </head>
         <body>
             <h2>Report reálnej dochádzky (${dateFrom} - ${dateTo})</h2>
-            <button class="no-print" onclick="window.print()" style="padding: 10px 20px; font-size: 14px; margin-bottom: 20px; cursor: pointer;">🖨️ Vytlačiť report</button>
+            <button class="no-print" onclick="window.print()" style="padding: 8px 15px; margin-bottom: 15px; cursor: pointer; font-weight:bold;">🖨️ Vytlačiť report</button>
             <table>
                 <thead>
                     <tr>
@@ -849,7 +856,6 @@
             const hours = Number(it.worked_hours || 0);
             totalHours += hours;
             
-            // Naformátujeme pre tlačové výstupy
             const timeStr = hours > 0 ? formatHM(hours) : "0 hod 0 min";
             
             html += `
@@ -865,13 +871,12 @@
             `;
         });
 
-        // Sumár pre formátovaný výstup
         const totalTimeStr = formatHM(totalHours);
 
         html += `
                     <tr>
-                        <td colspan="5" style="text-align: right; font-weight: bold;">SPOLU ODPRACOVANÉ:</td>
-                        <td colspan="2" style="font-weight: bold; font-size: 1.1em; color: #166534;">${totalTimeStr}</td>
+                        <td colspan="5" style="text-align: right; font-weight: bold; padding-right:10px;">SPOLU ODPRACOVANÉ:</td>
+                        <td colspan="2" style="font-weight: bold; font-size: 1.1em; text-align: left;">${totalTimeStr}</td>
                     </tr>
                 </tbody>
             </table>
@@ -879,7 +884,7 @@
         </html>
         `;
 
-        const printWin = window.open('', '', 'width=1000,height=800');
+        const printWin = window.open('', '', 'width=900,height=800');
         printWin.document.write(html);
         printWin.document.close();
     },
@@ -898,8 +903,6 @@
         const fmtTime = (t) => t ? `<strong style="font-size:1.1rem; color:#0f172a;">${t.slice(0, 5)}</strong>` : '<span style="color:#ef4444; font-weight:bold;">Chýba</span>';
         
         const hoursVal = Number(it.worked_hours || 0);
-        
-        // Zobrazujeme cez novy inteligentný formát (X hod Y min)
         const timeStr = formatHM(hoursVal);
 
         const hBadge = hoursVal > 0 
@@ -1060,7 +1063,6 @@
 
     // ------------------------------------------------------------------
     // SÚHRN NÁKLADOV
-    // (Tu nechávame desatinné hodiny pre lepšiu kontrolu nákladov mzdárkou)
     // ------------------------------------------------------------------
     bindSummary() {
       if (!this.dom.sumRefresh) return;
@@ -1142,7 +1144,7 @@
     },
 
     // ------------------------------------------------------------------
-    // OFICIÁLNA DOCHÁDZKA (GENERÁTOR)
+    // OFICIÁLNA DOCHÁDZKA (GENERÁTOR A ÚPRAVA PRED TLAČOU)
     // ------------------------------------------------------------------
     bindOfficialTemplate() {
       if (!this.dom.offGenerateBtn) return;
@@ -1155,6 +1157,7 @@
         const monthVal = this.dom.offMonth.value;
         const timeIn = this.dom.offTimeIn.value || "06:00";
         const timeOut = this.dom.offTimeOut.value || "14:30";
+        const contract = this.dom.offContract.value || "TPP";
 
         if (!empId || !monthVal) {
             alert("Vyberte zamestnanca a mesiac.");
@@ -1167,11 +1170,13 @@
         const dateTo = `${year}-${month}-${lastDay}`;
 
         let leaves = [];
-        try {
-            const data = await api.get(`/api/kancelaria/hr/leaves?date_from=${dateFrom}&date_to=${dateTo}&employee_id=${empId}`);
-            leaves = data.items || [];
-        } catch(e) {
-            console.error("Chyba pri načítaní neprítomností:", e);
+        if (contract === "TPP") {
+            try {
+                const data = await api.get(`/api/kancelaria/hr/leaves?date_from=${dateFrom}&date_to=${dateTo}&employee_id=${empId}`);
+                leaves = data.items || [];
+            } catch(e) {
+                console.error("Chyba pri načítaní neprítomností:", e);
+            }
         }
 
         const emp = this.employees.find(e => String(e.id) === String(empId));
@@ -1179,21 +1184,22 @@
 
         let html = `
             <h3 style="margin-top:0; margin-bottom: 20px; color: #3730a3;">Oficiálny výkaz práce: <strong>${empName}</strong> (${month}/${year})</h3>
-            <table class="table-refined" style="width:100%; border-collapse: collapse; border: 1px solid #e2e8f0;">
+            <table class="table-refined" style="width:100%; border-collapse: collapse; border: 1px solid #e2e8f0; font-size: 0.95rem;">
                 <thead style="background: #f8fafc;">
                     <tr>
                         <th style="border: 1px solid #cbd5e1; padding: 10px;">Dátum</th>
                         <th style="border: 1px solid #cbd5e1; padding: 10px;">Deň v týždni</th>
                         <th style="border: 1px solid #cbd5e1; padding: 10px;">Príchod</th>
                         <th style="border: 1px solid #cbd5e1; padding: 10px;">Odchod</th>
-                        <th style="border: 1px solid #cbd5e1; padding: 10px;">Odpracované hod.</th>
-                        <th style="border: 1px solid #cbd5e1; padding: 10px;">Dôvod absencie</th>
+                        <th style="border: 1px solid #cbd5e1; padding: 10px; background: #e0e7ff; color: #3730a3;">Odpracované hod.</th>
+                        <th style="border: 1px solid #cbd5e1; padding: 10px;">Poznámka / Druh absencie</th>
                     </tr>
                 </thead>
                 <tbody>
         `;
 
         let totalHours = 0;
+        let cWork = 0, cVac = 0, cSick = 0, cDoc = 0;
         const daysStr = ["Nedeľa", "Pondelok", "Utorok", "Streda", "Štvrtok", "Piatok", "Sobota"];
         
         const parseDateOnly = (dStr) => {
@@ -1206,80 +1212,85 @@
             const din = new Date(`1970-01-01T${timeIn}:00`);
             const dout = new Date(`1970-01-01T${timeOut}:00`);
             let diff = (dout - din) / 3600000;
-            if (diff > 6.0) diff -= 0.5; // odpočítať 0.5h prestávku
+            if (diff > 6.0) diff -= 0.5; 
             defaultHrs = diff;
         } catch(e) {}
-
-        this.currentOfficialData = [];
 
         for(let i=1; i<=lastDay; i++) {
             const dObj = new Date(year, parseInt(month)-1, i);
             const dayOfWeek = dObj.getDay();
             const isWeekend = (dayOfWeek === 0 || dayOfWeek === 6);
             
-            let activeLeave = leaves.find(l => {
-                const lf = parseDateOnly(l.date_from);
-                const lt = parseDateOnly(l.date_to);
-                return dObj >= lf && dObj <= lt;
-            });
+            let status = "";
+            let tIn = timeIn, tOut = timeOut, hrs = defaultHrs; 
+            let bg = "";
+            let fWeight = "";
 
-            let status = "Práca";
-            let tIn = timeIn;
-            let tOut = timeOut;
-            let hrs = defaultHrs; 
-            
-            if (isWeekend) {
-                status = "Víkend"; 
-                tIn = ""; tOut = ""; hrs = 0;
-            } else if (activeLeave) {
-                if(activeLeave.leave_type === "VACATION") status = "Dovolenka";
-                else if(activeLeave.leave_type === "SICK") status = "PN / OČR";
-                else status = "Lekár / Priepustka";
-                
-                tIn = ""; tOut = ""; 
-                hrs = 8.0; 
+            if (contract === "TPP") {
+                let activeLeave = leaves.find(l => {
+                    const lf = parseDateOnly(l.date_from);
+                    const lt = parseDateOnly(l.date_to);
+                    return dObj >= lf && dObj <= lt;
+                });
+
+                if (isWeekend) {
+                    status = "Víkend"; tIn = ""; tOut = ""; hrs = 0; bg = "background: #f1f5f9;";
+                } else if (activeLeave) {
+                    if(activeLeave.leave_type === "VACATION") { status = "Dovolenka"; cVac++; }
+                    else if(activeLeave.leave_type === "SICK") { status = "PN / OČR"; cSick++; }
+                    else { status = "Lekár / Priepustka"; cDoc++; }
+                    
+                    tIn = ""; tOut = ""; hrs = 8.0; bg = "background: #fef3c7;";
+                    fWeight = "font-weight: bold; color: #b45309;";
+                } else {
+                    status = "Práca"; cWork++;
+                }
+            } else {
+                // Režim Brigádnik - ignorujeme dovolenky, nepredpisujeme voľno cez víkendy
+                if (isWeekend) bg = "background: #f8fafc;";
+                status = ""; // Brigádnik nepotrebuje mať vypísané "Práca" všade
             }
 
             if(hrs > 0) totalHours += hrs;
-
-            this.currentOfficialData.push({
-                date: `${String(i).padStart(2, '0')}.${month}.${year}`,
-                dayName: daysStr[dayOfWeek],
-                tIn: tIn,
-                tOut: tOut,
-                hours: hrs,
-                status: status,
-                isWeekend: isWeekend,
-                hasLeave: !!activeLeave
-            });
-
-            let bg = isWeekend ? "background: #f1f5f9;" : (activeLeave ? "background: #fef3c7;" : "");
-            let fWeight = activeLeave ? "font-weight: bold; color: #b45309;" : "";
             
-            // Format time display
-            const timeFormatted = hrs > 0 ? formatHM(hrs) : '-';
-
+            // Editable fields with contenteditable
             html += `
                 <tr style="${bg}">
                     <td style="border: 1px solid #e2e8f0; padding: 8px;"><strong>${String(i).padStart(2, '0')}.${month}.${year}</strong></td>
                     <td style="border: 1px solid #e2e8f0; padding: 8px; color: #64748b;">${daysStr[dayOfWeek]}</td>
-                    <td style="border: 1px solid #e2e8f0; padding: 8px;">${tIn}</td>
-                    <td style="border: 1px solid #e2e8f0; padding: 8px;">${tOut}</td>
-                    <td style="border: 1px solid #e2e8f0; padding: 8px;"><strong>${timeFormatted}</strong></td>
-                    <td style="border: 1px solid #e2e8f0; padding: 8px; ${fWeight}">${status === 'Práca' || status === 'Víkend' ? '' : status}</td>
+                    <td contenteditable="true" style="border: 1px solid #e2e8f0; padding: 8px; cursor:text; text-align:center;">${tIn}</td>
+                    <td contenteditable="true" style="border: 1px solid #e2e8f0; padding: 8px; cursor:text; text-align:center;">${tOut}</td>
+                    <td contenteditable="true" class="calc-hour-cell" style="border: 2px solid #a5b4fc; padding: 8px; background:#fff; font-weight:bold; cursor:text; text-align:center;">${hrs > 0 ? hrs.toFixed(2) : ''}</td>
+                    <td contenteditable="true" style="border: 1px solid #e2e8f0; padding: 8px; cursor:text; ${fWeight}">${status === 'Práca' || status === 'Víkend' ? '' : status}</td>
                 </tr>
             `;
         }
 
-        const totalFormatted = formatHM(totalHours);
-
         html += `
                 </tbody>
             </table>
-            <div style="margin-top: 20px; font-size: 1.25rem; background: #e0e7ff; padding: 15px; border-radius: 8px; display: inline-block;">
-                Mesačný fond (odpracované + uznané): <strong style="color: #4f46e5;">${totalFormatted}</strong>
-            </div>
+            
+            <div style="margin-top: 20px; display: flex; gap: 20px; flex-wrap: wrap;">
+                <div style="background: #e0e7ff; padding: 20px; border-radius: 8px; flex: 1; min-width: 300px;">
+                    <div style="color: #4f46e5; font-size: 0.9rem; font-weight:bold; text-transform:uppercase;">Mesačný fond celkom</div>
+                    <strong style="color: #3730a3; font-size: 1.8rem; display:block; margin-top:5px;" id="off-total-hours">${formatHM(totalHours)}</strong>
+                    <div style="font-size: 0.85rem; color: #6366f1; margin-top: 5px;"><i class="fas fa-info-circle"></i> Súčet sa zmení, ak hore prepíšete stĺpec "Odpracované hod."</div>
+                </div>
         `;
+
+        if (contract === "TPP") {
+            html += `
+                <div id="off-summary-days" style="background: #f1f5f9; padding: 20px; border-radius: 8px; flex: 1; min-width: 300px; font-size: 1rem;">
+                    <strong style="color:#0f172a; border-bottom: 1px solid #cbd5e1; padding-bottom:5px; display:block; margin-bottom:10px;">Sumár absencií v mesiaci:</strong>
+                    Odpracované reálne dni: <strong>${cWork}</strong><br>
+                    Dovolenka (Dni): <strong>${cVac}</strong><br>
+                    Lekár / Priepustka (Dni): <strong>${cDoc}</strong><br>
+                    PN / OČR (Dni): <strong>${cSick}</strong>
+                </div>
+            `;
+        }
+
+        html += `</div>`;
 
         const previewDiv = this.dom.offPreview;
         previewDiv.innerHTML = html;
@@ -1291,82 +1302,77 @@
             month: `${month}/${year}`,
             totalHours
         };
+
+        // Zavesíme poslucháča na PREPOČÍTAVANIE tabuľky! Ak mzdárka prepíše bunku, hneď zmeníme súčet.
+        previewDiv.removeEventListener('input', this._calcOffHours);
+        this._calcOffHours = (e) => {
+            if(e.target.classList.contains('calc-hour-cell')) {
+                let currentTotal = 0;
+                previewDiv.querySelectorAll('.calc-hour-cell').forEach(cell => {
+                    let val = parseFloat(cell.innerText.replace(',', '.'));
+                    if(!isNaN(val) && val > 0) currentTotal += val;
+                });
+                const sumEl = document.getElementById('off-total-hours');
+                if(sumEl) sumEl.innerText = formatHM(currentTotal);
+            }
+        };
+        previewDiv.addEventListener('input', this._calcOffHours);
     },
 
     printOfficialAttendance() {
-        if (!this.currentOfficialData || this.currentOfficialData.length === 0) return;
+        const tableNode = this.dom.offPreview.querySelector('table');
+        if (!tableNode) return;
+
+        // Vytiahneme upravené HTML (a zbavíme sa contenteditable aby to vyzeralo ako normálna fixná tabuľka)
+        let cleanTableHtml = tableNode.outerHTML.replace(/contenteditable="true"/g, '');
+        const totalHoursText = document.getElementById('off-total-hours').innerText;
+        
+        let sumDaysHtml = "";
+        const sumDaysDiv = document.getElementById('off-summary-days');
+        if (sumDaysDiv) {
+            sumDaysHtml = `<div class="summary-days">${sumDaysDiv.innerHTML}</div>`;
+        }
 
         let html = `
         <html>
         <head>
             <title>Výkaz Dochádzky - ${this.currentOfficialMeta.empName}</title>
             <style>
-                body { font-family: Arial, sans-serif; padding: 30px; font-size: 13px; color: #000; }
-                .header { text-align: center; margin-bottom: 30px; }
-                h2 { margin: 0; font-size: 20px; }
-                h3 { margin: 5px 0 0 0; font-weight: normal; font-size: 16px; color: #444; }
-                table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-                th, td { border: 1px solid #333; padding: 6px 8px; text-align: center; }
+                @page { size: A4 portrait; margin: 10mm; }
+                body { font-family: Arial, sans-serif; padding: 10px; margin: 0; font-size: 11px; color: #000; }
+                .header { text-align: center; margin-bottom: 10px; }
+                h2 { margin: 0; font-size: 18px; text-transform: uppercase; }
+                h3 { margin: 3px 0 0 0; font-weight: normal; font-size: 14px; color: #444; }
+                table { width: 100%; border-collapse: collapse; margin-top: 5px; }
+                th, td { border: 1px solid #333; padding: 3px 5px; text-align: center; }
                 th { background-color: #eee; font-weight: bold; }
-                td:nth-child(2) { text-align: left; }
-                td:nth-child(6) { text-align: left; }
-                .weekend { background-color: #f9f9f9; color: #666; }
-                .leave { background-color: #fffdf0; font-weight: bold; }
-                .summary { margin-top: 30px; font-size: 15px; font-weight: bold; border: 2px solid #000; padding: 15px; width: 300px; display: inline-block; }
-                .signatures { margin-top: 60px; display: flex; justify-content: space-between; }
-                .sig-box { width: 200px; border-top: 1px solid #000; text-align: center; padding-top: 5px; }
-                @media print { .no-print { display: none; } body { padding: 0; } }
+                td:nth-child(2), td:nth-child(6) { text-align: left; }
+                td.calc-hour-cell { font-weight: bold; font-size: 12px; }
+                .summary { margin-top: 15px; font-size: 13px; font-weight: bold; border: 2px solid #000; padding: 8px; display: inline-block; }
+                .summary-days { margin-top: 15px; font-size: 12px; border: 1px solid #000; padding: 8px; display: inline-block; background: #fafafa;}
+                .signatures { margin-top: 30px; display: flex; justify-content: space-between; }
+                .sig-box { width: 180px; border-top: 1px solid #000; text-align: center; padding-top: 5px; font-size: 11px; }
+                @media print { 
+                    .no-print { display: none; } 
+                    body { padding: 0; } 
+                }
             </style>
         </head>
         <body>
-            <button class="no-print" onclick="window.print()" style="padding: 10px 20px; margin-bottom: 20px; font-weight: bold; cursor: pointer;">🖨️ Vytlačiť VÝKAZ PRE MZDOVÚ ÚČTOVNIČKU</button>
+            <button class="no-print" onclick="window.print()" style="padding: 8px 15px; margin-bottom: 15px; font-weight: bold; cursor: pointer;">🖨️ Vytlačiť VÝKAZ PRE MZDOVÚ ÚČTOVNIČKU</button>
             
             <div class="header">
-                <h2>VÝKAZ ODPRACOVANÝCH HODÍN</h2>
+                <h2>Výkaz odpracovaných hodín a dochádzky</h2>
                 <h3>Zamestnanec: <strong>${this.currentOfficialMeta.empName}</strong> &nbsp; | &nbsp; Obdobie: <strong>${this.currentOfficialMeta.month}</strong></h3>
             </div>
 
-            <table>
-                <thead>
-                    <tr>
-                        <th>Dátum</th>
-                        <th>Deň</th>
-                        <th>Príchod</th>
-                        <th>Odchod</th>
-                        <th>Hodiny spolu</th>
-                        <th>Druh neprítomnosti</th>
-                    </tr>
-                </thead>
-                <tbody>
-        `;
-
-        this.currentOfficialData.forEach(row => {
-            let trClass = "";
-            if (row.isWeekend) trClass = "weekend";
-            else if (row.hasLeave) trClass = "leave";
-
-            const rowFormatted = row.hours > 0 ? formatHM(row.hours) : '-';
-
-            html += `
-                <tr class="${trClass}">
-                    <td>${row.date}</td>
-                    <td>${row.dayName}</td>
-                    <td>${row.tIn}</td>
-                    <td>${row.tOut}</td>
-                    <td><strong>${rowFormatted}</strong></td>
-                    <td>${(row.status === 'Práca' || row.status === 'Víkend') ? '' : row.status}</td>
-                </tr>
-            `;
-        });
-
-        const totalFormatted = formatHM(this.currentOfficialMeta.totalHours);
-
-        html += `
-                </tbody>
-            </table>
+            ${cleanTableHtml}
             
-            <div class="summary">
-                Mesačný fond celkom: ${totalFormatted}
+            <div style="display:flex; justify-content: space-between; align-items: flex-start;">
+                <div class="summary">
+                    Mesačný fond celkom: ${totalHoursText}
+                </div>
+                ${sumDaysHtml}
             </div>
 
             <div class="signatures">
