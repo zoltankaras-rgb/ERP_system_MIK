@@ -157,7 +157,6 @@ def compute_strict_production_revenue(year: int, month: int) -> dict:
 def _ym_int(year, month):
     return int(year), int(month)
 
-
 def get_profitability_data(year, month):
     year, month = _ym_int(year, month)
 
@@ -177,6 +176,7 @@ def get_profitability_data(year, month):
     strict_prod = compute_strict_production_revenue(year, month)
     strict_total = float(strict_prod.get("total") or 0.0)
 
+    # Tieto dáta naďalej načítavame pre zobrazenie v UI v záložke Oddelenia
     exp_stock_prev = float(dept_data.get("exp_stock_prev", 0) or 0)
     exp_from_butchering = float(dept_data.get("exp_from_butchering", 0) or 0)
     exp_from_prod_manual = float(dept_data.get("exp_from_prod", 0) or 0) 
@@ -188,10 +188,10 @@ def get_profitability_data(year, month):
     exp_from_prod_used = strict_total if strict_total > 0 else exp_from_prod_manual
     prod_source = "strict" if strict_total > 0 else "manual"
 
-    cost_of_goods_sold = (
-        exp_stock_prev + exp_from_butchering + exp_from_prod_used + exp_external
-    ) - exp_returns - exp_stock_current
-    exp_profit = exp_revenue - cost_of_goods_sold
+    # =========================================================================
+    # NOVÝ VÝPOČET ZISKU EXPEDÍCIE: Zlúčenie profitu zo všetkých kanálov
+    # =========================================================================
+    exp_profit = sum(float(ch.get("summary", {}).get("total_profit", 0.0)) for ch in sales_channels_data.values())
 
     butcher_profit = float(dept_data.get("butcher_meat_value", 0) or 0) - float(
         dept_data.get("butcher_paid_goods", 0) or 0
@@ -200,6 +200,7 @@ def get_profitability_data(year, month):
         dept_data.get("butcher_returns_value", 0) or 0
     )
 
+    # Firemný zisk automaticky preberie nový, reálny zisk z expedície (predajné kanály)
     total_profit = (
         butcher_profit
         + exp_profit
@@ -232,7 +233,6 @@ def get_profitability_data(year, month):
             "total_profit": total_profit,
         },
     }
-
 
 # -----------------------------------------------------------------
 # Predajné kanály – spracovanie a vizualizácia
