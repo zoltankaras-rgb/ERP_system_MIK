@@ -309,17 +309,30 @@ def leader_dashboard():
         
         if len(parsed_casy) > 1:
             parsed_casy.sort()
-            # Zistíme celkový čas medzi prvou a poslednou vybavenou objednávkou
-            diff_seconds = (parsed_casy[-1] - parsed_casy[0]).total_seconds()
-            # Tempo = Celkový čas / (počet objednávok - 1)
-            tempo_minuty = round((diff_seconds / 60.0) / (len(parsed_casy) - 1), 1)
             
-            # Aby to neukazovalo blbosti (napr. ak sa 5 objednávok vykliká naraz za 1 sekundu),
-            # tempo musí byť aspoň 0.2 minúty (12 sekúnd) a menej ako 60 minút na 1 objednávku.
-            if 0.2 < tempo_minuty < 60 and zostava_chystat > 0:
+            platne_intervaly = []
+            
+            # Prejdeme všetky objednávky a zistíme časové rozdiely medzi nimi
+            for i in range(1, len(parsed_casy)):
+                rozdiel_sekundy = (parsed_casy[i] - parsed_casy[i-1]).total_seconds()
+                
+                # Ak je medzi dvoma objednávkami pauza väčšia ako 20 minút (1200 sekúnd),
+                # považujeme to za prestávku/čakanie na tovar a do čistého tempa to nezapočítame.
+                # (Zároveň ignorujeme "0" sekundové časy, ak sa odklikne viac naraz)
+                if 5 < rozdiel_sekundy < 1200:
+                    platne_intervaly.append(rozdiel_sekundy)
+
+            if platne_intervaly:
+                # Vypočítame priemerné tempo iba z čistého pracovného času
+                priemer_sekundy = sum(platne_intervaly) / len(platne_intervaly)
+                tempo_minuty = round(priemer_sekundy / 60.0, 1)
+            else:
+                tempo_minuty = 0
+
+            # Vypočítame odhad konca (zostávajúce objednávky * priemerné čisté tempo)
+            if tempo_minuty > 0 and zostava_chystat > 0:
                 odhad_dt = datetime.now() + timedelta(minutes=(zostava_chystat * tempo_minuty))
                 odhad_konca = odhad_dt.strftime('%H:%M')
-
     kpi['zostava_chystat'] = zostava_chystat
     kpi['tempo_minuty'] = tempo_minuty
     kpi['odhad_konca'] = odhad_konca
