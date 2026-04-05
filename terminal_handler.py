@@ -4,7 +4,7 @@ import shutil
 from datetime import datetime
 from flask import Blueprint
 import db_connector
-
+import time
 terminal_bp = Blueprint("terminal", __name__)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -23,11 +23,22 @@ def process_terminal_files():
     
     if not csv_files:
         return
-    
-    now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         
     for file_path in csv_files:
         filename = os.path.basename(file_path)
+        base_name = os.path.splitext(filename)[0]
+        
+        # --- OCHRANA PRED NEKOMPLETNÝMI SÚBORMI ---
+        try:
+            velkost_pred = os.path.getsize(file_path)
+            time.sleep(1.5) # Počká 1.5 sekundy
+            velkost_po = os.path.getsize(file_path)
+            if velkost_pred != velkost_po or velkost_po == 0:
+                print(f"Súbor {filename} sa ešte nahráva z terminálu, preskakujem ho pre ďalšie kolo.")
+                continue
+        except Exception:
+            continue
+
         base_name = os.path.splitext(filename)[0]
         print(f">>> [TERMINAL] Začínam spracovávať: {filename}")
         
@@ -164,13 +175,23 @@ def process_terminal_files():
                 
                 interny_ean = None
                 try:
+                    # 1. Skúsime nájsť v EDI tabuľke
                     map_db = db_connector.execute_query("""
-                        SELECT interny_ean FROM b2b_ean_mapovanie 
-                        WHERE objednavkovy_kod = %s OR objednavkovy_kod = %s LIMIT 1
+                        SELECT interny_ean FROM edi_produkty_mapovanie 
+                        WHERE edi_ean = %s OR edi_ean = %s LIMIT 1
                     """, (ean, ean_clean), fetch="one")
-                    if map_db: interny_ean = map_db["interny_ean"]
-                except Exception:
-                    pass
+                    
+                    # 2. Ak sa nenašlo, skúsime nájsť v B2B tabuľke (toto opraví chýbajúce váhy pre B2B!)
+                    if not map_db:
+                        map_db = db_connector.execute_query("""
+                            SELECT interny_ean FROM b2b_ean_mapovanie 
+                            WHERE objednavkovy_kod = %s OR objednavkovy_kod = %s LIMIT 1
+                        """, (ean, ean_clean), fetch="one")
+                        
+                    if map_db: 
+                        interny_ean = str(map_db["interny_ean"]).strip()
+                except Exception as err:
+                    print(f"Chyba pri EAN mapovaní: {err}")
                     
                 hladany_ean = interny_ean if interny_ean else ean
                 hladany_clean = interny_ean.lstrip('0') if interny_ean and interny_ean.lstrip('0') != '' else ean_clean
@@ -216,6 +237,7 @@ def process_terminal_files():
             """, (order_id,), fetch="one")
             
             finalna_suma_s_dph = float(sum_db.get("suma_s_dph") or 0) if sum_db else 0.0
+            now_str = datetime.now()
             
             db_connector.execute_query("""
                 UPDATE b2b_objednavky 
