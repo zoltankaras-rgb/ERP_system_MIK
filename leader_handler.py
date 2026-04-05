@@ -281,7 +281,8 @@ def leader_dashboard():
     for r in rows_b2c + rows_b2b:
         stav = r.get('stav', '')
         if stav in ('Hotová', 'Expedovaná'):
-            cas = r.get('vypracovane') or r.get('cas_dokoncenia') or r.get('updated_at')
+            # OPRAVA: Pridaný správny stĺpec 'datum_vypracovania'
+            cas = r.get('datum_vypracovania') or r.get('vypracovane') or r.get('cas_dokoncenia') or r.get('updated_at')
             if cas:
                 hotove_casy.append(cas)
         elif stav not in ('Hotová', 'Expedovaná', 'Zrušená'):
@@ -296,8 +297,10 @@ def leader_dashboard():
             if isinstance(c, datetime):
                 parsed_casy.append(c)
             elif isinstance(c, str):
+                # OPRAVA: Robustnejšie parsovanie dátumov z MySQL
                 try:
-                    parsed_casy.append(parsedate_to_datetime(c))
+                    # Skúsi štandardný MySQL formát YYYY-MM-DD HH:MM:SS
+                    parsed_casy.append(datetime.strptime(c[:19], '%Y-%m-%d %H:%M:%S'))
                 except:
                     try:
                         parsed_casy.append(datetime.fromisoformat(c.replace('Z', '+00:00')))
@@ -306,10 +309,14 @@ def leader_dashboard():
         
         if len(parsed_casy) > 1:
             parsed_casy.sort()
+            # Zistíme celkový čas medzi prvou a poslednou vybavenou objednávkou
             diff_seconds = (parsed_casy[-1] - parsed_casy[0]).total_seconds()
+            # Tempo = Celkový čas / (počet objednávok - 1)
             tempo_minuty = round((diff_seconds / 60.0) / (len(parsed_casy) - 1), 1)
             
-            if 0.5 < tempo_minuty < 60 and zostava_chystat > 0:
+            # Aby to neukazovalo blbosti (napr. ak sa 5 objednávok vykliká naraz za 1 sekundu),
+            # tempo musí byť aspoň 0.2 minúty (12 sekúnd) a menej ako 60 minút na 1 objednávku.
+            if 0.2 < tempo_minuty < 60 and zostava_chystat > 0:
                 odhad_dt = datetime.now() + timedelta(minutes=(zostava_chystat * tempo_minuty))
                 odhad_konca = odhad_dt.strftime('%H:%M')
 
