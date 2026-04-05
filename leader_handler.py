@@ -316,10 +316,10 @@ def leader_dashboard():
             for i in range(1, len(parsed_casy)):
                 rozdiel_sekundy = (parsed_casy[i] - parsed_casy[i-1]).total_seconds()
                 
-                # Ak je medzi dvoma objednávkami pauza väčšia ako 20 minút (1200 sekúnd),
+                # Ak je medzi dvoma objednávkami pauza väčšia ako 15 minút (900 sekúnd),
                 # považujeme to za prestávku/čakanie na tovar a do čistého tempa to nezapočítame.
                 # (Zároveň ignorujeme "0" sekundové časy, ak sa odklikne viac naraz)
-                if 5 < rozdiel_sekundy < 1200:
+                if 5 < rozdiel_sekundy < 900:
                     platne_intervaly.append(rozdiel_sekundy)
 
             if platne_intervaly:
