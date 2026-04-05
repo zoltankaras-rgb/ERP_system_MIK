@@ -1,4 +1,4 @@
-// hr.js – HR & dochádzka modul (Kancelária) - MODERN UI s interaktívnym generátorom pre mzdárku
+// hr.js – HR & dochádzka modul (Kancelária) - MODERN UI s interaktívnym generátorom pre mzdárku a opraveným načítavaním absencií
 
 (function () {
   // Pomocná funkcia na prepočet desatinných hodín na "X hod Y min"
@@ -12,6 +12,31 @@
       }
       return `${h} hod ${m} min`;
   }
+
+  // Ultra-bezpečný parser dátumov (poradí si s hocijakým formátom, ktorý pošle Python/Databáza)
+  const parseDateOnly = (val) => {
+      if (!val) return new Date(0);
+      if (val instanceof Date) return new Date(val.getFullYear(), val.getMonth(), val.getDate());
+      
+      if (typeof val === 'string') {
+          // Najprv skúsime YYYY-MM-DD
+          const match = val.match(/(\d{4})-(\d{2})-(\d{2})/);
+          if (match) {
+              return new Date(parseInt(match[1], 10), parseInt(match[2], 10) - 1, parseInt(match[3], 10));
+          }
+          // Potom skúsime DD.MM.YYYY
+          const match2 = val.match(/(\d{2})\.(\d{2})\.(\d{4})/);
+          if (match2) {
+              return new Date(parseInt(match2[3], 10), parseInt(match2[2], 10) - 1, parseInt(match2[1], 10));
+          }
+      }
+      // Fallback pre iné formáty (napr. anglické stringy)
+      const d = new Date(val);
+      if (!isNaN(d.getTime())) {
+          return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+      }
+      return new Date(0);
+  };
 
   const api = {
     async get(url) {
@@ -425,7 +450,7 @@
           <section id="hr-tab-official" class="hr-tab" data-hr-panel="official" style="display:none;">
             <div style="background: #eef2ff; padding: 25px; border-radius: 12px; border: 1px solid #c7d2fe; margin-bottom: 25px;">
                <h4 style="margin-top: 0; color: #3730a3;"><i class="fas fa-magic"></i> Šablóna Oficialnej Dochádzky (Pre Mzdárku)</h4>
-               <p style="color: #4f46e5; margin-bottom: 0;">Tento nástroj vygeneruje tabuľku dochádzky na vybraný mesiac. Tabuľka je <strong>plne upraviteľná</strong> – stačí pred tlačou kliknúť do akejkoľvek bunky (čas, hodiny, poznámka) a prepísať ju. Spodný súčet sa pri zmene hodín automaticky prepočíta.</p>
+               <p style="color: #4f46e5; margin-bottom: 0;">Tento nástroj vygeneruje tabuľku dochádzky na vybraný mesiac. Automaticky si stiahne <strong>VŠETKY dovolenky, PN, priepustky aj OČR</strong>. Tabuľka je <strong>plne upraviteľná</strong> – stačí pred tlačou kliknúť do akejkoľvek bunky a prepísať ju. Spodný súčet hodín sa pri prepísaní riadka okamžite prepočíta.</p>
                
                <div style="display:flex; gap:15px; flex-wrap:wrap; margin-top: 20px; background: #fff; padding: 15px; border-radius: 8px; border: 1px solid #e2e8f0;">
                  <div class="form-group">
@@ -1172,7 +1197,12 @@
         let leaves = [];
         if (contract === "TPP") {
             try {
-                const data = await api.get(`/api/kancelaria/hr/leaves?date_from=${dateFrom}&date_to=${dateTo}&employee_id=${empId}`);
+                // Bezpečne pridané parametre cez URLSearchParams pre dobré kódovanie
+                const params = new URLSearchParams();
+                params.append("date_from", dateFrom);
+                params.append("date_to", dateTo);
+                params.append("employee_id", empId);
+                const data = await api.get("/api/kancelaria/hr/leaves?" + params.toString());
                 leaves = data.items || [];
             } catch(e) {
                 console.error("Chyba pri načítaní neprítomností:", e);
@@ -1199,13 +1229,8 @@
         `;
 
         let totalHours = 0;
-        let cWork = 0, cVac = 0, cSick = 0, cDoc = 0;
+        let cWork = 0, cVac = 0, cSick = 0, cDoc = 0, cOther = 0;
         const daysStr = ["Nedeľa", "Pondelok", "Utorok", "Streda", "Štvrtok", "Piatok", "Sobota"];
-        
-        const parseDateOnly = (dStr) => {
-            const parts = dStr.slice(0, 10).split('-');
-            return new Date(parts[0], parseInt(parts[1])-1, parts[2]);
-        };
 
         let defaultHrs = 8.0;
         try {
@@ -1217,7 +1242,9 @@
         } catch(e) {}
 
         for(let i=1; i<=lastDay; i++) {
-            const dObj = new Date(year, parseInt(month)-1, i);
+            // Vytvorenie presného času polnoc v lokálnej zóne pre daný deň v mesiaci
+            const dObj = new Date(year, parseInt(month, 10)-1, i);
+            const dTime = dObj.getTime();
             const dayOfWeek = dObj.getDay();
             const isWeekend = (dayOfWeek === 0 || dayOfWeek === 6);
             
@@ -1227,10 +1254,11 @@
             let fWeight = "";
 
             if (contract === "TPP") {
+                // Bezpečné porovnávanie cez .getTime() a nový robustný parser
                 let activeLeave = leaves.find(l => {
-                    const lf = parseDateOnly(l.date_from);
-                    const lt = parseDateOnly(l.date_to);
-                    return dObj >= lf && dObj <= lt;
+                    const lf = parseDateOnly(l.date_from).getTime();
+                    const lt = parseDateOnly(l.date_to).getTime();
+                    return dTime >= lf && dTime <= lt;
                 });
 
                 if (isWeekend) {
@@ -1238,7 +1266,8 @@
                 } else if (activeLeave) {
                     if(activeLeave.leave_type === "VACATION") { status = "Dovolenka"; cVac++; }
                     else if(activeLeave.leave_type === "SICK") { status = "PN / OČR"; cSick++; }
-                    else { status = "Lekár / Priepustka"; cDoc++; }
+                    else if(activeLeave.leave_type === "PASS") { status = "Lekár / Priepustka"; cDoc++; }
+                    else { status = "Iná absencia"; cOther++; }
                     
                     tIn = ""; tOut = ""; hrs = 8.0; bg = "background: #fef3c7;";
                     fWeight = "font-weight: bold; color: #b45309;";
@@ -1246,9 +1275,13 @@
                     status = "Práca"; cWork++;
                 }
             } else {
-                // Režim Brigádnik - ignorujeme dovolenky, nepredpisujeme voľno cez víkendy
-                if (isWeekend) bg = "background: #f8fafc;";
-                status = ""; // Brigádnik nepotrebuje mať vypísané "Práca" všade
+                // Režim Brigádnik
+                if (isWeekend) {
+                    bg = "background: #f8fafc;";
+                    tIn = ""; tOut = ""; hrs = 0; status = "Víkend";
+                } else {
+                    status = "";
+                }
             }
 
             if(hrs > 0) totalHours += hrs;
@@ -1303,7 +1336,7 @@
             totalHours
         };
 
-        // Zavesíme poslucháča na PREPOČÍTAVANIE tabuľky! Ak mzdárka prepíše bunku, hneď zmeníme súčet.
+        // Zavesíme poslucháča na PREPOČÍTAVANIE tabuľky!
         previewDiv.removeEventListener('input', this._calcOffHours);
         this._calcOffHours = (e) => {
             if(e.target.classList.contains('calc-hour-cell')) {
@@ -1323,7 +1356,6 @@
         const tableNode = this.dom.offPreview.querySelector('table');
         if (!tableNode) return;
 
-        // Vytiahneme upravené HTML (a zbavíme sa contenteditable aby to vyzeralo ako normálna fixná tabuľka)
         let cleanTableHtml = tableNode.outerHTML.replace(/contenteditable="true"/g, '');
         const totalHoursText = document.getElementById('off-total-hours').innerText;
         
