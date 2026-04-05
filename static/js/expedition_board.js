@@ -200,7 +200,8 @@ function vykresliStranu() {
         if (obj.vaha_kategoria === 'velka') vahaIkonka = '🚛';
         else if (obj.vaha_kategoria === 'stredna') vahaIkonka = '🛒';
         
-        let vahaHtml = `<span class="vaha-badge">${vahaIkonka} ${Math.round(obj.vaha_kg)} kg</span>`;
+        let presnaVaha = parseFloat(Number(obj.vaha_kg).toFixed(2));
+        let vahaHtml = `<span class="vaha-badge">${vahaIkonka} ${presnaVaha} kg</span>`;
 
         let nazovFirmy = obj.zakaznik;
         if (obj.cislo_prevadzky && obj.cislo_prevadzky.trim() !== '') {

@@ -60,7 +60,7 @@ def get_b2b_special_notes():
              FROM b2b_objednavky_polozky 
              WHERE objednavka_id = o.id AND poznamka IS NOT NULL AND poznamka != '') AS poznamka_poloziek,
              
-            (SELECT GROUP_CONCAT(DISTINCT CONCAT(pol.nazov_vyrobku, ' ', (pol.mnozstvo + 0), ' ', pol.mj) SEPARATOR ' | ')
+            (SELECT GROUP_CONCAT(DISTINCT CONCAT(pol.nazov_vyrobku, ' ', (ROUND(COALESCE(pol.dodane_mnozstvo, pol.mnozstvo), 2) + 0), ' ', pol.mj) SEPARATOR ' | ')
              FROM b2b_objednavky_polozky pol
              LEFT JOIN produkty pr ON pr.nazov_vyrobku = pol.nazov_vyrobku
              WHERE pol.objednavka_id = o.id 
@@ -69,8 +69,8 @@ def get_b2b_special_notes():
 
             (SELECT COALESCE(SUM(
                 CASE 
-                    WHEN LOWER(mj) = 'ks' THEN mnozstvo * (COALESCE(vaha_balenia_g, 0) / 1000.0)
-                    ELSE mnozstvo 
+                    WHEN LOWER(mj) = 'ks' THEN COALESCE(dodane_mnozstvo, mnozstvo) * (COALESCE(vaha_balenia_g, 0) / 1000.0)
+                    ELSE COALESCE(dodane_mnozstvo, mnozstvo) 
                 END
             ), 0) FROM b2b_objednavky_polozky WHERE objednavka_id = o.id) AS celkova_vaha_kg,
             1 AS ma_objednavku
@@ -130,6 +130,7 @@ def get_b2b_special_notes():
         "akcie_coop": akcie_coop,
         "poznamky": rows
     }
+
 def is_holiday(check_date):
     """
     Overí v databáze kalendára, či je na daný deň naplánovaný sviatok (HOLIDAY).
