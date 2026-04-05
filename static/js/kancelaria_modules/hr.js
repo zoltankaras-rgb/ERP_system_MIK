@@ -1,6 +1,18 @@
-// hr.js – HR & dochádzka modul (Kancelária) - MODERN UI
+// hr.js – HR & dochádzka modul (Kancelária) - MODERN UI s generátorom oficiálnej dochádzky a formátovaním času
 
 (function () {
+  // Pomocná funkcia na prepočet desatinných hodín na "X hod Y min"
+  function formatHM(decimalHours) {
+      if (!decimalHours || decimalHours <= 0) return "0 hod 0 min";
+      let h = Math.floor(decimalHours);
+      let m = Math.round((decimalHours - h) * 60);
+      if (m === 60) {
+          h += 1;
+          m = 0;
+      }
+      return `${h} hod ${m} min`;
+  }
+
   const api = {
     async get(url) {
       const res = await fetch(url, { credentials: "same-origin" });
@@ -24,6 +36,8 @@
   const HR = {
     employees: [],
     currentAttendanceData: [],
+    currentOfficialData: [],
+    currentOfficialMeta: {},
     dom: {},
 
     init() {
@@ -40,6 +54,7 @@
       this.bindAttendanceForm();
       this.bindLeaveForm();
       this.bindSummary();
+      this.bindOfficialTemplate();
 
       this.initDefaultDates();
       this.switchTab('employees');
@@ -70,13 +85,16 @@
                 <i class="fas fa-users"></i> Zamestnanci
               </button>
               <button class="btn hr-tab-btn" data-hr-tab="attendance" style="border-radius: 8px; font-weight: 600; padding: 10px 20px;">
-                <i class="fas fa-user-clock"></i> Píchačky
+                <i class="fas fa-user-clock"></i> Píchačky (Reálna)
               </button>
               <button class="btn hr-tab-btn" data-hr-tab="leaves" style="border-radius: 8px; font-weight: 600; padding: 10px 20px;">
                 <i class="fas fa-umbrella-beach"></i> Neprítomnosti
               </button>
               <button class="btn hr-tab-btn" data-hr-tab="summary" style="border-radius: 8px; font-weight: 600; padding: 10px 20px;">
                 <i class="fas fa-chart-pie"></i> Súhrn nákladov
+              </button>
+              <button class="btn hr-tab-btn" data-hr-tab="official" style="border-radius: 8px; font-weight: 600; padding: 10px 20px; background: #6366f1; color: white; border:none;">
+                <i class="fas fa-file-signature"></i> Oficiálny Výkaz (Pre Úrady)
               </button>
             </div>
         </div>
@@ -104,20 +122,18 @@
                             <div class="form-group">
                                 <label style="font-weight: 600; color: #475569;">Sekcia</label>
                                 <select id="hr-employee-section" class="filter-input" style="width: 100%;">
-    <option value="VYROBA">Výroba</option>
-    <option value="ROZRABKA">Rozrábka</option>
-    <option value="EXPEDICIA">Expedícia</option>
-    <option value="ROZVOZ">Rozvoz</option>
-    <option value="UPRATOVANIE">Upratovanie</option>
-    <option value="ADMIN">Admin</option>
-    <option value="INE">Iné</option>
-</select>
+                                  <option value="VYROBA">Výroba</option>
+                                  <option value="ROZRABKA">Rozrábka</option>
+                                  <option value="EXPEDICIA">Expedícia</option>
+                                  <option value="ROZVOZ">Rozvoz</option>
+                                  <option value="UPRATOVANIE">Upratovanie</option>
+                                  <option value="ADMIN">Admin</option>
+                                  <option value="INE">Iné</option>
+                                </select>
                             </div>
                         </div>
                         
-                        <div style="display: none;">
-                            <input type="text" id="hr-employee-code" />
-                        </div>
+                        <div style="display: none;"><input type="text" id="hr-employee-code" /></div>
 
                         <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 15px; margin: 20px 0;">
                             <label style="font-weight: 600; color: #0369a1; display: block; margin-bottom: 10px;"><i class="fas fa-coins"></i> Platové podmienky</label>
@@ -172,7 +188,6 @@
           </section>
 
           <section id="hr-tab-attendance" class="hr-tab" data-hr-panel="attendance" style="display:none;">
-            
             <div style="background: #fff; padding: 20px; border-radius: 12px; border: 1px solid #e2e8f0; margin-bottom: 25px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
                 <div style="display:flex; flex-wrap:wrap; gap:15px; align-items:flex-end;">
                   <div>
@@ -186,15 +201,15 @@
                   <div>
                     <label style="font-weight: 600; font-size: 0.9rem;">Úsek</label><br />
                     <select id="hr-att-section-filter" class="filter-input" style="min-width:140px;">
-    <option value="">Všetky</option>
-    <option value="VYROBA">Výroba</option>
-    <option value="ROZRABKA">Rozrábka</option>
-    <option value="EXPEDICIA">Expedícia</option>
-    <option value="ROZVOZ">Rozvoz</option>
-    <option value="UPRATOVANIE">Upratovanie</option>
-    <option value="ADMIN">Admin</option>
-    <option value="INE">Iné</option>
-</select>
+                      <option value="">Všetky</option>
+                      <option value="VYROBA">Výroba</option>
+                      <option value="ROZRABKA">Rozrábka</option>
+                      <option value="EXPEDICIA">Expedícia</option>
+                      <option value="ROZVOZ">Rozvoz</option>
+                      <option value="UPRATOVANIE">Upratovanie</option>
+                      <option value="ADMIN">Admin</option>
+                      <option value="INE">Iné</option>
+                    </select>
                   </div>
                   <div>
                     <label style="font-weight: 600; font-size: 0.9rem;">Zamestnanec</label><br />
@@ -212,17 +227,14 @@
                     <h4 style="margin-top: 0; color: #166534; border-bottom: 2px solid #dcfce7; padding-bottom: 10px;"><i class="fas fa-clock"></i> Manuálna úprava pichnutia</h4>
                     <form id="hr-att-form">
                         <input type="hidden" id="hr-att-id" />
-
                         <div class="form-group" style="margin-bottom: 15px;">
                         <label style="font-weight: 600;">Zamestnanec</label>
                         <select id="hr-att-employee" class="filter-input" style="width: 100%;"></select>
                         </div>
-
                         <div class="form-group" style="margin-bottom: 15px;">
                         <label style="font-weight: 600;">Dátum</label>
                         <input type="date" id="hr-att-date" class="filter-input" style="width: 100%;" required />
                         </div>
-
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px;">
                             <div class="form-group">
                                 <label style="font-weight: 600; color: #0284c7;">Príchod</label>
@@ -233,16 +245,13 @@
                                 <input type="time" id="hr-att-time-out" class="filter-input" style="width: 100%;" />
                             </div>
                         </div>
-
                         <div class="form-group" style="display:none;">
                         <select id="hr-att-section-override"><option value=""></option></select>
                         </div>
-
                         <div class="form-group" style="margin-bottom: 20px;">
                         <label style="font-weight: 600;">Dôvod manuálnej úpravy</label>
                         <input type="text" id="hr-att-note" class="filter-input" style="width: 100%;" placeholder="Napr. Zabudol pípnuť..." />
                         </div>
-
                         <div style="display:flex; gap:10px;">
                         <button type="submit" class="btn btn-success" style="flex: 1; font-weight: bold;">Uložiť záznam</button>
                         <button type="button" id="hr-att-reset" class="btn btn-secondary"><i class="fas fa-times"></i></button>
@@ -273,7 +282,6 @@
           </section>
 
           <section id="hr-tab-leaves" class="hr-tab" data-hr-panel="leaves" style="display:none;">
-            
             <div style="background: #fff; padding: 20px; border-radius: 12px; border: 1px solid #e2e8f0; margin-bottom: 25px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
                 <div style="display:flex; flex-wrap:wrap; gap:15px; align-items:flex-end;">
                   <div>
@@ -299,12 +307,10 @@
                     <h4 style="margin-top: 0; color: #9a3412; border-bottom: 2px solid #ffedd5; padding-bottom: 10px;"><i class="fas fa-plane"></i> Zadať neprítomnosť</h4>
                     <form id="hr-leave-form">
                         <input type="hidden" id="hr-leave-id" />
-
                         <div class="form-group" style="margin-bottom: 15px;">
                         <label style="font-weight: 600;">Zamestnanec</label>
                         <select id="hr-leave-employee" class="filter-input" style="width: 100%;"></select>
                         </div>
-
                         <div class="form-group" style="margin-bottom: 15px;">
                         <label style="font-weight: 600;">Typ neprítomnosti</label>
                         <select id="hr-leave-type" class="filter-input" style="width: 100%; font-weight: bold;">
@@ -314,7 +320,6 @@
                             <option value="OTHER">⚪ Iné neplatené</option>
                         </select>
                         </div>
-
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px;">
                             <div class="form-group">
                                 <label style="font-weight: 600;">Od dňa</label>
@@ -325,22 +330,18 @@
                                 <input type="date" id="hr-leave-to-date" class="filter-input" style="width: 100%;" required />
                             </div>
                         </div>
-
                         <div class="form-group" style="display: flex; align-items: center; gap: 10px; margin-bottom: 15px;">
                             <input type="checkbox" id="hr-leave-full-day" checked style="transform: scale(1.3); cursor: pointer;" />
                             <label for="hr-leave-full-day" style="margin: 0; font-weight: 600; cursor: pointer;">Ide o celé dni</label>
                         </div>
-
                         <div class="form-group" style="margin-bottom: 15px;">
                         <label style="font-weight: 600;">Vybrať si len zopár hodín?</label>
                         <input type="number" step="0.5" id="hr-leave-hours" class="filter-input" style="width: 100%;" placeholder="Zadaj iba ak NEjde o celé dni" />
                         </div>
-
                         <div class="form-group" style="margin-bottom: 20px;">
                         <label style="font-weight: 600;">Poznámka pre mzdárku</label>
                         <input type="text" id="hr-leave-note" class="filter-input" style="width: 100%;" />
                         </div>
-
                         <div style="display:flex; gap:10px;">
                         <button type="submit" class="btn btn-warning" style="flex: 1; font-weight: bold; color: #000;">Uložiť do systému</button>
                         <button type="button" id="hr-leave-reset" class="btn btn-secondary"><i class="fas fa-times"></i></button>
@@ -369,7 +370,6 @@
           </section>
 
           <section id="hr-tab-summary" class="hr-tab" data-hr-panel="summary" style="display:none;">
-            
             <div style="background: #fff; padding: 20px; border-radius: 12px; border: 1px solid #e2e8f0; margin-bottom: 25px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); display: flex; justify-content: space-between; align-items: center;">
                 <div style="display:flex; gap:15px; align-items:flex-end;">
                   <div>
@@ -412,7 +412,7 @@
                         <tr>
                         <th style="padding-left: 15px;">Zamestnanec</th>
                         <th>Sekcia</th>
-                        <th>Hodiny</th>
+                        <th>Hodiny (Desatinné)</th>
                         <th>€/hod (z fixu)</th>
                         <th>Celkom €</th>
                         </tr>
@@ -421,6 +421,40 @@
                     </table>
                 </div>
             </div>
+          </section>
+
+          <section id="hr-tab-official" class="hr-tab" data-hr-panel="official" style="display:none;">
+            <div style="background: #eef2ff; padding: 25px; border-radius: 12px; border: 1px solid #c7d2fe; margin-bottom: 25px;">
+               <h4 style="margin-top: 0; color: #3730a3;"><i class="fas fa-magic"></i> Šablóna Oficialnej Dochádzky (Pre Mzdárku)</h4>
+               <p style="color: #4f46e5; margin-bottom: 0;">Tento nástroj vygeneruje ideálnu tabuľkovú dochádzky zamestnanca na vybraný mesiac s predvolenými príchodmi/odchodmi. 
+               Automaticky vynechá víkendy a automaticky na príslušné dni doplní riadne zapísané dovolenky/PN z karty "Neprítomnosti". Všetko funguje bez zásahu do reálnych hodín.</p>
+               
+               <div style="display:flex; gap:15px; flex-wrap:wrap; margin-top: 20px;">
+                 <div class="form-group">
+                   <label style="font-weight: bold; color: #3730a3;">Zamestnanec</label>
+                   <select id="hr-off-employee" class="filter-input" style="min-width:220px;"></select>
+                 </div>
+                 <div class="form-group">
+                   <label style="font-weight: bold; color: #3730a3;">Mesiac</label>
+                   <input type="month" id="hr-off-month" class="filter-input" />
+                 </div>
+                 <div class="form-group">
+                   <label style="font-weight: bold; color: #3730a3;">Fixný Príchod</label>
+                   <input type="time" id="hr-off-time-in" class="filter-input" value="06:00" />
+                 </div>
+                 <div class="form-group">
+                   <label style="font-weight: bold; color: #3730a3;">Fixný Odchod</label>
+                   <input type="time" id="hr-off-time-out" class="filter-input" value="14:30" />
+                 </div>
+                 <div class="form-group" style="align-self: flex-end;">
+                   <button type="button" id="hr-off-generate" class="btn btn-primary" style="background: #4f46e5; border-color: #4f46e5;"><i class="fas fa-cogs"></i> Generovať pre Mzdárku</button>
+                   <button type="button" id="hr-off-print" class="btn btn-secondary" style="margin-left:10px; display:none; background: #312e81;"><i class="fas fa-print"></i> Vytlačiť Výkaz</button>
+                 </div>
+               </div>
+            </div>
+            
+            <div id="hr-off-preview" style="background: #fff; padding: 25px; border-radius: 12px; border: 1px solid #e2e8f0; display:none; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+               </div>
           </section>
 
         </div>
@@ -451,13 +485,24 @@
       this.dom.tabButtons.forEach(btn => {
         const name = btn.getAttribute('data-hr-tab');
         if (name === tabName) {
-          btn.classList.remove('btn-secondary');
-          btn.classList.add('btn-primary');
+          if (name === 'official') {
+              btn.style.background = '#4f46e5';
+              btn.style.color = '#fff';
+          } else {
+              btn.classList.remove('btn-secondary');
+              btn.classList.add('btn-primary');
+          }
           btn.style.boxShadow = '0 4px 6px -1px rgba(59, 130, 246, 0.3)';
         } else {
-          btn.classList.add('btn-secondary');
-          btn.classList.remove('btn-primary');
-          btn.style.boxShadow = 'none';
+          if (name === 'official') {
+             btn.style.background = '#6366f1';
+             btn.style.color = '#fff';
+             btn.style.boxShadow = 'none';
+          } else {
+              btn.classList.add('btn-secondary');
+              btn.classList.remove('btn-primary');
+              btn.style.boxShadow = 'none';
+          }
         }
       });
 
@@ -524,6 +569,15 @@
       this.dom.sumTotals = document.getElementById("hr-sum-totals");
       this.dom.sumSectionsBody = document.querySelector("#hr-sum-sections-table tbody");
       this.dom.sumEmployeesBody = document.querySelector("#hr-sum-employees-table tbody");
+
+      // OFICIALNA
+      this.dom.offEmployee = document.getElementById("hr-off-employee");
+      this.dom.offMonth = document.getElementById("hr-off-month");
+      this.dom.offTimeIn = document.getElementById("hr-off-time-in");
+      this.dom.offTimeOut = document.getElementById("hr-off-time-out");
+      this.dom.offGenerateBtn = document.getElementById("hr-off-generate");
+      this.dom.offPrintBtn = document.getElementById("hr-off-print");
+      this.dom.offPreview = document.getElementById("hr-off-preview");
     },
 
     // ------------------------------------------------------------------
@@ -545,6 +599,11 @@
 
       if (this.dom.sumFrom) this.dom.sumFrom.value = fmt(first);
       if (this.dom.sumTo) this.dom.sumTo.value = fmt(today);
+
+      if (this.dom.offMonth) {
+          const mm = (today.getMonth() + 1).toString().padStart(2, '0');
+          this.dom.offMonth.value = `${today.getFullYear()}-${mm}`;
+      }
     },
 
     // ------------------------------------------------------------------
@@ -602,7 +661,13 @@
     },
 
     fillEmployeeSelects() {
-      const selects = [this.dom.attEmployee, this.dom.attFilterEmployee, this.dom.leaveEmployee, this.dom.leaveFilterEmployee].filter(Boolean);
+      const selects = [
+          this.dom.attEmployee, 
+          this.dom.attFilterEmployee, 
+          this.dom.leaveEmployee, 
+          this.dom.leaveFilterEmployee,
+          this.dom.offEmployee 
+      ].filter(Boolean);
 
       selects.forEach((sel) => {
         sel.innerHTML = "";
@@ -683,7 +748,7 @@
     },
 
     // ------------------------------------------------------------------
-    // DOCHÁDZKA
+    // DOCHÁDZKA REÁLNA
     // ------------------------------------------------------------------
     bindAttendanceForm() {
       if (!this.dom.attForm) return;
@@ -743,7 +808,7 @@
         let html = `
         <html>
         <head>
-            <title>Report Dochádzky</title>
+            <title>Report Reálnej Dochádzky</title>
             <style>
                 body { font-family: Arial, sans-serif; padding: 20px; font-size: 12px; }
                 h2 { margin-top: 0; }
@@ -755,7 +820,7 @@
             </style>
         </head>
         <body>
-            <h2>Report dochádzky (${dateFrom} - ${dateTo})</h2>
+            <h2>Report reálnej dochádzky (${dateFrom} - ${dateTo})</h2>
             <button class="no-print" onclick="window.print()" style="padding: 10px 20px; font-size: 14px; margin-bottom: 20px; cursor: pointer;">🖨️ Vytlačiť report</button>
             <table>
                 <thead>
@@ -780,8 +845,12 @@
             const tIn = it.time_in ? it.time_in.slice(0, 5) : '-';
             const tOut = it.time_out ? it.time_out.slice(0, 5) : '-';
             const activeSec = it.section_override || it.section || '-';
+            
             const hours = Number(it.worked_hours || 0);
             totalHours += hours;
+            
+            // Naformátujeme pre tlačové výstupy
+            const timeStr = hours > 0 ? formatHM(hours) : "0 hod 0 min";
             
             html += `
                 <tr>
@@ -790,22 +859,22 @@
                     <td>${activeSec}</td>
                     <td>${tIn}</td>
                     <td>${tOut}</td>
-                    <td><strong>${hours.toFixed(2)}</strong></td>
+                    <td><strong>${timeStr}</strong></td>
                     <td>${it.note || ''}</td>
                 </tr>
             `;
         });
 
+        // Sumár pre formátovaný výstup
+        const totalTimeStr = formatHM(totalHours);
+
         html += `
                     <tr>
-                        <td colspan="5" style="text-align: right; font-weight: bold;">SPOLU HODÍN:</td>
-                        <td colspan="2" style="font-weight: bold;">${totalHours.toFixed(2)} h</td>
+                        <td colspan="5" style="text-align: right; font-weight: bold;">SPOLU ODPRACOVANÉ:</td>
+                        <td colspan="2" style="font-weight: bold; font-size: 1.1em; color: #166534;">${totalTimeStr}</td>
                     </tr>
                 </tbody>
             </table>
-            <div class="note">
-                (Z každého dňa s hrubým odpracovaným časom nad 6 hodín je automaticky odčítaných 30 minút na prestávku)
-            </div>
         </body>
         </html>
         `;
@@ -828,10 +897,14 @@
         };
         const fmtTime = (t) => t ? `<strong style="font-size:1.1rem; color:#0f172a;">${t.slice(0, 5)}</strong>` : '<span style="color:#ef4444; font-weight:bold;">Chýba</span>';
         
-        const hoursVal = it.worked_hours || 0;
+        const hoursVal = Number(it.worked_hours || 0);
+        
+        // Zobrazujeme cez novy inteligentný formát (X hod Y min)
+        const timeStr = formatHM(hoursVal);
+
         const hBadge = hoursVal > 0 
-            ? `<span style="background:#dcfce7; color:#166534; padding: 4px 10px; border-radius: 12px; font-weight: bold;">${Number(hoursVal).toFixed(2)} h</span>`
-            : `<span style="background:#fee2e2; color:#991b1b; padding: 4px 10px; border-radius: 12px; font-weight: bold;">0.00 h</span>`;
+            ? `<span style="background:#dcfce7; color:#166534; padding: 4px 10px; border-radius: 12px; font-weight: bold; font-size: 1.05em;">${timeStr}</span>`
+            : `<span style="background:#fee2e2; color:#991b1b; padding: 4px 10px; border-radius: 12px; font-weight: bold; font-size: 1.05em;">0 hod 0 min</span>`;
 
         const activeSec = it.section_override || it.section || '-';
         const secBadge = `<span style="background:#e0f2fe; color:#0369a1; padding: 3px 8px; border-radius: 4px; font-size: 0.8rem; font-weight:bold;">${activeSec}</span>`;
@@ -987,6 +1060,7 @@
 
     // ------------------------------------------------------------------
     // SÚHRN NÁKLADOV
+    // (Tu nechávame desatinné hodiny pre lepšiu kontrolu nákladov mzdárkou)
     // ------------------------------------------------------------------
     bindSummary() {
       if (!this.dom.sumRefresh) return;
@@ -1005,7 +1079,6 @@
     },
 
     renderSummary(data) {
-      // Dátum
       const fmtDate = (d) => {
           const p = (d || "").split('-');
           return p.length === 3 ? `${p[2]}.${p[1]}.${p[0]}` : d;
@@ -1013,12 +1086,11 @@
       const periodText = document.getElementById("hr-sum-period-text");
       if(periodText) periodText.innerHTML = `Vybrané obdobie: <strong>${fmtDate(data.period.date_from)} - ${fmtDate(data.period.date_to)}</strong>`;
 
-      // 4 KPI KARTY
       if (this.dom.sumTotals) {
         this.dom.sumTotals.innerHTML = `
           <div style="background: #fff; padding: 20px; border-radius: 12px; border: 1px solid #e2e8f0; box-shadow: 0 1px 3px rgba(0,0,0,0.05); border-left: 4px solid #3b82f6;">
             <div style="color: #64748b; font-weight: 600; font-size: 0.9rem; margin-bottom: 5px;">Celkovo odpracované</div>
-            <div style="color: #0f172a; font-size: 1.8rem; font-weight: bold;">${Number(data.total_hours || 0).toFixed(1)} <span style="font-size: 1rem; color: #94a3b8;">hodín</span></div>
+            <div style="color: #0f172a; font-size: 1.8rem; font-weight: bold;">${Number(data.total_hours || 0).toFixed(2)} <span style="font-size: 1rem; color: #94a3b8;">h</span></div>
           </div>
           
           <div style="background: #fff; padding: 20px; border-radius: 12px; border: 1px solid #e2e8f0; box-shadow: 0 1px 3px rgba(0,0,0,0.05); border-left: 4px solid #ef4444;">
@@ -1068,6 +1140,247 @@
         });
       }
     },
+
+    // ------------------------------------------------------------------
+    // OFICIÁLNA DOCHÁDZKA (GENERÁTOR)
+    // ------------------------------------------------------------------
+    bindOfficialTemplate() {
+      if (!this.dom.offGenerateBtn) return;
+      this.dom.offGenerateBtn.addEventListener("click", () => this.generateOfficialAttendance());
+      this.dom.offPrintBtn.addEventListener("click", () => this.printOfficialAttendance());
+    },
+
+    async generateOfficialAttendance() {
+        const empId = this.dom.offEmployee.value;
+        const monthVal = this.dom.offMonth.value;
+        const timeIn = this.dom.offTimeIn.value || "06:00";
+        const timeOut = this.dom.offTimeOut.value || "14:30";
+
+        if (!empId || !monthVal) {
+            alert("Vyberte zamestnanca a mesiac.");
+            return;
+        }
+
+        const [year, month] = monthVal.split('-');
+        const lastDay = new Date(year, month, 0).getDate();
+        const dateFrom = `${year}-${month}-01`;
+        const dateTo = `${year}-${month}-${lastDay}`;
+
+        let leaves = [];
+        try {
+            const data = await api.get(`/api/kancelaria/hr/leaves?date_from=${dateFrom}&date_to=${dateTo}&employee_id=${empId}`);
+            leaves = data.items || [];
+        } catch(e) {
+            console.error("Chyba pri načítaní neprítomností:", e);
+        }
+
+        const emp = this.employees.find(e => String(e.id) === String(empId));
+        const empName = emp ? emp.full_name : "Neznámy zamestnanec";
+
+        let html = `
+            <h3 style="margin-top:0; margin-bottom: 20px; color: #3730a3;">Oficiálny výkaz práce: <strong>${empName}</strong> (${month}/${year})</h3>
+            <table class="table-refined" style="width:100%; border-collapse: collapse; border: 1px solid #e2e8f0;">
+                <thead style="background: #f8fafc;">
+                    <tr>
+                        <th style="border: 1px solid #cbd5e1; padding: 10px;">Dátum</th>
+                        <th style="border: 1px solid #cbd5e1; padding: 10px;">Deň v týždni</th>
+                        <th style="border: 1px solid #cbd5e1; padding: 10px;">Príchod</th>
+                        <th style="border: 1px solid #cbd5e1; padding: 10px;">Odchod</th>
+                        <th style="border: 1px solid #cbd5e1; padding: 10px;">Odpracované hod.</th>
+                        <th style="border: 1px solid #cbd5e1; padding: 10px;">Dôvod absencie</th>
+                    </tr>
+                </thead>
+                <tbody>
+        `;
+
+        let totalHours = 0;
+        const daysStr = ["Nedeľa", "Pondelok", "Utorok", "Streda", "Štvrtok", "Piatok", "Sobota"];
+        
+        const parseDateOnly = (dStr) => {
+            const parts = dStr.slice(0, 10).split('-');
+            return new Date(parts[0], parseInt(parts[1])-1, parts[2]);
+        };
+
+        let defaultHrs = 8.0;
+        try {
+            const din = new Date(`1970-01-01T${timeIn}:00`);
+            const dout = new Date(`1970-01-01T${timeOut}:00`);
+            let diff = (dout - din) / 3600000;
+            if (diff > 6.0) diff -= 0.5; // odpočítať 0.5h prestávku
+            defaultHrs = diff;
+        } catch(e) {}
+
+        this.currentOfficialData = [];
+
+        for(let i=1; i<=lastDay; i++) {
+            const dObj = new Date(year, parseInt(month)-1, i);
+            const dayOfWeek = dObj.getDay();
+            const isWeekend = (dayOfWeek === 0 || dayOfWeek === 6);
+            
+            let activeLeave = leaves.find(l => {
+                const lf = parseDateOnly(l.date_from);
+                const lt = parseDateOnly(l.date_to);
+                return dObj >= lf && dObj <= lt;
+            });
+
+            let status = "Práca";
+            let tIn = timeIn;
+            let tOut = timeOut;
+            let hrs = defaultHrs; 
+            
+            if (isWeekend) {
+                status = "Víkend"; 
+                tIn = ""; tOut = ""; hrs = 0;
+            } else if (activeLeave) {
+                if(activeLeave.leave_type === "VACATION") status = "Dovolenka";
+                else if(activeLeave.leave_type === "SICK") status = "PN / OČR";
+                else status = "Lekár / Priepustka";
+                
+                tIn = ""; tOut = ""; 
+                hrs = 8.0; 
+            }
+
+            if(hrs > 0) totalHours += hrs;
+
+            this.currentOfficialData.push({
+                date: `${String(i).padStart(2, '0')}.${month}.${year}`,
+                dayName: daysStr[dayOfWeek],
+                tIn: tIn,
+                tOut: tOut,
+                hours: hrs,
+                status: status,
+                isWeekend: isWeekend,
+                hasLeave: !!activeLeave
+            });
+
+            let bg = isWeekend ? "background: #f1f5f9;" : (activeLeave ? "background: #fef3c7;" : "");
+            let fWeight = activeLeave ? "font-weight: bold; color: #b45309;" : "";
+            
+            // Format time display
+            const timeFormatted = hrs > 0 ? formatHM(hrs) : '-';
+
+            html += `
+                <tr style="${bg}">
+                    <td style="border: 1px solid #e2e8f0; padding: 8px;"><strong>${String(i).padStart(2, '0')}.${month}.${year}</strong></td>
+                    <td style="border: 1px solid #e2e8f0; padding: 8px; color: #64748b;">${daysStr[dayOfWeek]}</td>
+                    <td style="border: 1px solid #e2e8f0; padding: 8px;">${tIn}</td>
+                    <td style="border: 1px solid #e2e8f0; padding: 8px;">${tOut}</td>
+                    <td style="border: 1px solid #e2e8f0; padding: 8px;"><strong>${timeFormatted}</strong></td>
+                    <td style="border: 1px solid #e2e8f0; padding: 8px; ${fWeight}">${status === 'Práca' || status === 'Víkend' ? '' : status}</td>
+                </tr>
+            `;
+        }
+
+        const totalFormatted = formatHM(totalHours);
+
+        html += `
+                </tbody>
+            </table>
+            <div style="margin-top: 20px; font-size: 1.25rem; background: #e0e7ff; padding: 15px; border-radius: 8px; display: inline-block;">
+                Mesačný fond (odpracované + uznané): <strong style="color: #4f46e5;">${totalFormatted}</strong>
+            </div>
+        `;
+
+        const previewDiv = this.dom.offPreview;
+        previewDiv.innerHTML = html;
+        previewDiv.style.display = "block";
+        this.dom.offPrintBtn.style.display = "inline-block";
+        
+        this.currentOfficialMeta = {
+            empName,
+            month: `${month}/${year}`,
+            totalHours
+        };
+    },
+
+    printOfficialAttendance() {
+        if (!this.currentOfficialData || this.currentOfficialData.length === 0) return;
+
+        let html = `
+        <html>
+        <head>
+            <title>Výkaz Dochádzky - ${this.currentOfficialMeta.empName}</title>
+            <style>
+                body { font-family: Arial, sans-serif; padding: 30px; font-size: 13px; color: #000; }
+                .header { text-align: center; margin-bottom: 30px; }
+                h2 { margin: 0; font-size: 20px; }
+                h3 { margin: 5px 0 0 0; font-weight: normal; font-size: 16px; color: #444; }
+                table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+                th, td { border: 1px solid #333; padding: 6px 8px; text-align: center; }
+                th { background-color: #eee; font-weight: bold; }
+                td:nth-child(2) { text-align: left; }
+                td:nth-child(6) { text-align: left; }
+                .weekend { background-color: #f9f9f9; color: #666; }
+                .leave { background-color: #fffdf0; font-weight: bold; }
+                .summary { margin-top: 30px; font-size: 15px; font-weight: bold; border: 2px solid #000; padding: 15px; width: 300px; display: inline-block; }
+                .signatures { margin-top: 60px; display: flex; justify-content: space-between; }
+                .sig-box { width: 200px; border-top: 1px solid #000; text-align: center; padding-top: 5px; }
+                @media print { .no-print { display: none; } body { padding: 0; } }
+            </style>
+        </head>
+        <body>
+            <button class="no-print" onclick="window.print()" style="padding: 10px 20px; margin-bottom: 20px; font-weight: bold; cursor: pointer;">🖨️ Vytlačiť VÝKAZ PRE MZDOVÚ ÚČTOVNIČKU</button>
+            
+            <div class="header">
+                <h2>VÝKAZ ODPRACOVANÝCH HODÍN</h2>
+                <h3>Zamestnanec: <strong>${this.currentOfficialMeta.empName}</strong> &nbsp; | &nbsp; Obdobie: <strong>${this.currentOfficialMeta.month}</strong></h3>
+            </div>
+
+            <table>
+                <thead>
+                    <tr>
+                        <th>Dátum</th>
+                        <th>Deň</th>
+                        <th>Príchod</th>
+                        <th>Odchod</th>
+                        <th>Hodiny spolu</th>
+                        <th>Druh neprítomnosti</th>
+                    </tr>
+                </thead>
+                <tbody>
+        `;
+
+        this.currentOfficialData.forEach(row => {
+            let trClass = "";
+            if (row.isWeekend) trClass = "weekend";
+            else if (row.hasLeave) trClass = "leave";
+
+            const rowFormatted = row.hours > 0 ? formatHM(row.hours) : '-';
+
+            html += `
+                <tr class="${trClass}">
+                    <td>${row.date}</td>
+                    <td>${row.dayName}</td>
+                    <td>${row.tIn}</td>
+                    <td>${row.tOut}</td>
+                    <td><strong>${rowFormatted}</strong></td>
+                    <td>${(row.status === 'Práca' || row.status === 'Víkend') ? '' : row.status}</td>
+                </tr>
+            `;
+        });
+
+        const totalFormatted = formatHM(this.currentOfficialMeta.totalHours);
+
+        html += `
+                </tbody>
+            </table>
+            
+            <div class="summary">
+                Mesačný fond celkom: ${totalFormatted}
+            </div>
+
+            <div class="signatures">
+                <div class="sig-box">Podpis zamestnanca</div>
+                <div class="sig-box">Schválil (Vedúci)</div>
+            </div>
+        </body>
+        </html>
+        `;
+
+        const printWin = window.open('', '', 'width=900,height=800');
+        printWin.document.write(html);
+        printWin.document.close();
+    }
   };
 
   document.addEventListener("DOMContentLoaded", () => HR.init());
