@@ -23,6 +23,8 @@ def process_terminal_files():
     
     if not csv_files:
         return
+    
+    now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         
     for file_path in csv_files:
         filename = os.path.basename(file_path)
@@ -163,12 +165,12 @@ def process_terminal_files():
                 interny_ean = None
                 try:
                     map_db = db_connector.execute_query("""
-                        SELECT interny_ean FROM edi_produkty_mapovanie 
-                        WHERE edi_ean = %s OR edi_ean = %s LIMIT 1
+                        SELECT interny_ean FROM b2b_ean_mapovanie 
+                        WHERE objednavkovy_kod = %s OR objednavkovy_kod = %s LIMIT 1
                     """, (ean, ean_clean), fetch="one")
                     if map_db: interny_ean = map_db["interny_ean"]
                 except Exception:
-                    pass 
+                    pass
                     
                 hladany_ean = interny_ean if interny_ean else ean
                 hladany_clean = interny_ean.lstrip('0') if interny_ean and interny_ean.lstrip('0') != '' else ean_clean
@@ -205,14 +207,15 @@ def process_terminal_files():
                 """, (real_weight, order_id, hladany_ean, hladany_clean, f"%{hladany_clean}%"), fetch="none")
             
             sum_db = db_connector.execute_query("""
-                SELECT SUM(COALESCE(dodane_mnozstvo, mnozstvo) * cena_bez_dph) as suma_bez_dph 
-                FROM b2b_objednavky_polozky 
-                WHERE objednavka_id = %s
+                SELECT SUM(
+                    COALESCE(pol.dodane_mnozstvo, pol.mnozstvo) * pol.cena_bez_dph * (1 + COALESCE(p.dph, pol.dph, 20) / 100.0)
+                ) as suma_s_dph 
+                FROM b2b_objednavky_polozky pol
+                LEFT JOIN produkty p ON p.ean = pol.ean_produktu
+                WHERE pol.objednavka_id = %s
             """, (order_id,), fetch="one")
             
-            finalna_suma_bez_dph = float(sum_db.get("suma_bez_dph") or 0) if sum_db else 0.0
-            finalna_suma_s_dph = finalna_suma_bez_dph * 1.20 
-            now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            finalna_suma_s_dph = float(sum_db.get("suma_s_dph") or 0) if sum_db else 0.0
             
             db_connector.execute_query("""
                 UPDATE b2b_objednavky 
