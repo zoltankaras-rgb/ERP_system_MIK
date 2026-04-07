@@ -2298,7 +2298,7 @@ def get_logistics_routes_data(target_date: str):
         FROM b2b_objednavky o
         JOIN b2b_objednavky_polozky pol ON o.id = pol.objednavka_id
         LEFT JOIN produkty p ON ((p.ean IS NOT NULL AND pol.ean_produktu IS NOT NULL AND p.ean = pol.ean_produktu) OR (p.nazov_vyrobku = pol.nazov_vyrobku))
-        WHERE o.stav NOT IN ('Hotová', 'Zrušená', 'Expedovaná') AND DATE(o.pozadovany_datum_dodania) = %s
+        WHERE o.stav NOT IN ('Zrušená', 'Zrusena', 'Stornovaná') AND DATE(o.pozadovany_datum_dodania) = %s
         """
         polozky = db_connector.execute_query(sql, (target_date,), fetch='all') or []
 
