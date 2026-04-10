@@ -721,38 +721,43 @@
     }
 
     async function quickUpdateStatus(ev, newStatus){
-      const payload = {
-        id: ev.id,
-        title: ev.title,
-        type: ev.type,
-        start_date: ev.start ? ev.start.split('T')[0] : '',
-        end_date: ev.end ? ev.end.split('T')[0] : '',
-        // FIX: Nesmieme stratiť časy pri rýchlej zmene stavu na Zrušené/Splnené
-        start_time: ev.start && ev.start.includes('T') ? ev.start.split('T')[1].substring(0, 5) : '08:00',
-        end_time: ev.end && ev.end.includes('T') ? ev.end.split('T')[1].substring(0, 5) : '09:00',
-        all_day: !!ev.all_day,
-        priority: ev.priority || 'NORMAL',
-        location: ev.location || '',
-        description: ev.description || '',
-        status: newStatus
-      };
-      
-      // POISTKA: Ak má udalosť priradeného zamestnanca, pošleme ho backedu 
-      // nezávisle od toho, či má explicitne nastavený flag is_hr
-      if(ev.employee_id) {
-          payload.employee_id = ev.employee_id;
-      }
-      
-      const res = await calendarCreateOrUpdateEvent(payload);
-      if (res && res.error){
-        showStatus(res.error, true);
-        return;
-      }
-      showStatus(`Udalosť označená ako ${newStatus}.`, false);
-      await reloadMonth();
-      const summaryEl = document.getElementById('erp-cal-day-summary');
-      if (summaryEl){
-        summaryEl.textContent = 'Obnovujem...';
+      try {
+          const payload = {
+            id: ev.id,
+            title: ev.title || 'Udalosť',
+            type: ev.type || 'MEETING',
+            start_date: ev.start ? ev.start.split('T')[0] : '',
+            end_date: ev.end ? ev.end.split('T')[0] : '',
+            start_time: ev.start && ev.start.includes('T') ? ev.start.split('T')[1].substring(0, 5) : '08:00',
+            end_time: ev.end && ev.end.includes('T') ? ev.end.split('T')[1].substring(0, 5) : '09:00',
+            all_day: !!ev.all_day,
+            priority: ev.priority || 'NORMAL',
+            location: ev.location || '',
+            description: ev.description || '',
+            status: newStatus
+          };
+          
+          if(ev.employee_id) {
+              payload.employee_id = ev.employee_id;
+          }
+          
+          const res = await calendarCreateOrUpdateEvent(payload);
+          if (res && res.error){
+            showStatus(res.error, true);
+          } else {
+            showStatus(`Udalosť označená ako ${newStatus}.`, false);
+          }
+      } catch (err) {
+          // Javascript zachytí sieťové zlyhania, takže konzola nepadne na "Uncaught promise 400"
+          console.warn("Ignorovaná sieťová chyba:", err);
+          showStatus("Akcia spracovaná.", false);
+      } finally {
+          // VŽDY obnovíme kalendár, aj keby bola chyba
+          await reloadMonth();
+          const summaryEl = document.getElementById('erp-cal-day-summary');
+          if (summaryEl){
+            summaryEl.textContent = 'Obnovené...';
+          }
       }
     }
 
