@@ -204,11 +204,25 @@
     return await calendarApi(url);
   }
 
-  async function calendarCreateOrUpdateEvent(payload){
-    return await calendarApi('/api/calendar/events', {
-      method: 'POST',
-      body: payload
-    });
+ async function calendarCreateOrUpdateEvent(payload){
+    try {
+      const response = await fetch('/api/calendar/events', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      });
+      
+      const data = await response.json();
+      if (!response.ok) {
+         return { error: data.error || `Server vrátil chybu ${response.status}` };
+      }
+      return data;
+    } catch (e) {
+      return { error: `Chyba spojenia so serverom: ${e.message}` };
+    }
   }
 
   // kontaktné osoby
