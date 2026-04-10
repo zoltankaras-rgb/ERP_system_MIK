@@ -1,5 +1,3 @@
-// hr.js – HR & dochádzka modul (Kancelária) - MODERN UI s interaktívnym generátorom a 1x A4 Printom
-
 (function () {
   // Pomocná funkcia na prepočet desatinných hodín na "X hod Y min"
   function formatHM(decimalHours) {
@@ -420,7 +418,7 @@
           <section id="hr-tab-official" class="hr-tab" data-hr-panel="official" style="display:none;">
             <div style="background: #eef2ff; padding: 25px; border-radius: 12px; border: 1px solid #c7d2fe; margin-bottom: 25px;">
                <h4 style="margin-top: 0; color: #3730a3;"><i class="fas fa-magic"></i> Šablóna Oficialnej Dochádzky (Pre Mzdárku)</h4>
-               <p style="color: #4f46e5; margin-bottom: 0;">Tento nástroj vygeneruje tabuľku dochádzky na vybraný mesiac. Automaticky si stiahne <strong>VŠETKY dovolenky, PN, priepustky aj OČR</strong>. Tabuľka je <strong>plne interaktívna</strong> – kliknite do akejkoľvek bunky (čas, hodiny, poznámka) a prepíšte ju. Tlačový výstup je optimalizovaný pre <strong>1x stranu A4</strong>.</p>
+               <p style="color: #4f46e5; margin-bottom: 0;">Tento nástroj vygeneruje tabuľku dochádzky na vybraný mesiac. Automaticky si stiahne <strong>VŠETKY dovolenky, PN, priepustky aj OČR, ale aj ŠTÁTNE SVIATKY z kalendára</strong>. Tabuľka je <strong>plne interaktívna</strong> – kliknite do akejkoľvek bunky (čas, hodiny, poznámka) a prepíšte ju. Tlačový výstup je optimalizovaný pre <strong>1x stranu A4</strong>.</p>
                
                <div style="display:flex; gap:15px; flex-wrap:wrap; margin-top: 20px; background: #fff; padding: 15px; border-radius: 8px; border: 1px solid #e2e8f0;">
                  <div class="form-group">
@@ -1135,6 +1133,21 @@
         const dateTo = `${year}-${month}-${lastDay}`;
 
         let leaves = [];
+        let holidays = [];
+
+        // 1. Načítanie štátnych sviatkov priamo z kalendára
+        try {
+            const holParams = new URLSearchParams();
+            holParams.append("start", dateFrom + "T00:00");
+            holParams.append("end", dateTo + "T23:59");
+            holParams.append("type", "HOLIDAY");
+            const holData = await api.get("/api/calendar/events?" + holParams.toString());
+            holidays = Array.isArray(holData) ? holData : [];
+        } catch(e) {
+            console.error("Chyba pri načítaní sviatkov:", e);
+        }
+
+        // 2. Načítanie PN a dovoleniek z HR modulu
         if (contract === "TPP") {
             try {
                 const params = new URLSearchParams();
@@ -1168,7 +1181,7 @@
         `;
 
         let totalHours = 0;
-        let cWork = 0, cVac = 0, cSick = 0, cDoc = 0, cOther = 0;
+        let cWork = 0, cVac = 0, cSick = 0, cDoc = 0, cOther = 0, cHoliday = 0;
         const daysStr = ["Nedeľa", "Pondelok", "Utorok", "Streda", "Štvrtok", "Piatok", "Sobota"];
 
         let defaultHrs = 8.0;
@@ -1191,7 +1204,18 @@
             let bg = "";
             let fWeight = "";
 
-            if (contract === "TPP") {
+            // Kontrola, či na tento deň nepadá Štátny Sviatok
+            let isHoliday = holidays.find(h => {
+                const hStart = parseDateOnly(h.start || h.start_at).getTime();
+                const hEnd = parseDateOnly(h.end || h.end_at || h.start || h.start_at).getTime();
+                return dTime >= hStart && dTime <= hEnd;
+            });
+
+            if (isHoliday) {
+                status = "Sviatok"; tIn = ""; tOut = ""; hrs = 8.0; bg = "background: #fecaca;";
+                fWeight = "font-weight: bold; color: #b91c1c;";
+                cHoliday++;
+            } else if (contract === "TPP") {
                 let activeLeave = leaves.find(l => {
                     const lf = parseDateOnly(l.date_from).getTime();
                     const lt = parseDateOnly(l.date_to).getTime();
@@ -1252,6 +1276,7 @@
                     <strong style="color:#0f172a; border-bottom: 1px solid #cbd5e1; padding-bottom:5px; display:block; margin-bottom:10px;">Sumár absencií v mesiaci:</strong>
                     Odpracované reálne dni: <strong>${cWork}</strong><br>
                     Dovolenka (Dni): <strong>${cVac}</strong><br>
+                    Sviatok (Dni): <strong>${cHoliday}</strong><br>
                     Lekár / Priepustka (Dni): <strong>${cDoc}</strong><br>
                     PN / OČR (Dni): <strong>${cSick}</strong>
                 </div>

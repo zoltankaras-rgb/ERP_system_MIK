@@ -737,7 +737,11 @@
         status: newStatus
       };
       
-      if(ev.is_hr) payload.employee_id = ev.employee_id;
+      // POISTKA: Ak má udalosť priradeného zamestnanca, pošleme ho backedu 
+      // nezávisle od toho, či má explicitne nastavený flag is_hr
+      if(ev.employee_id) {
+          payload.employee_id = ev.employee_id;
+      }
       
       const res = await calendarCreateOrUpdateEvent(payload);
       if (res && res.error){

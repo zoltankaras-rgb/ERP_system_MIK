@@ -4,7 +4,7 @@ from datetime import datetime
 from flask import Blueprint, request, jsonify, g
 from auth_handler import login_required
 import db_connector
-import hr_handler  # <--- IMPORT HR MODULU PRE PREPOJENIE
+import hr_handler  
 
 calendar_bp = Blueprint("calendar_api", __name__)
 
@@ -17,7 +17,6 @@ def _combine_date_time(d_str, t_str, is_end=False):
 @calendar_bp.route("/employees", methods=["GET"])
 @login_required(role=("kancelaria", "veduci", "admin"))
 def api_calendar_employees():
-    # Načíta zamestnancov z HR pre roletku v kalendári
     return jsonify(hr_handler.list_employees())
 
 @calendar_bp.route("/events", methods=["GET"])
@@ -25,9 +24,10 @@ def api_calendar_employees():
 def api_events_list():
     start = request.args.get("start", "2000-01-01")
     end = request.args.get("end", "2100-01-01")
+    event_type_filter = request.args.get("type", None)
     events = []
     
-    # 1. Klasické udalosti (Sviatky, Stretnutia, Servis...)
+    # 1. Klasické udalosti
     query = """
         SELECT id, title, type, start_at, end_at, all_day, 
                priority, color AS color_hex, description
@@ -35,7 +35,12 @@ def api_events_list():
         WHERE start_at >= %s AND start_at <= %s
           AND is_deleted = 0 AND status != 'CANCELLED'
     """
-    rows = db_connector.execute_query(query, (start, end)) or []
+    params = [start, end]
+    if event_type_filter:
+        query += " AND type = %s"
+        params.append(event_type_filter)
+        
+    rows = db_connector.execute_query(query, tuple(params)) or []
     for r in rows:
         events.append({
             "id": str(r["id"]),
@@ -49,32 +54,40 @@ def api_events_list():
             "description": r["description"]
         })
         
-    # 2. Neprítomnosti z HR modulu (Dovolenky a absencie zamestnancov)
-    query_hr = """
-        SELECT l.id, l.employee_id, e.full_name, l.date_from, l.date_to, l.leave_type, l.note
-        FROM hr_leaves l
-        JOIN hr_employees e ON l.employee_id = e.id
-        WHERE l.date_from <= %s AND l.date_to >= %s
-    """
-    hr_rows = db_connector.execute_query(query_hr, (end[:10], start[:10])) or []
-    for r in hr_rows:
-        leave_type = r["leave_type"]
-        title = f"Dov. - {r['full_name']}" if leave_type == 'VACATION' else f"Abs. - {r['full_name']}"
-        color = "#f59e0b" if leave_type == 'VACATION' else "#ef4444"
-        
-        events.append({
-            "id": f"HR-{r['id']}", # Prefix aby kalendár vedel, že ide o HR záznam
-            "title": title,
-            "type": "VACATION" if leave_type == 'VACATION' else "ABSENCE",
-            "start": str(r["date_from"]) + "T00:00:00",
-            "end": str(r["date_to"]) + "T23:59:59",
-            "all_day": True,
-            "priority": "NORMAL",
-            "color_hex": color,
-            "description": r["note"] or "",
-            "employee_id": r["employee_id"],
-            "is_hr": True
-        })
+    # 2. Neprítomnosti z HR modulu (Dovolenky, absencie, PN, Paragrafy)
+    if not event_type_filter or event_type_filter in ("VACATION", "ABSENCE", "PASS", "SICK"):
+        query_hr = """
+            SELECT l.id, l.employee_id, e.full_name, l.date_from, l.date_to, l.leave_type, l.note
+            FROM hr_leaves l
+            JOIN hr_employees e ON l.employee_id = e.id
+            WHERE l.date_from <= %s AND l.date_to >= %s
+        """
+        hr_rows = db_connector.execute_query(query_hr, (end[:10], start[:10])) or []
+        for r in hr_rows:
+            leave_type = r["leave_type"]
+            
+            if leave_type == 'VACATION':
+                title, ev_type, color = f"Dovolenka - {r['full_name']}", "VACATION", "#f59e0b"
+            elif leave_type == 'PASS':
+                title, ev_type, color = f"Paragraf - {r['full_name']}", "PASS", "#8b5cf6"
+            elif leave_type == 'SICK':
+                title, ev_type, color = f"PN / OČR - {r['full_name']}", "SICK", "#3b82f6"
+            else:
+                title, ev_type, color = f"Absencia - {r['full_name']}", "ABSENCE", "#ef4444"
+            
+            events.append({
+                "id": f"HR-{r['id']}", 
+                "title": title,
+                "type": ev_type,
+                "start": str(r["date_from"]) + "T00:00:00",
+                "end": str(r["date_to"]) + "T23:59:59",
+                "all_day": True,
+                "priority": "NORMAL",
+                "color_hex": color,
+                "description": r["note"] or "",
+                "employee_id": r["employee_id"],
+                "is_hr": True
+            })
         
     return jsonify(events)
 
@@ -87,33 +100,43 @@ def api_events_create():
     event_type = data.get("type", "MEETING")
     status = data.get("status", "OPEN")
     
-    # AK JE TO ZÁZNAM PRE HR (Dovolenka / Absencia)
-    if event_type in ("VACATION", "ABSENCE") or (isinstance(event_id, str) and str(event_id).startswith("HR-")):
+    # AK JE TO ZÁZNAM PRE HR (Dovolenka / Absencia / PN / Paragraf)
+    if event_type in ("VACATION", "ABSENCE", "PASS", "SICK") or (isinstance(event_id, str) and str(event_id).startswith("HR-")):
         hr_id = int(str(event_id).replace("HR-", "")) if event_id and str(event_id).startswith("HR-") else None
         
-        # Ak v kalendári klikli na "Zrušiť" -> Vymažeme dovolenku a vrátime zamestnancovi dni
-        if status == "CANCELLED" and hr_id:
-            res = hr_handler.delete_leave({"id": hr_id})
-            if "error" in res: return jsonify(res), 400
-            return jsonify({"message": "Dovolenka zrušená, dni vrátené."})
+        # ZRUŠENIE NEPRÍTOMNOSTI
+        if status == "CANCELLED":
+            if hr_id:
+                res = hr_handler.delete_leave({"id": hr_id})
+                if "error" in res: return jsonify(res), 400
+                return jsonify({"message": "Neprítomnosť zrušená, dni vrátené."})
+            elif event_id and not str(event_id).startswith("HR-"):
+                db_connector.execute_query("UPDATE calendar_events SET status='CANCELLED', is_deleted=1 WHERE id=%s", (int(event_id),), fetch="none")
+                return jsonify({"message": "Udalosť zrušená."})
+            else:
+                return jsonify({"message": "Zrušené."})
             
         emp_id = data.get("employee_id")
         if not emp_id:
-            return jsonify({"error": "Pre dovolenku alebo absenciu musíte vybrať zamestnanca z HR!"}), 400
+            return jsonify({"error": "Pre túto neprítomnosť musíte vybrať zamestnanca z HR!"}), 400
             
+        mapped_leave = "OTHER"
+        if event_type == "VACATION": mapped_leave = "VACATION"
+        elif event_type == "PASS": mapped_leave = "PASS"
+        elif event_type == "SICK": mapped_leave = "SICK"
+        
         leave_data = {
             "id": hr_id,
             "employee_id": emp_id,
             "date_from": data.get("start_date") or data.get("date"),
             "date_to": data.get("end_date") or data.get("date"),
-            "leave_type": "VACATION" if event_type == "VACATION" else "OTHER",
+            "leave_type": mapped_leave,
             "full_day": True,
             "note": data.get("description", "")
         }
-        # Zapíšeme priamo do HR modulu!
         res = hr_handler.save_leave(leave_data)
         if "error" in res: return jsonify(res), 400
-        return jsonify({"message": "Neprítomnosť prepojená a uložená v HR."})
+        return jsonify({"message": "Neprítomnosť uložená v HR."})
 
     # AK JE TO ŠTANDARDNÁ UDALOSŤ (Sviatok, Porada...)
     title = data.get("title")
