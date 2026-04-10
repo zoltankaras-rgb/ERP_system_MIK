@@ -1212,7 +1212,9 @@
             });
 
             if (isHoliday) {
-                status = "Sviatok"; tIn = ""; tOut = ""; hrs = 8.0; bg = "background: #fecaca;";
+                // Preberáme presný názov štátneho sviatku
+                status = isHoliday.title || "Sviatok"; 
+                tIn = ""; tOut = ""; hrs = 8.0; bg = "background: #fecaca;";
                 fWeight = "font-weight: bold; color: #b91c1c;";
                 cHoliday++;
             } else if (contract === "TPP") {
@@ -1225,10 +1227,13 @@
                 if (isWeekend) {
                     status = "Víkend"; tIn = ""; tOut = ""; hrs = 0; bg = "background: #f1f5f9;";
                 } else if (activeLeave) {
-                    if(activeLeave.leave_type === "VACATION") { status = "Dovolenka"; cVac++; }
-                    else if(activeLeave.leave_type === "SICK") { status = "PN / OČR"; cSick++; }
-                    else if(activeLeave.leave_type === "PASS") { status = "Lekár / Priepustka"; cDoc++; }
-                    else { status = "Iná absencia"; cOther++; }
+                    // Pripne presný dôvod z kalendára
+                    let customReason = activeLeave.note ? ` (${activeLeave.note})` : "";
+                    
+                    if(activeLeave.leave_type === "VACATION") { status = "Dovolenka" + customReason; cVac++; }
+                    else if(activeLeave.leave_type === "SICK") { status = "PN / OČR" + customReason; cSick++; }
+                    else if(activeLeave.leave_type === "PASS") { status = "Paragraf" + customReason; cDoc++; }
+                    else { status = "Absencia" + customReason; cOther++; }
                     
                     tIn = ""; tOut = ""; hrs = 8.0; bg = "background: #fef3c7;";
                     fWeight = "font-weight: bold; color: #b45309;";
@@ -1277,7 +1282,7 @@
                     Odpracované reálne dni: <strong>${cWork}</strong><br>
                     Dovolenka (Dni): <strong>${cVac}</strong><br>
                     Sviatok (Dni): <strong>${cHoliday}</strong><br>
-                    Lekár / Priepustka (Dni): <strong>${cDoc}</strong><br>
+                    Paragraf (Dni): <strong>${cDoc}</strong><br>
                     PN / OČR (Dni): <strong>${cSick}</strong>
                 </div>
             `;

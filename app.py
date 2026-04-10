@@ -2585,7 +2585,7 @@ def api_calendar_events_list():
             "status": r.get("status") or EVENT_STATUS_OPEN,
         })
         
-    # --- PRIDANÉ: Načítanie HR neprítomností do kalendára ---
+    # --- PRIDANÉ: Načítanie HR dovoleniek ---
     d_end = end_dt.strftime("%Y-%m-%d") if end_dt else "2100-01-01"
     d_start = start_dt.strftime("%Y-%m-%d") if start_dt else "2000-01-01"
     hr_query = """
@@ -2597,15 +2597,18 @@ def api_calendar_events_list():
     hr_rows = db_connector.execute_query(hr_query, (d_end, d_start)) or []
     for r in hr_rows:
         leave_type = r["leave_type"]
-        
         if leave_type == 'VACATION':
             title, ev_type, color = f"Dovolenka - {r['full_name']}", "VACATION", "#f59e0b"
         elif leave_type == 'PASS':
             title, ev_type, color = f"Paragraf - {r['full_name']}", "PASS", "#8b5cf6"
         elif leave_type == 'SICK':
-            title, ev_type, color = f"PN / OČR - {r['full_name']}", "SICK", "#3b82f6"
+            title, ev_type, color = f"PN - {r['full_name']}", "SICK", "#3b82f6"
         else:
             title, ev_type, color = f"Absencia - {r['full_name']}", "ABSENCE", "#ef4444"
+            
+        # Pripneme vlastný dôvod do názvu v kalendári
+        if r.get("note"):
+            title = f"{title} ({r['note']})"
             
         events.append({
             "id": f"HR-{r['id']}", 
@@ -2671,6 +2674,16 @@ def api_calendar_event_create_or_update():
     if ev_type in ("VACATION", "ABSENCE", "PASS", "SICK") or (isinstance(raw_id, str) and str(raw_id).startswith("HR-")):
         hr_id = int(str(raw_id).replace("HR-", "")) if raw_id and str(raw_id).startswith("HR-") else None
         
+        # Opravené a garantované mazanie
+        if status == "CANCELLED" and hr_id:
+            leave = db_connector.execute_query("SELECT leave_type, days_count, employee_id FROM hr_leaves WHERE id=%s", (hr_id,), fetch="one")
+            if leave and str(leave.get("leave_type", "")).upper() == "VACATION":
+                days = float(leave.get("days_count") or 0.0)
+                if days > 0:
+                    db_connector.execute_query("UPDATE hr_employees SET vacation_days_used = GREATEST(vacation_days_used - %s, 0) WHERE id=%s", (days, leave["employee_id"]), fetch="none")
+            db_connector.execute_query("DELETE FROM hr_leaves WHERE id=%s", (hr_id,), fetch="none")
+            return jsonify({"message": "Neprítomnosť zrušená."})
+            
         emp_id = data.get("employee_id")
         if not emp_id:
             return jsonify({"error": "Pre túto neprítomnosť musíte vybrať zamestnanca!"}), 400
@@ -2680,6 +2693,17 @@ def api_calendar_event_create_or_update():
         elif ev_type == "PASS": mapped_leave = "PASS"
         elif ev_type == "SICK": mapped_leave = "SICK"
 
+        # Zlúčenie Vlastného názvu z kalendára a poznámky do HR Výkazu
+        title_input = (data.get("title") or "").strip()
+        desc_input = (data.get("description") or "").strip()
+        final_note = desc_input
+        
+        if title_input and title_input not in ("Dovolenka", "Absencia", "Paragraf", "PN", "Nová udalosť"):
+            if final_note:
+                final_note = f"{title_input} - {final_note}"
+            else:
+                final_note = title_input
+
         leave_data = {
             "id": hr_id,
             "employee_id": emp_id,
@@ -2687,12 +2711,12 @@ def api_calendar_event_create_or_update():
             "date_to": data.get("end_date") or data.get("end_at")[:10],
             "leave_type": mapped_leave,
             "full_day": True,
-            "note": data.get("description", "")
+            "note": final_note
         }
         res = hr_handler.save_leave(leave_data)
         if "error" in res: return jsonify(res), 400
         return jsonify({"message": "Neprítomnosť uložená v HR.", "id": f"HR-{res.get('id')}"}), 200
-
+    # ----------------------------------------------------
     # =====================================================================
     # 3. BEŽNÉ UDALOSTI V KALENDÁRI
     # =====================================================================
