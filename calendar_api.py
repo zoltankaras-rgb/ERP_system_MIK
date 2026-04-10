@@ -100,22 +100,32 @@ def api_events_create():
     event_type = data.get("type", "MEETING")
     status = data.get("status", "OPEN")
     
-    # AK JE TO ZÁZNAM PRE HR (Dovolenka / Absencia / PN / Paragraf)
+    # =========================================================================
+    # --- 1. RÝCHLE AKCIE: ZRUŠIŤ / SPLNIŤ (Ochrana voči 400 Bad Request) ---
+    # =========================================================================
+    if status == "CANCELLED" and event_id:
+        if str(event_id).startswith("HR-"):
+            hr_id = int(str(event_id).replace("HR-", ""))
+            res = hr_handler.delete_leave({"id": hr_id})
+            # Tichý "success" ak sa dovolenka už predtým vymazala
+            if "error" in res and "nenašla" not in res.get("error", ""):
+                return jsonify(res), 400
+            return jsonify({"message": "Neprítomnosť zrušená."})
+        else:
+            db_connector.execute_query("UPDATE calendar_events SET status='CANCELLED', is_deleted=1 WHERE id=%s", (int(event_id),), fetch="none")
+            return jsonify({"message": "Udalosť zrušená."})
+            
+    if status == "DONE" and event_id:
+        if not str(event_id).startswith("HR-"):
+            db_connector.execute_query("UPDATE calendar_events SET status='DONE' WHERE id=%s", (int(event_id),), fetch="none")
+        return jsonify({"message": "Udalosť splnená."})
+
+    # =========================================================================
+    # --- 2. ZÁZNAM PRE HR: TVORBA A ÚPRAVA ---
+    # =========================================================================
     if event_type in ("VACATION", "ABSENCE", "PASS", "SICK") or (isinstance(event_id, str) and str(event_id).startswith("HR-")):
         hr_id = int(str(event_id).replace("HR-", "")) if event_id and str(event_id).startswith("HR-") else None
         
-        # ZRUŠENIE NEPRÍTOMNOSTI
-        if status == "CANCELLED":
-            if hr_id:
-                res = hr_handler.delete_leave({"id": hr_id})
-                if "error" in res: return jsonify(res), 400
-                return jsonify({"message": "Neprítomnosť zrušená, dni vrátené."})
-            elif event_id and not str(event_id).startswith("HR-"):
-                db_connector.execute_query("UPDATE calendar_events SET status='CANCELLED', is_deleted=1 WHERE id=%s", (int(event_id),), fetch="none")
-                return jsonify({"message": "Udalosť zrušená."})
-            else:
-                return jsonify({"message": "Zrušené."})
-            
         emp_id = data.get("employee_id")
         if not emp_id:
             return jsonify({"error": "Pre túto neprítomnosť musíte vybrať zamestnanca z HR!"}), 400
@@ -138,7 +148,9 @@ def api_events_create():
         if "error" in res: return jsonify(res), 400
         return jsonify({"message": "Neprítomnosť uložená v HR."})
 
-    # AK JE TO ŠTANDARDNÁ UDALOSŤ (Sviatok, Porada...)
+    # =========================================================================
+    # --- 3. ŠTANDARDNÁ UDALOSŤ: TVORBA A ÚPRAVA ---
+    # =========================================================================
     title = data.get("title")
     if not title: return jsonify({"error": "Chýba názov"}), 400
 
@@ -181,6 +193,7 @@ def api_events_create():
         
     db_connector.execute_query(query, params, fetch="none")
     return jsonify({"message": "Uložené"})
+
 
 @calendar_bp.route("/events/<string:event_id>", methods=["DELETE"])
 @login_required(role=("kancelaria", "veduci", "admin"))
