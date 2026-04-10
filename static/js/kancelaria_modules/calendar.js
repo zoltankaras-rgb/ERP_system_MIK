@@ -736,14 +736,30 @@
 
     async function quickUpdateStatus(ev, newStatus){
       try {
+          // Extrémne bezpečná extrakcia dátumu - aby databáza NIKDY nevyhodila error o chýbajúcom dátume
+          const todayStr = new Date().toISOString().split('T')[0];
+          let sDate = todayStr, eDate = todayStr;
+          let sTime = '08:00', eTime = '09:00';
+          
+          if(ev.start) {
+              const parts = ev.start.split('T');
+              sDate = parts[0] || todayStr;
+              if(parts[1]) sTime = parts[1].substring(0, 5);
+          }
+          if(ev.end) {
+              const parts = ev.end.split('T');
+              eDate = parts[0] || sDate;
+              if(parts[1]) eTime = parts[1].substring(0, 5);
+          }
+
           const payload = {
             id: ev.id,
             title: ev.title || 'Udalosť',
             type: ev.type || 'MEETING',
-            start_date: ev.start ? ev.start.split('T')[0] : '',
-            end_date: ev.end ? ev.end.split('T')[0] : '',
-            start_time: ev.start && ev.start.includes('T') ? ev.start.split('T')[1].substring(0, 5) : '08:00',
-            end_time: ev.end && ev.end.includes('T') ? ev.end.split('T')[1].substring(0, 5) : '09:00',
+            start_date: sDate,
+            end_date: eDate,
+            start_time: sTime,
+            end_time: eTime,
             all_day: !!ev.all_day,
             priority: ev.priority || 'NORMAL',
             location: ev.location || '',
@@ -751,9 +767,7 @@
             status: newStatus
           };
           
-          if(ev.employee_id) {
-              payload.employee_id = ev.employee_id;
-          }
+          if(ev.employee_id) payload.employee_id = ev.employee_id;
           
           const res = await calendarCreateOrUpdateEvent(payload);
           if (res && res.error){
@@ -762,16 +776,12 @@
             showStatus(`Udalosť označená ako ${newStatus}.`, false);
           }
       } catch (err) {
-          // Javascript zachytí sieťové zlyhania, takže konzola nepadne na "Uncaught promise 400"
           console.warn("Ignorovaná sieťová chyba:", err);
           showStatus("Akcia spracovaná.", false);
       } finally {
-          // VŽDY obnovíme kalendár, aj keby bola chyba
           await reloadMonth();
           const summaryEl = document.getElementById('erp-cal-day-summary');
-          if (summaryEl){
-            summaryEl.textContent = 'Obnovené...';
-          }
+          if (summaryEl) summaryEl.textContent = 'Obnovené...';
       }
     }
 
