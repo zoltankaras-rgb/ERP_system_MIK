@@ -4,7 +4,7 @@
 // - klik na deň -> modal s udalosťami + formulár
 // - kontaktné osoby (calendar_contacts)
 // - status udalosti: OPEN / DONE / CANCELLED
-// - PREPOJENIE NA HR (Dovolenky, Absencie, Sviatky)
+// - PREPOJENIE NA HR (Dovolenky, Absencie, Paragraf, PN, Sviatky)
 // ======================================================================
 
 (function(){
@@ -187,8 +187,17 @@
 
   async function calendarFetchEvents(range = {}){
     const params = new URLSearchParams();
-    if (range.start instanceof Date) params.set('start', range.start.toISOString().slice(0,16));
-    if (range.end   instanceof Date) params.set('end',   range.end.toISOString().slice(0,16));
+    
+    // Bezpečný prevod na lokálny ISO string (bez posunu do UTC pásma)
+    const toLocalISO = (d) => {
+        if (!(d instanceof Date) || isNaN(d)) return null;
+        const pad = (n) => String(n).padStart(2, '0');
+        return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    };
+
+    if (range.start instanceof Date) params.set('start', toLocalISO(range.start));
+    if (range.end   instanceof Date) params.set('end',   toLocalISO(range.end));
+    
     if (range.type)                  params.set('type',  range.type);
     if (range.resource_id)           params.set('resource_id', range.resource_id);
     const url = '/api/calendar/events?' + params.toString();
@@ -282,7 +291,8 @@
       const year  = st.currentMonth.getFullYear();
       const month = st.currentMonth.getMonth();
       const start = new Date(year, month, 1);
-      const end   = new Date(year, month + 1, 0);
+      // Pridané presné hodiny a minúty pre zachytenie celého 30. / 31. dňa
+      const end   = new Date(year, month + 1, 0, 23, 59, 59);
 
       const res = await calendarFetchEvents({ start, end });
       if (res && res.__error){
@@ -470,6 +480,8 @@
                       <option value="SERVICE">Servis / STK / EK</option>
                       <option value="VACATION" style="color: #ea580c; font-weight: bold;">Dovolenka (Prepojené s HR)</option>
                       <option value="ABSENCE" style="color: #ea580c; font-weight: bold;">Absencia (Prepojené s HR)</option>
+                      <option value="PASS" style="color: #ea580c; font-weight: bold;">Paragraf (Prepojené s HR)</option>
+                      <option value="SICK" style="color: #ea580c; font-weight: bold;">PN (Prepojené s HR)</option>
                       <option value="HOLIDAY" style="color: #d32f2f; font-weight: bold;">Sviatok / Pracovný pokoj</option>
                     </select>
                   </div>
@@ -620,7 +632,7 @@
             allDayCheckbox.addEventListener('change', syncAllDay);
 
             function toggleHrVisibility() {
-                const isHr = ['VACATION', 'ABSENCE'].includes(typeSelect.value);
+                const isHr = ['VACATION', 'ABSENCE', 'PASS', 'SICK'].includes(typeSelect.value);
                 if(hrGroup) hrGroup.style.display = isHr ? 'block' : 'none';
                 if(locGroup) locGroup.style.display = isHr ? 'none' : 'block';
                 if(contactsFieldset1) contactsFieldset1.style.display = isHr ? 'none' : 'block';
@@ -629,7 +641,11 @@
                 if(isHr) {
                     allDayCheckbox.checked = true;
                     syncAllDay();
-                    if (!f.title.value || f.title.value === 'Nová udalosť') f.title.value = "Dovolenka";
+                    // Automatické pomenovanie ak je pole prázdne alebo má niektorý z default názvov
+                    if (!f.title.value || ['Dovolenka', 'Absencia', 'Paragraf', 'PN', 'Nová udalosť'].includes(f.title.value)) {
+                        const typeLabels = { 'VACATION': 'Dovolenka', 'ABSENCE': 'Absencia', 'PASS': 'Paragraf', 'SICK': 'PN' };
+                        f.title.value = typeLabels[typeSelect.value] || "Dovolenka";
+                    }
                 }
             }
             typeSelect.addEventListener('change', toggleHrVisibility);
@@ -668,6 +684,7 @@
                 const evId = btn.getAttribute('data-ev-cancel');
                 btn.onclick = async (e)=>{
                   e.preventDefault();
+                  btn.disabled = true; // Zamedzenie dvojitého kliku = fix 400 error
                   const ev = events.find(x=> String(x.id) === String(evId));
                   if (!ev) return;
                   await quickUpdateStatus(ev, 'CANCELLED');
@@ -710,6 +727,9 @@
         type: ev.type,
         start_date: ev.start ? ev.start.split('T')[0] : '',
         end_date: ev.end ? ev.end.split('T')[0] : '',
+        // FIX: Nesmieme stratiť časy pri rýchlej zmene stavu na Zrušené/Splnené
+        start_time: ev.start && ev.start.includes('T') ? ev.start.split('T')[1].substring(0, 5) : '08:00',
+        end_time: ev.end && ev.end.includes('T') ? ev.end.split('T')[1].substring(0, 5) : '09:00',
         all_day: !!ev.all_day,
         priority: ev.priority || 'NORMAL',
         location: ev.location || '',
@@ -717,7 +737,6 @@
         status: newStatus
       };
       
-      // Ak mažeme/updatujeme HR záznam, pridáme ID zamestnanca aby backend vedel
       if(ev.is_hr) payload.employee_id = ev.employee_id;
       
       const res = await calendarCreateOrUpdateEvent(payload);
@@ -793,7 +812,7 @@
       const raw = Object.fromEntries(fd.entries());
 
       const title = (raw.title || '').trim();
-      if (!title && !['VACATION', 'ABSENCE'].includes(raw.type)){
+      if (!title && !['VACATION', 'ABSENCE', 'PASS', 'SICK'].includes(raw.type)){
         showStatus('Názov udalosti je povinný.', true);
         return;
       }
