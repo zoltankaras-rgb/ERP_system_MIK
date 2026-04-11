@@ -58,7 +58,7 @@ import chains_handler
 import nakup_handler
 import time
 import expedition_board_handler
-import terminal_handler
+import terminal_handler 
 
 os.environ['TZ'] = 'Europe/Bratislava'
 if hasattr(time, 'tzset'):
