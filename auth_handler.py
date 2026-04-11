@@ -62,6 +62,9 @@ MODULE_ROLE_MATRIX = {
     'expedicia': {'veduci', 'expedicia', 'admin'},  # veduci má prístup do expedície
     'kancelaria': {'kancelaria', 'admin'},
     'vyroba': {'vyroba', 'admin'},
+
+    # --- NOVÉ: Peťov vyhradený priestor ---
+    'margit': {'margit', 'admin'},
 }
 
 
