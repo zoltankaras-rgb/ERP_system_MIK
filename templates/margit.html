@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teta Margit - Objednávkový portál</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/kancelaria.css') }}">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="logo">Teta Margit (Dev)</div>
+        <div class="user-info">
+            Prihlásený: {{ session.get('user', {}).get('username') }}
+            <a href="/logout" class="btn-logout">Odhlásiť</a>
+        </div>
+    </nav>
+
+    <div class="main-container" style="padding: 20px;">
+        <h1>Vitajte v systéme</h1>
+        <p>Toto je testovacie prostredie pre B2B objednávky a cenníky.</p>
+        
+        <div class="dashboard-grid" style="display: flex; gap: 15px; margin-top: 20px;">
+            <button class="btn btn-primary" onclick="alert('Zatiaľ vo vývoji')">Nová B2B Objednávka</button>
+            <button class="btn btn-secondary" onclick="alert('Zatiaľ vo vývoji')">Správa Cenníkov</button>
+            <button class="btn btn-success" onclick="alert('Zatiaľ vo vývoji')">Export pre účtovníčku</button>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/margit.js') }}"></script>
+</body>
+</html>

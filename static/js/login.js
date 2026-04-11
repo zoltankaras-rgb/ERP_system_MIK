@@ -1,4 +1,3 @@
-// static/js/login.js
 (() => {
   'use strict';
 
@@ -62,14 +61,17 @@
         const role = (resp.user.role || '').toLowerCase();
         let target = '/';
 
+        // --- ROZDEĽOVNÍK PODĽA ROLY ---
         if (role === 'admin') {
-          target = '/expedicia';               // prípadne zmeň napr. na '/kancelaria'
+          target = '/kancelaria';             // Admina pošleme radšej do riadiaceho centra
         } else if (role === 'kancelaria') {
           target = '/kancelaria';
         } else if (role === 'vyroba') {
           target = '/vyroba';
         } else if (role === 'veduci' || role === 'expedicia') {
           target = '/expedicia';
+        } else if (role === 'margit') {       // <--- NOVÉ: Peťov vyhradený smer!
+          target = '/margit';
         }
 
         setStatus('Prihlásenie úspešné.');
