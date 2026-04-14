@@ -794,41 +794,38 @@ def leader_b2b_notify_order():
 # TV TABUĽA: Správa oznamov a stálych poznámok
 # =============================================================================
 @leader_bp.get('/tv_board/live_kpi')
+@login_required(role=('veduci','admin'))
 def tv_board_live_kpi():
     from datetime import date, datetime, timedelta
     
-    # Dnešný deň pre výpočet tempa (kedy sa reálne klikalo)
     today_str = date.today().strftime('%Y-%m-%d')
     
-    # Získame cieľový dátum, ktorý máte nastavený pre expedíciu (zajtrajšok)
-    # Ak metóda vráti None, použijeme zajtrajšok ako fallback
-    target_date = db_connector.execute_query("SELECT hodnota FROM nastavenia WHERE kluc='expedicia_cielovy_datum'")
-    if target_date and target_date[0].get('hodnota'):
-        t_date = target_date[0].get('hodnota')
-    else:
-        t_date = (date.today() + timedelta(days=1)).strftime('%Y-%m-%d')
+    # 1. Oprava tabuľky: v projekte sa volá 'system_settings'
+    target_date_row = db_connector.execute_query(
+        "SELECT hodnota FROM system_settings WHERE kluc='expedicia_cielovy_datum'", 
+        fetch='one'
+    )
+    t_date = target_date_row.get('hodnota') if target_date_row else (date.today() + timedelta(days=1)).strftime('%Y-%m-%d')
 
-    # Načítame objednávky pre CIEĽOVÝ dátum (zajtra), aby sme vedeli, koľko ostáva
-    # Ale stavy a časy vypracovania pozeráme pre DNEŠOK
-    q_b2c = "SELECT stav, datum_vypracovania FROM b2c_objednavky WHERE DATE(pozadovany_datum_dodania) = %s"
-    q_b2b = "SELECT stav, datum_vypracovania FROM b2b_objednavky WHERE DATE(pozadovany_datum_dodania) = %s"
-    
-    rows_b2c = db_connector.execute_query(q_b2c, (t_date,)) or []
-    rows_b2b = db_connector.execute_query(q_b2b, (t_date,)) or []
+    # 2. Dynamická detekcia stĺpcov pre dátum dodania
+    b2c_date_col = _pick_col('b2c_objednavky', ['pozadovany_datum_dodania', 'datum_dodania', 'datum_objednavky']) or 'id'
+    b2b_date_col = _pick_col('b2b_objednavky', ['pozadovany_datum_dodania', 'datum_objednavky']) or 'id'
+
+    # 3. Použijeme SELECT *, aby sme sa vyhli chybe s neexistujúcim stĺpcom datum_vypracovania
+    rows_b2c = db_connector.execute_query(f"SELECT * FROM b2c_objednavky WHERE DATE({b2c_date_col}) = %s", (t_date,)) or []
+    rows_b2b = db_connector.execute_query(f"SELECT * FROM b2b_objednavky WHERE DATE({b2b_date_col}) = %s", (t_date,)) or []
 
     hotove_dnes_casy = []
     zostava_chystat = 0
     
     for r in rows_b2c + rows_b2b:
         stav = r.get('stav', '')
-        # Objednávka je hotová
         if stav in ('Hotová', 'Expedovaná'):
-            cas = r.get('datum_vypracovania')
-            # Zaujímajú nás len tie, čo sa spravili DNES
+            # Použijeme tvoju logiku z dashboardu na hľadanie času dokončenia
+            cas = r.get('datum_vypracovania') or r.get('vypracovane') or r.get('cas_dokoncenia') or r.get('updated_at')
             if cas:
-                # Ak je to string, orežeme na dátum, ak datetime objekt, použijeme date()
-                c_date = cas.strftime('%Y-%m-%d') if hasattr(cas, 'strftime') else str(cas)[:10]
-                if c_date == today_str:
+                c_date_str = cas.strftime('%Y-%m-%d') if hasattr(cas, 'strftime') else str(cas)[:10]
+                if c_date_str == today_str:
                     hotove_dnes_casy.append(cas)
         elif stav not in ('Zrušená'):
             zostava_chystat += 1
@@ -849,12 +846,11 @@ def tv_board_live_kpi():
             platne_intervaly = []
             for i in range(1, len(parsed_casy)):
                 rozdiel = (parsed_casy[i] - parsed_casy[i-1]).total_seconds()
-                if 10 < rozdiel < 1200: # 10 sek až 20 min (pauzy ignorujeme)
+                if 10 < rozdiel < 1200: # 10 sekúnd až 20 minút (pauzy ignorujeme)
                     platne_intervaly.append(rozdiel)
 
             if platne_intervaly:
                 tempo_minuty = round((sum(platne_intervaly) / len(platne_intervaly)) / 60.0, 1)
-                
                 if zostava_chystat > 0:
                     koniec_dt = datetime.now() + timedelta(minutes=(zostava_chystat * tempo_minuty))
                     odhad_konca = koniec_dt.strftime('%H:%M')
@@ -865,7 +861,6 @@ def tv_board_live_kpi():
         'odhad_konca': odhad_konca,
         'target_date': t_date
     })
-
 @leader_bp.route('/tv_board/customers', methods=['GET'])
 @login_required(role=('veduci','admin'))
 def get_tv_board_customers():
