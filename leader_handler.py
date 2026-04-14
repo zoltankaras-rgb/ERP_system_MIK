@@ -1650,25 +1650,26 @@ def leader_predictive_batch():
         conn = _get_conn()
         cur = conn.cursor(dictionary=True)
         
-        # 1. HISTÓRIA (Zmäkčená podmienka - zmazali sme HAVING avg_qty > 1.0)
+       # 1. HISTÓRIA (Zmäkčená podmienka - pozeráme posledných 30 dní plošne)
         sql_history = """
             SELECT 
                 op.ean_produktu as ean, 
                 MAX(op.nazov_vyrobku) as name,
                 MAX(LOWER(COALESCE(p.predajna_kategoria, 'default'))) as category,
                 MAX(COALESCE(p.mj, 'kg')) as mj,
-                (SUM(op.mnozstvo) / 3.0) as avg_qty
+                (SUM(op.mnozstvo) / GREATEST(COUNT(DISTINCT DATE(o.pozadovany_datum_dodania)), 1)) as avg_qty
             FROM b2b_objednavky_polozky op
             JOIN b2b_objednavky o ON o.id = op.objednavka_id
             LEFT JOIN produkty p ON p.ean = op.ean_produktu
-            WHERE DAYOFWEEK(o.pozadovany_datum_dodania) = DAYOFWEEK(%s)
-              AND o.pozadovany_datum_dodania < %s
-              AND o.pozadovany_datum_dodania >= DATE_SUB(%s, INTERVAL 4 WEEK)
+            WHERE o.pozadovany_datum_dodania < %s
+              AND o.pozadovany_datum_dodania >= DATE_SUB(%s, INTERVAL 30 DAY)
               AND o.nazov_firmy LIKE %s
               AND o.stav != 'Zrušená'
             GROUP BY op.ean_produktu
         """
-        cur.execute(sql_history, (target_date, target_date, target_date, client_filter))
+        # POZOR ZMENA TU: Odstránili sme jedno '%s' v SQL, takže musíme poslať len 3 parametre
+        cur.execute(sql_history, (target_date, target_date, client_filter))
+
         history_rows = cur.fetchall() or []
 
         # 2. REÁLNY STAV (Na dnes)
