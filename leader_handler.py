@@ -1638,7 +1638,8 @@ def leader_predictive_batch():
     if not target_date:
         target_date = (date.today() + timedelta(days=1)).strftime('%Y-%m-%d')
         
-    client_filter = request.args.get('client_filter', '%COOP%') 
+    # ZMENA 1: Pevný filter na prefix EDI objednávok namiesto názvu firmy
+    order_filter = 'EDI-%'
 
     TOLERANCES = {
         'výrobky': 1.08, 'bravčové mäso chladené': 1.03, 'hovädzie mäso chladené': 1.03,
@@ -1650,7 +1651,7 @@ def leader_predictive_batch():
         conn = _get_conn()
         cur = conn.cursor(dictionary=True)
         
-       # 1. HISTÓRIA (Zmäkčená podmienka - pozeráme posledných 30 dní plošne)
+        # 1. HISTÓRIA (Priemer za posledných 30 dní - filter podľa cislo_objednavky)
         sql_history = """
             SELECT 
                 op.ean_produktu as ean, 
@@ -1663,16 +1664,14 @@ def leader_predictive_batch():
             LEFT JOIN produkty p ON p.ean = op.ean_produktu
             WHERE o.pozadovany_datum_dodania < %s
               AND o.pozadovany_datum_dodania >= DATE_SUB(%s, INTERVAL 30 DAY)
-              AND o.nazov_firmy LIKE %s
+              AND o.cislo_objednavky LIKE %s
               AND o.stav != 'Zrušená'
             GROUP BY op.ean_produktu
         """
-        # POZOR ZMENA TU: Odstránili sme jedno '%s' v SQL, takže musíme poslať len 3 parametre
-        cur.execute(sql_history, (target_date, target_date, client_filter))
-
+        cur.execute(sql_history, (target_date, target_date, order_filter))
         history_rows = cur.fetchall() or []
 
-        # 2. REÁLNY STAV (Na dnes)
+        # 2. REÁLNY STAV NA DNES (Taktiež len EDI objednávky)
         sql_real = """
             SELECT 
                 op.ean_produktu as ean, 
@@ -1680,18 +1679,19 @@ def leader_predictive_batch():
             FROM b2b_objednavky_polozky op
             JOIN b2b_objednavky o ON o.id = op.objednavka_id
             WHERE DATE(o.pozadovany_datum_dodania) = %s
+              AND o.cislo_objednavky LIKE %s
               AND o.stav != 'Zrušená'
             GROUP BY op.ean_produktu
         """
-        cur.execute(sql_real, (target_date,))
+        cur.execute(sql_real, (target_date, order_filter))
         real_rows = {str(r['ean']): float(r['real_qty']) for r in cur.fetchall() or []}
 
         # --- LADIACE VÝPISY DO TERMINÁLU ---
         print("\n" + "="*50)
-        print(f"🔎 DEBUG SLEPÉHO ZBERU (Dátum: {target_date}, Filter: {client_filter})")
-        print(f"Nájdených produktov v histórii: {len(history_rows)}")
+        print(f"🔎 DEBUG SLEPÉHO ZBERU (Dátum: {target_date}, Filter: {order_filter})")
+        print(f"Nájdených produktov z EDI histórie: {len(history_rows)}")
         if not history_rows:
-            print("❌ V histórii (posledné 4 týždne v rovnaký deň) nie sú pre tohto klienta ŽIADNE dáta!")
+            print("❌ V histórii (posledných 30 dní) neboli nájdené žiadne EDI objednávky!")
         
         results = []
         for h in history_rows:
@@ -1717,8 +1717,8 @@ def leader_predictive_batch():
 
             delta_to_pick = final_target - real_qty
             
-            # Ďalší ladiaci výpis pre konkrétny produkt
-            print(f"📦 {name}: Priemer={avg_qty:.2f}, Objednané={real_qty:.2f}, Cieľ={final_target:.2f} -> CHÝBA={delta_to_pick:.2f}")
+            if delta_to_pick > 0:
+                print(f"📦 {name}: Priemer={avg_qty:.2f}, DnesObjednané={real_qty:.2f}, Cieľ={final_target:.2f} -> CHÝBA NACHYSTAŤ={delta_to_pick:.2f}")
 
             results.append({
                 'ean': ean,
@@ -1738,7 +1738,7 @@ def leader_predictive_batch():
 
         return jsonify({
             'target_date': target_date,
-            'client_filter': client_filter.replace('%', ''),
+            'client_filter': order_filter,
             'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             'predictions': [r for r in results if r['blind_pick_delta'] > 0]
         })
