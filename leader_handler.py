@@ -1744,3 +1744,62 @@ def leader_predictive_batch():
         except: pass
         try: conn.close()
         except: pass
+
+@leader_bp.get('/plan/rozpis')
+@login_required(role=('veduci', 'admin'))
+def leader_plan_rozpis():
+    target_date = request.args.get('date')
+    category = request.args.get('category', 'all')
+    
+    if not target_date:
+        return jsonify({'error': 'Chýba dátum.'}), 400
+
+    # SQL pre B2B aj B2C s UNION ALL pre kompletný rozpis
+    # Kľúčové je o.stav != 'Zrušená' (aby tam ostali aj Hotové)
+    sql_base = """
+        SELECT 
+            odberatel, produkt, mnozstvo, mj, kategoria
+        FROM (
+            SELECT 
+                o.nazov_firmy as odberatel, 
+                pol.nazov_vyrobku as produkt, 
+                pol.mnozstvo, pol.mj, 
+                p.predajna_kategoria as kategoria,
+                o.pozadovany_datum_dodania as datum,
+                o.stav
+            FROM b2b_objednavky_polozky pol
+            JOIN b2b_objednavky o ON o.id = pol.objednavka_id
+            LEFT JOIN produkty p ON p.ean = pol.ean_produktu
+            
+            UNION ALL
+            
+            SELECT 
+                COALESCE(o.nazov_firmy, 'B2C Zákazník') as odberatel, 
+                pol.nazov_vyrobku as produkt, 
+                pol.mnozstvo, pol.mj, 
+                p.predajna_kategoria as kategoria,
+                o.pozadovany_datum_dodania as datum,
+                o.stav
+            FROM b2c_objednavky_polozky pol
+            JOIN b2c_objednavky o ON o.id = pol.objednavka_id
+            LEFT JOIN produkty p ON p.ean = pol.ean_produktu
+        ) as combined
+        WHERE DATE(datum) = %s AND stav != 'Zrušená'
+    """
+    
+    params = [target_date]
+    
+    # Rozšírená logika pre kategóriu
+    if category != 'all':
+        if category == 'mrazené':
+            # Hľadáme 'mrazen' kdekoľvek v kategórii alebo názve (ryby, mäso, tovar...)
+            sql_base += " AND (LOWER(kategoria) LIKE '%%mrazen%%' OR LOWER(produkt) LIKE '%%mrazen%%')"
+        else:
+            sql_base += " AND kategoria = %s"
+            params.append(category)
+
+    try:
+        rows = db_connector.execute_query(sql_base, tuple(params), fetch='all') or []
+        return jsonify({'items': rows})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
