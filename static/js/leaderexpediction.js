@@ -2895,7 +2895,7 @@ document.addEventListener('click', function(e) {
 // =========================================================
 var currentBreakdownData = {}; 
 
-async function loadExpeditionBreakdown() {
+window.loadExpeditionBreakdown = async function() {
     const dateInput = document.getElementById('breakdown-date');
     const categorySelect = document.getElementById('breakdown-category');
     
@@ -3094,7 +3094,7 @@ function printBlindBatchList(items, targetDate) {
     }, 500);
 }
 
-function printExpeditionBreakdown() {
+window.printExpeditionBreakdown = function() {
     if (!currentBreakdownData.grouped || Object.keys(currentBreakdownData.grouped).length === 0) return;
 
     const dateParts = currentBreakdownData.date.split('-');
