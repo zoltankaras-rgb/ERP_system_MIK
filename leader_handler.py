@@ -271,9 +271,10 @@ def leader_dashboard():
                    + sum(float(r.get('celkova_suma_s_dph') or 0) for r in rows_b2b),
     }
 
-    # --- VÝPOČET TEMPA A ODHADU KONCA ---
-    from email.utils import parsedate_to_datetime
-    from datetime import datetime, timedelta
+# --- VÝPOČET TEMPA A ODHADU KONCA ---
+    from datetime import datetime, timedelta, date
+    
+    today_str = date.today().strftime('%Y-%m-%d') # Pridané pre kontrolu dneška
     
     hotove_casy = []
     zostava_chystat = 0
@@ -281,10 +282,12 @@ def leader_dashboard():
     for r in rows_b2c + rows_b2b:
         stav = r.get('stav', '')
         if stav in ('Hotová', 'Expedovaná'):
-            # OPRAVA: Pridaný správny stĺpec 'datum_vypracovania'
             cas = r.get('datum_vypracovania') or r.get('vypracovane') or r.get('cas_dokoncenia') or r.get('updated_at')
             if cas:
-                hotove_casy.append(cas)
+                # ZJEDNOTENIE S TV TABUĽOU: Berieme len to, čo reálne spravili DNES
+                c_date_str = cas.strftime('%Y-%m-%d') if hasattr(cas, 'strftime') else str(cas)[:10]
+                if c_date_str == today_str:
+                    hotove_casy.append(cas)
         elif stav not in ('Hotová', 'Expedovaná', 'Zrušená'):
             zostava_chystat += 1
 
@@ -297,42 +300,33 @@ def leader_dashboard():
             if isinstance(c, datetime):
                 parsed_casy.append(c)
             elif isinstance(c, str):
-                # OPRAVA: Robustnejšie parsovanie dátumov z MySQL
                 try:
-                    # Skúsi štandardný MySQL formát YYYY-MM-DD HH:MM:SS
                     parsed_casy.append(datetime.strptime(c[:19], '%Y-%m-%d %H:%M:%S'))
                 except:
-                    try:
-                        parsed_casy.append(datetime.fromisoformat(c.replace('Z', '+00:00')))
-                    except:
-                        pass
+                    try: parsed_casy.append(datetime.fromisoformat(c.replace('Z', '+00:00')))
+                    except: pass
         
         if len(parsed_casy) > 1:
             parsed_casy.sort()
-            
             platne_intervaly = []
             
-            # Prejdeme všetky objednávky a zistíme časové rozdiely medzi nimi
             for i in range(1, len(parsed_casy)):
                 rozdiel_sekundy = (parsed_casy[i] - parsed_casy[i-1]).total_seconds()
                 
-                # Ak je medzi dvoma objednávkami pauza väčšia ako 15 minút (900 sekúnd),
-                # považujeme to za prestávku/čakanie na tovar a do čistého tempa to nezapočítame.
-                # (Zároveň ignorujeme "0" sekundové časy, ak sa odklikne viac naraz)
-                if 5 < rozdiel_sekundy < 900:
+                # ZJEDNOTENIE S TV TABUĽOU: 10 až 1200 sekúnd (20 minút limit)
+                if 10 < rozdiel_sekundy < 1200:
                     platne_intervaly.append(rozdiel_sekundy)
 
             if platne_intervaly:
-                # Vypočítame priemerné tempo iba z čistého pracovného času
                 priemer_sekundy = sum(platne_intervaly) / len(platne_intervaly)
                 tempo_minuty = round(priemer_sekundy / 60.0, 1)
             else:
                 tempo_minuty = 0
 
-            # Vypočítame odhad konca (zostávajúce objednávky * priemerné čisté tempo)
             if tempo_minuty > 0 and zostava_chystat > 0:
                 odhad_dt = datetime.now() + timedelta(minutes=(zostava_chystat * tempo_minuty))
                 odhad_konca = odhad_dt.strftime('%H:%M')
+                
     kpi['zostava_chystat'] = zostava_chystat
     kpi['tempo_minuty'] = tempo_minuty
     kpi['odhad_konca'] = odhad_konca
