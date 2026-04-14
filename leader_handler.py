@@ -793,6 +793,68 @@ def leader_b2b_notify_order():
 # =============================================================================
 # TV TABUĽA: Správa oznamov a stálych poznámok
 # =============================================================================
+@leader_bp.get('/tv_board/live_kpi')
+def tv_board_live_kpi():
+    """
+    Endpoint pre TV tabuľu, ktorý vráti aktuálne tempo chystania a odhad konca.
+    Vychádza z logiky dashboardu, ale je optimalizovaný pre neustále dopytovanie.
+    """
+    d = date.today().strftime('%Y-%m-%d')
+    
+    # Získame dnešné objednávky (B2C aj B2B)
+    # (Predpokladám, že použiješ tvoje existujúce funkcie na detekciu stĺpcov ako v dashboarde)
+    b2c_date = _pick_col('b2c_objednavky', ['pozadovany_datum_dodania', 'datum_dodania', 'datum_objednavky']) or 'pozadovany_datum_dodania'
+    b2b_date = _pick_col('b2b_objednavky', ['pozadovany_datum_dodania', 'datum_objednavky']) or 'pozadovany_datum_dodania'
+
+    rows_b2c = db_connector.execute_query(f"SELECT stav, datum_vypracovania FROM b2c_objednavky WHERE DATE({b2c_date})=%s", (d,)) or []
+    rows_b2b = db_connector.execute_query(f"SELECT stav, datum_vypracovania FROM b2b_objednavky WHERE DATE({b2b_date})=%s", (d,)) or []
+
+    hotove_casy = []
+    zostava_chystat = 0
+    celkovo_objednavok = len(rows_b2c) + len(rows_b2b)
+    
+    for r in rows_b2c + rows_b2b:
+        stav = r.get('stav', '')
+        if stav in ('Hotová', 'Expedovaná'):
+            cas = r.get('datum_vypracovania') # Alebo stĺpec, ktorý reálne ukladá čas dokoncenia
+            if cas: hotove_casy.append(cas)
+        elif stav not in ('Hotová', 'Expedovaná', 'Zrušená'):
+            zostava_chystat += 1
+
+    tempo_minuty = 0
+    odhad_konca = ""
+    
+    # Tvoja logika na výpočet tempa (rovnaká ako v dashboarde)
+    if len(hotove_casy) > 1:
+        parsed_casy = []
+        for c in hotove_casy:
+            if isinstance(c, datetime): parsed_casy.append(c)
+            elif isinstance(c, str):
+                try: parsed_casy.append(datetime.strptime(c[:19], '%Y-%m-%d %H:%M:%S'))
+                except: pass
+        
+        if len(parsed_casy) > 1:
+            parsed_casy.sort()
+            platne_intervaly = []
+            for i in range(1, len(parsed_casy)):
+                rozdiel_sekundy = (parsed_casy[i] - parsed_casy[i-1]).total_seconds()
+                if 5 < rozdiel_sekundy < 900:  # Ignorujeme pauzy nad 15 minút
+                    platne_intervaly.append(rozdiel_sekundy)
+
+            if platne_intervaly:
+                priemer_sekundy = sum(platne_intervaly) / len(platne_intervaly)
+                tempo_minuty = round(priemer_sekundy / 60.0, 1)
+
+            if tempo_minuty > 0 and zostava_chystat > 0:
+                odhad_dt = datetime.now() + timedelta(minutes=(zostava_chystat * tempo_minuty))
+                odhad_konca = odhad_dt.strftime('%H:%M')
+
+    return jsonify({
+        'zostava_chystat': zostava_chystat,
+        'celkovo_objednavok': celkovo_objednavok,
+        'tempo_minuty': tempo_minuty,
+        'odhad_konca': odhad_konca
+    })
 
 @leader_bp.route('/tv_board/customers', methods=['GET'])
 @login_required(role=('veduci','admin'))

@@ -6,6 +6,17 @@ let rotaciaInterval = null;
 
 const MAX_KARIET_NA_OBRAZOVKU = 8; 
 
+// Dynamické pridanie CSS pre blikanie, aby si nemusel meniť CSS súbory
+const style = document.createElement('style');
+style.innerHTML = `
+  @keyframes blink-critical {
+    0% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.8; transform: scale(1.02); }
+    100% { opacity: 1; transform: scale(1); }
+  }
+`;
+document.head.appendChild(style);
+
 function aktualizujCas() {
     const teraz = new Date();
     const casString = teraz.toLocaleTimeString('sk-SK', { timeZone: 'Europe/Bratislava', hour12: false });
@@ -14,6 +25,75 @@ function aktualizujCas() {
     if (hodina >= 16 || hodina < 6) { document.body.classList.add('dark-mode'); } 
     else { document.body.classList.remove('dark-mode'); }
 }
+
+// --- NOVÁ FUNKCIA PRE TACHOMETER TEMPA ---
+async function nacitajLiveKPI() {
+    try {
+        const res = await fetch('/api/leader/tv_board/live_kpi');
+        if (!res.ok) return;
+        const kpi = await res.json();
+        
+        let kpiContainer = document.getElementById('tv-live-kpi-banner');
+        
+        // Ak kontajner ešte neexistuje, dynamicky ho vytvoríme pod hlavičkou/oznamami
+        if (!kpiContainer) {
+            kpiContainer = document.createElement('div');
+            kpiContainer.id = 'tv-live-kpi-banner';
+            const gn = document.getElementById('global-note-container');
+            if (gn) {
+                gn.parentNode.insertBefore(kpiContainer, gn.nextSibling);
+            } else {
+                document.body.prepend(kpiContainer);
+            }
+        }
+
+        // Ak už nemajú čo chystať alebo nezačal deň, schováme tachometer
+        if (kpi.zostava_chystat === 0) {
+            kpiContainer.innerHTML = '';
+            return;
+        }
+
+        // --- FAREBNÁ PSYCHOLÓGIA (Semafor) ---
+        let bgColor = '#3b82f6'; // Neutrálna modrá (ak ešte nezačali)
+        let alertText = '';
+        let containerStyle = '';
+        
+        if (kpi.tempo_minuty > 0) {
+            if (kpi.tempo_minuty <= 7.0) {
+                bgColor = '#10b981'; // Zelená (Dobré tempo, stíhajú)
+            } else if (kpi.tempo_minuty <= 10.0) {
+                bgColor = '#f59e0b'; // Oranžová (Mierne spomalenie)
+            } else {
+                bgColor = '#dc2626'; // Červená (KRITICKY POMALÉ TEMPO)
+                alertText = '<div style="font-size: 2.2rem; font-weight: 900; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 2px;">⚠️ Kriticky pomalé tempo chystania ⚠️</div>';
+                containerStyle = 'animation: blink-critical 1.5s infinite; border: 4px solid #f87171; box-shadow: 0 0 30px rgba(220, 38, 38, 0.8);';
+            }
+        }
+
+        kpiContainer.innerHTML = `
+            <div style="background-color: ${bgColor}; color: white; padding: 15px 20px; border-radius: 12px; margin: 10px 15px 20px 15px; transition: background-color 0.5s; ${containerStyle}">
+                ${alertText}
+                <div style="display: flex; justify-content: space-around; align-items: center; text-shadow: 1px 1px 3px rgba(0,0,0,0.3);">
+                    <div style="text-align: center;">
+                        <div style="font-size: 1.1rem; text-transform: uppercase; font-weight: 700; opacity: 0.9; margin-bottom: 5px;">Zostáva nachystať</div>
+                        <div style="font-size: 3.5rem; font-weight: 900; line-height: 1;">${kpi.zostava_chystat} <span style="font-size: 1.5rem; font-weight: 600;">obj.</span></div>
+                    </div>
+                    <div style="text-align: center;">
+                        <div style="font-size: 1.1rem; text-transform: uppercase; font-weight: 700; opacity: 0.9; margin-bottom: 5px;">Aktuálne tempo</div>
+                        <div style="font-size: 3.5rem; font-weight: 900; line-height: 1;">${kpi.tempo_minuty > 0 ? kpi.tempo_minuty : '--'}<span style="font-size: 1.5rem; font-weight: 600;"> min/obj</span></div>
+                    </div>
+                    <div style="text-align: center;">
+                        <div style="font-size: 1.1rem; text-transform: uppercase; font-weight: 700; opacity: 0.9; margin-bottom: 5px;">Odhadovaný koniec</div>
+                        <div style="font-size: 3.5rem; font-weight: 900; line-height: 1; letter-spacing: 2px;">${kpi.odhad_konca ? kpi.odhad_konca : '--:--'}</div>
+                    </div>
+                </div>
+            </div>
+        `;
+    } catch (e) {
+        console.error("Chyba pri načítaní KPI:", e);
+    }
+}
+// ------------------------------------------
 
 function nacitajPoznamkyNaTabulu() {
     fetch('/api/tv-board/data') 
@@ -65,8 +145,6 @@ function nacitajPoznamkyNaTabulu() {
                 globalCelkom += pocetCelkom;
                 globalHotovych += pocetHotovych;
 
-                // Ak má trasa ešte nejaké nedokončené karty, vložíme ju do rotácie.
-                // Ak je zoznamKariet prázdny (trasa je kompletne hotová), ignorujeme ju a zmizne z rotácie.
                 if (zoznamKariet.length > 0) {
                     const celkovoCasti = Math.ceil(zoznamKariet.length / MAX_KARIET_NA_OBRAZOVKU);
                     for (let i = 0; i < zoznamKariet.length; i += MAX_KARIET_NA_OBRAZOVKU) {
@@ -79,22 +157,19 @@ function nacitajPoznamkyNaTabulu() {
                 }
             });
 
-            // --- NOVÉ: GLOBÁLNY SUMÁR, AK JE VŠETKO HOTOVÉ ---
-            // Zaradíme to pred mrazák, aby mali krásnu zelenú obrazovku
             if (globalCelkom > 0 && globalCelkom === globalHotovych) {
                 noveStrany.push({
                     trasa: '🎉 VŠETKO HOTOVÉ',
                     skoreObjednavok: globalCelkom,
                     hotovychObjednavok: globalHotovych,
                     cast: 1, celkovoCasti: 1,
-                    kartyNaZobrazenie: [], // Prázdne karty
+                    kartyNaZobrazenie: [], 
                     jeMrazeneSumar: false,
-                    jeGlobalnySumarHotovo: true, // Špeciálny flag
+                    jeGlobalnySumarHotovo: true, 
                     datum_text: data.cielovy_datum
                 });
             }
 
-            // --- SUMÁR MRAZENÉHO TOVARU NA ZÁVER ROTÁCIE ---
             const mrazeneKarty = poznamky.filter(obj => obj.mrazene_polozky && obj.mrazene_polozky.trim() !== '');
             if (mrazeneKarty.length > 0) {
                 const celkovoCastiMrazene = Math.ceil(mrazeneKarty.length / MAX_KARIET_NA_OBRAZOVKU);
@@ -138,7 +213,6 @@ function vykresliStranu() {
     const hlavnyNadpis = document.getElementById('hlavny-nazov-trasy');
     const stranaData = vsetkyStrany[aktualnaStranaIndex];
 
-    // --- ŠPECIÁLNA OBRAZOVKA: Všetky trasy sú hotové ---
     if (stranaData.jeGlobalnySumarHotovo) {
         hlavnyNadpis.innerHTML = `<i class="fas fa-trophy"></i> SKVELÁ PRÁCA`;
         let htmlHotovo = `
@@ -152,7 +226,7 @@ function vykresliStranu() {
         `;
         obsah.innerHTML = htmlHotovo;
         vykresliPaginaciu(paginacia);
-        return; // Zastavíme, nech nevykresľuje štandardné karty
+        return; 
     }
 
     let castInfo = '';
@@ -242,7 +316,6 @@ function vykresliStranu() {
     setTimeout(prisposobVelkostVertical, 50);
 }
 
-// Vyčlenená funkcia na bodky dole
 function vykresliPaginaciu(container) {
     let paginaciaHtml = '';
     if (vsetkyStrany.length > 1) {
@@ -279,6 +352,12 @@ function zastavRotaciu() {
 document.addEventListener("DOMContentLoaded", function() {
     aktualizujCas();
     setInterval(aktualizujCas, 1000); 
+    
+    // Spustenie hlavnej logiky kariet
     nacitajPoznamkyNaTabulu();
     setInterval(nacitajPoznamkyNaTabulu, 15000); 
+    
+    // Spustenie Live KPI (Tachometra) - beží súbežne každých 25 sekúnd
+    nacitajLiveKPI();
+    setInterval(nacitajLiveKPI, 25000);
 });
