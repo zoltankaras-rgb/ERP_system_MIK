@@ -1634,39 +1634,23 @@ def leader_daily_summary():
 @leader_bp.get('/production/predictive_batch')
 @login_required(role=('veduci', 'admin'))
 def leader_predictive_batch():
-    """
-    Kritický logistický endpoint pre hromadné slepé vychystávanie (Blind Batch Picking).
-    Kombinuje 3-týždňový kĺzavý priemer so živými dátami pre stanovenie produkčného cieľa.
-    """
     target_date = request.args.get('date')
     if not target_date:
-        # Ak nie je zadaný, predikuje sa na zajtra
         target_date = (date.today() + timedelta(days=1)).strftime('%Y-%m-%d')
         
-    client_filter = request.args.get('client_filter', '%COOP%') # Defaultne analyzuje len COOP
+    client_filter = request.args.get('client_filter', '%COOP%') 
 
-    # 1. Definícia bezpečnostných tolerancií (v %)
-    # Kľúče musia byť lowercase, kvôli zhode so SQL: LOWER(p.predajna_kategoria)
     TOLERANCES = {
-        'výrobky': 1.08,                  # 8%
-        'bravčové mäso chladené': 1.03,   # 3%
-        'hovädzie mäso chladené': 1.03,   # 3%
-        'hydinové mäso chladené': 1.03,   # 3%
-        'bravčové mäso mrazené': 1.10,    # 10%
-        'hovädzie mäso mrazené': 1.10,    # 10%
-        'hydinové mäso mrazené': 1.10,    # 10%
-        'ryby mrazené': 1.10,             # 10%
-        'zelenina': 1.05,                 # 5%
-        'tovar': 1.05,                    # 5%
-        'default': 1.05                   # 5% fallback
+        'výrobky': 1.08, 'bravčové mäso chladené': 1.03, 'hovädzie mäso chladené': 1.03,
+        'hydinové mäso chladené': 1.03, 'bravčové mäso mrazené': 1.10, 'hovädzie mäso mrazené': 1.10,
+        'hydinové mäso mrazené': 1.10, 'ryby mrazené': 1.10, 'zelenina': 1.05, 'tovar': 1.05, 'default': 1.05
     }
 
     try:
         conn = _get_conn()
         cur = conn.cursor(dictionary=True)
         
-        # 2. Výpočet historického priemeru (Krok A)
-        # Analyzuje posledné 4 týždne, hľadá presne rovnaký deň v týždni. Deliacim koeficientom je 3 (berieme 3 reprezentatívne dni).
+        # 1. HISTÓRIA (Zmäkčená podmienka - zmazali sme HAVING avg_qty > 1.0)
         sql_history = """
             SELECT 
                 op.ean_produktu as ean, 
@@ -1683,13 +1667,11 @@ def leader_predictive_batch():
               AND o.nazov_firmy LIKE %s
               AND o.stav != 'Zrušená'
             GROUP BY op.ean_produktu
-            HAVING avg_qty > 1.0 -- Ignorujeme anomálie pod 1 kg
         """
         cur.execute(sql_history, (target_date, target_date, target_date, client_filter))
         history_rows = cur.fetchall() or []
 
-        # 3. Výpočet reálneho stavu (Krok B)
-        # Sčíta všetky už existujúce B2B a manuálne objednávky pre cieľový dátum do aktuálneho momentu.
+        # 2. REÁLNY STAV (Na dnes)
         sql_real = """
             SELECT 
                 op.ean_produktu as ean, 
@@ -1703,7 +1685,13 @@ def leader_predictive_batch():
         cur.execute(sql_real, (target_date,))
         real_rows = {str(r['ean']): float(r['real_qty']) for r in cur.fetchall() or []}
 
-        # 4. Syntéza a algoritmické rozhodovanie
+        # --- LADIACE VÝPISY DO TERMINÁLU ---
+        print("\n" + "="*50)
+        print(f"🔎 DEBUG SLEPÉHO ZBERU (Dátum: {target_date}, Filter: {client_filter})")
+        print(f"Nájdených produktov v histórii: {len(history_rows)}")
+        if not history_rows:
+            print("❌ V histórii (posledné 4 týždne v rovnaký deň) nie sú pre tohto klienta ŽIADNE dáta!")
+        
         results = []
         for h in history_rows:
             ean = str(h['ean'])
@@ -1712,28 +1700,24 @@ def leader_predictive_batch():
             mj = h['mj']
             avg_qty = float(h['avg_qty'])
             
-            # Priradenie tolerancie
             tolerance_multiplier = TOLERANCES.get('default')
             for key, val in TOLERANCES.items():
                 if key in cat:
                     tolerance_multiplier = val
                     break
                     
-            # Kalkulácia
             historical_target = avg_qty * tolerance_multiplier
             real_qty = real_rows.get(ean, 0.0)
             
-            # Rozhodovací strom na elimináciu duplicity a extrémov
             if real_qty >= historical_target:
-                # Extrémny deň: Dopyt už o 8:00 prekonal historický priemer aj s rezervou.
-                # Aplikujeme toleranciu na reálny stav, ignorujeme históriu.
                 final_target = real_qty * tolerance_multiplier
             else:
-                # Bežný deň: Vychystávame podľa historického modelu
                 final_target = historical_target
 
-            # Delta predstavuje objem, ktorý je nutné "slepo" chystať od momentu kliknutia.
             delta_to_pick = final_target - real_qty
+            
+            # Ďalší ladiaci výpis pre konkrétny produkt
+            print(f"📦 {name}: Priemer={avg_qty:.2f}, Objednané={real_qty:.2f}, Cieľ={final_target:.2f} -> CHÝBA={delta_to_pick:.2f}")
 
             results.append({
                 'ean': ean,
@@ -1747,7 +1731,8 @@ def leader_predictive_batch():
                 'blind_pick_delta': round(max(0.0, delta_to_pick), 2)
             })
 
-        # Zoradenie podľa objemu vychystávania od najväčšieho
+        print("="*50 + "\n")
+
         results.sort(key=lambda x: x['blind_pick_delta'], reverse=True)
 
         return jsonify({
