@@ -1754,8 +1754,7 @@ def leader_plan_rozpis():
     if not target_date:
         return jsonify({'error': 'Chýba dátum.'}), 400
 
-    # SQL pre B2B aj B2C s UNION ALL pre kompletný rozpis
-    # Kľúčové je o.stav != 'Zrušená' (aby tam ostali aj Hotové)
+    # Základný SQL dotaz (spája B2B aj B2C objednávky)
     sql_base = """
         SELECT 
             odberatel, produkt, mnozstvo, mj, kategoria
@@ -1789,12 +1788,20 @@ def leader_plan_rozpis():
     
     params = [target_date]
     
-    # Rozšírená logika pre kategóriu
+    # ROZŠÍRENÁ LOGIKA FILTROVANIA
     if category != 'all':
         if category == 'mrazené':
-            # Hľadáme 'mrazen' kdekoľvek v kategórii alebo názve (ryby, mäso, tovar...)
-            sql_base += " AND (LOWER(kategoria) LIKE '%%mrazen%%' OR LOWER(produkt) LIKE '%%mrazen%%')"
+            # Agresívny filter: hľadáme kľúčové slovo "mrazen" ALEBO explicitné kategórie
+            sql_base += """ 
+                AND (
+                    LOWER(kategoria) LIKE '%%mrazen%%' 
+                    OR LOWER(produkt) LIKE '%%mrazen%%' 
+                    OR LOWER(kategoria) = 'tovar' 
+                    OR LOWER(kategoria) = 'ryby'
+                )
+            """
         else:
+            # Štandardný filter pre ostatné kategórie (hovädzie, bravčové atď.)
             sql_base += " AND kategoria = %s"
             params.append(category)
 
@@ -1802,4 +1809,5 @@ def leader_plan_rozpis():
         rows = db_connector.execute_query(sql_base, tuple(params), fetch='all') or []
         return jsonify({'items': rows})
     except Exception as e:
+        print(f"Chyba pri generovaní rozpisu: {e}")
         return jsonify({'error': str(e)}), 500
