@@ -26,7 +26,7 @@ function aktualizujCas() {
     else { document.body.classList.remove('dark-mode'); }
 }
 
-// --- NOVÁ FUNKCIA PRE TACHOMETER TEMPA ---
+// --- NOVÁ FUNKCIA PRE TACHOMETER TEMPA (Kompaktný a decentný pás) ---
 async function nacitajLiveKPI() {
     try {
         const res = await fetch('/api/leader/tv_board/live_kpi');
@@ -47,45 +47,41 @@ async function nacitajLiveKPI() {
             }
         }
 
-        // Ak už nemajú čo chystať alebo nezačal deň, schováme tachometer
+        // Ak už nemajú čo chystať, schováme tachometer úplne, aby nezavadzal
         if (kpi.zostava_chystat === 0) {
-            kpiContainer.innerHTML = '';
+            kpiContainer.style.display = 'none';
             return;
+        } else {
+            kpiContainer.style.display = 'block';
         }
 
-        // --- FAREBNÁ PSYCHOLÓGIA (Semafor) ---
-        let bgColor = '#3b82f6'; // Neutrálna modrá (ak ešte nezačali)
-        let alertText = '';
-        let containerStyle = '';
+        // --- FAREBNÁ PSYCHOLÓGIA (Semafor - DECENTNÝ TVAR) ---
+        let bgColor = '#1e293b'; // Tmavá bridlicová (decentná modro-sivá ako základ)
+        let textColor = '#f8fafc'; // Biela pre text
+        let blinkStyle = '';
         
         if (kpi.tempo_minuty > 0) {
-            if (kpi.tempo_minuty <= 7.0) {
-                bgColor = '#10b981'; // Zelená (Dobré tempo, stíhajú)
-            } else if (kpi.tempo_minuty <= 10.0) {
-                bgColor = '#f59e0b'; // Oranžová (Mierne spomalenie)
-            } else {
-                bgColor = '#dc2626'; // Červená (KRITICKY POMALÉ TEMPO)
-                alertText = '<div style="font-size: 2.2rem; font-weight: 900; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 2px;">⚠️ Kriticky pomalé tempo chystania ⚠️</div>';
-                containerStyle = 'animation: blink-critical 1.5s infinite; border: 4px solid #f87171; box-shadow: 0 0 30px rgba(220, 38, 38, 0.8);';
+            if (kpi.tempo_minuty < 7.0) {
+                bgColor = '#064e3b'; // Tmavá smaragdovo-zelená (Super tempo, chvália sa)
+            } else if (kpi.tempo_minuty > 10.0) {
+                bgColor = '#7f1d1d'; // Tmavočervená (Pomalé tempo, upozornenie)
+                // Len ak sú fakt pomalé, pridáme blikanie spodnej čiary a jemné pulzovanie
+                blinkStyle = 'animation: blink-critical 1.5s infinite; border-bottom: 2px solid #f87171;';
             }
         }
 
+        // Vložíme decentný jednoradový pás (výška cca 50px) namiesto obrovského boxu
         kpiContainer.innerHTML = `
-            <div style="background-color: ${bgColor}; color: white; padding: 15px 20px; border-radius: 12px; margin: 10px 15px 20px 15px; transition: background-color 0.5s; ${containerStyle}">
-                ${alertText}
-                <div style="display: flex; justify-content: space-around; align-items: center; text-shadow: 1px 1px 3px rgba(0,0,0,0.3);">
-                    <div style="text-align: center;">
-                        <div style="font-size: 1.1rem; text-transform: uppercase; font-weight: 700; opacity: 0.9; margin-bottom: 5px;">Zostáva nachystať</div>
-                        <div style="font-size: 3.5rem; font-weight: 900; line-height: 1;">${kpi.zostava_chystat} <span style="font-size: 1.5rem; font-weight: 600;">obj.</span></div>
-                    </div>
-                    <div style="text-align: center;">
-                        <div style="font-size: 1.1rem; text-transform: uppercase; font-weight: 700; opacity: 0.9; margin-bottom: 5px;">Aktuálne tempo</div>
-                        <div style="font-size: 3.5rem; font-weight: 900; line-height: 1;">${kpi.tempo_minuty > 0 ? kpi.tempo_minuty : '--'}<span style="font-size: 1.5rem; font-weight: 600;"> min/obj</span></div>
-                    </div>
-                    <div style="text-align: center;">
-                        <div style="font-size: 1.1rem; text-transform: uppercase; font-weight: 700; opacity: 0.9; margin-bottom: 5px;">Odhadovaný koniec</div>
-                        <div style="font-size: 3.5rem; font-weight: 900; line-height: 1; letter-spacing: 2px;">${kpi.odhad_konca ? kpi.odhad_konca : '--:--'}</div>
-                    </div>
+            <div style="background: ${bgColor}; color: ${textColor}; padding: 10px 25px; display: flex; justify-content: space-between; align-items: center; font-family: sans-serif; border-bottom: 2px solid rgba(255,255,255,0.1); box-shadow: 0 4px 6px rgba(0,0,0,0.15); transition: background-color 0.5s; ${blinkStyle}">
+                <div style="font-size: 1.2rem; font-weight: bold; letter-spacing: 1px;">
+                    <i class="fas fa-calendar-check" style="margin-right: 8px; color: #94a3b8;"></i> DNES CHYSTÁME NA: <span style="color: #fbbf24;">${kpi.target_date || '--.--.----'}</span>
+                </div>
+                <div style="display: flex; gap: 40px; font-size: 1.2rem; align-items: center;">
+                    <span>Zostáva: <strong style="font-size: 1.5rem;">${kpi.zostava_chystat}</strong> obj.</span>
+                    <span>Tempo: <strong style="font-size: 1.5rem;">${kpi.tempo_minuty > 0 ? kpi.tempo_minuty : '--'}</strong> min/obj</span>
+                    <span style="background: rgba(0,0,0,0.3); padding: 4px 15px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1);">
+                        Odhad konca: <strong style="font-size: 1.6rem; color: #fbbf24; letter-spacing: 1px;">${kpi.odhad_konca || '--:--'}</strong>
+                    </span>
                 </div>
             </div>
         `;

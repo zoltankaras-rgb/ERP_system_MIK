@@ -795,79 +795,77 @@ def leader_b2b_notify_order():
 # =============================================================================
 @leader_bp.get('/tv_board/live_kpi')
 def tv_board_live_kpi():
-    """
-    Endpoint pre TV tabuľu, ktorý vráti aktuálne tempo chystania a odhad konca.
-    Vychádza z logiky dashboardu, bezpečne spracováva dynamické názvy stĺpcov.
-    """
-    d = date.today().strftime('%Y-%m-%d')
+    from datetime import date, datetime, timedelta
     
-    # 1. Bezpečná detekcia dátumového stĺpca (rovnako ako v leader_dashboard)
-    b2c_cols = _table_cols('b2c_objednavky')
-    b2b_cols = _table_cols('b2b_objednavky')
-    b2c_date = 'pozadovany_datum_dodania' if 'pozadovany_datum_dodania' in b2c_cols else 'datum_objednavky'
-    b2b_date = 'pozadovany_datum_dodania' if 'pozadovany_datum_dodania' in b2b_cols else 'datum_objednavky'
+    # Dnešný deň pre výpočet tempa (kedy sa reálne klikalo)
+    today_str = date.today().strftime('%Y-%m-%d')
+    
+    # Získame cieľový dátum, ktorý máte nastavený pre expedíciu (zajtrajšok)
+    # Ak metóda vráti None, použijeme zajtrajšok ako fallback
+    target_date = db_connector.execute_query("SELECT hodnota FROM nastavenia WHERE kluc='expedicia_cielovy_datum'")
+    if target_date and target_date[0].get('hodnota'):
+        t_date = target_date[0].get('hodnota')
+    else:
+        t_date = (date.today() + timedelta(days=1)).strftime('%Y-%m-%d')
 
-    # 2. Bezpečné načítanie všetkých stĺpcov (SELECT * namiesto natvrdo vypísaných)
-    rows_b2c = []
-    if _table_exists('b2c_objednavky'):
-        rows_b2c = db_connector.execute_query(f"SELECT * FROM b2c_objednavky WHERE DATE({b2c_date})=%s", (d,)) or []
-        
-    rows_b2b = []
-    if _table_exists('b2b_objednavky'):
-        rows_b2b = db_connector.execute_query(f"SELECT * FROM b2b_objednavky WHERE DATE({b2b_date})=%s", (d,)) or []
+    # Načítame objednávky pre CIEĽOVÝ dátum (zajtra), aby sme vedeli, koľko ostáva
+    # Ale stavy a časy vypracovania pozeráme pre DNEŠOK
+    q_b2c = "SELECT stav, datum_vypracovania FROM b2c_objednavky WHERE DATE(pozadovany_datum_dodania) = %s"
+    q_b2b = "SELECT stav, datum_vypracovania FROM b2b_objednavky WHERE DATE(pozadovany_datum_dodania) = %s"
+    
+    rows_b2c = db_connector.execute_query(q_b2c, (t_date,)) or []
+    rows_b2b = db_connector.execute_query(q_b2b, (t_date,)) or []
 
-    hotove_casy = []
+    hotove_dnes_casy = []
     zostava_chystat = 0
-    celkovo_objednavok = len(rows_b2c) + len(rows_b2b)
     
-    # 3. Výpočet
     for r in rows_b2c + rows_b2b:
         stav = r.get('stav', '')
+        # Objednávka je hotová
         if stav in ('Hotová', 'Expedovaná'):
-            # Bezpečné vytiahnutie akéhokoľvek časového stĺpca, ktorý v DB reálne máš
-            cas = r.get('datum_vypracovania') or r.get('vypracovane') or r.get('cas_dokoncenia') or r.get('updated_at')
-            if cas: 
-                hotove_casy.append(cas)
-        elif stav not in ('Hotová', 'Expedovaná', 'Zrušená'):
+            cas = r.get('datum_vypracovania')
+            # Zaujímajú nás len tie, čo sa spravili DNES
+            if cas:
+                # Ak je to string, orežeme na dátum, ak datetime objekt, použijeme date()
+                c_date = cas.strftime('%Y-%m-%d') if hasattr(cas, 'strftime') else str(cas)[:10]
+                if c_date == today_str:
+                    hotove_dnes_casy.append(cas)
+        elif stav not in ('Zrušená'):
             zostava_chystat += 1
 
     tempo_minuty = 0
     odhad_konca = ""
     
-    if len(hotove_casy) > 1:
+    if len(hotove_dnes_casy) > 1:
         parsed_casy = []
-        for c in hotove_casy:
-            if isinstance(c, datetime): 
-                parsed_casy.append(c)
+        for c in hotove_dnes_casy:
+            if isinstance(c, datetime): parsed_casy.append(c)
             elif isinstance(c, str):
-                try: 
-                    parsed_casy.append(datetime.strptime(c[:19], '%Y-%m-%d %H:%M:%S'))
-                except: 
-                    pass
+                try: parsed_casy.append(datetime.strptime(c[:19], '%Y-%m-%d %H:%M:%S'))
+                except: pass
         
         if len(parsed_casy) > 1:
             parsed_casy.sort()
             platne_intervaly = []
             for i in range(1, len(parsed_casy)):
-                rozdiel_sekundy = (parsed_casy[i] - parsed_casy[i-1]).total_seconds()
-                # Ignorujeme pauzy dlhšie ako 15 minút (napr. obedy, čakanie na tovar)
-                if 5 < rozdiel_sekundy < 900:  
-                    platne_intervaly.append(rozdiel_sekundy)
+                rozdiel = (parsed_casy[i] - parsed_casy[i-1]).total_seconds()
+                if 10 < rozdiel < 1200: # 10 sek až 20 min (pauzy ignorujeme)
+                    platne_intervaly.append(rozdiel)
 
             if platne_intervaly:
-                priemer_sekundy = sum(platne_intervaly) / len(platne_intervaly)
-                tempo_minuty = round(priemer_sekundy / 60.0, 1)
-
-            if tempo_minuty > 0 and zostava_chystat > 0:
-                odhad_dt = datetime.now() + timedelta(minutes=(zostava_chystat * tempo_minuty))
-                odhad_konca = odhad_dt.strftime('%H:%M')
+                tempo_minuty = round((sum(platne_intervaly) / len(platne_intervaly)) / 60.0, 1)
+                
+                if zostava_chystat > 0:
+                    koniec_dt = datetime.now() + timedelta(minutes=(zostava_chystat * tempo_minuty))
+                    odhad_konca = koniec_dt.strftime('%H:%M')
 
     return jsonify({
         'zostava_chystat': zostava_chystat,
-        'celkovo_objednavok': celkovo_objednavok,
         'tempo_minuty': tempo_minuty,
-        'odhad_konca': odhad_konca
+        'odhad_konca': odhad_konca,
+        'target_date': t_date
     })
+
 @leader_bp.route('/tv_board/customers', methods=['GET'])
 @login_required(role=('veduci','admin'))
 def get_tv_board_customers():
