@@ -797,48 +797,61 @@ def leader_b2b_notify_order():
 def tv_board_live_kpi():
     """
     Endpoint pre TV tabuľu, ktorý vráti aktuálne tempo chystania a odhad konca.
-    Vychádza z logiky dashboardu, ale je optimalizovaný pre neustále dopytovanie.
+    Vychádza z logiky dashboardu, bezpečne spracováva dynamické názvy stĺpcov.
     """
     d = date.today().strftime('%Y-%m-%d')
     
-    # Získame dnešné objednávky (B2C aj B2B)
-    # (Predpokladám, že použiješ tvoje existujúce funkcie na detekciu stĺpcov ako v dashboarde)
-    b2c_date = _pick_col('b2c_objednavky', ['pozadovany_datum_dodania', 'datum_dodania', 'datum_objednavky']) or 'pozadovany_datum_dodania'
-    b2b_date = _pick_col('b2b_objednavky', ['pozadovany_datum_dodania', 'datum_objednavky']) or 'pozadovany_datum_dodania'
+    # 1. Bezpečná detekcia dátumového stĺpca (rovnako ako v leader_dashboard)
+    b2c_cols = _table_cols('b2c_objednavky')
+    b2b_cols = _table_cols('b2b_objednavky')
+    b2c_date = 'pozadovany_datum_dodania' if 'pozadovany_datum_dodania' in b2c_cols else 'datum_objednavky'
+    b2b_date = 'pozadovany_datum_dodania' if 'pozadovany_datum_dodania' in b2b_cols else 'datum_objednavky'
 
-    rows_b2c = db_connector.execute_query(f"SELECT stav, datum_vypracovania FROM b2c_objednavky WHERE DATE({b2c_date})=%s", (d,)) or []
-    rows_b2b = db_connector.execute_query(f"SELECT stav, datum_vypracovania FROM b2b_objednavky WHERE DATE({b2b_date})=%s", (d,)) or []
+    # 2. Bezpečné načítanie všetkých stĺpcov (SELECT * namiesto natvrdo vypísaných)
+    rows_b2c = []
+    if _table_exists('b2c_objednavky'):
+        rows_b2c = db_connector.execute_query(f"SELECT * FROM b2c_objednavky WHERE DATE({b2c_date})=%s", (d,)) or []
+        
+    rows_b2b = []
+    if _table_exists('b2b_objednavky'):
+        rows_b2b = db_connector.execute_query(f"SELECT * FROM b2b_objednavky WHERE DATE({b2b_date})=%s", (d,)) or []
 
     hotove_casy = []
     zostava_chystat = 0
     celkovo_objednavok = len(rows_b2c) + len(rows_b2b)
     
+    # 3. Výpočet
     for r in rows_b2c + rows_b2b:
         stav = r.get('stav', '')
         if stav in ('Hotová', 'Expedovaná'):
-            cas = r.get('datum_vypracovania') # Alebo stĺpec, ktorý reálne ukladá čas dokoncenia
-            if cas: hotove_casy.append(cas)
+            # Bezpečné vytiahnutie akéhokoľvek časového stĺpca, ktorý v DB reálne máš
+            cas = r.get('datum_vypracovania') or r.get('vypracovane') or r.get('cas_dokoncenia') or r.get('updated_at')
+            if cas: 
+                hotove_casy.append(cas)
         elif stav not in ('Hotová', 'Expedovaná', 'Zrušená'):
             zostava_chystat += 1
 
     tempo_minuty = 0
     odhad_konca = ""
     
-    # Tvoja logika na výpočet tempa (rovnaká ako v dashboarde)
     if len(hotove_casy) > 1:
         parsed_casy = []
         for c in hotove_casy:
-            if isinstance(c, datetime): parsed_casy.append(c)
+            if isinstance(c, datetime): 
+                parsed_casy.append(c)
             elif isinstance(c, str):
-                try: parsed_casy.append(datetime.strptime(c[:19], '%Y-%m-%d %H:%M:%S'))
-                except: pass
+                try: 
+                    parsed_casy.append(datetime.strptime(c[:19], '%Y-%m-%d %H:%M:%S'))
+                except: 
+                    pass
         
         if len(parsed_casy) > 1:
             parsed_casy.sort()
             platne_intervaly = []
             for i in range(1, len(parsed_casy)):
                 rozdiel_sekundy = (parsed_casy[i] - parsed_casy[i-1]).total_seconds()
-                if 5 < rozdiel_sekundy < 900:  # Ignorujeme pauzy nad 15 minút
+                # Ignorujeme pauzy dlhšie ako 15 minút (napr. obedy, čakanie na tovar)
+                if 5 < rozdiel_sekundy < 900:  
                     platne_intervaly.append(rozdiel_sekundy)
 
             if platne_intervaly:
@@ -855,7 +868,6 @@ def tv_board_live_kpi():
         'tempo_minuty': tempo_minuty,
         'odhad_konca': odhad_konca
     })
-
 @leader_bp.route('/tv_board/customers', methods=['GET'])
 @login_required(role=('veduci','admin'))
 def get_tv_board_customers():
