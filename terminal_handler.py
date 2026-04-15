@@ -5,6 +5,7 @@ from datetime import datetime
 from flask import Blueprint
 import db_connector
 import time
+
 terminal_bp = Blueprint("terminal", __name__)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -145,26 +146,11 @@ def process_terminal_files():
             db_cislo = order_db["cislo_objednavky"]
             print(f"Nájdená objednávka: ID {order_id} (Číslo v DB: {db_cislo})")
             
-            # PREDNAČÍTANIE CIEN
-            order_items_db = db_connector.execute_query(
-                "SELECT ean_produktu, cena_bez_dph FROM b2b_objednavky_polozky WHERE objednavka_id = %s",
-                (order_id,), fetch="all"
-            ) or []
-            
-            prices_map = {}
-            for item in order_items_db:
-                if item.get("ean_produktu"):
-                    ean_key = str(item["ean_produktu"]).lstrip('0')
-                    cena_float = float(item['cena_bez_dph'] or 0)
-                    cena_dot = f"{cena_float:.2f}"
-                    cena_comma = cena_dot.replace('.', ',')
-                    prices_map[ean_key] = {"dot": cena_dot, "comma": cena_comma}
-                
             with open(file_path, mode='r', encoding='cp1250', errors='replace') as f:
                 lines = f.readlines()
             
             for line in lines:
-                if not line.startswith("  ") or len(line) < 127:
+                if not line.startswith("  ") or len(line) < 120:  # Znížené na 120, aby sme neprišli o riadky
                     continue
                     
                 ean = line[2:15].strip()
@@ -181,7 +167,7 @@ def process_terminal_files():
                         WHERE edi_ean = %s OR edi_ean = %s LIMIT 1
                     """, (ean, ean_clean), fetch="one")
                     
-                    # 2. Ak sa nenašlo, skúsime nájsť v B2B tabuľke (toto opraví chýbajúce váhy pre B2B!)
+                    # 2. Ak sa nenašlo, skúsime nájsť v B2B tabuľke
                     if not map_db:
                         map_db = db_connector.execute_query("""
                             SELECT interny_ean FROM b2b_ean_mapovanie 
@@ -196,37 +182,37 @@ def process_terminal_files():
                 hladany_ean = interny_ean if interny_ean else ean
                 hladany_clean = interny_ean.lstrip('0') if interny_ean and interny_ean.lstrip('0') != '' else ean_clean
                 
-                expected_prices = prices_map.get(hladany_clean) or prices_map.get(ean_clean) or {}
-                price_dot = expected_prices.get("dot", "")
-                price_comma = expected_prices.get("comma", "")
-                
-                tail = line[105:].strip()
-                
-                if price_comma and tail.endswith(price_comma):
-                    weight_str = tail[:-len(price_comma)].strip()
-                elif price_dot and tail.endswith(price_dot):
-                    weight_str = tail[:-len(price_dot)].strip()
-                else:
-                    weight_str = line[117:127].strip()
+                # OPRAVA EXTRAKCIE VÁHY: 
+                # Terminály posielajú váhu vždy na rovnakom mieste, zvyčajne medzi znakmi 112 a 122.
+                # Namiesto zložitého strihania ceny jednoducho zoberieme fixný stĺpec pre váhu:
+                # 105 až 117 býva cena (niekedy s menou)
+                # 117 až 127 býva množstvo (váha)
+                weight_str = line[114:127].strip() # Berieme o niečo širšie okno pre istotu
 
-                weight_str = weight_str.replace(',', '.')
-                weight_str = weight_str.replace(' ', '')
-                
+                # Očistenie váhy od prípadných iných znakov (ak by tam niečo zasahovalo)
+                # Ponecháme len čísla a čiarku/bodku
+                import re
+                weight_str_clean = re.sub(r'[^\d,\.]', '', weight_str)
+                weight_str_clean = weight_str_clean.replace(',', '.')
+
                 try:
-                    real_weight = float(weight_str)
+                    real_weight = float(weight_str_clean) if weight_str_clean else 0.0
                 except ValueError:
+                    print(f"Nepodarilo sa spracovať váhu pre EAN {ean} v riadku: {line.strip()}")
                     real_weight = 0.0
                 
-                db_connector.execute_query("""
-                    UPDATE b2b_objednavky_polozky 
-                    SET dodane_mnozstvo = %s 
-                    WHERE objednavka_id = %s AND (
-                        ean_produktu = %s OR 
-                        ean_produktu = %s OR
-                        ean_produktu LIKE %s
-                    )
-                """, (real_weight, order_id, hladany_ean, hladany_clean, f"%{hladany_clean}%"), fetch="none")
+                if real_weight > 0:
+                    db_connector.execute_query("""
+                        UPDATE b2b_objednavky_polozky 
+                        SET dodane_mnozstvo = %s 
+                        WHERE objednavka_id = %s AND (
+                            ean_produktu = %s OR 
+                            ean_produktu = %s OR
+                            ean_produktu LIKE %s
+                        )
+                    """, (real_weight, order_id, hladany_ean, hladany_clean, f"%{hladany_clean}%"), fetch="none")
             
+            # Prepočet finálnej sumy po aktualizácii všetkých dodaných množstiev
             sum_db = db_connector.execute_query("""
                 SELECT SUM(
                     COALESCE(pol.dodane_mnozstvo, pol.mnozstvo) * pol.cena_bez_dph * (1 + COALESCE(p.dph, pol.dph, 20) / 100.0)
@@ -251,7 +237,7 @@ def process_terminal_files():
             if os.path.exists(dest_path):
                 dest_path = os.path.join(TERMINAL_PROCESSED_DIR, f"{base_name}_{datetime.now().strftime('%Y%m%d%H%M%S')}.csv")
             shutil.move(file_path, dest_path)
-            print(f">>> [TERMINAL] Objednávka '{db_cislo}' úspešne nastavená na Hotová!")
+            print(f">>> [TERMINAL] Objednávka '{db_cislo}' úspešne nastavená na Hotová s prepočítanou sumou {finalna_suma_s_dph:.2f} €!")
             
         except Exception as e:
             print(f">>> [TERMINAL] CHYBA pri súbore {filename}: {e}")
