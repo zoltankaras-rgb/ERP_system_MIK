@@ -379,7 +379,7 @@ def leader_dashboard():
 def leader_b2c_orders():
     """
     Zoznam B2C objednávok pre Vedúceho expedície.
-    OPRAVA: Pripája tabuľku b2b_zakaznici cez LEFT JOIN, aby sme vždy mali meno zákazníka.
+    Pripája tabuľku b2b_zakaznici cez LEFT JOIN, aby sme vždy mali meno zákazníka a číslo prevádzky.
     """
     d = _d(request.args.get('date'))
     
@@ -388,24 +388,26 @@ def leader_b2c_orders():
 
     # SQL Dotaz s JOINom na zákazníka
     # Používame alias 'o' pre objednávky a 'z' pre zákazníkov
+    # PRIDANÉ: z.cislo_prevadzky do SELECTu
     sql = f"""
         SELECT 
             o.*,
-            COALESCE(z.nazov_firmy, z.email, o.nazov_firmy) as resolved_name
+            COALESCE(z.nazov_firmy, z.email, o.nazov_firmy) as resolved_name,
+            z.cislo_prevadzky
         FROM b2c_objednavky o
         LEFT JOIN b2b_zakaznici z ON o.zakaznik_id = z.zakaznik_id
         WHERE DATE(o.{date_col}) = %s 
         ORDER BY o.{date_col} DESC, o.id DESC
     """
     
-    # Ak by tabuľka b2b_zakaznici neexistovala (veľmi nepravdepodobné), fallback na jednoduchý select
+    # Ak by tabuľka b2b_zakaznici neexistovala (fallback)
     if not _table_exists('b2b_zakaznici'):
-        sql = f"SELECT *, nazov_firmy as resolved_name FROM b2c_objednavky WHERE DATE({date_col}) = %s ORDER BY {date_col} DESC"
+        sql = f"SELECT *, nazov_firmy as resolved_name, NULL as cislo_prevadzky FROM b2c_objednavky WHERE DATE({date_col}) = %s ORDER BY {date_col} DESC"
 
     try:
         rows = db_connector.execute_query(sql, (d,), fetch="all") or []
     except Exception as e:
-        # Fallback ak zlyhá SQL syntax (napr. neexistujúce stĺpce)
+        # Fallback ak zlyhá SQL syntax
         print(f"Leader B2C Error: {e}")
         rows = []
 
@@ -417,8 +419,13 @@ def leader_b2c_orders():
     out = []
 
     for r in rows:
-        # --- 1. Meno zákazníka (z JOINu alebo fallback) ---
+        # --- 1. Meno zákazníka s číslom prevádzky ---
         cust_name = r.get('resolved_name') or r.get('nazov_firmy') or r.get('email') or 'Neznámy zákazník'
+        c_prev = str(r.get('cislo_prevadzky') or '').strip()
+        
+        # Ak existuje číslo prevádzky a už nie je v názve
+        if c_prev and c_prev != 'None' and not cust_name.startswith(f"[{c_prev}]"):
+            cust_name = f"[{c_prev}] {cust_name}"
 
         # --- 2. Predbežná suma ---
         pred = None
@@ -442,7 +449,6 @@ def leader_b2c_orders():
                 gross = 0.0
                 for it in items:
                     if not isinstance(it, dict): continue
-                    # Podpora rôznych kľúčov (quantity/mnozstvo, price_s_dph/cena_s_dph)
                     q = float(it.get("quantity") or it.get("mnozstvo") or 0)
                     price = float(it.get("price_s_dph") or it.get("cena_s_dph") or 0)
                     if q > 0 and price > 0:
@@ -469,8 +475,8 @@ def leader_b2c_orders():
             "predpokladana_suma_s_dph": pred,
             "finalna_suma_s_dph": fin,
             "stav": r.get("stav") or "",
-            "zakaznik_meno": cust_name,  # <--- TOTO JE OPRAVENÉ POLE
-            "nazov_firmy": cust_name,    # <--- PRE ISTOTU AJ TOTO
+            "zakaznik_meno": cust_name,  # <--- Teraz obsahuje už aj formát [094]
+            "nazov_firmy": cust_name,    # <--- Pre istotu aktualizované aj tu
             "polozky_json": r.get(items_col) or "[]",
         })
 
@@ -480,20 +486,30 @@ def leader_b2c_orders():
 @login_required(role=('veduci','admin'))
 def leader_b2b_orders():
     d = _d(request.args.get('date'))
-    date_col = _pick_col('b2b_objednavky', ['pozadovany_datum_dodania','datum_objednavky'])
-    if date_col:
-        rows = db_connector.execute_query(
-            f"SELECT * FROM b2b_objednavky WHERE DATE({date_col})=%s ORDER BY {date_col} DESC, id DESC", (d,)
-        ) or []
-    else:
-        rows = db_connector.execute_query("SELECT * FROM b2b_objednavky ORDER BY id DESC LIMIT 200") or []
+    date_col = _pick_col('b2b_objednavky', ['pozadovany_datum_dodania','datum_objednavky']) or 'datum_objednavky'
+    
+    # NOVÉ: JOIN na b2b_zakaznici pre získanie cislo_prevadzky
+    sql = f"""
+        SELECT o.*, z.cislo_prevadzky
+        FROM b2b_objednavky o
+        LEFT JOIN b2b_zakaznici z ON o.zakaznik_id = z.zakaznik_id
+        WHERE DATE(o.{date_col}) = %s 
+        ORDER BY o.{date_col} DESC, o.id DESC
+    """
+    rows = db_connector.execute_query(sql, (d,), fetch="all") or []
 
     out = []
     for r in rows:
+        # Formátovanie názvu s číslom prevádzky
+        cust_name = r.get('nazov_firmy') or ''
+        c_prev = str(r.get('cislo_prevadzky') or '').strip()
+        if c_prev and not cust_name.startswith(f"[{c_prev}]"):
+            cust_name = f"[{c_prev}] {cust_name}"
+
         out.append({
             'id': r.get('id'),
             'cislo_objednavky': r.get('cislo_objednavky') or r.get('id'),
-            'odberatel': r.get('nazov_firmy') or '',
+            'odberatel': cust_name, # Teraz obsahuje aj [094]
             'datum_objednavky': _iso(r.get('datum_objednavky')),
             'pozadovany_datum_dodania': _iso(r.get('pozadovany_datum_dodania')),
             'predpokladana_suma_s_dph': None,
@@ -502,7 +518,6 @@ def leader_b2b_orders():
             'polozky_json': r.get('polozky_json') or r.get('polozky') or '[]'
         })
     return jsonify(out)
-
 # =============================================================================
 # B2C: zrušenie (leader proxy)
 # =============================================================================
