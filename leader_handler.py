@@ -218,16 +218,22 @@ def leader_b2b_get_pricelists_and_products():
 @login_required(role=('veduci','admin'))
 def leader_b2b_order_pdf_alias():
     order_id = (request.args.get('order_id') or '').strip()
+    
+    # NOVÉ: Podpora pre typ PDF (napr. type=finished pre vypracovanú objednávku)
+    req_type = request.args.get('type')
+    type_param = f"?type={req_type}" if req_type else ""
+    
     if not order_id:
         return jsonify({'error':'chýba order_id'}), 400
     if order_id.isdigit():
-        return redirect(f"/api/kancelaria/b2b/print_order_pdf/{order_id}", code=302)
+        return redirect(f"/api/kancelaria/b2b/print_order_pdf/{order_id}{type_param}", code=302)
+    
     row = db_connector.execute_query(
         "SELECT id FROM b2b_objednavky WHERE cislo_objednavky=%s",
         (order_id,), fetch='one'
     )
     if row and row.get('id'):
-        return redirect(f"/api/kancelaria/b2b/print_order_pdf/{row['id']}", code=302)
+        return redirect(f"/api/kancelaria/b2b/print_order_pdf/{row['id']}{type_param}", code=302)
     return jsonify({'error':'Objednávku sa nepodarilo nájsť.'}), 404
 
 # =============================================================================

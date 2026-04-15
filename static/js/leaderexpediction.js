@@ -281,8 +281,9 @@
 
   // ============================== B2B =======================================
   function getB2bFilter(){ const v = safeStr($('#b2b-filter')?.value || ''); const group = !!$('#b2b-group')?.checked; return { q:v.toLowerCase(), group }; }
-  async function openB2bPdfSmart(id){
-    const u = `/api/leader/b2b/order-pdf?order_id=${encodeURIComponent(id)}`;
+  async function openB2bPdfSmart(id, type = null){
+    const typeParam = type ? `&type=${type}` : '';
+    const u = `/api/leader/b2b/order-pdf?order_id=${encodeURIComponent(id)}${typeParam}`;
     try{ const r = await fetch(u, {method:'HEAD'}); if (r.ok || r.status===302) { window.open(u,'_blank'); return; } window.open(u,'_blank'); }
     catch(_){ window.open(u,'_blank'); }
   }
@@ -304,21 +305,41 @@
       const {q, group} = getB2bFilter ? getB2bFilter() : {q:'',group:false};
       let list = rows.filter(r=>{ const who = (r.odberatel || r.zakaznik_meno || r.nazov_firmy || '').toLowerCase(); return !q || who.includes(q); });
       if (!list.length){ tb.innerHTML='<tr><td colspan="6" class="muted">Žiadne objednávky.</td></tr>'; return; }
+      
       if (!group){
         tb.innerHTML = list.map(r=>{
           const id = r.cislo_objednavky || r.id; const who = safeStr(r.odberatel || ''); const ddel = r.pozadovany_datum_dodania || '';
-          return `<tr><td>${escapeHtml(id)}</td><td>${escapeHtml(who)}</td><td>${escapeHtml(ddel||'')}</td><td>${priceCell(r)}</td><td>${escapeHtml(r.stav||'')}</td><td><button class="btn btn-sm" data-b2b-pdf="${escapeHtml(id)}">PDF</button> <button class="btn btn-sm" data-b2b-edit="${escapeHtml(id)}">Upraviť</button></td></tr>`;
+          
+          let buttons = `<button class="btn btn-sm" data-b2b-pdf="${escapeHtml(id)}">Zadanie (PDF)</button> <button class="btn btn-sm" data-b2b-edit="${escapeHtml(id)}">Upraviť</button>`;
+          if (r.stav === 'Hotová') {
+              buttons += `<br><button class="btn btn-sm btn-success" style="margin-top: 4px;" data-b2b-finished-pdf="${escapeHtml(id)}">Vypracovaná (PDF)</button>`;
+          }
+
+          return `<tr><td>${escapeHtml(id)}</td><td>${escapeHtml(who)}</td><td>${escapeHtml(ddel||'')}</td><td>${priceCell(r)}</td><td>${escapeHtml(r.stav||'')}</td><td>${buttons}</td></tr>`;
         }).join('');
       } else {
         const groups = {}; list.forEach(r=>{ const key = r.pozadovany_datum_dodania || '(bez dátumu)'; (groups[key] = groups[key] || []).push(r); });
         const keys = Object.keys(groups).sort((a,b)=>{ if (a==='(bez dátumu)') return 1; if (b==='(bez dátumu)') return -1; return a.localeCompare(b); });
         tb.innerHTML = keys.map(k=>{
-          const rowsHtml = groups[k].map(r=>{ const id = r.cislo_objednavky || r.id; const who = safeStr(r.odberatel || ''); return `<tr><td>${escapeHtml(id)}</td><td>${escapeHtml(who)}</td><td>${priceCell(r)}</td><td>${escapeHtml(r.stav||'')}</td><td><button class="btn btn-sm" data-b2b-pdf="${escapeHtml(id)}">PDF</button> <button class="btn btn-sm" data-b2b-edit="${escapeHtml(id)}">Upraviť</button></td></tr>`; }).join('');
+          const rowsHtml = groups[k].map(r=>{ 
+            const id = r.cislo_objednavky || r.id; const who = safeStr(r.odberatel || ''); 
+            
+            let buttons = `<button class="btn btn-sm" data-b2b-pdf="${escapeHtml(id)}">Zadanie (PDF)</button> <button class="btn btn-sm" data-b2b-edit="${escapeHtml(id)}">Upraviť</button>`;
+            if (r.stav === 'Hotová') {
+                buttons += `<br><button class="btn btn-sm btn-success" style="margin-top: 4px;" data-b2b-finished-pdf="${escapeHtml(id)}">Vypracovaná (PDF)</button>`;
+            }
+
+            return `<tr><td>${escapeHtml(id)}</td><td>${escapeHtml(who)}</td><td>${priceCell(r)}</td><td>${escapeHtml(r.stav||'')}</td><td>${buttons}</td></tr>`; 
+          }).join('');
           return `<tr class="muted"><td colspan="6"><strong>Dodanie:</strong> ${escapeHtml(k!=='(bez dátumu)'?`${fmtSK(k)} (${k})`:k)}</td></tr>${rowsHtml}`;
         }).join('');
       }
+      
       $$('[data-b2b-pdf]').forEach(b=> b.onclick = ()=> openB2bPdfSmart(b.getAttribute('data-b2b-pdf')) );
+      // NOVÉ: Kliknutie pre vypracovanú (terminálovú) objednávku
+      $$('[data-b2b-finished-pdf]').forEach(b=> b.onclick = ()=> openB2bPdfSmart(b.getAttribute('data-b2b-finished-pdf'), 'finished') );
       $$('[data-b2b-edit]').forEach(b=> b.onclick = ()=>{ const id = b.getAttribute('data-b2b-edit'); const row = rows.find(x=> String(x.cislo_objednavky||x.id) === id); if (row) openB2BEditModal(row); });
+      
       if (!$('#b2b-filter')) injectB2bFilterUI();
     }catch(e){ tb.innerHTML = `<tr><td colspan="6" class="muted">Chyba: ${escapeHtml(e.message||'')}</td></tr>`; }
   }
