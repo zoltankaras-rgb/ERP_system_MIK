@@ -10,7 +10,7 @@ let vsetkyPoznamkyData = [];
 
 const MAX_KARIET_NA_OBRAZOVKU = 8; 
 
-// --- DYNAMICKÉ CSS PRE TABUĽU (TMAVÝ REŽIM + RESPONZÍVNY TV FOCUS MÓD) ---
+// --- DYNAMICKÉ CSS PRE TABUĽU ---
 const style = document.createElement('style');
 style.innerHTML = `
   @keyframes blink-critical {
@@ -18,150 +18,6 @@ style.innerHTML = `
     50% { opacity: 0.8; transform: scale(1.02); }
     100% { opacity: 1; transform: scale(1); }
   }
-
-  /* --- GIGANTICKÝ RESPONZÍVNY LAYOUT PRE TERMINÁL --- */
-  .focus-container {
-      height: calc(100vh - 120px); /* Odpočítame výšku červenej hlavičky a promo pruhu */
-      display: flex;
-      flex-direction: column;
-      padding: 1vw 2vw;
-      box-sizing: border-box;
-  }
-
-  .focus-card {
-      display: flex;
-      flex-direction: column;
-      flex-grow: 1;
-      background: #ffffff;
-      border-radius: 2vw;
-      box-shadow: 0 1vw 3vw rgba(0,0,0,0.15);
-      border-left: 1.5vw solid #d32f2f;
-      overflow: hidden;
-  }
-  body.dark-mode .focus-card { background: #1e1e1e; border-left-color: #b71c1c; }
-
-  .focus-header {
-      background: #d32f2f;
-      color: white;
-      padding: 1.5vw 3vw;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-  }
-  body.dark-mode .focus-header { background: #b71c1c; }
-
-  .focus-zakaznik {
-      font-size: clamp(3rem, 4.5vw, 7rem);
-      font-weight: 900;
-      line-height: 1.1;
-      max-width: 80%;
-      word-wrap: break-word;
-  }
-  .focus-id {
-      font-size: clamp(2rem, 3vw, 4rem);
-      font-weight: 800;
-      background: rgba(0,0,0,0.25);
-      padding: 0.5vw 1.5vw;
-      border-radius: 1vw;
-      white-space: nowrap;
-  }
-
-  .focus-body {
-      padding: 2vw 3vw;
-      display: flex;
-      flex-direction: column;
-      flex-grow: 1;
-      gap: 2vw;
-  }
-
-  .focus-address {
-      font-size: clamp(1.8rem, 2.2vw, 3rem);
-      color: #6c757d;
-      font-weight: 600;
-      border-bottom: 0.3vw solid rgba(0,0,0,0.1);
-      padding-bottom: 1.5vw;
-      display: flex;
-      align-items: center;
-      gap: 1vw;
-  }
-  body.dark-mode .focus-address { color: #aaa; border-bottom-color: #333; }
-
-  /* CSS GRID: Rozdelenie obrazovky na ľavú a pravú polovicu */
-  .focus-grid {
-      display: grid;
-      grid-template-columns: 1fr 1.3fr; 
-      gap: 3vw;
-      flex-grow: 1;
-      align-items: stretch;
-  }
-
-  .focus-stats {
-      display: flex;
-      flex-direction: column;
-      gap: 2vw;
-  }
-
-  .focus-stat-box {
-      border-radius: 1.5vw;
-      padding: 1.5vw;
-      text-align: center;
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      align-items: center;
-      flex-grow: 1;
-  }
-  .focus-stat-label {
-      font-size: clamp(1.5rem, 1.8vw, 2.5rem);
-      text-transform: uppercase;
-      font-weight: 800;
-      margin-bottom: 0.5vw;
-  }
-  .focus-stat-value {
-      font-size: clamp(4rem, 6vw, 9rem);
-      font-weight: 900;
-      line-height: 1;
-  }
-
-  .box-vaha { background: #f8f9fa; border: 0.4vw solid #ced4da; color: #212529; }
-  body.dark-mode .box-vaha { background: #2a2a2a; border-color: #444; color: #fff; }
-  .box-vaha .focus-stat-label { color: #6c757d; }
-  body.dark-mode .box-vaha .focus-stat-label { color: #888; }
-
-  .box-trasa { background: #fff3cd; border: 0.4vw solid #ffe69c; color: #856404; }
-  body.dark-mode .box-trasa { background: #4a3b10; border-color: #785a15; color: #ffb74d; }
-  .box-trasa .focus-stat-label { color: #856404; }
-  body.dark-mode .box-trasa .focus-stat-label { color: #ffb74d; }
-
-  .focus-notes {
-      display: flex;
-      flex-direction: column;
-      gap: 1.5vw;
-      justify-content: center;
-  }
-
-  .f-note {
-      font-size: clamp(2rem, 2.5vw, 4rem);
-      padding: 1.5vw 2vw;
-      border-radius: 1.5vw;
-      display: flex;
-      align-items: flex-start;
-      gap: 1.5vw;
-      line-height: 1.3;
-  }
-  .f-note i { margin-top: 0.2vw; font-size: 1.2em; }
-  
-  .note-vzdy { background: #fff3cd; border-left: 1.2vw solid #ffc107; color: #856404; }
-  body.dark-mode .note-vzdy { background: #4a3b10; border-left-color: #ffb74d; color: #ffb74d; }
-  
-  .note-dnes { background: #cce5ff; border-left: 1.2vw solid #0056b3; color: #004085; }
-  body.dark-mode .note-dnes { background: #003366; border-left-color: #64b5f6; color: #64b5f6; }
-  
-  .note-mraz { background: #e0f2fe; border-left: 1.2vw solid #0284c7; color: #0369a1; }
-  body.dark-mode .note-mraz { background: #082f49; border-left-color: #38bdf8; color: #38bdf8; }
-
-  .note-ok { background: #d4edda; border-left: 1.2vw solid #28a745; color: #155724; align-items: center; }
-  body.dark-mode .note-ok { background: #0f3d1b; border-left-color: #84d399; color: #84d399; }
 `;
 document.head.appendChild(style);
 
@@ -312,7 +168,7 @@ function nacitajPoznamkyNaTabulu() {
 
             vsetkyStrany = noveStrany;
 
-            // ZÁMOK: Necháme tabuľu v zobrazení detailu, ak vážia.
+            // ZÁMOK: Necháme tabuľu v zobrazení detailu, ak vážia na termináli.
             if (aktualnyFocus !== null) {
                 zastavRotaciu();
                 vykresliDetailObjednavky(aktualnyFocus);
@@ -427,6 +283,7 @@ async function kontrolujFocus() {
             aktualnyFocus = data.active_order;
             
             if (aktualnyFocus === null || aktualnyFocus === "") {
+                // Vypnutie focus módu
                 const promo = document.getElementById('coop-promo-container');
                 if (promo && document.getElementById('coop-promo-list').innerHTML !== '') promo.style.display = 'block'; 
                 
@@ -439,6 +296,7 @@ async function kontrolujFocus() {
                     }, 12000); 
                 }
             } else {
+                // Zapnutie focus módu
                 zastavRotaciu();
                 vykresliDetailObjednavky(aktualnyFocus);
             }
@@ -446,7 +304,7 @@ async function kontrolujFocus() {
     } catch (e) { console.error("Chyba overovania focusu:", e); }
 }
 
-// --- VYKRESLENIE RESPONZÍVNEHO DETAILU (FOCUS MÓD) ---
+// --- NOVÝ OPTIMALIZOVANÝ DETAIL (Centrovaná "Mega-Karta") ---
 function vykresliDetailObjednavky(cisloObjednavky) {
     const obsah = document.getElementById('obsah-tabule');
     const paginacia = document.getElementById('paginacia-container');
@@ -455,66 +313,75 @@ function vykresliDetailObjednavky(cisloObjednavky) {
     
     paginacia.innerHTML = ''; 
     if (promo) promo.style.display = 'none'; 
-    obsah.style.transform = 'none'; // Zrušíme škálovanie mriežky
+    obsah.style.transform = 'none'; 
     
     const obj = vsetkyPoznamkyData.find(o => o.id_objednavky === cisloObjednavky);
     
     if (!obj) {
         hlavnyNadpis.innerHTML = `<span style="color:#d32f2f;"><i class="fas fa-satellite-dish fa-fade"></i> HĽADÁM OBJEDNÁVKU...</span>`;
-        obsah.innerHTML = `<h2 style="text-align:center; margin-top:20vh; font-size:4vw; color:#6c757d;">Objednávka ${cisloObjednavky} zatiaľ nebola priradená na trasu.</h2>`;
+        obsah.innerHTML = `<h2 style="text-align:center; margin-top:20vh; font-size:4rem; color:#6c757d;">Objednávka ${cisloObjednavky} zatiaľ nebola priradená na trasu.</h2>`;
         return;
     }
 
     hlavnyNadpis.innerHTML = `<span style="color:#28a745;"><i class="fas fa-satellite-dish fa-fade"></i> VÁHA SPRACUJE:</span> ${cisloObjednavky}`;
     
+    // Používame natívne triedy pre poznámky z tvojho štandardného CSS
     let poznamkyHtml = '';
-    if (obj.trvala_poznamka) poznamkyHtml += `<div class="f-note note-vzdy"><i class="fas fa-exclamation-triangle"></i> <div><strong>VŽDY:</strong> ${obj.trvala_poznamka}</div></div>`;
-    if (obj.poznamka_objednavky) poznamkyHtml += `<div class="f-note note-dnes"><i class="fas fa-info-circle"></i> <div><strong>DOPLNENIE:</strong> ${obj.poznamka_objednavky}</div></div>`;
-    if (obj.mrazene_polozky) poznamkyHtml += `<div class="f-note note-mraz"><i class="fas fa-snowflake"></i> <div><strong>MRAZENÉ:</strong> ${obj.mrazene_polozky}</div></div>`;
+    if (obj.trvala_poznamka) poznamkyHtml += `<div class="p-riadok stala-poznamka" style="font-size: 3rem; margin-top: 15px;"><i class="fas fa-exclamation-circle" style="margin-top: 5px;"></i><div><strong>VŽDY:</strong> ${obj.trvala_poznamka}</div></div>`;
+    if (obj.poznamka_objednavky) poznamkyHtml += `<div class="p-riadok dnesna-poznamka" style="font-size: 3rem; margin-top: 15px;"><i class="fas fa-info-circle" style="margin-top: 5px;"></i><div><strong>DOPLNENIE:</strong> ${obj.poznamka_objednavky}</div></div>`;
+    if (obj.mrazene_polozky) poznamkyHtml += `<div class="p-riadok mrazena-poznamka" style="font-size: 3rem; margin-top: 15px;"><i class="fas fa-snowflake" style="margin-top: 5px;"></i><div><strong>MRAZENÉ:</strong> ${obj.mrazene_polozky}</div></div>`;
     
-    if (!poznamkyHtml) poznamkyHtml = `<div class="f-note note-ok"><i class="fas fa-check-circle"></i> <div>Bez špeciálnych poznámok k tejto objednávke.</div></div>`;
+    if (!poznamkyHtml) poznamkyHtml = `<div class="p-riadok" style="font-size: 3rem; color: #28a745; margin-top: 15px;"><i class="fas fa-check-circle" style="margin-top: 5px;"></i> <div>Bez špeciálnych poznámok k tejto objednávke.</div></div>`;
 
     const vahaZobrazena = parseFloat(Number(obj.vaha_kg).toFixed(2));
+    let vahaIkonka = obj.vaha_kategoria === 'velka' ? '🚛' : (obj.vaha_kategoria === 'stredna' ? '🛒' : '🧺');
+    
     let nazovFirmy = obj.zakaznik;
+    if (obj.cislo_prevadzky && obj.cislo_prevadzky.trim() !== '') {
+         if (!nazovFirmy.includes(`[${obj.cislo_prevadzky}]`)) nazovFirmy = `<span style="color: #6c757d; margin-right: 15px;">[${obj.cislo_prevadzky}]</span>${nazovFirmy}`;
+    }
 
-    // Vloženie responzívneho Gridu
+    let cssClass = (obj.trvala_poznamka || obj.poznamka_objednavky || obj.mrazene_polozky) ? 'has-notes' : 'has-order';
+    if (obj.mrazene_polozky && !obj.trvala_poznamka && !obj.poznamka_objednavky) { cssClass = 'mrazene-sumar-karta'; }
+
+    // Flexbox centrovanie jednej "Mega-Karty" s obmedzenou max-šírkou (max-width)
     obsah.innerHTML = `
-        <div class="focus-container">
-            <div class="focus-card">
-                <div class="focus-header">
-                    <div class="focus-zakaznik">${nazovFirmy}</div>
-                    <div class="focus-id">[${obj.cislo_prevadzky || '-'}]</div>
+        <div style="display: flex; justify-content: center; align-items: flex-start; width: 100%; height: 100%; padding-top: 30px; box-sizing: border-box;">
+            
+            <div class="karta ${cssClass}" style="width: 100%; max-width: 1400px; padding: 50px; border-left-width: 25px; box-shadow: 0 15px 50px rgba(0,0,0,0.2);">
+                
+                <div class="z-nazov" style="font-size: 5rem; margin-bottom: 20px; line-height: 1.1;">
+                    ${nazovFirmy}
                 </div>
                 
-                <div class="focus-body">
-                    <div class="focus-address">
-                        <i class="fas fa-map-marker-alt"></i> ${obj.adresa || 'Adresa neuvedená'}
-                    </div>
+                <div style="font-size: 2.8rem; opacity: 0.7; margin-bottom: 40px; border-bottom: 3px solid rgba(128,128,128,0.2); padding-bottom: 25px; display: flex; align-items: center; gap: 15px;">
+                    <i class="fas fa-map-marker-alt"></i> ${obj.adresa || 'Adresa neuvedená'}
+                </div>
 
-                    <div class="focus-grid">
-                        <div class="focus-stats">
-                            <div class="focus-stat-box box-vaha">
-                                <div class="focus-stat-label">Predbežná Váha</div>
-                                <div class="focus-stat-value">${vahaZobrazena} <span style="font-size: 0.5em; font-weight: 700;">kg</span></div>
-                            </div>
-                            
-                            <div class="focus-stat-box box-trasa">
-                                <div class="focus-stat-label">Naložiť do (Trasa)</div>
-                                <div class="focus-stat-value" style="font-size: clamp(3rem, 5vw, 6rem);">${obj.trasa_nazov}</div>
-                            </div>
-                        </div>
-
-                        <div class="focus-notes">
-                            ${poznamkyHtml}
-                        </div>
+                <div class="z-info" style="border: none; padding: 0; margin-bottom: 40px;">
+                    <div style="display: flex; gap: 30px; align-items: center; width: 100%; flex-wrap: wrap;">
+                        <span class="vaha-badge" style="font-size: 4rem; padding: 20px 40px; border-radius: 20px;">
+                            ${vahaIkonka} ${vahaZobrazena} kg
+                        </span>
+                        <span class="vaha-badge" style="font-size: 4rem; padding: 20px 40px; border-radius: 20px; background: #ffc107; color: #000; border: 2px solid #e0a800;">
+                            <i class="fas fa-truck"></i> ${obj.trasa_nazov}
+                        </span>
+                        <span class="status-badge badge-order" style="font-size: 3rem; padding: 20px 40px; border-radius: 20px; margin-left: auto;">
+                            <i class="fas fa-barcode"></i> OBJ: ${obj.id_objednavky || '-'}
+                        </span>
                     </div>
                 </div>
+
+                <div style="display: flex; flex-direction: column; gap: 20px;">
+                    ${poznamkyHtml}
+                </div>
+                
             </div>
+
         </div>
     `;
 }
 
-// --- POMOCNÉ FUNKCIE ---
 function vykresliPaginaciu(container) {
     let paginaciaHtml = '';
     if (vsetkyStrany.length > 1) {
@@ -551,7 +418,6 @@ function zastavRotaciu() {
     }
 }
 
-// --- ŠTART APLIKÁCIE ---
 document.addEventListener("DOMContentLoaded", function() {
     aktualizujCas();
     setInterval(aktualizujCas, 1000); 
@@ -562,6 +428,6 @@ document.addEventListener("DOMContentLoaded", function() {
     nacitajLiveKPI();
     setInterval(nacitajLiveKPI, 25000);
 
-    // Overovanie, či terminál nevyžiadal zobrazenie (Každú 1.5 s)
+    // Overovanie každú 1.5 sekundu pre rýchlu odozvu s terminálom
     setInterval(kontrolujFocus, 1500); 
 });
