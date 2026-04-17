@@ -10,7 +10,7 @@ let vsetkyPoznamkyData = [];
 
 const MAX_KARIET_NA_OBRAZOVKU = 8; 
 
-// --- DYNAMICKÉ CSS PRE TABUĽU ---
+// --- DYNAMICKÉ CSS PRE MEGA-KARTU (Čistý dizajn pre TV Focus) ---
 const style = document.createElement('style');
 style.innerHTML = `
   @keyframes blink-critical {
@@ -18,8 +18,70 @@ style.innerHTML = `
     50% { opacity: 0.8; transform: scale(1.02); }
     100% { opacity: 1; transform: scale(1); }
   }
+
+  /* Kontajner vycentruje kartu do stredu obrazovky */
+  .focus-wrapper {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      width: 100%;
+      height: calc(100vh - 160px); 
+      box-sizing: border-box;
+      padding: 20px;
+  }
+
+  /* Samotná zväčšená karta so zachovanými proporciami */
+  .mega-karta {
+      width: 100%;
+      max-width: 1300px; /* Zabráni roztiahnutiu na ultra-širokých TV */
+      padding: 40px 50px;
+      border-radius: 20px;
+      box-shadow: 0 15px 40px rgba(0,0,0,0.15);
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+  }
+  .mega-karta.has-notes { background: #ffffff; border-left: 18px solid #d32f2f; }
+  .mega-karta.has-order { background: #f8f9fa; border-left: 18px solid #28a745; }
+  .mega-karta.mrazene-sumar-karta { background: #f0f9ff; border-left: 18px solid #0284c7; }
+
+  body.dark-mode .mega-karta.has-notes { background: #2a2a2a; border-left-color: #b71c1c; }
+  body.dark-mode .mega-karta.has-order { background: #1e1e1e; border-left-color: #28a745; }
+  body.dark-mode .mega-karta.mrazene-sumar-karta { background: #082f49; border-left-color: #38bdf8; }
+
+  /* Názov zákazníka a adresa */
+  .mega-nazov { font-size: 5rem; font-weight: 900; line-height: 1.1; color: #000; margin: 0; }
+  body.dark-mode .mega-nazov { color: #fff; }
+  
+  .mega-adresa { font-size: 2.5rem; color: #6c757d; font-weight: 500; margin-top: 15px; display: flex; align-items: center; gap: 15px;}
+  body.dark-mode .mega-adresa { color: #aaa; }
+
+  /* Spodná línia s váhou a statusom */
+  .mega-info { font-size: 3rem; font-weight: 600; display: flex; justify-content: space-between; align-items: center; border-bottom: 3px solid rgba(0,0,0,0.08); padding-bottom: 30px; margin-bottom: 10px; }
+  body.dark-mode .mega-info { border-bottom-color: #444; }
+
+  .mega-vaha-badge { background: #e2e3e5; color: #383d41; padding: 15px 30px; border-radius: 15px; font-size: 4rem; font-weight: 800; display: flex; align-items: center; gap: 15px; }
+  body.dark-mode .mega-vaha-badge { background: #333; color: #e0e0e0; }
+
+  .mega-status-badge { padding: 15px 30px; border-radius: 15px; font-size: 3rem; }
+  .mega-badge-order { background: #d4edda; color: #155724; }
+  body.dark-mode .mega-badge-order { background: #0f3d1b; color: #84d399; }
+
+  /* Farebné bloky pre poznámky (aby to nebili len malé texty) */
+  .mega-riadok { display: flex; align-items: flex-start; gap: 20px; font-size: 3.5rem; font-weight: 700; line-height: 1.3; margin-top: 10px; padding: 25px; border-radius: 15px; }
+  .mega-riadok i { margin-top: 5px; font-size: 1.2em; }
+  
+  .mega-stala { background: #fff3cd; color: #856404; border-left: 12px solid #ffc107; }
+  body.dark-mode .mega-stala { background: #4a3b10; color: #ffb74d; border-left-color: #ffb74d; }
+
+  .mega-dnesna { background: #cce5ff; color: #004085; border-left: 12px solid #0056b3; }
+  body.dark-mode .mega-dnesna { background: #003366; color: #64b5f6; border-left-color: #64b5f6; }
+
+  .mega-mrazena { background: #e0f2fe; color: #0369a1; border-left: 12px solid #0284c7; }
+  body.dark-mode .mega-mrazena { background: #082f49; color: #38bdf8; border-left-color: #38bdf8; }
 `;
 document.head.appendChild(style);
+
 
 function aktualizujCas() {
     const teraz = new Date();
@@ -104,7 +166,7 @@ function nacitajPoznamkyNaTabulu() {
 
             const poznamky = data.poznamky || [];
             
-            // Uloženie dát pre focus mód
+            // Uloženie dát pre focus mód terminálu
             vsetkyPoznamkyData = poznamky; 
 
             if (poznamky.length === 0) {
@@ -168,7 +230,7 @@ function nacitajPoznamkyNaTabulu() {
 
             vsetkyStrany = noveStrany;
 
-            // ZÁMOK: Necháme tabuľu v zobrazení detailu, ak vážia na termináli.
+            // ZÁMOK: Ak terminál aktuálne ukazuje objednávku, zostaneme v nej
             if (aktualnyFocus !== null) {
                 zastavRotaciu();
                 vykresliDetailObjednavky(aktualnyFocus);
@@ -272,7 +334,7 @@ function vykresliStranu() {
     setTimeout(prisposobVelkostVertical, 50);
 }
 
-// --- RÝCHLY POLLING (Overovanie zámku terminálu) ---
+// --- RÝCHLY POLLING (Terminál overovanie každú 1.5 sekundy) ---
 async function kontrolujFocus() {
     try {
         const res = await fetch('/api/tv-board/current-focus');
@@ -283,7 +345,6 @@ async function kontrolujFocus() {
             aktualnyFocus = data.active_order;
             
             if (aktualnyFocus === null || aktualnyFocus === "") {
-                // Vypnutie focus módu
                 const promo = document.getElementById('coop-promo-container');
                 if (promo && document.getElementById('coop-promo-list').innerHTML !== '') promo.style.display = 'block'; 
                 
@@ -296,7 +357,6 @@ async function kontrolujFocus() {
                     }, 12000); 
                 }
             } else {
-                // Zapnutie focus módu
                 zastavRotaciu();
                 vykresliDetailObjednavky(aktualnyFocus);
             }
@@ -304,7 +364,7 @@ async function kontrolujFocus() {
     } catch (e) { console.error("Chyba overovania focusu:", e); }
 }
 
-// --- NOVÝ OPTIMALIZOVANÝ DETAIL (Centrovaná "Mega-Karta") ---
+// --- ČISTÁ, VYCENTROVANÁ MEGA-KARTA (FOCUS MÓD) ---
 function vykresliDetailObjednavky(cisloObjednavky) {
     const obsah = document.getElementById('obsah-tabule');
     const paginacia = document.getElementById('paginacia-container');
@@ -313,7 +373,7 @@ function vykresliDetailObjednavky(cisloObjednavky) {
     
     paginacia.innerHTML = ''; 
     if (promo) promo.style.display = 'none'; 
-    obsah.style.transform = 'none'; 
+    obsah.style.transform = 'none'; // Zrušenie nežiadúceho škálovania
     
     const obj = vsetkyPoznamkyData.find(o => o.id_objednavky === cisloObjednavky);
     
@@ -325,59 +385,50 @@ function vykresliDetailObjednavky(cisloObjednavky) {
 
     hlavnyNadpis.innerHTML = `<span style="color:#28a745;"><i class="fas fa-satellite-dish fa-fade"></i> VÁHA SPRACUJE:</span> ${cisloObjednavky}`;
     
-    // Používame natívne triedy pre poznámky z tvojho štandardného CSS
+    // Generovanie HTML pre masívne farebné poznámky
     let poznamkyHtml = '';
-    if (obj.trvala_poznamka) poznamkyHtml += `<div class="p-riadok stala-poznamka" style="font-size: 3rem; margin-top: 15px;"><i class="fas fa-exclamation-circle" style="margin-top: 5px;"></i><div><strong>VŽDY:</strong> ${obj.trvala_poznamka}</div></div>`;
-    if (obj.poznamka_objednavky) poznamkyHtml += `<div class="p-riadok dnesna-poznamka" style="font-size: 3rem; margin-top: 15px;"><i class="fas fa-info-circle" style="margin-top: 5px;"></i><div><strong>DOPLNENIE:</strong> ${obj.poznamka_objednavky}</div></div>`;
-    if (obj.mrazene_polozky) poznamkyHtml += `<div class="p-riadok mrazena-poznamka" style="font-size: 3rem; margin-top: 15px;"><i class="fas fa-snowflake" style="margin-top: 5px;"></i><div><strong>MRAZENÉ:</strong> ${obj.mrazene_polozky}</div></div>`;
+    if (obj.trvala_poznamka) poznamkyHtml += `<div class="mega-riadok mega-stala"><i class="fas fa-exclamation-circle"></i><div><strong>VŽDY:</strong> ${obj.trvala_poznamka}</div></div>`;
+    if (obj.poznamka_objednavky) poznamkyHtml += `<div class="mega-riadok mega-dnesna"><i class="fas fa-info-circle"></i><div><strong>DOPLNENIE:</strong> ${obj.poznamka_objednavky}</div></div>`;
+    if (obj.mrazene_polozky) poznamkyHtml += `<div class="mega-riadok mega-mrazena"><i class="fas fa-snowflake"></i><div><strong>MRAZENÉ:</strong> ${obj.mrazene_polozky}</div></div>`;
     
-    if (!poznamkyHtml) poznamkyHtml = `<div class="p-riadok" style="font-size: 3rem; color: #28a745; margin-top: 15px;"><i class="fas fa-check-circle" style="margin-top: 5px;"></i> <div>Bez špeciálnych poznámok k tejto objednávke.</div></div>`;
+    if (!poznamkyHtml) poznamkyHtml = `<div class="mega-riadok" style="color: #28a745;"><i class="fas fa-check-circle"></i> <div>Bez špeciálnych poznámok k tejto objednávke.</div></div>`;
 
     const vahaZobrazena = parseFloat(Number(obj.vaha_kg).toFixed(2));
     let vahaIkonka = obj.vaha_kategoria === 'velka' ? '🚛' : (obj.vaha_kategoria === 'stredna' ? '🛒' : '🧺');
     
     let nazovFirmy = obj.zakaznik;
     if (obj.cislo_prevadzky && obj.cislo_prevadzky.trim() !== '') {
-         if (!nazovFirmy.includes(`[${obj.cislo_prevadzky}]`)) nazovFirmy = `<span style="color: #6c757d; margin-right: 15px;">[${obj.cislo_prevadzky}]</span>${nazovFirmy}`;
+         nazovFirmy = `<span style="color: #6c757d; margin-right: 15px;">[${obj.cislo_prevadzky}]</span>${nazovFirmy}`;
     }
+    
+    let adresaHtml = obj.adresa ? `<div class="mega-adresa"><i class="fas fa-map-marker-alt"></i> ${obj.adresa}</div>` : '';
 
     let cssClass = (obj.trvala_poznamka || obj.poznamka_objednavky || obj.mrazene_polozky) ? 'has-notes' : 'has-order';
     if (obj.mrazene_polozky && !obj.trvala_poznamka && !obj.poznamka_objednavky) { cssClass = 'mrazene-sumar-karta'; }
 
-    // Flexbox centrovanie jednej "Mega-Karty" s obmedzenou max-šírkou (max-width)
+    // Vloženie do wrapperu pre dokonalé vycentrovanie
     obsah.innerHTML = `
-        <div style="display: flex; justify-content: center; align-items: flex-start; width: 100%; height: 100%; padding-top: 30px; box-sizing: border-box;">
-            
-            <div class="karta ${cssClass}" style="width: 100%; max-width: 1400px; padding: 50px; border-left-width: 25px; box-shadow: 0 15px 50px rgba(0,0,0,0.2);">
+        <div class="focus-wrapper">
+            <div class="mega-karta ${cssClass}">
                 
-                <div class="z-nazov" style="font-size: 5rem; margin-bottom: 20px; line-height: 1.1;">
+                <div class="mega-nazov">
                     ${nazovFirmy}
-                </div>
-                
-                <div style="font-size: 2.8rem; opacity: 0.7; margin-bottom: 40px; border-bottom: 3px solid rgba(128,128,128,0.2); padding-bottom: 25px; display: flex; align-items: center; gap: 15px;">
-                    <i class="fas fa-map-marker-alt"></i> ${obj.adresa || 'Adresa neuvedená'}
+                    ${adresaHtml}
                 </div>
 
-                <div class="z-info" style="border: none; padding: 0; margin-bottom: 40px;">
-                    <div style="display: flex; gap: 30px; align-items: center; width: 100%; flex-wrap: wrap;">
-                        <span class="vaha-badge" style="font-size: 4rem; padding: 20px 40px; border-radius: 20px;">
-                            ${vahaIkonka} ${vahaZobrazena} kg
-                        </span>
-                        <span class="vaha-badge" style="font-size: 4rem; padding: 20px 40px; border-radius: 20px; background: #ffc107; color: #000; border: 2px solid #e0a800;">
-                            <i class="fas fa-truck"></i> ${obj.trasa_nazov}
-                        </span>
-                        <span class="status-badge badge-order" style="font-size: 3rem; padding: 20px 40px; border-radius: 20px; margin-left: auto;">
-                            <i class="fas fa-barcode"></i> OBJ: ${obj.id_objednavky || '-'}
-                        </span>
+                <div class="mega-info">
+                    <div style="display: flex; gap: 30px; align-items: center;">
+                        <span class="mega-status-badge mega-badge-order"><i class="fas fa-barcode"></i> ${obj.id_objednavky || '-'}</span>
+                        <span class="mega-vaha-badge">${vahaIkonka} ${vahaZobrazena} kg</span>
+                        <span class="mega-vaha-badge" style="background: #ffc107; color: #000; border: 2px solid #e0a800;"><i class="fas fa-truck"></i> ${obj.trasa_nazov}</span>
                     </div>
                 </div>
 
-                <div style="display: flex; flex-direction: column; gap: 20px;">
+                <div style="display: flex; flex-direction: column; gap: 10px;">
                     ${poznamkyHtml}
                 </div>
                 
             </div>
-
         </div>
     `;
 }
@@ -428,6 +479,6 @@ document.addEventListener("DOMContentLoaded", function() {
     nacitajLiveKPI();
     setInterval(nacitajLiveKPI, 25000);
 
-    // Overovanie každú 1.5 sekundu pre rýchlu odozvu s terminálom
+    // Overovanie každú 1.5 sekundu
     setInterval(kontrolujFocus, 1500); 
 });
