@@ -4655,29 +4655,29 @@ TERMINAL_API_TOKEN = "mik-terminal-2026-secret"
 @app.route('/api/terminal/focus/<cislo_objednavky>', methods=['GET', 'POST'])
 def set_tv_focus(cislo_objednavky):
     token = request.args.get('token')
-    if token != TERMINAL_API_TOKEN:
+    if token != "mik-terminal-2026-secret":
         return jsonify({"error": "Unauthorized"}), 401
     
-    # Uložíme aktuálne spracovávanú objednávku do nastavení
-    # Predpokladáme, že máš tabuľku system_settings (kluc, hodnota)
     sql = """
         INSERT INTO system_settings (kluc, hodnota) 
         VALUES ('tv_active_order', %s) 
         ON DUPLICATE KEY UPDATE hodnota = %s
     """
-    db_connector.execute_query(sql, (cislo_objednavky, cislo_objednavky))
+    # TU JE ZMENA: pridané fetch='none'
+    db_connector.execute_query(sql, (cislo_objednavky, cislo_objednavky), fetch='none')
     
     return jsonify({"status": "success", "focused_order": cislo_objednavky})
 
 @app.route('/api/terminal/focus/exit', methods=['GET', 'POST'])
 def clear_tv_focus():
     token = request.args.get('token')
-    if token != TERMINAL_API_TOKEN:
+    if token != "mik-terminal-2026-secret":
         return jsonify({"error": "Unauthorized"}), 401
     
-    # Vymažeme hodnotu, čím povieme TV, aby sa vrátil k rotácii
     sql = "UPDATE system_settings SET hodnota = NULL WHERE kluc = 'tv_active_order'"
-    db_connector.execute_query(sql)
+    
+    # TU JE ZMENA: pridané fetch='none'
+    db_connector.execute_query(sql, fetch='none')
     
     return jsonify({"status": "success", "focused_order": None})
 
