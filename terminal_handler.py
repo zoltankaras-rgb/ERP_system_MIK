@@ -182,24 +182,25 @@ def process_terminal_files():
                 hladany_ean = interny_ean if interny_ean else ean
                 hladany_clean = interny_ean.lstrip('0') if interny_ean and interny_ean.lstrip('0') != '' else ean_clean
                 
-                # OPRAVA EXTRAKCIE VÁHY: 
-                # Terminály posielajú váhu vždy na rovnakom mieste, zvyčajne medzi znakmi 112 a 122.
-                # Namiesto zložitého strihania ceny jednoducho zoberieme fixný stĺpec pre váhu:
-                # 105 až 117 býva cena (niekedy s menou)
-                # 117 až 127 býva množstvo (váha)
-                weight_str = line[114:127].strip() # Berieme o niečo širšie okno pre istotu
-
-                # Očistenie váhy od prípadných iných znakov (ak by tam niečo zasahovalo)
-                # Ponecháme len čísla a čiarku/bodku
+                # OPRAVA EXTRAKCIE VÁHY (Zabráni orezaniu desiatok, napr. 15.55 -> 5.55):
+                # Zoberieme celú voľnú zónu (od indexu 102 po 127) a nájdeme posledné platné číslo.
+                free_zone = line[102:127].strip()
+                
                 import re
-                weight_str_clean = re.sub(r'[^\d,\.]', '', weight_str)
-                weight_str_clean = weight_str_clean.replace(',', '.')
-
-                try:
-                    real_weight = float(weight_str_clean) if weight_str_clean else 0.0
-                except ValueError:
-                    print(f"Nepodarilo sa spracovať váhu pre EAN {ean} v riadku: {line.strip()}")
-                    real_weight = 0.0
+                real_weight = 0.0
+                parts = free_zone.split()
+                
+                for part in reversed(parts):
+                    clean_part = re.sub(r'[^\d,\.]', '', part).replace(',', '.')
+                    if clean_part and clean_part.count('.') <= 1:
+                        try:
+                            real_weight = float(clean_part)
+                            break  # Váha úspešne nájdená
+                        except ValueError:
+                            pass
+                
+                if real_weight == 0.0 and free_zone:
+                    print(f"Upozornenie: Nenašla sa validná váha pre EAN {ean} v zóne: '{free_zone}'")
                 
                 if real_weight > 0:
                     db_connector.execute_query("""
