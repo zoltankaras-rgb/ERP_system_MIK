@@ -4648,6 +4648,49 @@ def tv_board_view():
 def api_tv_board_data():
     data = expedition_board_handler.get_b2b_special_notes()
     return jsonify(data)
+
+# Jednoduchý token pre bezpečnosť
+TERMINAL_API_TOKEN = "mik-terminal-2026-secret" 
+
+@app.route('/api/terminal/focus/<cislo_objednavky>', methods=['GET', 'POST'])
+def set_tv_focus(cislo_objednavky):
+    token = request.args.get('token')
+    if token != TERMINAL_API_TOKEN:
+        return jsonify({"error": "Unauthorized"}), 401
+    
+    # Uložíme aktuálne spracovávanú objednávku do nastavení
+    # Predpokladáme, že máš tabuľku system_settings (kluc, hodnota)
+    sql = """
+        INSERT INTO system_settings (kluc, hodnota) 
+        VALUES ('tv_active_order', %s) 
+        ON DUPLICATE KEY UPDATE hodnota = %s
+    """
+    db_connector.execute_query(sql, (cislo_objednavky, cislo_objednavky))
+    
+    return jsonify({"status": "success", "focused_order": cislo_objednavky})
+
+@app.route('/api/terminal/focus/exit', methods=['GET', 'POST'])
+def clear_tv_focus():
+    token = request.args.get('token')
+    if token != TERMINAL_API_TOKEN:
+        return jsonify({"error": "Unauthorized"}), 401
+    
+    # Vymažeme hodnotu, čím povieme TV, aby sa vrátil k rotácii
+    sql = "UPDATE system_settings SET hodnota = NULL WHERE kluc = 'tv_active_order'"
+    db_connector.execute_query(sql)
+    
+    return jsonify({"status": "success", "focused_order": None})
+
+# TENTO ENDPOINT JE POTREBNÝ PRE JAVASCRIPT NA ZISTENIE STAVU
+@app.route('/api/tv-board/current-focus', methods=['GET'])
+def get_current_focus():
+    row = db_connector.execute_query(
+        "SELECT hodnota FROM system_settings WHERE kluc = 'tv_active_order'", 
+        fetch='one'
+    )
+    active_order = row['hodnota'] if row else None
+    return jsonify({"active_order": active_order})
+
 # =================================================================
 # === NOVÉ ROUTY PRE ŠABLÓNY -Meat calc (Templates) ==========================
 # =================================================================

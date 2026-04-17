@@ -4,6 +4,10 @@ let vsetkyStrany = [];
 let aktualnaStranaIndex = 0; 
 let rotaciaInterval = null;
 
+// NOVÉ PREMENNÉ PRE TERMINÁL FOCUS
+let aktualnyFocus = null;
+let vsetkyPoznamkyData = []; 
+
 const MAX_KARIET_NA_OBRAZOVKU = 8; 
 
 // Dynamické pridanie CSS pre blikanie, aby si nemusel meniť CSS súbory
@@ -14,6 +18,10 @@ style.innerHTML = `
     50% { opacity: 0.8; transform: scale(1.02); }
     100% { opacity: 1; transform: scale(1); }
   }
+  /* Doplnkové štýly pre detailný pohľad v tmavom režime */
+  body.dark-mode .detail-wrapper { background: #1e1e1e !important; color: #fff !important; }
+  body.dark-mode .detail-zakaznik { color: #fff !important; }
+  body.dark-mode .detail-box { background: #2a2a2a !important; }
 `;
 document.head.appendChild(style);
 
@@ -26,7 +34,7 @@ function aktualizujCas() {
     else { document.body.classList.remove('dark-mode'); }
 }
 
-// --- NOVÁ FUNKCIA PRE TACHOMETER TEMPA (Kompaktný a decentný pás) ---
+// --- TACHOMETER TEMPA ---
 async function nacitajLiveKPI() {
     try {
         const res = await fetch('/api/leader/tv_board/live_kpi');
@@ -35,7 +43,6 @@ async function nacitajLiveKPI() {
         
         let kpiContainer = document.getElementById('tv-live-kpi-banner');
         
-        // Ak kontajner ešte neexistuje, dynamicky ho vytvoríme pod hlavičkou/oznamami
         if (!kpiContainer) {
             kpiContainer = document.createElement('div');
             kpiContainer.id = 'tv-live-kpi-banner';
@@ -47,7 +54,6 @@ async function nacitajLiveKPI() {
             }
         }
 
-        // Ak už nemajú čo chystať, schováme tachometer úplne, aby nezavadzal
         if (kpi.zostava_chystat === 0) {
             kpiContainer.style.display = 'none';
             return;
@@ -55,22 +61,19 @@ async function nacitajLiveKPI() {
             kpiContainer.style.display = 'block';
         }
 
-        // --- FAREBNÁ PSYCHOLÓGIA (Semafor - DECENTNÝ TVAR) ---
-        let bgColor = '#1e293b'; // Tmavá bridlicová (decentná modro-sivá ako základ)
-        let textColor = '#f8fafc'; // Biela pre text
+        let bgColor = '#1e293b'; 
+        let textColor = '#f8fafc'; 
         let blinkStyle = '';
         
         if (kpi.tempo_minuty > 0) {
             if (kpi.tempo_minuty < 7.0) {
-                bgColor = '#064e3b'; // Tmavá smaragdovo-zelená (Super tempo, chvália sa)
+                bgColor = '#064e3b'; 
             } else if (kpi.tempo_minuty > 10.0) {
-                bgColor = '#7f1d1d'; // Tmavočervená (Pomalé tempo, upozornenie)
-                // Len ak sú fakt pomalé, pridáme blikanie spodnej čiary a jemné pulzovanie
+                bgColor = '#7f1d1d'; 
                 blinkStyle = 'animation: blink-critical 1.5s infinite; border-bottom: 2px solid #f87171;';
             }
         }
 
-        // Vložíme decentný jednoradový pás (výška cca 50px) namiesto obrovského boxu
         kpiContainer.innerHTML = `
             <div style="background: ${bgColor}; color: ${textColor}; padding: 10px 25px; display: flex; justify-content: space-between; align-items: center; font-family: sans-serif; border-bottom: 2px solid rgba(255,255,255,0.1); box-shadow: 0 4px 6px rgba(0,0,0,0.15); transition: background-color 0.5s; ${blinkStyle}">
                 <div style="font-size: 1.2rem; font-weight: bold; letter-spacing: 1px;">
@@ -89,8 +92,8 @@ async function nacitajLiveKPI() {
         console.error("Chyba pri načítaní KPI:", e);
     }
 }
-// ------------------------------------------
 
+// --- NAČÍTANIE DÁT TABULE ---
 function nacitajPoznamkyNaTabulu() {
     fetch('/api/tv-board/data') 
         .then(response => response.json())
@@ -110,6 +113,9 @@ function nacitajPoznamkyNaTabulu() {
             } else { promo.style.display = 'none'; }
 
             const poznamky = data.poznamky || [];
+            
+            // Uložíme si surové dáta pre terminál detail (FOCUS mód)
+            vsetkyPoznamkyData = poznamky; 
 
             if (poznamky.length === 0) {
                 zastavRotaciu();
@@ -185,6 +191,13 @@ function nacitajPoznamkyNaTabulu() {
 
             vsetkyStrany = noveStrany;
 
+            // AK JE AKTÍVNY FOCUS MÓD, NEVYKRESĽUJ KARUSEL
+            if (aktualnyFocus !== null) {
+                zastavRotaciu();
+                vykresliDetailObjednavky(aktualnyFocus);
+                return;
+            }
+
             if (aktualnaStranaIndex >= vsetkyStrany.length) aktualnaStranaIndex = 0;
             vykresliStranu();
 
@@ -203,10 +216,14 @@ function nacitajPoznamkyNaTabulu() {
         .catch(error => console.error('Chyba spojenia s backendom tabule:', error));
 }
 
+// --- VYKRESLENIE KLASICKEJ ROTUJÚCEJ OBRAZOVKY ---
 function vykresliStranu() {
     const obsah = document.getElementById('obsah-tabule');
     const paginacia = document.getElementById('paginacia-container');
     const hlavnyNadpis = document.getElementById('hlavny-nazov-trasy');
+    
+    if (vsetkyStrany.length === 0) return;
+    
     const stranaData = vsetkyStrany[aktualnaStranaIndex];
 
     if (stranaData.jeGlobalnySumarHotovo) {
@@ -312,6 +329,93 @@ function vykresliStranu() {
     setTimeout(prisposobVelkostVertical, 50);
 }
 
+// --- NOVÉ: VYKRESLENIE DETAILNEJ GIGANTICKEJ OBRAZOVKY (FOCUS MÓD) ---
+function vykresliDetailObjednavky(cisloObjednavky) {
+    const obsah = document.getElementById('obsah-tabule');
+    const paginacia = document.getElementById('paginacia-container');
+    const hlavnyNadpis = document.getElementById('hlavny-nazov-trasy');
+    const board = document.getElementById('obsah-tabule');
+    
+    // Nájdenie objednávky v načítaných dátach
+    const obj = vsetkyPoznamkyData.find(o => o.id_objednavky === cisloObjednavky);
+    
+    paginacia.innerHTML = ''; // Skryť bodky stránkovania
+    board.style.transform = 'none'; // Zrušenie akéhokoľvek zmenšenia
+    
+    if (!obj) {
+        hlavnyNadpis.innerHTML = `<i class="fas fa-search"></i> HĽADÁM OBJEDNÁVKU...`;
+        obsah.innerHTML = `<h2 style="text-align:center; margin-top:20vh; font-size:4rem; color:#d32f2f;">Objednávka ${cisloObjednavky} nenájdená na dnešnej trase.</h2>`;
+        return;
+    }
+
+    hlavnyNadpis.innerHTML = `<i class="fas fa-barcode"></i> AKTÍVNE SPRACOVANIE: ${cisloObjednavky}`;
+    
+    // Vytvorenie HTML pre obrovskú kartu s veľkými poznámkami
+    let poznamkyHtml = '';
+    if (obj.trvala_poznamka) poznamkyHtml += `<div style="font-size: 3.5rem; color: #d35400; margin-bottom: 25px;"><i class="fas fa-exclamation-circle"></i> <strong>VŽDY:</strong> ${obj.trvala_poznamka}</div>`;
+    if (obj.poznamka_objednavky) poznamkyHtml += `<div style="font-size: 3.5rem; color: #025ce2; margin-bottom: 25px;"><i class="fas fa-info-circle"></i> <strong>DOPLNENIE:</strong> ${obj.poznamka_objednavky}</div>`;
+    if (obj.mrazene_polozky) poznamkyHtml += `<div style="font-size: 3.5rem; color: #0284c7; margin-bottom: 25px;"><i class="fas fa-snowflake"></i> <strong>MRAZENÉ:</strong> ${obj.mrazene_polozky}</div>`;
+    
+    if (!poznamkyHtml) poznamkyHtml = `<div style="font-size: 3.5rem; color: #28a745;"><i class="fas fa-check"></i> Štandardná objednávka bez špeciálnych poznámok.</div>`;
+
+    obsah.innerHTML = `
+        <div class="detail-wrapper" style="background: #fff; border-left: 25px solid #d32f2f; border-radius: 20px; padding: 60px; box-shadow: 0 10px 40px rgba(0,0,0,0.2); height: 100%; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center;">
+            
+            <div class="detail-zakaznik" style="font-size: 6rem; font-weight: 900; margin-bottom: 20px; line-height: 1.1; color: #000;">
+                ${obj.zakaznik} <span style="color:#6c757d; font-size: 4rem;">[${obj.cislo_prevadzky}]</span>
+            </div>
+            
+            <div style="font-size: 3rem; color: #6c757d; margin-bottom: 50px; border-bottom: 3px solid #eee; padding-bottom: 30px;">
+                <i class="fas fa-map-marker-alt"></i> ${obj.adresa || 'Adresa neuvedená'}
+            </div>
+            
+            <div style="display: flex; gap: 40px; margin-bottom: 60px;">
+                <div style="background: #e2e3e5; color: #000; font-size: 3.5rem; padding: 20px 40px; border-radius: 15px; font-weight: 800;">
+                    Váha: ${parseFloat(Number(obj.vaha_kg).toFixed(2))} kg
+                </div>
+                <div style="background: #d32f2f; color: #fff; font-size: 3.5rem; padding: 20px 40px; border-radius: 15px; font-weight: 800;">
+                    Trasa: ${obj.trasa_nazov}
+                </div>
+            </div>
+            
+            <div class="detail-box" style="background: #f8f9fa; padding: 50px; border-radius: 15px;">
+                ${poznamkyHtml}
+            </div>
+        </div>
+    `;
+}
+
+// --- NOVÉ: RÝCHLY POLLING STAVU (KAŽDÚ 1.5 SEKUNDY) ---
+async function kontrolujFocus() {
+    try {
+        const res = await fetch('/api/tv-board/current-focus');
+        if (!res.ok) return;
+        const data = await res.json();
+        
+        if (data.active_order !== aktualnyFocus) {
+            aktualnyFocus = data.active_order;
+            
+            if (aktualnyFocus === null || aktualnyFocus === "") {
+                // Terminál poslal EXIT -> Vrátime sa na normálnu rotáciu
+                vykresliStranu(); // Vykreslí späť grid
+                if (!rotaciaInterval && vsetkyStrany.length > 1) {
+                    rotaciaInterval = setInterval(() => {
+                        aktualnaStranaIndex++;
+                        if (aktualnaStranaIndex >= vsetkyStrany.length) aktualnaStranaIndex = 0;
+                        vykresliStranu();
+                    }, 12000); 
+                }
+            } else {
+                // Terminál vybral konkrétnu objednávku -> Zobrazíme gigantický detail
+                zastavRotaciu();
+                vykresliDetailObjednavky(aktualnyFocus);
+            }
+        }
+    } catch (e) {
+        console.error("Chyba overovania focusu:", e);
+    }
+}
+
 function vykresliPaginaciu(container) {
     let paginaciaHtml = '';
     if (vsetkyStrany.length > 1) {
@@ -326,6 +430,12 @@ function prisposobVelkostVertical() {
     const contentArea = document.querySelector('.tv-content');
     const board = document.getElementById('obsah-tabule');
     if (!contentArea || !board) return;
+
+    // V detailnom móde zmenšovanie nechceme aplikovať
+    if (aktualnyFocus !== null) {
+        board.style.transform = 'none';
+        return;
+    }
 
     board.style.transform = 'none';
     const availableHeight = contentArea.clientHeight - 30; 
@@ -349,11 +459,12 @@ document.addEventListener("DOMContentLoaded", function() {
     aktualizujCas();
     setInterval(aktualizujCas, 1000); 
     
-    // Spustenie hlavnej logiky kariet
     nacitajPoznamkyNaTabulu();
     setInterval(nacitajPoznamkyNaTabulu, 15000); 
     
-    // Spustenie Live KPI (Tachometra) - beží súbežne každých 25 sekúnd
     nacitajLiveKPI();
     setInterval(nacitajLiveKPI, 25000);
+
+    // Spustenie rýchleho pollingu na overovanie "Zámku" od terminálu
+    setInterval(kontrolujFocus, 1500); 
 });
