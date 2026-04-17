@@ -4681,14 +4681,18 @@ def clear_tv_focus():
     
     return jsonify({"status": "success", "focused_order": None})
 
-# TENTO ENDPOINT JE POTREBNÝ PRE JAVASCRIPT NA ZISTENIE STAVU
 @app.route('/api/tv-board/current-focus', methods=['GET'])
 def get_current_focus():
+    import db_connector
+    from flask import jsonify
+    
+    # Prečítame, či je v DB nastavená nejaká aktívna objednávka
     row = db_connector.execute_query(
         "SELECT hodnota FROM system_settings WHERE kluc = 'tv_active_order'", 
         fetch='one'
     )
-    active_order = row['hodnota'] if row else None
+    
+    active_order = row['hodnota'] if row and row.get('hodnota') else None
     return jsonify({"active_order": active_order})
 
 # =================================================================

@@ -4,13 +4,13 @@ let vsetkyStrany = [];
 let aktualnaStranaIndex = 0; 
 let rotaciaInterval = null;
 
-// NOVÉ PREMENNÉ PRE TERMINÁL FOCUS
+// PREMENNÉ PRE TERMINÁL FOCUS
 let aktualnyFocus = null;
 let vsetkyPoznamkyData = []; 
 
 const MAX_KARIET_NA_OBRAZOVKU = 8; 
 
-// Dynamické pridanie CSS pre blikanie, aby si nemusel meniť CSS súbory
+// Dynamické pridanie CSS pre blikanie a detailný pohľad
 const style = document.createElement('style');
 style.innerHTML = `
   @keyframes blink-critical {
@@ -18,13 +18,10 @@ style.innerHTML = `
     50% { opacity: 0.8; transform: scale(1.02); }
     100% { opacity: 1; transform: scale(1); }
   }
-  /* Doplnkové štýly pre detailný pohľad v tmavom režime */
-  body.dark-mode .detail-wrapper { background: #1e1e1e !important; color: #fff !important; }
-  body.dark-mode .detail-zakaznik { color: #fff !important; }
-  body.dark-mode .detail-box { background: #2a2a2a !important; }
 `;
 document.head.appendChild(style);
 
+// --- 1. ČAS A TMavý REŽIM ---
 function aktualizujCas() {
     const teraz = new Date();
     const casString = teraz.toLocaleTimeString('sk-SK', { timeZone: 'Europe/Bratislava', hour12: false });
@@ -34,7 +31,7 @@ function aktualizujCas() {
     else { document.body.classList.remove('dark-mode'); }
 }
 
-// --- TACHOMETER TEMPA ---
+// --- 2. TACHOMETER TEMPA ---
 async function nacitajLiveKPI() {
     try {
         const res = await fetch('/api/leader/tv_board/live_kpi');
@@ -93,7 +90,7 @@ async function nacitajLiveKPI() {
     }
 }
 
-// --- NAČÍTANIE DÁT TABULE ---
+// --- 3. NAČÍTANIE DÁT TABULE (Zoznam pre rotáciu) ---
 function nacitajPoznamkyNaTabulu() {
     fetch('/api/tv-board/data') 
         .then(response => response.json())
@@ -106,15 +103,19 @@ function nacitajPoznamkyNaTabulu() {
                 gn.style.display = 'block';
             } else { gn.style.display = 'none'; }
 
+            // Aktualizácia promo pruhu (zobrazí sa len, ak nie sme vo focus móde)
             const promo = document.getElementById('coop-promo-container');
             if (data.akcie_coop && data.akcie_coop.length > 0) {
                 document.getElementById('coop-promo-list').innerHTML = data.akcie_coop.map(p => `<span class="promo-highlight">${p}</span>`).join(' • ');
-                promo.style.display = 'block';
-            } else { promo.style.display = 'none'; }
+                if (aktualnyFocus === null) promo.style.display = 'block';
+            } else { 
+                promo.style.display = 'none'; 
+                document.getElementById('coop-promo-list').innerHTML = '';
+            }
 
             const poznamky = data.poznamky || [];
             
-            // Uložíme si surové dáta pre terminál detail (FOCUS mód)
+            // ULOŽÍME SUROVÉ DÁTA PRE RÝCHLE VYKRESLENIE DETAILU BEZ REFREŠU
             vsetkyPoznamkyData = poznamky; 
 
             if (poznamky.length === 0) {
@@ -125,6 +126,7 @@ function nacitajPoznamkyNaTabulu() {
                 return;
             }
 
+            // Rozdelenie na strany podľa trás
             const skupinyTrasy = new Map();
             poznamky.forEach(obj => {
                 const trasa = obj.trasa_nazov;
@@ -161,14 +163,8 @@ function nacitajPoznamkyNaTabulu() {
 
             if (globalCelkom > 0 && globalCelkom === globalHotovych) {
                 noveStrany.push({
-                    trasa: '🎉 VŠETKO HOTOVÉ',
-                    skoreObjednavok: globalCelkom,
-                    hotovychObjednavok: globalHotovych,
-                    cast: 1, celkovoCasti: 1,
-                    kartyNaZobrazenie: [], 
-                    jeMrazeneSumar: false,
-                    jeGlobalnySumarHotovo: true, 
-                    datum_text: data.cielovy_datum
+                    trasa: '🎉 VŠETKO HOTOVÉ', skoreObjednavok: globalCelkom, hotovychObjednavok: globalHotovych,
+                    cast: 1, celkovoCasti: 1, kartyNaZobrazenie: [], jeMrazeneSumar: false, jeGlobalnySumarHotovo: true, datum_text: data.cielovy_datum
                 });
             }
 
@@ -177,21 +173,16 @@ function nacitajPoznamkyNaTabulu() {
                 const celkovoCastiMrazene = Math.ceil(mrazeneKarty.length / MAX_KARIET_NA_OBRAZOVKU);
                 for (let i = 0; i < mrazeneKarty.length; i += MAX_KARIET_NA_OBRAZOVKU) {
                     noveStrany.push({
-                        trasa: '❄️ SUMÁR: MRAZENÝ TOVAR',
-                        skoreObjednavok: mrazeneKarty.length,
-                        hotovychObjednavok: 0,
-                        cast: Math.floor(i / MAX_KARIET_NA_OBRAZOVKU) + 1,
-                        celkovoCasti: celkovoCastiMrazene,
-                        kartyNaZobrazenie: mrazeneKarty.slice(i, i + MAX_KARIET_NA_OBRAZOVKU),
-                        jeMrazeneSumar: true,
-                        jeGlobalnySumarHotovo: false
+                        trasa: '❄️ SUMÁR: MRAZENÝ TOVAR', skoreObjednavok: mrazeneKarty.length, hotovychObjednavok: 0,
+                        cast: Math.floor(i / MAX_KARIET_NA_OBRAZOVKU) + 1, celkovoCasti: celkovoCastiMrazene,
+                        kartyNaZobrazenie: mrazeneKarty.slice(i, i + MAX_KARIET_NA_OBRAZOVKU), jeMrazeneSumar: true, jeGlobalnySumarHotovo: false
                     });
                 }
             }
 
             vsetkyStrany = noveStrany;
 
-            // AK JE AKTÍVNY FOCUS MÓD, NEVYKRESĽUJ KARUSEL
+            // ZÁMOK PRE FOCUS MÓD (AK JE AKTÍVNY, NEPREPÍŠE HO ROTÁCIOU)
             if (aktualnyFocus !== null) {
                 zastavRotaciu();
                 vykresliDetailObjednavky(aktualnyFocus);
@@ -216,7 +207,8 @@ function nacitajPoznamkyNaTabulu() {
         .catch(error => console.error('Chyba spojenia s backendom tabule:', error));
 }
 
-// --- VYKRESLENIE KLASICKEJ ROTUJÚCEJ OBRAZOVKY ---
+
+// --- 4. VYKRESLENIE KLASICKEJ ROTUJÚCEJ OBRAZOVKY ---
 function vykresliStranu() {
     const obsah = document.getElementById('obsah-tabule');
     const paginacia = document.getElementById('paginacia-container');
@@ -329,75 +321,26 @@ function vykresliStranu() {
     setTimeout(prisposobVelkostVertical, 50);
 }
 
-// --- NOVÉ: VYKRESLENIE DETAILNEJ GIGANTICKEJ OBRAZOVKY (FOCUS MÓD) ---
-function vykresliDetailObjednavky(cisloObjednavky) {
-    const obsah = document.getElementById('obsah-tabule');
-    const paginacia = document.getElementById('paginacia-container');
-    const hlavnyNadpis = document.getElementById('hlavny-nazov-trasy');
-    const board = document.getElementById('obsah-tabule');
-    
-    // Nájdenie objednávky v načítaných dátach
-    const obj = vsetkyPoznamkyData.find(o => o.id_objednavky === cisloObjednavky);
-    
-    paginacia.innerHTML = ''; // Skryť bodky stránkovania
-    board.style.transform = 'none'; // Zrušenie akéhokoľvek zmenšenia
-    
-    if (!obj) {
-        hlavnyNadpis.innerHTML = `<i class="fas fa-search"></i> HĽADÁM OBJEDNÁVKU...`;
-        obsah.innerHTML = `<h2 style="text-align:center; margin-top:20vh; font-size:4rem; color:#d32f2f;">Objednávka ${cisloObjednavky} nenájdená na dnešnej trase.</h2>`;
-        return;
-    }
 
-    hlavnyNadpis.innerHTML = `<i class="fas fa-barcode"></i> AKTÍVNE SPRACOVANIE: ${cisloObjednavky}`;
-    
-    // Vytvorenie HTML pre obrovskú kartu s veľkými poznámkami
-    let poznamkyHtml = '';
-    if (obj.trvala_poznamka) poznamkyHtml += `<div style="font-size: 3.5rem; color: #d35400; margin-bottom: 25px;"><i class="fas fa-exclamation-circle"></i> <strong>VŽDY:</strong> ${obj.trvala_poznamka}</div>`;
-    if (obj.poznamka_objednavky) poznamkyHtml += `<div style="font-size: 3.5rem; color: #025ce2; margin-bottom: 25px;"><i class="fas fa-info-circle"></i> <strong>DOPLNENIE:</strong> ${obj.poznamka_objednavky}</div>`;
-    if (obj.mrazene_polozky) poznamkyHtml += `<div style="font-size: 3.5rem; color: #0284c7; margin-bottom: 25px;"><i class="fas fa-snowflake"></i> <strong>MRAZENÉ:</strong> ${obj.mrazene_polozky}</div>`;
-    
-    if (!poznamkyHtml) poznamkyHtml = `<div style="font-size: 3.5rem; color: #28a745;"><i class="fas fa-check"></i> Štandardná objednávka bez špeciálnych poznámok.</div>`;
-
-    obsah.innerHTML = `
-        <div class="detail-wrapper" style="background: #fff; border-left: 25px solid #d32f2f; border-radius: 20px; padding: 60px; box-shadow: 0 10px 40px rgba(0,0,0,0.2); height: 100%; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center;">
-            
-            <div class="detail-zakaznik" style="font-size: 6rem; font-weight: 900; margin-bottom: 20px; line-height: 1.1; color: #000;">
-                ${obj.zakaznik} <span style="color:#6c757d; font-size: 4rem;">[${obj.cislo_prevadzky}]</span>
-            </div>
-            
-            <div style="font-size: 3rem; color: #6c757d; margin-bottom: 50px; border-bottom: 3px solid #eee; padding-bottom: 30px;">
-                <i class="fas fa-map-marker-alt"></i> ${obj.adresa || 'Adresa neuvedená'}
-            </div>
-            
-            <div style="display: flex; gap: 40px; margin-bottom: 60px;">
-                <div style="background: #e2e3e5; color: #000; font-size: 3.5rem; padding: 20px 40px; border-radius: 15px; font-weight: 800;">
-                    Váha: ${parseFloat(Number(obj.vaha_kg).toFixed(2))} kg
-                </div>
-                <div style="background: #d32f2f; color: #fff; font-size: 3.5rem; padding: 20px 40px; border-radius: 15px; font-weight: 800;">
-                    Trasa: ${obj.trasa_nazov}
-                </div>
-            </div>
-            
-            <div class="detail-box" style="background: #f8f9fa; padding: 50px; border-radius: 15px;">
-                ${poznamkyHtml}
-            </div>
-        </div>
-    `;
-}
-
-// --- NOVÉ: RÝCHLY POLLING STAVU (KAŽDÚ 1.5 SEKUNDY) ---
+// --- 5. RÝCHLY POLLING STAVU OD TERMINÁLU (Každú 1.5 sekundy) ---
 async function kontrolujFocus() {
     try {
         const res = await fetch('/api/tv-board/current-focus');
         if (!res.ok) return;
         const data = await res.json();
         
+        // Zmena stavu (terminál niečo klikol alebo zavrel)
         if (data.active_order !== aktualnyFocus) {
             aktualnyFocus = data.active_order;
             
             if (aktualnyFocus === null || aktualnyFocus === "") {
-                // Terminál poslal EXIT -> Vrátime sa na normálnu rotáciu
-                vykresliStranu(); // Vykreslí späť grid
+                // NÁVRAT DO NORMÁLNEJ ROTÁCIE (Ukončený focus)
+                const promo = document.getElementById('coop-promo-container');
+                if (promo && document.getElementById('coop-promo-list').innerHTML !== '') {
+                    promo.style.display = 'block'; // Znovu zobrazíme promo
+                }
+                
+                vykresliStranu(); // Prekreslenie normálneho gridu
                 if (!rotaciaInterval && vsetkyStrany.length > 1) {
                     rotaciaInterval = setInterval(() => {
                         aktualnaStranaIndex++;
@@ -406,7 +349,7 @@ async function kontrolujFocus() {
                     }, 12000); 
                 }
             } else {
-                // Terminál vybral konkrétnu objednávku -> Zobrazíme gigantický detail
+                // ZAPNUTIE FOCUS MÓDU (Gigantický detail)
                 zastavRotaciu();
                 vykresliDetailObjednavky(aktualnyFocus);
             }
@@ -416,6 +359,78 @@ async function kontrolujFocus() {
     }
 }
 
+
+// --- 6. VYKRESLENIE GIGANTICKEJ TV OBRAZOVKY (FOCUS MÓD) ---
+function vykresliDetailObjednavky(cisloObjednavky) {
+    const obsah = document.getElementById('obsah-tabule');
+    const paginacia = document.getElementById('paginacia-container');
+    const hlavnyNadpis = document.getElementById('hlavny-nazov-trasy');
+    const promo = document.getElementById('coop-promo-container');
+    
+    paginacia.innerHTML = ''; 
+    if (promo) promo.style.display = 'none'; // Schováme COOP oznam pre viac miesta
+    
+    obsah.style.transform = 'none'; // Vypnutie zmenšovania
+    
+    // Nájdenie objednávky v našich stiahnutých dátach
+    const obj = vsetkyPoznamkyData.find(o => o.id_objednavky === cisloObjednavky);
+    
+    if (!obj) {
+        hlavnyNadpis.innerHTML = `<span style="color:#d32f2f;"><i class="fas fa-satellite-dish fa-fade"></i> HĽADÁM OBJEDNÁVKU...</span>`;
+        obsah.innerHTML = `<h2 style="text-align:center; margin-top:20vh; font-size:5rem; color:#6c757d;">Objednávka ${cisloObjednavky} zatiaľ nebola priradená na trasu.</h2>`;
+        return;
+    }
+
+    hlavnyNadpis.innerHTML = `<span style="color:#28a745;"><i class="fas fa-satellite-dish fa-fade"></i> VÁHA SPRACUJE:</span> ${cisloObjednavky}`;
+    
+    let poznamkyHtml = '';
+    if (obj.trvala_poznamka) poznamkyHtml += `<div style="background: #fff3cd; border-left: 20px solid #ffc107; padding: 35px; border-radius: 20px; font-size: 3.5rem; color: #856404; box-shadow: 0 5px 15px rgba(0,0,0,0.05); margin-bottom: 20px;"><i class="fas fa-exclamation-triangle"></i> <strong>VŽDY:</strong> ${obj.trvala_poznamka}</div>`;
+    if (obj.poznamka_objednavky) poznamkyHtml += `<div style="background: #cce5ff; border-left: 20px solid #0056b3; padding: 35px; border-radius: 20px; font-size: 3.5rem; color: #004085; box-shadow: 0 5px 15px rgba(0,0,0,0.05); margin-bottom: 20px;"><i class="fas fa-info-circle"></i> <strong>DOPLNENIE:</strong> ${obj.poznamka_objednavky}</div>`;
+    if (obj.mrazene_polozky) poznamkyHtml += `<div style="background: #e0f2fe; border-left: 20px solid #0284c7; padding: 35px; border-radius: 20px; font-size: 3.5rem; color: #0369a1; box-shadow: 0 5px 15px rgba(0,0,0,0.05); margin-bottom: 20px;"><i class="fas fa-snowflake"></i> <strong>MRAZENÉ:</strong> ${obj.mrazene_polozky}</div>`;
+    
+    if (!poznamkyHtml) poznamkyHtml = `<div style="font-size: 3.5rem; color: #28a745; text-align: center; padding: 20px;"><i class="fas fa-check-circle"></i> Bez špeciálnych poznámok.</div>`;
+
+    const vahaZobrazena = parseFloat(Number(obj.vaha_kg).toFixed(2));
+    const jeTma = document.body.classList.contains('dark-mode');
+
+    // Obrovský Flexbox Layout pre maximálnu viditeľnosť z diaľky
+    obsah.innerHTML = `
+        <div style="display: flex; justify-content: center; align-items: flex-start; width: 100%; height: 100%; padding-top: 10px;">
+            <div style="background: ${jeTma ? '#1e1e1e' : '#ffffff'}; width: 95%; border-radius: 30px; box-shadow: 0 20px 60px rgba(0,0,0,0.4); border: 8px solid #d32f2f; overflow: hidden; display: flex; flex-direction: column;">
+                
+                <div style="background: #d32f2f; color: white; padding: 40px 50px; display: flex; justify-content: space-between; align-items: center;">
+                    <div style="font-size: 5.5rem; font-weight: 900; line-height: 1.1; max-width: 75%;">${obj.zakaznik}</div>
+                    <div style="font-size: 4rem; font-weight: 800; background: rgba(0,0,0,0.25); padding: 15px 30px; border-radius: 20px; white-space: nowrap;">[${obj.cislo_prevadzky || '-'}]</div>
+                </div>
+                
+                <div style="padding: 50px; display: flex; flex-direction: column; gap: 40px;">
+                    <div style="font-size: 3.2rem; color: ${jeTma ? '#aaa' : '#6c757d'}; font-weight: 600; display: flex; align-items: center; gap: 20px; border-bottom: 3px solid rgba(0,0,0,0.1); padding-bottom: 20px;">
+                        <i class="fas fa-map-marker-alt"></i> ${obj.adresa || 'Adresa neuvedená'}
+                    </div>
+
+                    <div style="display: flex; gap: 40px;">
+                        <div style="flex: 1; background: ${jeTma ? '#333' : '#f8f9fa'}; border: 4px solid ${jeTma ? '#444' : '#ced4da'}; border-radius: 25px; padding: 40px; text-align: center;">
+                            <div style="font-size: 2.8rem; color: ${jeTma ? '#888' : '#6c757d'}; margin-bottom: 10px; text-transform: uppercase; font-weight: 800;">Predbežná Váha</div>
+                            <div style="font-size: 8rem; font-weight: 900; color: ${jeTma ? '#fff' : '#212529'};">${vahaZobrazena} <span style="font-size: 4rem; font-weight: 700;">kg</span></div>
+                        </div>
+                        
+                        <div style="flex: 1; background: ${jeTma ? '#4a3b10' : '#fff3cd'}; border: 4px solid #ffe69c; border-radius: 25px; padding: 40px; text-align: center;">
+                            <div style="font-size: 2.8rem; color: ${jeTma ? '#ffb74d' : '#856404'}; margin-bottom: 10px; text-transform: uppercase; font-weight: 800;">Naložiť do (Trasa)</div>
+                            <div style="font-size: 6.5rem; font-weight: 900; color: ${jeTma ? '#ffb74d' : '#856404'};">${obj.trasa_nazov}</div>
+                        </div>
+                    </div>
+
+                    <div style="display: flex; flex-direction: column; margin-top: 20px;">
+                        ${poznamkyHtml}
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+
+// --- 7. POMOCNÉ FUNKCIE (Paginácia a veľkosť) ---
 function vykresliPaginaciu(container) {
     let paginaciaHtml = '';
     if (vsetkyStrany.length > 1) {
@@ -431,7 +446,6 @@ function prisposobVelkostVertical() {
     const board = document.getElementById('obsah-tabule');
     if (!contentArea || !board) return;
 
-    // V detailnom móde zmenšovanie nechceme aplikovať
     if (aktualnyFocus !== null) {
         board.style.transform = 'none';
         return;
@@ -455,16 +469,20 @@ function zastavRotaciu() {
     }
 }
 
+
+// --- 8. ŠTART APLIKÁCIE ---
 document.addEventListener("DOMContentLoaded", function() {
     aktualizujCas();
     setInterval(aktualizujCas, 1000); 
     
+    // Spustenie hlavnej logiky pre sťahovanie zoznamu objednávok (beží každých 15 sekúnd)
     nacitajPoznamkyNaTabulu();
     setInterval(nacitajPoznamkyNaTabulu, 15000); 
     
+    // Tachometer
     nacitajLiveKPI();
     setInterval(nacitajLiveKPI, 25000);
 
-    // Spustenie rýchleho pollingu na overovanie "Zámku" od terminálu
+    // TENTO INTERVAL ROBÍ TO KÚZLO - každú 1.5 sekundu overuje, či terminál neposlal dopyt
     setInterval(kontrolujFocus, 1500); 
 });
