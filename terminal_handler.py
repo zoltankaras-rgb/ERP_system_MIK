@@ -230,7 +230,9 @@ def process_terminal_files():
                 UPDATE b2b_objednavky 
                 SET stav = 'Hotová', 
                     datum_vypracovania = %s,
-                    finalna_suma = %s
+                    finalna_suma = %s,
+                    vazenie_end = NOW(),
+                    aktualne_na_vahe = 0
                 WHERE id = %s
             """, (now_str, finalna_suma_s_dph, order_id), fetch="none")
             

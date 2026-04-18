@@ -4658,13 +4658,17 @@ def set_tv_focus(cislo_objednavky):
     if token != "mik-terminal-2026-secret":
         return jsonify({"error": "Unauthorized"}), 401
     
+    # 1. AKCIA: Aktualizácia TV obrazovky
     sql = """
         INSERT INTO system_settings (kluc, hodnota) 
         VALUES ('tv_active_order', %s) 
         ON DUPLICATE KEY UPDATE hodnota = %s
     """
-    # TU JE ZMENA: pridané fetch='none'
     db_connector.execute_query(sql, (cislo_objednavky, cislo_objednavky), fetch='none')
+    
+    # 2. AKCIA: Zápis času do databázy pre B2B Admin stopky
+    import b2b_handler
+    b2b_handler.terminal_focus_start(cislo_objednavky)
     
     return jsonify({"status": "success", "focused_order": cislo_objednavky})
 
@@ -4674,10 +4678,13 @@ def clear_tv_focus():
     if token != "mik-terminal-2026-secret":
         return jsonify({"error": "Unauthorized"}), 401
     
+    # 1. AKCIA: Vymazanie TV obrazovky
     sql = "UPDATE system_settings SET hodnota = NULL WHERE kluc = 'tv_active_order'"
-    
-    # TU JE ZMENA: pridané fetch='none'
     db_connector.execute_query(sql, fetch='none')
+    
+    # 2. AKCIA: Zastavenie stopiek v B2B Admine
+    import b2b_handler
+    b2b_handler.terminal_focus_exit()
     
     return jsonify({"status": "success", "focused_order": None})
 

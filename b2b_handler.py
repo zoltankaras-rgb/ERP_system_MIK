@@ -2610,10 +2610,28 @@ def delete_store(data: dict):
     db_connector.execute_query("DELETE FROM b2b_stores WHERE id=%s", (sid,), fetch='none')
     return {"message": "Prevádzka bola zmazaná."}
 
-def terminal_focus_start(cislo_objednavky):
+def terminal_focus_start(cislo_objednavky: str):
     """Zavolá terminál pri otvorení objednávky."""
+    # Ochrana: Vytvorenie stĺpcov, ak chýbajú
+    try:
+        db_connector.execute_query("ALTER TABLE b2b_objednavky ADD COLUMN vazenie_start DATETIME NULL", fetch="none")
+        db_connector.execute_query("ALTER TABLE b2b_objednavky ADD COLUMN vazenie_end DATETIME NULL", fetch="none")
+        db_connector.execute_query("ALTER TABLE b2b_objednavky ADD COLUMN aktualne_na_vahe TINYINT(1) DEFAULT 0", fetch="none")
+    except Exception:
+        pass # Stĺpce už existujú
+
+    # 1. Zrušíme focus zo všetkých ostatných
+    db_connector.execute_query("UPDATE b2b_objednavky SET aktualne_na_vahe = 0", fetch="none")
+    
+    # 2. Nastavíme aktuálnej objednávke focus a štart
     db_connector.execute_query(
-        "UPDATE b2b_objednavky SET aktualne_na_vahe = 1, vazenie_start = IFNULL(vazenie_start, NOW()), stav = 'Rozpracovaná' WHERE cislo_objednavky = %s",
+        """
+        UPDATE b2b_objednavky 
+        SET aktualne_na_vahe = 1, 
+            stav = IF(stav = 'Prijatá', 'Rozpracovaná', stav),
+            vazenie_start = IFNULL(vazenie_start, NOW())
+        WHERE cislo_objednavky = %s
+        """,
         (cislo_objednavky,), fetch="none"
     )
 
