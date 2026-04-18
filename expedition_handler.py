@@ -437,13 +437,16 @@ def get_slicing_requirements_from_orders():
     def _str(col):
         return f"CONVERT({col} USING utf8mb4) COLLATE utf8mb4_general_ci"
 
+    # Pridali sme podmienku na dátum dodania (DATE >= CURDATE()),
+    # čím sa automaticky skryjú všetky staré/nevybavené objednávky, ktoré sú po termíne.
     sql_condition = """
         (
            p.typ_polozky = 'VÝROBOK_KRAJANY' 
            OR pol.nazov_vyrobku LIKE '%krájan%' 
            OR pol.nazov_vyrobku LIKE '%krajan%'
         )
-        AND o.stav NOT IN ('Hotová', 'Zrušená', 'Expedovaná')
+        AND o.stav NOT IN ('Hotová', 'Zrušená', 'Expedovaná', 'Zrusena')
+        AND DATE(o.pozadovany_datum_dodania) >= CURDATE()
     """
 
     sql_b2b = f"""
