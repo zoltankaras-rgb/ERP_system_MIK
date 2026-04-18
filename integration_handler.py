@@ -1,129 +1,135 @@
 import os
-import csv
 from datetime import datetime
 import traceback
 from pathlib import Path
 import db_connector
-
-# =================================================================
-# === MODUL PRE INTEGRÁCIU S EXTERNÝMI SYSTÉMAMI (ERP) ===
-# =================================================================
+from decimal import Decimal, ROUND_HALF_UP
 
 # --- KONFIGURÁCIA ---
-# Načítame cestu z .env premennej ERP_EXCHANGE_DIR (nastavené na serveri)
 env_path = os.getenv("ERP_EXCHANGE_DIR", "/var/app/data/erp_exchange")
 BASE_PATH = Path(env_path)
-
-# Exportujeme a importujeme priamo v hlavnej zložke
 EXPORT_FOLDER = BASE_PATH
 IMPORT_FOLDER = BASE_PATH
 
 def generate_daily_receipt_export(date_str):
     """
-    Vygeneruje súbor VYROBA.CSV pre daný dátum (uzávierka dňa).
-    Formát je presne podľa vzoru ZASOBA.CSV:
-    Stĺpce: REG_CIS;NAZOV;JCM11;MNOZ
-    Hodnoty: EAN na 13 miest, čísla na 4 desatinné miesta.
+    Vygeneruje súbor VYROBKY.CSV pre daný dátum (uzávierka dňa v expedícii).
+    Pevný formát (Fixed-Width) kompatibilný so ZASOBA.CSV.
     """
-    
-    # 1. Príprava cesty a názvu
-    file_name = "VYROBA.CSV"
+    if not date_str:
+        return {"error": "Chýba dátum."}
+
+    # Názov súboru zmenený presne na VYROBKY.CSV
+    file_name = "VYROBKY.CSV"
     file_path = EXPORT_FOLDER / file_name
 
-    # 2. SQL dotaz - Získame sumár príjmov z expedície pre daný deň
-    #    Priorita ceny (JCM11): Cena z výroby -> Výrobná cena produktu -> Skladová cena -> 0
-    sql = """
-        SELECT 
-            p.ean AS REG_CIS,
-            ep.nazov_vyrobku AS NAZOV,
-            COALESCE(zv.cena_za_jednotku, p.vyrobna_cena, p.skladova_cena, 0) AS JCM11,
-            p.mj AS MJ,
+    target_types = ["VÝROBOK", "VÝROBOK_KRAJANY", "VÝROBOK_KRÁJANÝ", "VÝROBOK_KUSOVY", "VÝROBOK_KUSOVÝ", "TOVAR", "TOVAR_KUSOVY"]
+    placeholders = ", ".join(["%s"] * len(target_types))
+
+    # Dynamické zistenie stĺpca pre názov výrobku vo výrobe
+    try:
+        r = db_connector.execute_query("SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME='zaznamy_vyroba' AND COLUMN_NAME='nazov_vyrobu' LIMIT 1", fetch='one')
+        zv_col = 'nazov_vyrobu' if r else 'nazov_vyrobku'
+    except:
+        zv_col = 'nazov_vyrobku'
+
+    sql = f"""
+        SELECT
+            p.ean,
+            p.nazov_vyrobku,
             SUM(
-                CASE 
-                    -- Ak je produkt v KS a príjem bol v KS, exportujeme KS
-                    WHEN p.mj = 'ks' AND ep.prijem_ks IS NOT NULL AND ep.prijem_ks != 0 THEN ep.prijem_ks
-                    -- Inak exportujeme KG (to zahŕňa aj záporné pohyby z krájania)
-                    ELSE ep.prijem_kg 
+                CASE
+                    WHEN ep.unit = 'ks' THEN COALESCE(ep.prijem_ks, 0)
+                    ELSE COALESCE(ep.prijem_kg, 0)
                 END
-            ) AS MNOZ
+            ) AS qty,
+            (
+                COALESCE(
+                    (
+                        SELECT zv2.cena_za_jednotku
+                          FROM zaznamy_vyroba zv2
+                         WHERE TRIM(zv2.{zv_col}) = TRIM(p.nazov_vyrobku)
+                           AND zv2.cena_za_jednotku > 0
+                         ORDER BY zv2.datum_ukoncenia DESC, zv2.id_davky DESC
+                         LIMIT 1
+                    ),
+                    p.nakupna_cena,
+                    0.0000
+                ) * 1.25
+            ) AS price_with_margin
         FROM expedicia_prijmy ep
-        LEFT JOIN zaznamy_vyroba zv ON ep.id_davky = zv.id_davky
-        LEFT JOIN produkty p ON TRIM(ep.nazov_vyrobku) = TRIM(p.nazov_vyrobku)
-        WHERE ep.datum_prijmu = %s 
-          AND ep.is_deleted = 0
-        GROUP BY p.ean, ep.nazov_vyrobku, JCM11, p.mj
-        HAVING MNOZ <> 0
+        JOIN zaznamy_vyroba zv ON zv.id_davky = ep.id_davky
+        JOIN produkty p ON TRIM(zv.{zv_col}) = TRIM(p.nazov_vyrobku)
+        WHERE ep.is_deleted = 0
+          AND ep.datum_prijmu = %s
+          AND p.typ_polozky IN ({placeholders})
+        GROUP BY p.ean, p.nazov_vyrobku
+        HAVING qty <> 0
+        ORDER BY p.nazov_vyrobku
     """
+    
+    params = (date_str, *target_types)
 
     try:
-        # Uistíme sa, že priečinok existuje
         os.makedirs(EXPORT_FOLDER, exist_ok=True)
+        rows = db_connector.execute_query(sql, params, fetch='all') or []
 
-        rows = db_connector.execute_query(sql, (date_str,), fetch='all')
-        
-        if not rows:
-            rows = []
+        # ZÁPIS VO FIXNOM FORMÁTE (Presne 77 znakov na riadok)
+        with open(file_path, "w", encoding="cp1250", newline="\r\n") as f:
+            header = " REG_CIS       NAZOV                                       JCM11         MNOZ"
+            f.write(header + "\r\n")
 
-        # 3. Zápis do CSV
-        # Kódovanie cp1250 je nutné pre slovenské znaky v starších systémoch
-        with open(file_path, mode='w', newline='', encoding='cp1250') as csvfile:
-            # Používame delimiter ';' (bodkočiarka) podľa ZASOBA.CSV
-            writer = csv.writer(csvfile, delimiter=';', quotechar='"', quoting=csv.QUOTE_MINIMAL)
-            
-            # Hlavička presne podľa vzoru
-            writer.writerow(['REG_CIS', 'NAZOV', 'JCM11', 'MNOZ'])
-            
             for r in rows:
-                # A) REG_CIS: EAN kód doplnený nulami na 13 miest (ak je to číslo)
-                #    Napr. '23112' -> '0000000023112'
-                raw_ean = str(r['REG_CIS'] or '').strip()
-                if raw_ean.isdigit() and len(raw_ean) > 0 and len(raw_ean) <= 13:
-                    reg_cis = raw_ean.zfill(13)
-                else:
-                    reg_cis = raw_ean
+                ean_raw = str(r.get("ean") or "").strip()
+                ean_digits = "".join(ch for ch in ean_raw if ch.isdigit())
+                if not ean_digits: continue
                 
-                # B) NAZOV
-                nazov = str(r['NAZOV'] or '').strip()
-                
-                # C) JCM11: Cena na 4 desatinné miesta (napr. 3.2500)
-                try:
-                    price = float(r['JCM11'] or 0)
-                    jcm11 = f"{price:.4f}"
-                except:
-                    jcm11 = "0.0000"
-                
-                # D) MNOZ: Množstvo na 4 desatinné miesta (napr. 160.0000)
-                try:
-                    qty = float(r['MNOZ'] or 0)
-                    mnoz = f"{qty:.4f}"
-                except:
-                    mnoz = "0.0000"
-                
-                # Zapíšeme riadok
-                writer.writerow([reg_cis, nazov, jcm11, mnoz])
+                # 1. EAN (15 znakov: medzera + 13 čísel + medzera)
+                ean13 = ean_digits.rjust(13, "0")[-13:]
+                ean_field = f" {ean13} "
 
-        print(f">>> Export VYROBA.CSV úspešný: {file_path}")
+                # 2. NÁZOV (42 znakov, zarovnané vľavo)
+                name = str(r.get("nazov_vyrobku") or "").strip()
+                name_field = name[:42].ljust(42)
+
+                # 3. CENA (7 znakov, zarovnané vpravo, 4 desatinné miesta)
+                try:
+                    price_val = Decimal(str(r.get("price_with_margin") or 0))
+                    price_fmt = price_val.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+                    price_field = f"{price_fmt:.4f}".rjust(7)
+                except Exception:
+                    price_field = " 0.0000"
+
+                # 4. MNOŽSTVO (13 znakov, zarovnané vpravo, 4 desatinné miesta)
+                try:
+                    qty_val = Decimal(str(r.get("qty") or 0))
+                    qty_fmt = qty_val.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+                    qty_field = f"{qty_fmt:.4f}".rjust(13)
+                except Exception:
+                    qty_field = "       0.0000"
+
+                line = f"{ean_field}{name_field}{price_field}{qty_field}\r\n"
+                f.write(line)
+
+        print(f">>> Export VYROBKY.CSV úspešný: {file_path}")
         return {"success": True, "file_path": str(file_path)}
 
     except Exception as e:
         print(f"!!! Export Error: {traceback.format_exc()}")
         return {"error": str(e)}
 
-# --- Pôvodná funkcia pre import (ponechaná pre kompatibilitu, ak ju používate) ---
+# --- Pôvodná funkcia pre import (ponechaná pre kompatibilitu) ---
 def process_stock_update_import():
-    """
-    Spracuje importný CSV súbor (sklad.csv) - ak sa používa.
-    """
     try:
         file_path = IMPORT_FOLDER / 'sklad.csv'
-
         if not os.path.exists(file_path):
             return {"error": f"Importný súbor nebol nájdený: {file_path}"}
         
         updates = []
         with open(file_path, 'r', newline='', encoding='cp1250') as csvfile:
+            import csv
             reader = csv.reader(csvfile, delimiter=';')
-            next(reader, None)  # Preskočí hlavičku
+            next(reader, None)  
             for row in reader:
                 if len(row) >= 2:
                     ean = row[0]
@@ -139,8 +145,6 @@ def process_stock_update_import():
             "UPDATE produkty SET aktualny_sklad_finalny_kg = %s WHERE ean = %s",
             updates, fetch='none', multi=True
         )
-        
         return {"message": f"Aktualizovaných {len(updates)} produktov."}
-    
     except Exception as e:
         return {"error": str(e)}
