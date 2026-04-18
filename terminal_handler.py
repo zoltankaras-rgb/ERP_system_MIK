@@ -231,8 +231,8 @@ def process_terminal_files():
                 SET stav = 'Hotová', 
                     datum_vypracovania = %s,
                     finalna_suma = %s,
-                    vazenie_end = %s,
-                    aktualne_na_vahe = 0
+                    vazenie_end = %s,          -- ZÁPIS KONCOVÉHO ČASU
+                    aktualne_na_vahe = 0       -- POISTKA NA VYPNUTIE BLIKANIA
                 WHERE id = %s
             """, (now_str, finalna_suma_s_dph, now_str, order_id), fetch="none")
             
