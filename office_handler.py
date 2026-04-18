@@ -5826,36 +5826,41 @@ def generate_erp_export_file_for_acceptance_day(day_str: str):
         print(f"[ERP Export] EXPEDÍCIA: Nájdených {len(rows)} položiek pre datum_prijmu = {day_str}")
 
         with open(out_path, "w", encoding="cp1250", newline="\r\n") as f:
+            # Presná hlavička: 77 znakov, presne ako v ZASOBA.CSV
             header = " REG_CIS       NAZOV                                       JCM11         MNOZ"
-            f.write(header + "\n")
+            f.write(header + "\r\n")
 
             for r in rows:
                 ean_raw = str(r.get("ean") or "").strip()
                 ean_digits = "".join(ch for ch in ean_raw if ch.isdigit())
                 if not ean_digits: continue
                 
+                # 1. EAN (presne 15 znakov: medzera + 13 čísel + medzera)
                 ean13 = ean_digits.rjust(13, "0")[-13:]
                 ean_field = f" {ean13} "
 
-                name = str(r.get("nazov_vyrobku") or "").strip()[:43].ljust(43)
+                # 2. NÁZOV (presne 42 znakov, zarovnané doľava)
+                name = str(r.get("nazov_vyrobku") or "").strip()
+                name_field = name[:42].ljust(42)
 
+                # 3. CENA (presne 7 znakov, zarovnané doprava, 4 desatinné miesta)
                 try:
                     price_val = Decimal(str(r.get("price_with_margin") or 0))
                     price_fmt = price_val.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
-                    price_str = f"{price_fmt:.4f}".rjust(11)[:11]
+                    price_field = f"{price_fmt:.4f}".rjust(7)
                 except Exception:
-                    price_str = "     0.0000"
+                    price_field = " 0.0000"
 
+                # 4. MNOŽSTVO (presne 13 znakov, zarovnané doprava, 4 desatinné miesta)
                 try:
                     qty_val = Decimal(str(r.get("qty") or 0))
-                    # Formátovanie množstva (8 znakov, 2 desatinné miesta)
-                    qty_fmt = f"{qty_val:.2f}"
-                    if len(qty_fmt) > 8: qty_fmt = f"{qty_val:.2f}"
-                    qty_str = qty_fmt.rjust(8)[:8]
+                    qty_fmt = qty_val.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+                    qty_field = f"{qty_fmt:.4f}".rjust(13)
                 except Exception:
-                    qty_str = "    0.00"
+                    qty_field = "       0.0000"
 
-                line = f"{ean_field}{name}{price_str}{qty_str}\n"
+                # Spojenie riadku (dokopy presne 77 znakov) a zápis
+                line = f"{ean_field}{name_field}{price_field}{qty_field}\r\n"
                 f.write(line)
 
         print(f"[ERP Export] EXPEDÍCIA HOTOVO → {out_path}")
