@@ -126,7 +126,14 @@
     `;
     rootEl.innerHTML = '';
     rootEl.appendChild(style);
-
+    style.textContent += `
+  @keyframes pulse-blue { 
+    0% { background-color: #fff; } 
+    50% { background-color: #e0f2fe; } 
+    100% { background-color: #fff; } 
+  }
+  .row-active-weighing { animation: pulse-blue 2s infinite; border-left: 4px solid #0284c7 !important; }
+`;
     const container = doc.createElement('div');
     container.innerHTML = `
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
@@ -271,19 +278,38 @@
   // 1. OBJEDNÁVKY + DENNÝ SUMÁR
   // =================================================================
   async function loadB2BOrdersView() {
-      const box = ensureContainer('b2b-orders-container');
-      if (state.customers.length === 0) {
-         try {
+    const box = ensureContainer('b2b-orders-container');
+    
+    // Pridanie CSS štýlu pre blikajúci riadok (ak ešte neexistuje)
+    if (!document.getElementById('weighing-pulse-style')) {
+        const style = document.createElement('style');
+        style.id = 'weighing-pulse-style';
+        style.textContent = `
+          @keyframes pulse-blue { 
+            0% { background-color: #ffffff; } 
+            50% { background-color: #e0f2fe; } 
+            100% { background-color: #ffffff; } 
+          }
+          .row-active-weighing { 
+              animation: pulse-blue 2s infinite; 
+              border-left: 4px solid #0284c7 !important; 
+          }
+        `;
+        document.head.appendChild(style);
+    }
+
+    if (state.customers.length === 0) {
+        try {
             const cData = await callFirstOk([{ url: '/api/kancelaria/b2b/getCustomersAndPricelists' }]);
             state.customers = cData.customers || [];
-         } catch(e) {}
-      }
-      
-      const today = new Date().toISOString().slice(0, 10);
-      const tomorrow = new Date(new Date().getTime() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+        } catch(e) {}
+    }
+    
+    const today = new Date().toISOString().slice(0, 10);
+    const tomorrow = new Date(new Date().getTime() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
-      box.innerHTML = `
-      <div class="filter-bar" style="justify-content:space-between;">
+    box.innerHTML = `
+    <div class="filter-bar" style="justify-content:space-between;">
         <div style="display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap;">
             <div class="filter-group">
                 <label>Filtrovať podľa</label>
@@ -303,168 +329,219 @@
             <button id="ord-filter-btn" class="btn btn-primary">Hľadať</button>
         </div>
         <div><button class="btn btn-warning" onclick="window.showDailySummary()">📋 Sumár na zajtra</button></div>
-      </div>
-      <div id="orders-list-area"></div>
-      `;
-      
-      const loadOrders = async () => {
-          const area = doc.getElementById('orders-list-area');
-          area.innerHTML = '<p>Hľadám...</p>';
-          
-          const typeVal = doc.getElementById('ord-date-type').value;
-          const fDate = doc.getElementById('ord-from').value;
-          let tDate = doc.getElementById('ord-to').value;
-          
-          const dObj = new Date(tDate); dObj.setDate(dObj.getDate() + 1);
-          const tDateSent = dObj.toISOString().slice(0,10);
-          
-          try {
-              const res = await callFirstOk([{ 
-                  url: '/api/kancelaria/b2b/getAllOrders', 
-                  opts: { 
-                      method: 'POST', 
-                      body: { 
-                          from_date: fDate, 
-                          to_date: tDateSent, 
-                          customer: doc.getElementById('ord-cust').value,
-                          date_type: typeVal
-                      } 
-                  } 
-              }]);
-              
-              const orders = res.orders || [];
-              if(!orders.length) { area.innerHTML = '<p>Žiadne objednávky.</p>'; return; }
-              
-              let html = `<table class="table-refined"><thead><tr><th>Číslo</th><th>Zákazník</th><th>Vytvorená</th><th>Dodanie</th><th>Suma</th><th>Stav</th><th>Akcia</th></tr></thead><tbody>`;
-              orders.forEach(o => {
-                  const statusColor = o.stav === 'Prijatá' ? '#eab308' : (o.stav === 'Hotová' ? '#22c55e' : '#94a3b8');
-                  
-                  let formatDodania = o.pozadovany_datum_dodania || '-';
-                  if (formatDodania !== '-') {
-                      const d = new Date(formatDodania);
-                      if (!isNaN(d.getTime())) {
-                          const strDate = d.toLocaleDateString('sk-SK', { weekday: 'long', year: 'numeric', month: '2-digit', day: '2-digit' });
-                          formatDodania = strDate.charAt(0).toUpperCase() + strDate.slice(1);
-                      }
-                  }
+    </div>
+    <div id="orders-list-area"></div>
+    `;
+    
+    const loadOrders = async () => {
+        const area = doc.getElementById('orders-list-area');
+        area.innerHTML = '<div style="padding:40px; text-align:center; color:#64748b;"><i class="fas fa-spinner fa-spin fa-2x"></i><br>Hľadám...</div>';
+        
+        const typeVal = doc.getElementById('ord-date-type').value;
+        const fDate = doc.getElementById('ord-from').value;
+        let tDate = doc.getElementById('ord-to').value;
+        
+        const dObj = new Date(tDate); dObj.setDate(dObj.getDate() + 1);
+        const tDateSent = dObj.toISOString().slice(0,10);
+        
+        try {
+            const res = await callFirstOk([{ 
+                url: '/api/kancelaria/b2b/getAllOrders', 
+                opts: { 
+                    method: 'POST', 
+                    body: { 
+                        from_date: fDate, 
+                        to_date: tDateSent, 
+                        customer: doc.getElementById('ord-cust').value,
+                        date_type: typeVal
+                    } 
+                } 
+            }]);
+            
+            const orders = res.orders || [];
+            if(!orders.length) { area.innerHTML = '<p style="padding:20px; text-align:center; color:#64748b;">Nenašli sa žiadne objednávky.</p>'; return; }
+            
+            // Pridaný stĺpec "Čas vychystávania"
+            let html = `<table class="table-refined"><thead><tr><th>Číslo</th><th>Zákazník</th><th>Vytvorená</th><th>Dodanie</th><th>Suma</th><th>Stav</th><th style="text-align:center;">Čas vychystávania</th><th>Akcia</th></tr></thead><tbody>`;
+            
+            orders.forEach(o => {
+                let statusColor = '#94a3b8'; // Default grey
+                if (o.stav === 'Prijatá') statusColor = '#eab308';
+                if (o.stav === 'Hotová') statusColor = '#22c55e';
+                if (o.stav === 'Zrušená' || o.stav === 'Stornovaná') statusColor = '#ef4444';
+                
+                let stavZobrazenie = escapeHtml(o.stav);
 
-                  let formatVytvorenia = '-';
-                  if (o.datum_objednavky) {
-                      let d = new Date(o.datum_objednavky);
-                      if (!isNaN(d.getTime())) {
-                          // Eliminácia nežiaduceho posunu: ak backend pošle GMT, 
-                          // prehliadač nesmie pridať lokálny hodinový offset.
-                          if (typeof o.datum_objednavky === 'string' && o.datum_objednavky.includes('GMT')) {
-                              d.setMinutes(d.getMinutes() + d.getTimezoneOffset());
-                          }
-                          formatVytvorenia = d.toLocaleString('sk-SK');
-                      }
-                  }
+                let formatDodania = o.pozadovany_datum_dodania || '-';
+                if (formatDodania !== '-') {
+                    const d = new Date(formatDodania);
+                    if (!isNaN(d.getTime())) {
+                        const strDate = d.toLocaleDateString('sk-SK', { weekday: 'long', year: 'numeric', month: '2-digit', day: '2-digit' });
+                        formatDodania = strDate.charAt(0).toUpperCase() + strDate.slice(1);
+                    }
+                }
 
-                  // OPRAVA TU: Formátovanie názvu firmy s číslom prevádzky (odstránenie prípadnej duplicity)
-                  // OPRAVA TU: Formátovanie názvu firmy s číslom prevádzky (odstránenie prípadnej duplicity)
-                  let zobrazenyNazov = escapeHtml(o.nazov_firmy);
-                  if (o.cislo_prevadzky) {
-                      let cistyNazov = o.nazov_firmy.replace(new RegExp('^' + o.cislo_prevadzky + '\\s*-?\\s*'), '');
-                      zobrazenyNazov = `<strong>[${escapeHtml(o.cislo_prevadzky)}]</strong> ${escapeHtml(cistyNazov)}`;
-                  }
+                let formatVytvorenia = '-';
+                if (o.datum_objednavky) {
+                    let d = new Date(o.datum_objednavky);
+                    if (!isNaN(d.getTime())) {
+                        if (typeof o.datum_objednavky === 'string' && o.datum_objednavky.includes('GMT')) {
+                            d.setMinutes(d.getMinutes() + d.getTimezoneOffset());
+                        }
+                        formatVytvorenia = d.toLocaleString('sk-SK');
+                    }
+                }
 
-                  // 1. Zobrazenie vypracovania
-                  let vypracovaneHtml = o.datum_vypracovania ? `<br><span style="color:#22c55e; font-size:0.85em;"><strong>Vypracované:</strong> ${o.datum_vypracovania}</span>` : '';
+                let zobrazenyNazov = escapeHtml(o.nazov_firmy);
+                if (o.cislo_prevadzky) {
+                    let cistyNazov = o.nazov_firmy.replace(new RegExp('^' + o.cislo_prevadzky + '\\s*-?\\s*'), '');
+                    zobrazenyNazov = `<strong>[${escapeHtml(o.cislo_prevadzky)}]</strong> ${escapeHtml(cistyNazov)}`;
+                }
 
-                  // 2. Zobrazenie súm (Predpoklad vs Finálna)
-                  let sumaHtml = `<div style="color: gray; font-size: 0.9em;">Predpoklad: ${Number(o.celkova_suma_s_dph).toFixed(2)} €</div>`;
-                  if (o.stav === 'Hotová' && o.finalna_suma) {
-                      sumaHtml += `<div style="color:#22c55e; font-weight:bold;">Finálna: ${Number(o.finalna_suma).toFixed(2)} €</div>`;
-                  }
+                let vypracovaneHtml = o.datum_vypracovania ? `<br><span style="color:#22c55e; font-size:0.85em;"><strong>Vypracované:</strong> ${o.datum_vypracovania}</span>` : '';
 
-                  // 3. Tlačidlá
-                  let buttonsHtml = `<button class="btn btn-outline-secondary btn-sm mb-1" onclick="window.open('/api/kancelaria/b2b/print_order_pdf/${o.id}','_blank')" style="width: 100%;">Tlačiť zadanie</button>`;
-                  if (o.stav === 'Hotová') {
-                      buttonsHtml += `<br><button class="btn btn-success btn-sm" onclick="window.printFinishedOrder(${o.id})" style="width: 100%;">Vypracovaná (PDF)</button>`;
-                  }
+                let sumaHtml = `<div style="color: gray; font-size: 0.9em;">Predpoklad: ${Number(o.celkova_suma_s_dph).toFixed(2)} €</div>`;
+                if (o.stav === 'Hotová' && o.finalna_suma) {
+                    sumaHtml += `<div style="color:#22c55e; font-weight:bold;">Finálna: ${Number(o.finalna_suma).toFixed(2)} €</div>`;
+                }
 
-                  html += `<tr>
+                // -------------------------------------------------------------
+                // LOGIKA PRE KPI A VÁŽENIE
+                // -------------------------------------------------------------
+                let v_start = o.vazenie_start ? new Date(o.vazenie_start.replace(' ', 'T')).getTime() : null;
+                let v_end = o.vazenie_end ? new Date(o.vazenie_end.replace(' ', 'T')).getTime() : null;
+                
+                let casVychystavaniaHtml = '-';
+                let rowClass = '';
+
+                if (o.aktualne_na_vahe === 1 || o.aktualne_na_vahe === true) {
+                    // Je to aktuálne na váhe - spusti blikanie a live časovač
+                    rowClass = 'row-active-weighing';
+                    statusColor = '#0284c7'; // Výrazná modrá pre rozpracovanú
+                    stavZobrazenie = 'Práve na váhe ⏳';
+                    if (v_start) {
+                        casVychystavaniaHtml = `<span class="live-timer" data-start="${v_start}" style="color:#0284c7; font-weight:bold; font-size:1.1rem;"><i class="fas fa-stopwatch"></i> ...</span>`;
+                    } else {
+                        casVychystavaniaHtml = `<span style="color:#0284c7; font-weight:bold;">⏳ Inicializácia</span>`;
+                    }
+                } else if (v_start && v_end) {
+                    // Váha je dokončená - spočítaj fixný čas
+                    let diffSec = Math.floor((v_end - v_start) / 1000);
+                    if (diffSec < 0) diffSec = 0;
+                    let m = Math.floor(diffSec / 60).toString().padStart(2, '0');
+                    let s = (diffSec % 60).toString().padStart(2, '0');
+                    casVychystavaniaHtml = `<strong style="font-size:1.1rem; color:#1e293b;" title="Váženie ukončené"><i class="fas fa-stopwatch" style="color:#64748b;"></i> ${m}:${s}</strong>`;
+                } else if (v_start && o.stav === 'Hotová') {
+                    // Fallback, ak napr. chýba konečný čas ale je hotová
+                    casVychystavaniaHtml = `<span style="color:#10b981; font-weight:bold;">✔ Hotovo</span>`;
+                }
+                // -------------------------------------------------------------
+
+                let buttonsHtml = `<button class="btn btn-outline-secondary btn-sm mb-1" onclick="window.open('/api/kancelaria/b2b/print_order_pdf/${o.id}','_blank')" style="width: 100%;">Tlačiť zadanie</button>`;
+                if (o.stav === 'Hotová') {
+                    buttonsHtml += `<br><button class="btn btn-success btn-sm" onclick="window.printFinishedOrder(${o.id})" style="width: 100%;">Vypracovaná (PDF)</button>`;
+                }
+
+                html += `<tr class="${rowClass}">
                     <td>${o.cislo_objednavky}</td>
                     <td>${zobrazenyNazov}</td>
                     <td>${formatVytvorenia}</td>
                     <td><strong>${formatDodania}</strong>${vypracovaneHtml}</td>
                     <td>${sumaHtml}</td>
-                    <td><span style="background:${statusColor};color:white;padding:2px 5px;border-radius:4px;font-size:0.8em;">${o.stav}</span></td>
+                    <td><span style="background:${statusColor};color:white;padding:3px 8px;border-radius:4px;font-size:0.85em;font-weight:bold;box-shadow:0 1px 2px rgba(0,0,0,0.1);">${stavZobrazenie}</span></td>
+                    <td style="text-align:center; vertical-align:middle;">${casVychystavaniaHtml}</td>
                     <td>${buttonsHtml}</td>
-                  </tr>`;
-              });
-              html += '</tbody></table>';
-              area.innerHTML = html;
-          } catch(e) { area.innerHTML = e.message; }
-      };
-      
-      doc.getElementById('ord-filter-btn').onclick = loadOrders;
-      doc.getElementById('ord-date-type').onchange = loadOrders; 
-      
-      loadOrders();
-  }
-  // Pridajte toto tesne nad window.showDailySummary
-  window.printFinishedOrder = function(orderId) {
-      window.open(`/api/kancelaria/b2b/print_order_pdf/${orderId}?type=finished`, '_blank');
-  };
+                </tr>`;
+            });
+            html += '</tbody></table>';
+            area.innerHTML = html;
 
+            // Spustenie globálneho intervalu pre Live stopky, ak nájde classu .live-timer
+            if (window.pickingTimer) clearInterval(window.pickingTimer);
+            window.pickingTimer = setInterval(() => {
+                document.querySelectorAll('.live-timer').forEach(el => {
+                    const start = parseInt(el.dataset.start);
+                    if (!isNaN(start)) {
+                        const diff = Math.floor((new Date().getTime() - start) / 1000);
+                        const m = Math.floor(Math.max(0, diff) / 60).toString().padStart(2, '0');
+                        const s = (Math.max(0, diff) % 60).toString().padStart(2, '0');
+                        el.innerHTML = `<i class="fas fa-stopwatch"></i> ${m}:${s}`;
+                    }
+                });
+            }, 1000);
 
-  window.showDailySummary = function() {
-      const tomorrow = new Date(new Date().getTime() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-      const filterTo = document.getElementById('ord-to');
-      const selectedDate = filterTo && filterTo.value ? filterTo.value : tomorrow;
-      
-      const html = `
-          <div style="padding: 5px;">
-              <h3 style="margin-top:0; color:#1e293b; border-bottom:1px solid #e2e8f0; padding-bottom:10px;">
-                  📋 Sumár produktov na expedíciu
-              </h3>
-              <div style="display:flex; gap:10px; margin-bottom:15px; align-items:center;">
-                  <label><strong>Deň dodania:</strong></label>
-                  <input type="date" id="summary-date" class="filter-input" value="${selectedDate}">
-                  <button class="btn btn-primary" onclick="window.fetchDailySummary()">Načítať dátum</button>
-                  <button class="btn btn-secondary" onclick="window.printDailySummary()" style="margin-left:auto;">🖨️ Tlačiť list</button>
-              </div>
-              <div id="summary-results" style="max-height: 60vh; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 6px;">
-                  <div style="padding: 20px; text-align: center; color: #64748b;">Kliknite na "Načítať" pre zobrazenie sumáru.</div>
-              </div>
-          </div>
-      `;
-      openModal(html);
-      window.fetchDailySummary();
-  };
+        } catch(e) { area.innerHTML = `<div style="padding:20px; color:red; font-weight:bold;">Chyba: ${escapeHtml(e.message)}</div>`; }
+    };
+    
+    doc.getElementById('ord-filter-btn').onclick = loadOrders;
+    doc.getElementById('ord-date-type').onchange = loadOrders; 
+    
+    loadOrders();
+}
 
-  window.fetchDailySummary = async function() {
-      const dateVal = document.getElementById('summary-date').value;
-      const resContainer = document.getElementById('summary-results');
-      resContainer.innerHTML = '<div style="padding:30px; text-align:center; color:#64748b;"><i class="fas fa-spinner fa-spin fa-2x"></i><br><br>Pripravujem sumár...</div>';
-      try {
-          const data = await callFirstOk([{ url: '/api/kancelaria/b2b/getDailySummary', opts: { method: 'POST', body: { date: dateVal } } }]);
-          const items = data.items || [];
-          if (!items.length) {
-              resContainer.innerHTML = `<div style="padding:20px; text-align:center; color:#dc2626; font-weight:bold;">Na deň ${dateVal.split('-').reverse().join('.')} nie sú objednané žiadne produkty.</div>`;
-              return;
-          }
-          let table = `<table class="table-refined" style="width:100%;"><thead style="position:sticky; top:0; background:#f8fafc; box-shadow:0 1px 2px rgba(0,0,0,0.1);"><tr><th style="width:60%;">Názov produktu</th><th style="text-align:right; width:20%;">Množstvo</th><th style="width:20%;">Jednotka</th></tr></thead><tbody>`;
-          items.forEach(it => {
-              table += `<tr><td><div style="font-weight:600; color:#0f172a;">${escapeHtml(it.name)}</div><div style="font-size:0.75rem; color:#64748b;">EAN: ${escapeHtml(it.ean)}</div></td><td style="text-align:right; font-size:1.1rem; font-weight:bold; color:#1d4ed8;">${it.qty}</td><td style="color:#475569;">${escapeHtml(it.unit)}</td></tr>`;
-          });
-          table += `</tbody></table>`;
-          resContainer.innerHTML = table;
-      } catch (e) {
-          resContainer.innerHTML = `<div style="padding:20px; color:#dc2626; font-weight:bold;">Chyba: ${escapeHtml(e.message)}</div>`;
-      }
-  };
+// -------------------------------------------------------------
+// POMOCNÉ FUNKCIE PRE MODAL A TLAČ
+// -------------------------------------------------------------
+window.printFinishedOrder = function(orderId) {
+    window.open(`/api/kancelaria/b2b/print_order_pdf/${orderId}?type=finished`, '_blank');
+};
 
-  window.printDailySummary = function() {
-      const dateVal = document.getElementById('summary-date').value;
-      const content = document.getElementById('summary-results').innerHTML;
-      const formattedDate = dateVal.split('-').reverse().join('.');
-      const win = window.open('', '_blank');
-      win.document.write(`<html><head><title>Sumár expedície B2B - ${formattedDate}</title><style>body { font-family: Arial, sans-serif; padding: 20px; font-size: 14px; } h2 { text-align: center; margin-bottom: 5px; } p.subtitle { text-align: center; color: #555; margin-top: 0; margin-bottom: 20px; } table { width: 100%; border-collapse: collapse; margin-top: 10px; } th, td { border: 1px solid #000; padding: 8px 12px; text-align: left; } th { background-color: #f4f4f4; } td[style*="text-align:right"] { text-align: right; font-weight: bold; }</style></head><body><h2>Sumár produktov na B2B expedíciu</h2><p class="subtitle"><strong>Dátum dodania:</strong> ${formattedDate} | <strong>Vytlačené:</strong> ${new Date().toLocaleString('sk-SK')}</p>${content}<script>window.print();</script></body></html>`);
-      win.document.close();
-  };
+window.showDailySummary = function() {
+    const tomorrow = new Date(new Date().getTime() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const filterTo = document.getElementById('ord-to');
+    const selectedDate = filterTo && filterTo.value ? filterTo.value : tomorrow;
+    
+    const html = `
+        <div style="padding: 5px;">
+            <h3 style="margin-top:0; color:#1e293b; border-bottom:1px solid #e2e8f0; padding-bottom:10px;">
+                📋 Sumár produktov na expedíciu
+            </h3>
+            <div style="display:flex; gap:10px; margin-bottom:15px; align-items:center;">
+                <label><strong>Deň dodania:</strong></label>
+                <input type="date" id="summary-date" class="filter-input" value="${selectedDate}">
+                <button class="btn btn-primary" onclick="window.fetchDailySummary()">Načítať dátum</button>
+                <button class="btn btn-secondary" onclick="window.printDailySummary()" style="margin-left:auto;">🖨️ Tlačiť list</button>
+            </div>
+            <div id="summary-results" style="max-height: 60vh; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 6px;">
+                <div style="padding: 20px; text-align: center; color: #64748b;">Kliknite na "Načítať" pre zobrazenie sumáru.</div>
+            </div>
+        </div>
+    `;
+    openModal(html);
+    window.fetchDailySummary();
+};
+
+window.fetchDailySummary = async function() {
+    const dateVal = document.getElementById('summary-date').value;
+    const resContainer = document.getElementById('summary-results');
+    resContainer.innerHTML = '<div style="padding:30px; text-align:center; color:#64748b;"><i class="fas fa-spinner fa-spin fa-2x"></i><br><br>Pripravujem sumár...</div>';
+    try {
+        const data = await callFirstOk([{ url: '/api/kancelaria/b2b/getDailySummary', opts: { method: 'POST', body: { date: dateVal } } }]);
+        const items = data.items || [];
+        if (!items.length) {
+            resContainer.innerHTML = `<div style="padding:20px; text-align:center; color:#dc2626; font-weight:bold;">Na deň ${dateVal.split('-').reverse().join('.')} nie sú objednané žiadne produkty.</div>`;
+            return;
+        }
+        let table = `<table class="table-refined" style="width:100%;"><thead style="position:sticky; top:0; background:#f8fafc; box-shadow:0 1px 2px rgba(0,0,0,0.1);"><tr><th style="width:60%;">Názov produktu</th><th style="text-align:right; width:20%;">Množstvo</th><th style="width:20%;">Jednotka</th></tr></thead><tbody>`;
+        items.forEach(it => {
+            table += `<tr><td><div style="font-weight:600; color:#0f172a;">${escapeHtml(it.name)}</div><div style="font-size:0.75rem; color:#64748b;">EAN: ${escapeHtml(it.ean)}</div></td><td style="text-align:right; font-size:1.1rem; font-weight:bold; color:#1d4ed8;">${it.qty}</td><td style="color:#475569;">${escapeHtml(it.unit)}</td></tr>`;
+        });
+        table += `</tbody></table>`;
+        resContainer.innerHTML = table;
+    } catch (e) {
+        resContainer.innerHTML = `<div style="padding:20px; color:#dc2626; font-weight:bold;">Chyba: ${escapeHtml(e.message)}</div>`;
+    }
+};
+
+window.printDailySummary = function() {
+    const dateVal = document.getElementById('summary-date').value;
+    const content = document.getElementById('summary-results').innerHTML;
+    const formattedDate = dateVal.split('-').reverse().join('.');
+    const win = window.open('', '_blank');
+    win.document.write(`<html><head><title>Sumár expedície B2B - ${formattedDate}</title><style>body { font-family: Arial, sans-serif; padding: 20px; font-size: 14px; } h2 { text-align: center; margin-bottom: 5px; } p.subtitle { text-align: center; color: #555; margin-top: 0; margin-bottom: 20px; } table { width: 100%; border-collapse: collapse; margin-top: 10px; } th, td { border: 1px solid #000; padding: 8px 12px; text-align: left; } th { background-color: #f4f4f4; } td[style*="text-align:right"] { text-align: right; font-weight: bold; }</style></head><body><h2>Sumár produktov na B2B expedíciu</h2><p class="subtitle"><strong>Dátum dodania:</strong> ${formattedDate} | <strong>Vytlačené:</strong> ${new Date().toLocaleString('sk-SK')}</p>${content}<script>window.print();</script></body></html>`);
+    win.document.close();
+};
+
 // Globálna premenná pre ukladanie výskytu EAN kódov
 let globalEanUsageMap = new Map();
 

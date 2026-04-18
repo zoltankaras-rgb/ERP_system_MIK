@@ -24,6 +24,12 @@ except Exception:
 EXPEDITION_EMAIL = os.getenv("B2B_EXPEDITION_EMAIL") or "miksroexpedicia@gmail.com"
 
 # ───────────────── DDL helpery ─────────────────
+def _ensure_weighing_columns():
+    """Zabezpečí, že tabuľka objednávok má polia pre meranie času."""
+    _exec_ddl("ALTER TABLE b2b_objednavky ADD COLUMN vazenie_start DATETIME NULL")
+    _exec_ddl("ALTER TABLE b2b_objednavky ADD COLUMN vazenie_end DATETIME NULL")
+    _exec_ddl("ALTER TABLE b2b_objednavky ADD COLUMN aktualne_na_vahe TINYINT(1) DEFAULT 0")
+
 def _exec_ddl(sql: str) -> None:
     try:
         db_connector.execute_query(sql, fetch="none")
@@ -1461,6 +1467,9 @@ def create_b2b_branch(data: dict):
         except: pass
         
 def get_all_b2b_orders(filters=None):
+    # Poistka: Zabezpečí, že databáza obsahuje stĺpce pre váženie
+    _ensure_weighing_columns()
+
     filters = filters or {}
     where: List[str] = []
     params: List[Any] = []
@@ -1481,6 +1490,7 @@ def get_all_b2b_orders(filters=None):
         params.append(filters["customer"])
         
     # OPRAVA: Pridaný alias o. a z. + LEFT JOIN na b2b_zakaznici
+    # PRIDANÉ polia pre logiku váhového terminálu
     q = """
         SELECT 
             o.id, 
@@ -1493,6 +1503,9 @@ def get_all_b2b_orders(filters=None):
             o.celkova_suma_s_dph,
             o.datum_vypracovania,
             o.finalna_suma,
+            o.vazenie_start,
+            o.vazenie_end,
+            o.aktualne_na_vahe,
             z.cislo_prevadzky
         FROM b2b_objednavky o
         LEFT JOIN b2b_zakaznici z ON o.zakaznik_id = z.zakaznik_id
@@ -1508,6 +1521,14 @@ def get_all_b2b_orders(filters=None):
         q += " ORDER BY o.datum_objednavky DESC"
         
     rows = db_connector.execute_query(q, tuple(params) if params else None) or []
+    
+    # Prevedieme DATETIME objekty na string pre bezpečný prenos vo formáte JSON na frontend
+    for r in rows:
+        if r.get("vazenie_start"): 
+            r["vazenie_start"] = str(r["vazenie_start"])
+        if r.get("vazenie_end"): 
+            r["vazenie_end"] = str(r["vazenie_end"])
+            
     return {"orders": rows}
 
 def get_b2b_order_details(data_or_id):
@@ -2597,3 +2618,14 @@ def delete_store(data: dict):
     if not sid: return {"error": "Chýba ID prevádzky."}
     db_connector.execute_query("DELETE FROM b2b_stores WHERE id=%s", (sid,), fetch='none')
     return {"message": "Prevádzka bola zmazaná."}
+
+def terminal_focus_start(cislo_objednavky):
+    """Zavolá terminál pri otvorení objednávky."""
+    db_connector.execute_query(
+        "UPDATE b2b_objednavky SET aktualne_na_vahe = 1, vazenie_start = IFNULL(vazenie_start, NOW()), stav = 'Rozpracovaná' WHERE cislo_objednavky = %s",
+        (cislo_objednavky,), fetch="none"
+    )
+
+def terminal_focus_exit():
+    """Zavolá terminál pri zavretí bez dokončenia."""
+    db_connector.execute_query("UPDATE b2b_objednavky SET aktualne_na_vahe = 0 WHERE aktualne_na_vahe = 1", fetch="none")
