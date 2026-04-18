@@ -1266,7 +1266,7 @@ def submit_b2b_order(data: dict):
             cur.close(); conn.close()
         except: pass
 
-  # 7. Generovanie PDF/CSV a odoslanie e-mailov
+ # 7. Generovanie PDF/CSV a odoslanie e-mailov
     import copy
     
     order_payload["order_number"] = order_number
@@ -1290,7 +1290,7 @@ def submit_b2b_order(data: dict):
                 if orig_ean in ean_map:
                     item["ean"] = ean_map[orig_ean]
 
-            # Vygenerovanie nového CSV (cez tvoju pôvodnú funkciu, takže sa aplikujú nuly a dĺžka 13 znakov presne ako chceš)
+            # Vygenerovanie nového CSV
             _, csv_bytes, _ = pdf_generator.create_order_files(csv_payload)
             
         except Exception as map_err:
@@ -1310,18 +1310,22 @@ def submit_b2b_order(data: dict):
         except Exception as e:
             print(f"Chyba pri ukladani CSV na disk: {e}")
         
-        # A) Hlavný e-mail zákazníkovi - TU VYPNEME AUTOMATICKÚ KÓPIU
+        # ==========================================================
+        # OPRAVENÉ ODOSIELANIE E-MAILOV (Bez duplicít)
+        # ==========================================================
+
+        # 1. Hlavný e-mail zákazníkovi (Odošle sa IBA RAZ)
         try:
             notification_handler.send_order_confirmation_email(
                 to=customer_email, 
                 order_number=order_number, 
                 pdf_content=pdf_bytes, 
-                send_exped_copy=False  # <--- TOTO ZABRÁNI PRVÉMU DUPLICITNÉMU MAILU
+                send_exped_copy=False  # <--- ZABRÁNI DUPLICITNÉMU MAILU EXPEDÍCII
             )
         except Exception as e:
             print(f"Chyba emailu zakaznikovi: {e}")
 
-        # B) KÓPIE e-mailu podľa poľa z frontendu
+        # 2. KÓPIE e-mailu podľa poľa z frontendu (CC)
         if cc_emails_raw:
             cc_list = [e.strip() for e in cc_emails_raw.replace(';', ',').split(',') if e.strip()]
             for cc_mail in cc_list:
@@ -1333,20 +1337,7 @@ def submit_b2b_order(data: dict):
                     except Exception as e:
                         print(f"Nepodarilo sa odoslať kópiu na {cc_mail}: {e}")
         
-        # A) Hlavný e-mail zákazníkovi - TU VYPNEME AUTOMATICKÚ KÓPIU
-        try:
-            notification_handler.send_order_confirmation_email(
-                to=customer_email, 
-                order_number=order_number, 
-                pdf_content=pdf_bytes, 
-                send_exped_copy=False  # <--- TOTO ZABRÁNI PRVÉMU DUPLICITNÉMU MAILU
-            )
-        except Exception as e:
-            print(f"Chyba emailu zakaznikovi: {e}")
-
-        # ... (kód pre kópie CC ostáva rovnaký) ...
-
-        # C) Email expedícii - TU POŠLEME TEN SPRÁVNY MAIL (BEZ CSV)
+        # 3. Email expedícii (Personalizovaný a IBA RAZ)
         try:
             notification_handler.send_order_confirmation_email(
                 to=EXPEDITION_EMAIL, 
@@ -1357,8 +1348,8 @@ def submit_b2b_order(data: dict):
                 # csv_content a csv_filename TU NEUVÁDZAME -> e-mail odíde bez CSV
             )
         except Exception as e:
-            print(f"Chyba pri odosielaní personalizovanej kópie: {e}")
-            
+            print(f"Chyba pri odosielaní personalizovanej kópie expedicii: {e}")
+            # Fallback
             try:
                 notification_handler.send_order_confirmation_email(
                     to=EXPEDITION_EMAIL, 
