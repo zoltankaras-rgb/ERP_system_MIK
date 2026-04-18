@@ -2612,27 +2612,29 @@ def delete_store(data: dict):
 
 def terminal_focus_start(cislo_objednavky: str):
     """Zavolá terminál pri otvorení objednávky."""
-    # Ochrana: Vytvorenie stĺpcov, ak chýbajú
+    from datetime import datetime
+    now_local = datetime.now() # Získame presný SK čas z Pythonu
+
     try:
         db_connector.execute_query("ALTER TABLE b2b_objednavky ADD COLUMN vazenie_start DATETIME NULL", fetch="none")
         db_connector.execute_query("ALTER TABLE b2b_objednavky ADD COLUMN vazenie_end DATETIME NULL", fetch="none")
         db_connector.execute_query("ALTER TABLE b2b_objednavky ADD COLUMN aktualne_na_vahe TINYINT(1) DEFAULT 0", fetch="none")
     except Exception:
-        pass # Stĺpce už existujú
+        pass
 
     # 1. Zrušíme focus zo všetkých ostatných
     db_connector.execute_query("UPDATE b2b_objednavky SET aktualne_na_vahe = 0", fetch="none")
     
-    # 2. Nastavíme aktuálnej objednávke focus a štart
+    # 2. Nastavíme aktuálnej objednávke focus a SK štartovací čas
     db_connector.execute_query(
         """
         UPDATE b2b_objednavky 
         SET aktualne_na_vahe = 1, 
             stav = IF(stav = 'Prijatá', 'Rozpracovaná', stav),
-            vazenie_start = IFNULL(vazenie_start, NOW())
+            vazenie_start = IFNULL(vazenie_start, %s)
         WHERE cislo_objednavky = %s
         """,
-        (cislo_objednavky,), fetch="none"
+        (now_local, cislo_objednavky), fetch="none"
     )
 
 def terminal_focus_exit():

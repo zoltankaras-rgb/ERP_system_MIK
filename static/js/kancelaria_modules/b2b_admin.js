@@ -361,11 +361,50 @@
             const orders = res.orders || [];
             if(!orders.length) { area.innerHTML = '<p style="padding:20px; text-align:center; color:#64748b;">Nenašli sa žiadne objednávky.</p>'; return; }
             
-            // Pridaný stĺpec "Čas vychystávania"
-            let html = `<table class="table-refined"><thead><tr><th>Číslo</th><th>Zákazník</th><th>Vytvorená</th><th>Dodanie</th><th>Suma</th><th>Stav</th><th style="text-align:center;">Čas vychystávania</th><th>Akcia</th></tr></thead><tbody>`;
+            // ==============================================================
+            // NOVINKA: VÝPOČET PRIEMERNÉHO TEMPA VYCHYSTÁVANIA
+            // ==============================================================
+            let totalSeconds = 0;
+            let countedOrders = 0;
+
+            orders.forEach(o => {
+                let v_s = o.vazenie_start ? new Date(o.vazenie_start.replace(' ', 'T')).getTime() : null;
+                let v_e = o.vazenie_end ? new Date(o.vazenie_end.replace(' ', 'T')).getTime() : null;
+
+                if (v_s && v_e && o.stav === 'Hotová') {
+                    let diff = Math.floor((v_e - v_s) / 1000);
+                    if (diff > 0) {
+                        totalSeconds += diff;
+                        countedOrders++;
+                    }
+                }
+            });
+
+            let avgHtml = '';
+            if (countedOrders > 0) {
+                let avgSec = Math.floor(totalSeconds / countedOrders);
+                let m = Math.floor(avgSec / 60).toString().padStart(2, '0');
+                let s = (avgSec % 60).toString().padStart(2, '0');
+                avgHtml = `
+                <div style="background:#f0fdf4; border:1px solid #bbf7d0; color:#166534; padding:12px 20px; border-radius:8px; display:inline-flex; align-items:center; gap:12px; font-weight:bold; margin-bottom:20px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
+                    <i class="fas fa-stopwatch" style="font-size:1.5em; color:#22c55e;"></i>
+                    <div style="display:flex; flex-direction:column;">
+                        <span style="font-size:0.85rem; text-transform:uppercase; letter-spacing:0.5px; opacity:0.9;">Priemerné tempo (Dnes)</span>
+                        <span style="font-size:1.3rem;">${m}:${s} <span style="font-size:0.9rem; font-weight:normal;">/ obj.</span></span>
+                    </div>
+                    <div style="margin-left:15px; padding-left:15px; border-left:1px solid #bbf7d0; font-size:0.9rem; font-weight:normal;">
+                        Zmeraných: <strong>${countedOrders}</strong>
+                    </div>
+                </div>`;
+            } else {
+                avgHtml = `<div style="background:#f8fafc; border:1px solid #e2e8f0; color:#64748b; padding:10px 15px; border-radius:6px; margin-bottom:15px; font-size:0.9rem; display:inline-block;"><i class="fas fa-info-circle"></i> Zatiaľ žiadne dokončené objednávky s meraním času pre tento filter.</div>`;
+            }
+            // ==============================================================
+
+            let html = avgHtml + `<table class="table-refined"><thead><tr><th>Číslo</th><th>Zákazník</th><th>Vytvorená</th><th>Dodanie</th><th>Suma</th><th>Stav</th><th style="text-align:center;">Čas vychystávania</th><th>Akcia</th></tr></thead><tbody>`;
             
             orders.forEach(o => {
-                let statusColor = '#94a3b8'; // Default grey
+                let statusColor = '#94a3b8'; 
                 if (o.stav === 'Prijatá') statusColor = '#eab308';
                 if (o.stav === 'Hotová') statusColor = '#22c55e';
                 if (o.stav === 'Zrušená' || o.stav === 'Stornovaná') statusColor = '#ef4444';
@@ -406,7 +445,7 @@
                 }
 
                 // -------------------------------------------------------------
-                // LOGIKA PRE KPI A VÁŽENIE
+                // LOGIKA PRE ČASOVÉ ZOBRAZENIE
                 // -------------------------------------------------------------
                 let v_start = o.vazenie_start ? new Date(o.vazenie_start.replace(' ', 'T')).getTime() : null;
                 let v_end = o.vazenie_end ? new Date(o.vazenie_end.replace(' ', 'T')).getTime() : null;
@@ -415,9 +454,8 @@
                 let rowClass = '';
 
                 if (o.aktualne_na_vahe === 1 || o.aktualne_na_vahe === true) {
-                    // Je to aktuálne na váhe - spusti blikanie a live časovač
                     rowClass = 'row-active-weighing';
-                    statusColor = '#0284c7'; // Výrazná modrá pre rozpracovanú
+                    statusColor = '#0284c7';
                     stavZobrazenie = 'Práve na váhe ⏳';
                     if (v_start) {
                         casVychystavaniaHtml = `<span class="live-timer" data-start="${v_start}" style="color:#0284c7; font-weight:bold; font-size:1.1rem;"><i class="fas fa-stopwatch"></i> ...</span>`;
@@ -425,15 +463,16 @@
                         casVychystavaniaHtml = `<span style="color:#0284c7; font-weight:bold;">⏳ Inicializácia</span>`;
                     }
                 } else if (v_start && v_end) {
-                    // Váha je dokončená - spočítaj fixný čas
+                    // Váha ukončená -> Vypíšeme presný čas
                     let diffSec = Math.floor((v_end - v_start) / 1000);
                     if (diffSec < 0) diffSec = 0;
                     let m = Math.floor(diffSec / 60).toString().padStart(2, '0');
                     let s = (diffSec % 60).toString().padStart(2, '0');
-                    casVychystavaniaHtml = `<strong style="font-size:1.1rem; color:#1e293b;" title="Váženie ukončené"><i class="fas fa-stopwatch" style="color:#64748b;"></i> ${m}:${s}</strong>`;
+                    
+                    // ZOBRAZÍ: ✔ 05:22
+                    casVychystavaniaHtml = `<strong style="font-size:1.1rem; color:#10b981;" title="Váženie úspešne dokončené"><i class="fas fa-check"></i> ${m}:${s}</strong>`;
                 } else if (v_start && o.stav === 'Hotová') {
-                    // Fallback, ak napr. chýba konečný čas ale je hotová
-                    casVychystavaniaHtml = `<span style="color:#10b981; font-weight:bold;">✔ Hotovo</span>`;
+                    casVychystavaniaHtml = `<span style="color:#10b981; font-weight:bold;">✔ Hotovo (bez času)</span>`;
                 }
                 // -------------------------------------------------------------
 
@@ -456,7 +495,6 @@
             html += '</tbody></table>';
             area.innerHTML = html;
 
-            // Spustenie globálneho intervalu pre Live stopky, ak nájde classu .live-timer
             if (window.pickingTimer) clearInterval(window.pickingTimer);
             window.pickingTimer = setInterval(() => {
                 document.querySelectorAll('.live-timer').forEach(el => {
@@ -478,7 +516,6 @@
     
     loadOrders();
 }
-
 // -------------------------------------------------------------
 // POMOCNÉ FUNKCIE PRE MODAL A TLAČ
 // -------------------------------------------------------------

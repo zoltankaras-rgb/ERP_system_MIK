@@ -224,17 +224,17 @@ def process_terminal_files():
             """, (order_id,), fetch="one")
             
             finalna_suma_s_dph = float(sum_db.get("suma_s_dph") or 0) if sum_db else 0.0
-            now_str = datetime.now()
+            now_str = datetime.now() # Python už vie, koľko je reálne hodín
             
             db_connector.execute_query("""
                 UPDATE b2b_objednavky 
                 SET stav = 'Hotová', 
                     datum_vypracovania = %s,
                     finalna_suma = %s,
-                    vazenie_end = NOW(),
+                    vazenie_end = %s,
                     aktualne_na_vahe = 0
                 WHERE id = %s
-            """, (now_str, finalna_suma_s_dph, order_id), fetch="none")
+            """, (now_str, finalna_suma_s_dph, now_str, order_id), fetch="none")
             
             dest_path = os.path.join(TERMINAL_PROCESSED_DIR, filename)
             if os.path.exists(dest_path):
