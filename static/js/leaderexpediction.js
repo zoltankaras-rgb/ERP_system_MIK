@@ -166,10 +166,27 @@
   async function loadLeaderLowStockDetail() {
     const host = document.getElementById('leader-lowstock-detail');
     if (!host) return;
-    host.innerHTML = '<div class="muted" style="padding:1rem;">Načítavam návrh nákupu...</div>';
+    
+    // ZMENA: Pridáme hlavičku s tlačidlom pre mínusové stavy
+    host.innerHTML = `
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 15px; border-bottom: 1px solid #e2e8f0; padding-bottom: 10px;">
+          <h3 style="margin:0; color:#1e293b;">Chýbajúci tovar (Návrh nákupu)</h3>
+          <button class="btn btn-danger btn-sm" onclick="window.printNegativeStockLeader()">
+              <i class="fa-solid fa-print"></i> Tlačiť mínusové stavy
+          </button>
+      </div>
+      <div id="leader-lowstock-content"><div class="muted" style="padding:1rem;">Načítavam návrh nákupu...</div></div>
+    `;
+    
+    const contentHost = document.getElementById('leader-lowstock-content');
+
     try {
       const suggestions = await apiRequest('/api/kancelaria/get_goods_purchase_suggestion');
-      if (!suggestions || !suggestions.length) { host.innerHTML = '<div class="card" style="margin-top:12px"><div class="card-body"><div class="muted">Aktuálne nie je potrebné doobjednať žiadny tovar.</div></div></div>'; return; }
+      if (!suggestions || !suggestions.length) { 
+          contentHost.innerHTML = '<div class="card" style="margin-top:12px"><div class="card-body"><div class="muted">Aktuálne nie je potrebné doobjednať žiadny tovar.</div></div></div>'; 
+          return; 
+      }
+      
       const byCat = {};
       suggestions.forEach(item => {
         const salesCat = item.predajna_kategoria || item.sales_category || item.kategoria_pre_recepty || '';
@@ -178,6 +195,7 @@
         if (!byCat[header]) byCat[header] = [];
         byCat[header].push(item);
       });
+      
       let html = '<p>Prehľad všetkých výrobkov a tovaru, ktoré sú pod minimálnou zásobou na centrálnom sklade (z návrhu nákupu).</p>';
       Object.keys(byCat).sort().forEach(header => {
         const items = byCat[header];
@@ -189,9 +207,107 @@
         });
         html += `</tbody></table></div>`;
       });
-      host.innerHTML = html;
-    } catch (e) { host.innerHTML = `<div class="error" style="padding:1rem;">Chyba: ${escapeHtml(e.message || '')}</div>`; }
+      contentHost.innerHTML = html;
+    } catch (e) { 
+        contentHost.innerHTML = `<div class="error" style="padding:1rem;">Chyba: ${escapeHtml(e.message || '')}</div>`; 
+    }
   }
+
+  // ZMENA: Samotná funkcia na stiahnutie a vytlačenie mínusových stavov
+  window.printNegativeStockLeader = async function() {
+      try {
+          showStatus("Sťahujem mínusové stavy...", false);
+          const res = await apiRequest('/api/leader/stock/negatives');
+          if (res.error) throw new Error(res.error);
+          
+          const groupedData = res.negatives || {};
+          let negatives = [];
+          
+          Object.keys(groupedData).forEach(cat => {
+              (groupedData[cat] || []).forEach(p => {
+                  negatives.push({
+                      cat: cat,
+                      name: p.name,
+                      ean: p.ean,
+                      qty: p.qty,
+                      unit: p.unit
+                  });
+              });
+          });
+
+          if (negatives.length === 0) {
+              alert("Žiadne položky so záporným stavom na centrálnom sklade.");
+              return;
+          }
+
+          // Zoradenie podľa kategórie a abecedy
+          negatives.sort((a,b) => a.cat.localeCompare(b.cat) || a.name.localeCompare(b.name));
+
+          const dateStr = new Date().toLocaleString('sk-SK');
+          let html = `
+            <!doctype html>
+            <html>
+            <head>
+                <meta charset="utf-8">
+                <title>Mínusové stavy - Report</title>
+                <style>
+                    body { font-family: Arial, sans-serif; font-size: 12px; padding: 20px; }
+                    h1 { font-size: 18px; margin-bottom: 5px; }
+                    .meta { color: #666; margin-bottom: 20px; font-size: 11px; }
+                    table { width: 100%; border-collapse: collapse; }
+                    th, td { border: 1px solid #ccc; padding: 6px 8px; text-align: left; }
+                    th { background: #f3f4f6; font-weight: bold; }
+                    .num { text-align: right; font-weight: bold; color: #dc2626; }
+                    .cat-row td { background: #e5e7eb; font-weight: bold; padding-top: 10px; }
+                </style>
+            </head>
+            <body>
+                <h1>Report Mínusových Skladových zásob</h1>
+                <div class="meta">Vygenerované z panelu Vedúceho expedície: ${dateStr}</div>
+                
+                <table>
+                    <thead>
+                        <tr>
+                            <th>EAN</th>
+                            <th>Názov Produktu</th>
+                            <th style="text-align:right">Stav</th>
+                            <th>MJ</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+          `;
+
+          let lastCat = null;
+          negatives.forEach(item => {
+              if (item.cat !== lastCat) {
+                  html += `<tr class="cat-row"><td colspan="4">${escapeHtml(item.cat)}</td></tr>`;
+                  lastCat = item.cat;
+              }
+              html += `
+                <tr>
+                    <td>${escapeHtml(item.ean)}</td>
+                    <td>${escapeHtml(item.name)}</td>
+                    <td class="num">${Number(item.qty).toFixed(2)}</td>
+                    <td>${escapeHtml(item.unit)}</td>
+                </tr>
+              `;
+          });
+
+          html += `
+                    </tbody>
+                </table>
+                <script>window.onload=function(){ window.print(); setTimeout(function(){window.close();},500); }</script>
+            </body>
+            </html>
+          `;
+
+          const win = window.open('', '_blank');
+          win.document.write(html);
+          win.document.close();
+      } catch(e) {
+          showStatus("Chyba: " + e.message, true);
+      }
+  };
 
   async function loadLeaderProductionCalendar() {
     const rootEl = document.getElementById('planner-inline-root');

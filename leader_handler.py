@@ -1832,3 +1832,39 @@ def leader_plan_rozpis():
     except Exception as e:
         print(f"Chyba pri generovaní rozpisu: {e}")
         return jsonify({'error': str(e)}), 500
+    # =============================================================================
+# SKLAD - Mínusové stavy
+# =============================================================================
+
+@leader_bp.get('/stock/negatives')
+@login_required(role=('veduci', 'admin'))
+def leader_stock_negatives():
+    """
+    Vráti všetky položky z centrálneho skladu (produkty), ktoré majú záporný stav.
+    """
+    sql = """
+        SELECT ean, nazov_vyrobku as name, 
+               COALESCE(predajna_kategoria, 'Nezaradené') as category,
+               COALESCE(aktualny_sklad_finalny_kg, 0) as quantity,
+               COALESCE(mj, 'kg') as unit
+        FROM produkty 
+        WHERE aktualny_sklad_finalny_kg < 0
+          AND (typ_polozky IN ('VÝROBOK', 'TOVAR', 'PRODUKT', 'VÝROBOK_KUSOVY', 'VÝROBOK_KUSOVÝ', 'TOVAR_KUSOVY') OR typ_polozky IS NULL)
+        ORDER BY category, name
+    """
+    try:
+        rows = db_connector.execute_query(sql, fetch='all') or []
+        grouped = {}
+        for r in rows:
+            c = r['category']
+            if c not in grouped:
+                grouped[c] = []
+            grouped[c].append({
+                'ean': r['ean'] or '',
+                'name': r['name'] or '',
+                'qty': float(r['quantity'] or 0),
+                'unit': r['unit'] or 'kg'
+            })
+        return jsonify({'negatives': grouped})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
