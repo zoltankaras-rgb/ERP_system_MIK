@@ -176,6 +176,7 @@
       renderReadyForInvoice(shell);
     };
   })(window, document);
+  
   // Funkcia očakáva, že inputy majú špecifické triedy a dáta-atribúty
 async function saveOrderItems(orderId) {
     // Nájdeme všetky riadky (prvky) položiek, ktoré patria k danej objednávke

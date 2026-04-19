@@ -295,39 +295,3 @@ def update_order_items(order_id):
             cur.close()
             conn.close()
 
-@billing_bp.route('/api/billing/update_order_items', methods=['POST'])
-def update_order_items():
-    data = request.json
-    items = data.get('items', [])
-    
-    if not items:
-        return jsonify({"status": "error", "message": "Žiadne dáta na aktualizáciu"}), 400
-
-    try:
-        conn = db_connector.get_connection() # Použi svoju funkciu na DB
-        cursor = conn.cursor()
-        
-        # Uprav názov tabuľky b2b_objednavky_polozky podľa tvojej reálnej štruktúry
-        update_query = """
-            UPDATE b2b_objednavky_polozky 
-            SET mnozstvo = %s, cena_bez_dph = %s 
-            WHERE id = %s
-        """
-        
-        # Pripravíme dáta pre hromadný update (executemany je rýchlejší)
-        update_data = [(item['mnozstvo'], item['cena_bez_dph'], item['id']) for item in items]
-        
-        cursor.executemany(update_query, update_data)
-        conn.commit()
-        
-        return jsonify({"status": "success", "message": "Položky boli úspešne upravené."})
-        
-    except Exception as e:
-        if conn:
-            conn.rollback()
-        return jsonify({"status": "error", "message": str(e)}), 500
-    finally:
-        if cursor:
-            cursor.close()
-        if conn:
-            conn.close()
