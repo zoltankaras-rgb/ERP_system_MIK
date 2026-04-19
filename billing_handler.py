@@ -29,29 +29,21 @@ def generate_doc_number(typ_dokladu):
 def get_ready_for_invoice():
     """
     Vráti 'Hotové' objednávky z terminálu (Návrhy DL).
-    Párovanie zákazníkov prebieha priamo parsovaním čísla objednávky (napr. B2B-12345-...).
+    Párovanie zákazníkov prebieha priamo parsovaním čísla objednávky.
     """
-    # 1. Natiahneme IBA objednávky (žiadne SQL JOINY, aby nám databáza nič nezahodila)
+    # 1. Opravené SQL: Bez stĺpca 'odberatel' !
     try:
         sql_orders = """
             SELECT id as obj_id, cislo_objednavky, pozadovany_datum_dodania, 
                    COALESCE(finalna_suma_s_dph, celkova_suma_s_dph, 0) as suma,
-                   zakaznik_id, odberatel, nazov_firmy
+                   zakaznik_id, nazov_firmy
             FROM b2b_objednavky
             WHERE stav = 'Hotová' AND (faktura_id IS NULL OR faktura_id = 0)
         """
         orders = db_connector.execute_query(sql_orders, fetch="all") or []
     except Exception as e:
-        # Fallback pre istotu, ak by tabuľka chvíľkovo štrajkovala kvôli stĺpcu faktura_id
-        print("Chyba dotazu na faktura_id:", e)
-        sql_fallback = """
-            SELECT id as obj_id, cislo_objednavky, pozadovany_datum_dodania, 
-                   COALESCE(finalna_suma_s_dph, celkova_suma_s_dph, 0) as suma,
-                   zakaznik_id, odberatel, nazov_firmy
-            FROM b2b_objednavky
-            WHERE stav = 'Hotová'
-        """
-        orders = db_connector.execute_query(sql_fallback, fetch="all") or []
+        print("Kritická chyba SQL pri objednávkach:", e)
+        return jsonify({"error": str(e)}), 500
 
     # 2. Natiahneme všetkých zákazníkov do pamäte
     sql_customers = """
@@ -62,45 +54,40 @@ def get_ready_for_invoice():
     """
     customers_db = db_connector.execute_query(sql_customers, fetch="all") or []
     
-    # Vytvoríme si vyhľadávací slovník pre rýchle párovanie v pamäti
+    # Vyhľadávací slovník pre párovanie podľa tvojho interného 'zakaznik_id' (napr. 12345)
     cust_map = {}
     for c in customers_db:
         if c.get('erp_id'): cust_map[str(c['erp_id']).strip()] = c
-        if c.get('id'): cust_map[str(c['id']).strip()] = c
 
     trasy_map = {}
     
-    # 3. TVOJ ALGORITMUS: Parsovanie a párovanie objednávok
+    # 3. Tvoj systém párovania: Rozstrihneme číslo objednávky
     for o in orders:
-        cislo = o.get('cislo_objednavky') or ''
+        cislo = str(o.get('cislo_objednavky') or '')
         
-        # Extrahujeme IDčko zo stringu (B2B-12345-2026...)
+        # B2B-12345-2026... -> získa číslo 12345
         vyextrahovane_id = None
         parts = cislo.split('-')
         if len(parts) >= 2 and parts[0] in ('B2B', 'B2C'):
             vyextrahovane_id = parts[1].strip()
             
-        # Spárujeme so zákazníkom zo slovníka
-        found_cust = None
-        if vyextrahovane_id:
-            found_cust = cust_map.get(vyextrahovane_id)
+        # Hľadáme zákazníka v slovníku podľa vyextrahovaného čísla (alebo fallback na zakaznik_id z tabuľky)
+        found_cust = cust_map.get(vyextrahovane_id) if vyextrahovane_id else None
         if not found_cust and o.get('zakaznik_id'):
             found_cust = cust_map.get(str(o.get('zakaznik_id')).strip())
             
-        # Priradíme dáta
+        # Priradenie k trase
         if found_cust:
-            z_id = str(found_cust['erp_id'] or found_cust['id'])
+            z_id = str(found_cust['erp_id'])
             z_meno = found_cust['nazov_firmy']
             trasa = found_cust['trasa']
             typ_fa = found_cust.get('typ_fakturacie') or 'Jednotlivo'
         else:
-            # Ak by predsa len zákazník neexistoval, aspoň ukážeme objednávku!
             z_id = str(vyextrahovane_id or o.get('zakaznik_id') or 'Neznáme')
-            z_meno = o.get('odberatel') or o.get('nazov_firmy') or f"Nespárovaný ({z_id})"
+            z_meno = o.get('nazov_firmy') or f"Nespárovaný ({z_id})"
             trasa = 'Nepriradená trasa'
             typ_fa = 'Jednotlivo'
 
-        # 4. Zoskupenie pre Frontend (do podoby Návrhov DL roztriedených podľa trasy)
         if trasa not in trasy_map:
             trasy_map[trasa] = {}
             
@@ -121,7 +108,7 @@ def get_ready_for_invoice():
 
     vystup = [{"trasa": k, "zakaznici": list(v.values())} for k, v in trasy_map.items()]
     
-    # Zoradíme abecedne trasy a následne aj zákazníkov pre lepší prehľad
+    # Zoradíme pre prehľadnosť
     vystup.sort(key=lambda x: x['trasa'])
     for t in vystup:
         t['zakaznici'].sort(key=lambda c: c['nazov_firmy'])
