@@ -1594,6 +1594,7 @@ def delete_promotion(data: Dict[str, Any]):
 
 def get_catalog_management_data():
     # ZMENA: Pridaný stĺpec 'has_recipe', ktorý vráti 1, ak recept existuje
+    # OPRAVA: Pridané stĺpce 'mj' a 'vaha_balenia_g', aby ich frontend videl pri úprave
     products = db_connector.execute_query("""
         SELECT 
             p.ean, 
@@ -1602,6 +1603,8 @@ def get_catalog_management_data():
             p.kategoria_pre_recepty, 
             p.predajna_kategoria, 
             p.dph,
+            p.mj,
+            p.vaha_balenia_g,
             (SELECT 1 FROM recepty r WHERE TRIM(r.nazov_vyrobku) = TRIM(p.nazov_vyrobku) LIMIT 1) as has_recipe
         FROM produkty p
         ORDER BY p.typ_polozky, p.nazov_vyrobku
@@ -1622,7 +1625,6 @@ def get_catalog_management_data():
 
     return {"products": products, "recipe_categories": recipe_categories,
             "sale_categories": sale_categories, "item_types": item_types, "dph_rates": dph_rates}
-
 def get_product_stock_card_data(data: dict):
     """
     Vráti dáta pre 'Skladovú kartu' (dashboard produktu):
