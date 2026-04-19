@@ -2,6 +2,8 @@ from flask import Blueprint, request, jsonify
 from datetime import datetime, timedelta
 import db_connector
 import traceback
+from flask import make_response
+
 
 billing_bp = Blueprint("billing", __name__)
 
@@ -324,3 +326,146 @@ def create_collective_invoice():
         return jsonify({"error": str(e)}), 500
     finally:
         if conn: cur.close(); conn.close()
+
+# --- 5. ARCHÍV DOKLADOV (Prehľad a Tlač) ---
+@billing_bp.get("/api/billing/issued_documents")
+def get_issued_documents():
+    """Vráti 100 najnovších vystavených dokladov pre tabuľku Archívu"""
+    try:
+        sql = """
+            SELECT id, typ_dokladu, cislo_dokladu, odberatel_nazov, 
+                   datum_vystavenia, suma_bez_dph, suma_s_dph
+            FROM doklady_hlavicka
+            ORDER BY id DESC LIMIT 100
+        """
+        docs = db_connector.execute_query(sql, fetch="all") or []
+        
+        # Bezpečný formát dátumu
+        for d in docs:
+            if hasattr(d['datum_vystavenia'], 'strftime'):
+                d['datum'] = d['datum_vystavenia'].strftime('%d.%m.%Y')
+            else:
+                d['datum'] = str(d['datum_vystavenia'])
+                
+        return jsonify({"documents": docs})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@billing_bp.get("/api/billing/print/<int:doc_id>")
+def print_document(doc_id):
+    """Vygeneruje krásne HTML pre priamu tlač Dodacieho listu alebo Faktúry"""
+    hlavicka = db_connector.execute_query("SELECT * FROM doklady_hlavicka WHERE id = %s", (doc_id,), fetch="one")
+    if not hlavicka:
+        return "Doklad sa nenašiel v databáze.", 404
+        
+    polozky = db_connector.execute_query("SELECT * FROM doklady_polozky WHERE doklad_id = %s", (doc_id,), fetch="all") or []
+    
+    nazov_dokladu = "Faktúra" if hlavicka['typ_dokladu'] == 'FA' else "Dodací list"
+    datum_str = hlavicka['datum_vystavenia'].strftime('%d.%m.%Y') if hasattr(hlavicka['datum_vystavenia'], 'strftime') else str(hlavicka['datum_vystavenia'])
+    
+    html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <title>{nazov_dokladu} {hlavicka['cislo_dokladu']}</title>
+        <style>
+            body {{ font-family: 'Arial', sans-serif; padding: 20px; color: #222; font-size: 14px; }}
+            .header {{ display: flex; justify-content: space-between; border-bottom: 3px solid #1e293b; padding-bottom: 10px; margin-bottom: 30px; }}
+            .title {{ font-size: 28px; font-weight: 900; text-transform: uppercase; color: #1e293b; }}
+            .boxes {{ display: flex; justify-content: space-between; margin-bottom: 40px; }}
+            .box {{ width: 45%; border: 1px solid #cbd5e1; padding: 20px; border-radius: 8px; background: #f8fafc; }}
+            .box-title {{ font-size: 12px; text-transform: uppercase; color: #64748b; margin-bottom: 10px; letter-spacing: 1px; }}
+            table {{ width: 100%; border-collapse: collapse; margin-bottom: 30px; }}
+            th, td {{ border-bottom: 1px solid #e2e8f0; padding: 12px; text-align: left; }}
+            th {{ background-color: #f1f5f9; font-weight: bold; color: #334155; }}
+            .totals {{ text-align: right; font-size: 16px; margin-top: 20px; padding-top: 20px; border-top: 2px solid #e2e8f0; }}
+            .grand-total {{ font-size: 24px; font-weight: bold; color: #0f172a; margin-top: 10px; }}
+            .signatures {{ margin-top: 60px; display: flex; justify-content: space-between; font-weight: bold; }}
+            .print-btn {{ background: #2563eb; color: white; border: none; padding: 12px 24px; cursor: pointer; font-size: 16px; border-radius: 6px; margin-bottom: 20px; font-weight:bold; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }}
+            .print-btn:hover {{ background: #1d4ed8; }}
+            @media print {{ 
+                .print-btn {{ display: none; }} 
+                body {{ padding: 0; margin: 0; }} 
+                .box {{ background: transparent; border: 1px solid #000; }}
+            }}
+        </style>
+    </head>
+    <body>
+        <div style="text-align:center;">
+            <button class="print-btn" onclick="window.print()">🖨️ Vytlačiť {nazov_dokladu}</button>
+        </div>
+        
+        <div class="header">
+            <div class="title">{nazov_dokladu} č. {hlavicka['cislo_dokladu']}</div>
+            <div style="text-align:right;">
+                <strong>Dátum vystavenia:</strong> {datum_str}<br>
+                <strong>Dátum dodania:</strong> {datum_str}
+            </div>
+        </div>
+        
+        <div class="boxes">
+            <div class="box">
+                <div class="box-title">Dodávateľ</div>
+                <strong style="font-size:18px;">MIK, s.r.o.</strong><br><br>
+                Záhradnícka 4/25<br>
+                927 01 Šaľa, Slovensko<br><br>
+                <strong>IČO:</strong> 34099514<br>
+                <strong>DIČ:</strong> 2020400000<br>
+            </div>
+            <div class="box">
+                <div class="box-title">Odberateľ</div>
+                <strong style="font-size:18px;">{hlavicka['odberatel_nazov']}</strong><br><br>
+                {hlavicka['odberatel_adresa'] or ''}<br><br>
+                <strong>IČO:</strong> {hlavicka['odberatel_ico'] or 'Nezadané'}<br>
+                <strong>IČ DPH:</strong> {hlavicka['odberatel_ic_dph'] or 'Nezadané'}
+            </div>
+        </div>
+        
+        <table>
+            <thead>
+                <tr>
+                    <th>Názov položky</th>
+                    <th>EAN</th>
+                    <th style="text-align:center;">Množstvo</th>
+                    <th>MJ</th>
+                    <th style="text-align:right;">Cena/MJ</th>
+                    <th style="text-align:right;">DPH</th>
+                    <th style="text-align:right;">Celkom s DPH</th>
+                </tr>
+            </thead>
+            <tbody>
+    """
+    
+    for p in polozky:
+        html += f"""
+                <tr>
+                    <td>{p['nazov_polozky']}</td>
+                    <td><small>{p.get('ean') or ''}</small></td>
+                    <td style="text-align:center; font-weight:bold;">{float(p['mnozstvo']):.2f}</td>
+                    <td>{p['mj']}</td>
+                    <td style="text-align:right;">{float(p['cena_bez_dph']):.3f} €</td>
+                    <td style="text-align:right;">{p.get('dph_percento') or 20}%</td>
+                    <td style="text-align:right; font-weight:bold;">{float(p.get('celkom_s_dph') or 0):.2f} €</td>
+                </tr>
+        """
+        
+    html += f"""
+            </tbody>
+        </table>
+        
+        <div class="totals">
+            <p>Suma bez DPH: <strong>{float(hlavicka['suma_bez_dph']):.2f} €</strong></p>
+            <p>Výška DPH: <strong>{float(hlavicka['suma_dph']):.2f} €</strong></p>
+            <div class="grand-total">CELKOM K ÚHRADE: {float(hlavicka['suma_s_dph']):.2f} €</div>
+        </div>
+        
+        <div class="signatures">
+            <div>Vystavil (Podpis a pečiatka):<br><br>...........................................................</div>
+            <div>Tovar prevzal (Podpis):<br><br>...........................................................</div>
+        </div>
+    </body>
+    </html>
+    """
+    return make_response(html)
