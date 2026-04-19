@@ -59,7 +59,7 @@ import nakup_handler
 import time
 import expedition_board_handler
 import terminal_handler 
-
+from billing_handler import billing_bp
 os.environ['TZ'] = 'Europe/Bratislava'
 if hasattr(time, 'tzset'):
     time.tzset()
@@ -163,6 +163,7 @@ except Exception as e:
 erp_bp = Blueprint("erp_bp", __name__)
 app.register_blueprint(pricelist_bp)
 app.register_blueprint(terminal_handler.terminal_bp)
+app.register_blueprint(billing_bp)
 # =================================================================
 # === DEKORÁTORY A POMOCNÉ FUNKCIE ===
 # =================================================================

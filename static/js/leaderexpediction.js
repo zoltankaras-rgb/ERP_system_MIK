@@ -3442,7 +3442,7 @@ window.printExpeditionBreakdown = function() {
       $('#btn-save-customer-note').disabled = false;
   }
   
-  function boot(){
+ function boot(){
     $$('.sidebar-link').forEach(a=>{
       a.onclick = ()=>{
         if (a.getAttribute('onclick')) return; 
@@ -3463,6 +3463,15 @@ window.printExpeditionBreakdown = function() {
         if (secId === 'leader-plan')       loadLeaderProductionCalendar();
         if (secId === 'leader-logistics')  root.loadLogistics();
         if (secId === 'leader-tv-board')   loadTvBoardSettings();
+        
+        // TUTO JE PRIDANÁ NAŠA FAKTURÁCIA
+        if (secId === 'section-billing') {
+            if (typeof window.initializeLeaderBillingModule === 'function') {
+                window.initializeLeaderBillingModule();
+            } else {
+                showStatus('Fakturačný modul sa nenačítal. Skúste obnoviť stránku.', true);
+            }
+        }
       };
     });
 
