@@ -1,8 +1,8 @@
 ;(function (window, document) {
     'use strict';
 
-    // --- PRIDAJ TÚTO FUNKCIU ---
-    window.escapeHtml = window.escapeHtml || function(text) {
+    // 1. OPRAVA: BEZPEČNOSTNÁ FUNKCIA (Zabráni chybe escapeHtml is not a function)
+    window.escapeHtml = function(text) {
         if (text === null || text === undefined) return "";
         return text.toString()
             .replace(/&/g, "&amp;")
@@ -11,7 +11,7 @@
             .replace(/"/g, "&quot;")
             .replace(/'/g, "&#039;");
     };
-  
+
     async function apiRequest(url, method = "GET", body = null) {
       const opts = { method, headers: { "Content-Type": "application/json" } };
       if (body) opts.body = JSON.stringify(body);
@@ -60,7 +60,6 @@
             }
 
             data.trasy.forEach(trasaObj => {
-                // Vytvoríme blok pre každú trasu
                 const trasaDiv = document.createElement('div');
                 trasaDiv.style.marginBottom = "2rem";
                 trasaDiv.innerHTML = `<h3 style="background:#e2e8f0; padding:10px; border-radius:6px; color:#334155;"><i class="fas fa-truck"></i> Trasa: ${window.escapeHtml(trasaObj.trasa)}</h3>`;
@@ -95,7 +94,7 @@
                             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
                                 <div>
                                     <h4 style="margin:0; color:#1e293b;">${window.escapeHtml(cust.nazov_firmy)}</h4>
-                                    <span class="badge" style="background:${cust.typ_fakturacie === 'Zberná' ? '#dbeafe; color:#1e40af' : '#fef3c7; color:#b45309'};">${cust.typ_fakturacie} fakturácia</span>
+                                    <span class="badge" style="background:${cust.typ_fakturacie === 'Zberná' ? '#dbeafe; color:#1e40af' : '#fef3c7; color:#b45309'};">${window.escapeHtml(cust.typ_fakturacie)} fakturácia</span>
                                 </div>
                                 <button class="btn btn-success btn-sm js-create-fa" data-zid="${cust.zakaznik_id}">
                                     <i class="fa-solid fa-file-invoice"></i> Vyfakturovať označené
@@ -130,7 +129,6 @@
                                 itemsRow.style.display = 'table-row';
                                 icon.classList.replace('fa-chevron-down', 'fa-chevron-up');
                                 
-                                // Načítať položky zo servera, ak ešte neboli načítané
                                 if (itemsRow.innerHTML.includes('fa-spinner')) {
                                     try {
                                         const res = await apiRequest(`/api/billing/order_items/${orderId}`);
@@ -140,7 +138,7 @@
                                         res.items.forEach(it => {
                                             itemsHtml += `<tr>
                                                 <td>${window.escapeHtml(it.name)}</td>
-                                                <td><small class="muted">${it.ean}</small></td>
+                                                <td><small class="text-muted">${it.ean}</small></td>
                                                 <td><input type="number" class="form-control form-control-sm edit-qty" data-item-id="${it.id}" value="${it.qty}" step="0.01" style="width:80px;"></td>
                                                 <td>${it.mj}</td>
                                                 <td><input type="number" class="form-control form-control-sm edit-price" data-item-id="${it.id}" value="${it.price}" step="0.01" style="width:80px;"></td>
@@ -148,53 +146,50 @@
                                         });
                                         itemsHtml += `</table>
                                         <div style="text-align:right; padding:5px;">
-                                            <button class="btn btn-sm btn-primary save-edits-btn" data-order-id="${orderId}">Uložiť zmeny položiek</button>
+                                            <button class="btn btn-sm btn-primary save-edits-btn" data-order-id="${orderId}">
+                                                <i class="fa-solid fa-save"></i> Uložiť zmeny položiek
+                                            </button>
                                         </div>`;
                                         itemsRow.querySelector('td').innerHTML = itemsHtml;
-                                        // --- NOVÝ KÓD: Aktivácia tlačidla Uložiť zmeny ---
-const saveBtn = itemsRow.querySelector('.save-edits-btn');
-if (saveBtn) {
-    saveBtn.addEventListener('click', async function() {
-        const btn = this;
-        const inputsQty = itemsRow.querySelectorAll('.edit-qty');
-        const inputsPrice = itemsRow.querySelectorAll('.edit-price');
-        
-        const itemsToUpdate = [];
-        // Zozbierame upravené dáta zo všetkých inputov pre túto objednávku
-        for (let i = 0; i < inputsQty.length; i++) {
-            itemsToUpdate.push({
-                id: inputsQty[i].getAttribute('data-item-id'),
-                mnozstvo: parseFloat(inputsQty[i].value),
-                cena_bez_dph: parseFloat(inputsPrice[i].value)
-            });
-        }
-        
-        try {
-            // Vizuálna odozva - načítavanie
-            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Ukladám...';
-            btn.disabled = true;
 
-            // Voláme náš nový backend endpoint z predchádzajúceho kroku
-            await apiRequest('/api/billing/update_order_items', 'POST', { items: itemsToUpdate });
-            
-            // Vizuálna odozva - úspech
-            btn.classList.replace('btn-primary', 'btn-success');
-            btn.innerHTML = '<i class="fa-solid fa-check"></i> Uložené';
-            
-            setTimeout(() => {
-                btn.classList.replace('btn-success', 'btn-primary');
-                btn.innerHTML = 'Uložiť zmeny položiek';
-                btn.disabled = false;
-            }, 3000);
-            
-        } catch (e) {
-            alert('Chyba pri ukladaní: ' + e.message);
-            btn.innerHTML = 'Uložiť zmeny položiek';
-            btn.disabled = false;
-        }
-    });
-}
-// --- KONIEC NOVÉHO KÓDU ---
+                                        // 2. OPRAVA: PRIDANIE AKCIE NA TLAČIDLO ULOŽIŤ
+                                        const saveBtn = itemsRow.querySelector('.save-edits-btn');
+                                        saveBtn.addEventListener('click', async function() {
+                                            const btn = this;
+                                            const inputsQty = itemsRow.querySelectorAll('.edit-qty');
+                                            const inputsPrice = itemsRow.querySelectorAll('.edit-price');
+                                            
+                                            const itemsToUpdate = [];
+                                            for (let i = 0; i < inputsQty.length; i++) {
+                                                itemsToUpdate.push({
+                                                    id: inputsQty[i].getAttribute('data-item-id'),
+                                                    mnozstvo: parseFloat(inputsQty[i].value),
+                                                    cena_bez_dph: parseFloat(inputsPrice[i].value)
+                                                });
+                                            }
+                                            
+                                            try {
+                                                btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Ukladám...';
+                                                btn.disabled = true;
+
+                                                await apiRequest('/api/billing/update_order_items', 'POST', { items: itemsToUpdate });
+                                                
+                                                btn.classList.replace('btn-primary', 'btn-success');
+                                                btn.innerHTML = '<i class="fa-solid fa-check"></i> Uložené';
+                                                
+                                                setTimeout(() => {
+                                                    btn.classList.replace('btn-success', 'btn-primary');
+                                                    btn.innerHTML = '<i class="fa-solid fa-save"></i> Uložiť zmeny položiek';
+                                                    btn.disabled = false;
+                                                }, 2000);
+                                                
+                                            } catch (e) {
+                                                alert('Chyba pri ukladaní: ' + e.message);
+                                                btn.innerHTML = '<i class="fa-solid fa-save"></i> Uložiť zmeny položiek';
+                                                btn.disabled = false;
+                                            }
+                                        });
+                                        
                                     } catch (e) {
                                         itemsRow.querySelector('td').innerHTML = `<span style="color:red;">Chyba: ${e.message}</span>`;
                                     }
@@ -206,7 +201,6 @@ if (saveBtn) {
                         };
                     });
 
-                    // (Zvyšok logiky pre Select All a Vyfakturovanie ostáva ako predtým)
                     const selectAllBtn = card.querySelector('.js-select-all');
                     const checkboxes = card.querySelectorAll('.dl-checkbox');
                     selectAllBtn.addEventListener('change', (e) => {
@@ -229,57 +223,4 @@ if (saveBtn) {
       mount(shell);
       renderReadyForInvoice(shell);
     };
-  })(window, document);
-
-  // Funkcia očakáva, že inputy majú špecifické triedy a dáta-atribúty
-async function saveOrderItems(orderId) {
-    // Nájdeme všetky riadky (prvky) položiek, ktoré patria k danej objednávke
-    // Predpokladám HTML štruktúru: <tr class="item-row" data-item-id="123" data-order-id="456">...
-    const rowElements = document.querySelectorAll(`.item-row[data-order-id="${orderId}"]`);
-    const itemsToUpdate = [];
-
-    rowElements.forEach(row => {
-        const itemId = row.dataset.itemId;
-        const newQuantity = row.querySelector('.qty-input').value;
-        const newPrice = row.querySelector('.price-input').value;
-
-        // Validácia, či sú zadané čísla
-        if (newQuantity && newPrice) {
-            itemsToUpdate.push({
-                id: itemId,
-                mnozstvo: parseFloat(newQuantity),
-                cena_bez_dph: parseFloat(newPrice)
-            });
-        }
-    });
-
-    if (itemsToUpdate.length === 0) {
-        alert("Žiadne položky na uloženie.");
-        return;
-    }
-
-    try {
-        const response = await fetch('/api/billing/update_order_items', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ items: itemsToUpdate })
-        });
-
-        const result = await response.json();
-        
-        if (result.status === 'success') {
-            // Vizuálna spätná väzba pre lídra (napr. Toast notifikácia alebo zmena farby ikony)
-            alert('Váhy a ceny boli úspešne aktualizované.');
-            
-            // Voliteľné: Tu by mohlo byť povolenie (enable) tlačidla "Vyfakturovať", 
-            // aby líder nemohol fakturovať neuložené zmeny.
-        } else {
-            alert('Chyba pri ukladaní: ' + result.message);
-        }
-    } catch (error) {
-        console.error('Chyba pri komunikácii so serverom:', error);
-        alert('Nepodarilo sa spojiť so serverom. Skúste to znova.');
-    }
-}
+})(window, document);
