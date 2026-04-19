@@ -1,5 +1,16 @@
 ;(function (window, document) {
     'use strict';
+
+    // --- PRIDAJ TÚTO FUNKCIU ---
+    window.escapeHtml = window.escapeHtml || function(text) {
+        if (text === null || text === undefined) return "";
+        return text.toString()
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
+    };
   
     async function apiRequest(url, method = "GET", body = null) {
       const opts = { method, headers: { "Content-Type": "application/json" } };
