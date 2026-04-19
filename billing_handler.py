@@ -86,7 +86,6 @@ def get_ready_for_invoice():
 @billing_bp.get("/api/billing/order_items/<int:order_id>")
 def get_order_items_for_billing(order_id):
     try:
-        # Dynamicky zistíme, aké stĺpce v skutočnosti máš
         cols_db = db_connector.execute_query("SHOW COLUMNS FROM b2b_objednavky_polozky", fetch="all")
         cols = [c['Field'] for c in cols_db]
         
@@ -126,7 +125,6 @@ def update_order_items():
             upd_parts = ["mnozstvo = %s", "cena_bez_dph = %s"]
             params = [item['mnozstvo'], item['cena_bez_dph']]
             
-            # Ak máš stĺpce aj pre skutočnú váhu/cenu, updatneme aj tie, nech je poriadok
             if 'dodane_mnozstvo' in cols:
                 upd_parts.append("dodane_mnozstvo = %s")
                 params.append(item['mnozstvo'])
@@ -173,7 +171,8 @@ def issue_documents():
 
     conn = db_connector.get_connection()
     try:
-        cur = conn.cursor()
+        # OPRAVA: Pridané dictionary=True
+        cur = conn.cursor(dictionary=True)
         fa_id = None
         
         # 1. FA hlavička (ak treba)
@@ -301,7 +300,8 @@ def create_collective_invoice():
 
     conn = db_connector.get_connection()
     try:
-        cur = conn.cursor()
+        # OPRAVA: Pridané dictionary=True
+        cur = conn.cursor(dictionary=True)
         cur.execute("""
             INSERT INTO doklady_hlavicka (typ_dokladu, cislo_dokladu, zakaznik_id, odberatel_nazov, odberatel_ico, odberatel_dic, odberatel_ic_dph, odberatel_adresa, datum_vystavenia, datum_dodania, datum_splatnosti, suma_bez_dph, suma_dph, suma_s_dph, variabilny_symbol)
             VALUES ('FA', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
