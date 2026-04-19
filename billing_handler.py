@@ -160,22 +160,20 @@ def create_collective_invoice():
 
 @billing_bp.get("/api/billing/ready_for_invoice")
 def get_ready_for_invoice():
-    """
-    Vráti všetky 'Hotové' objednávky z terminálu, ktoré ešte nemajú faktúru.
-    Používame LEFT JOIN, aby sme videli objednávky aj v prípade chybného spárovania zákazníka.
-    """
     sql = """
         SELECT 
             o.id as obj_id, o.cislo_objednavky, o.datum_vytvorenia, o.pozadovany_datum_dodania,
             o.finalna_suma_s_dph, o.celkova_suma_s_dph,
             o.zakaznik_id as obj_zakaznik_id,
-            COALESCE(z.nazov_firmy, CONCAT('Nespárovaný zákazník (ID z objednávky: ', COALESCE(o.zakaznik_id, 'NULL'), ')')) as nazov_firmy, 
+            COALESCE(z.nazov_firmy, CONCAT('Nespárovaný zákazník (ID: ', COALESCE(o.zakaznik_id, 'NULL'), ')')) as nazov_firmy, 
             COALESCE(z.typ_fakturacie, 'Jednotlivo') as typ_fakturacie,
             COALESCE(t.nazov, 'Bez priradenej trasy') as trasa_nazov
         FROM b2b_objednavky o
         LEFT JOIN b2b_zakaznici z ON o.zakaznik_id = z.zakaznik_id
         LEFT JOIN logistika_trasy t ON z.trasa_id = t.id
-        WHERE o.stav = 'Hotová' AND o.faktura_id IS NULL
+        -- EXTRÉMNE ZMÄKČENÁ PODMIENKA:
+        WHERE TRIM(o.stav) LIKE 'Hotov%' 
+          AND (o.faktura_id IS NULL OR o.faktura_id = 0 OR o.faktura_id = '')
         ORDER BY t.nazov, nazov_firmy, o.pozadovany_datum_dodania
     """
     rows = db_connector.execute_query(sql, fetch="all") or []
