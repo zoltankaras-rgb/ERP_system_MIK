@@ -140,7 +140,50 @@
                                             <button class="btn btn-sm btn-primary save-edits-btn" data-order-id="${orderId}">Uložiť zmeny položiek</button>
                                         </div>`;
                                         itemsRow.querySelector('td').innerHTML = itemsHtml;
-                                        
+                                        // --- NOVÝ KÓD: Aktivácia tlačidla Uložiť zmeny ---
+const saveBtn = itemsRow.querySelector('.save-edits-btn');
+if (saveBtn) {
+    saveBtn.addEventListener('click', async function() {
+        const btn = this;
+        const inputsQty = itemsRow.querySelectorAll('.edit-qty');
+        const inputsPrice = itemsRow.querySelectorAll('.edit-price');
+        
+        const itemsToUpdate = [];
+        // Zozbierame upravené dáta zo všetkých inputov pre túto objednávku
+        for (let i = 0; i < inputsQty.length; i++) {
+            itemsToUpdate.push({
+                id: inputsQty[i].getAttribute('data-item-id'),
+                mnozstvo: parseFloat(inputsQty[i].value),
+                cena_bez_dph: parseFloat(inputsPrice[i].value)
+            });
+        }
+        
+        try {
+            // Vizuálna odozva - načítavanie
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Ukladám...';
+            btn.disabled = true;
+
+            // Voláme náš nový backend endpoint z predchádzajúceho kroku
+            await apiRequest('/api/billing/update_order_items', 'POST', { items: itemsToUpdate });
+            
+            // Vizuálna odozva - úspech
+            btn.classList.replace('btn-primary', 'btn-success');
+            btn.innerHTML = '<i class="fa-solid fa-check"></i> Uložené';
+            
+            setTimeout(() => {
+                btn.classList.replace('btn-success', 'btn-primary');
+                btn.innerHTML = 'Uložiť zmeny položiek';
+                btn.disabled = false;
+            }, 3000);
+            
+        } catch (e) {
+            alert('Chyba pri ukladaní: ' + e.message);
+            btn.innerHTML = 'Uložiť zmeny položiek';
+            btn.disabled = false;
+        }
+    });
+}
+// --- KONIEC NOVÉHO KÓDU ---
                                     } catch (e) {
                                         itemsRow.querySelector('td').innerHTML = `<span style="color:red;">Chyba: ${e.message}</span>`;
                                     }
@@ -176,7 +219,7 @@
       renderReadyForInvoice(shell);
     };
   })(window, document);
-  
+
   // Funkcia očakáva, že inputy majú špecifické triedy a dáta-atribúty
 async function saveOrderItems(orderId) {
     // Nájdeme všetky riadky (prvky) položiek, ktoré patria k danej objednávke

@@ -162,26 +162,28 @@ def create_collective_invoice():
 def get_ready_for_invoice():
     """
     Vráti všetky 'Hotové' objednávky z terminálu, ktoré ešte nemajú faktúru.
-    Zoskupené podľa Trasy a následne podľa Zákazníkov.
+    Používame LEFT JOIN, aby sme videli objednávky aj v prípade chybného spárovania zákazníka.
     """
     sql = """
         SELECT 
             o.id as obj_id, o.cislo_objednavky, o.datum_vytvorenia, o.pozadovany_datum_dodania,
             o.finalna_suma_s_dph, o.celkova_suma_s_dph,
-            z.zakaznik_id, z.nazov_firmy, z.typ_fakturacie,
+            o.zakaznik_id as obj_zakaznik_id,
+            COALESCE(z.nazov_firmy, CONCAT('Nespárovaný zákazník (ID z objednávky: ', COALESCE(o.zakaznik_id, 'NULL'), ')')) as nazov_firmy, 
+            COALESCE(z.typ_fakturacie, 'Jednotlivo') as typ_fakturacie,
             COALESCE(t.nazov, 'Bez priradenej trasy') as trasa_nazov
         FROM b2b_objednavky o
-        JOIN b2b_zakaznici z ON o.zakaznik_id = z.zakaznik_id
+        LEFT JOIN b2b_zakaznici z ON o.zakaznik_id = z.zakaznik_id
         LEFT JOIN logistika_trasy t ON z.trasa_id = t.id
         WHERE o.stav = 'Hotová' AND o.faktura_id IS NULL
-        ORDER BY t.nazov, z.nazov_firmy, o.pozadovany_datum_dodania
+        ORDER BY t.nazov, nazov_firmy, o.pozadovany_datum_dodania
     """
     rows = db_connector.execute_query(sql, fetch="all") or []
     
     trasy_map = {}
     for r in rows:
         trasa = r['trasa_nazov']
-        zid = r['zakaznik_id']
+        zid = r['obj_zakaznik_id'] or 'neznamy'
         
         if trasa not in trasy_map:
             trasy_map[trasa] = {}
