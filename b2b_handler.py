@@ -294,7 +294,7 @@ def process_b2b_login(data: dict):
 
     cols_in_db = _existing_columns("b2b_zakaznici")
 
-    select_parts = ["id", "zakaznik_id", "nazov_firmy", "email", "adresa"] # Pridaná adresa
+    select_parts = ["id", "zakaznik_id", "nazov_firmy", "email", "adresa", "ico", "dic", "ic_dph", "iban", "splatnost_dni"]
     if "je_schvaleny" in cols_in_db:
         select_parts.append("je_schvaleny")
     else:
@@ -357,8 +357,13 @@ def process_b2b_login(data: dict):
         "nazov_firmy": user["nazov_firmy"],
         "email": user["email"],
         "adresa": user.get("adresa", ""),
+        "ico": user.get("ico", ""),
+        "dic": user.get("dic", ""),
+        "ic_dph": user.get("ic_dph", ""),
+        "iban": user.get("iban", ""),
+        "splatnost_dni": user.get("splatnost_dni", 14),
         "role": "admin" if str(user.get("je_admin")) not in ("0", "False", "false") else "zakaznik",
-        "sub_accounts": sub_accounts # Posielame na frontend
+        "sub_accounts": sub_accounts 
     }
     
     # Ak nemá sub-účty, pošleme cenníky pre neho. 
@@ -2650,3 +2655,33 @@ def terminal_focus_start(cislo_objednavky: str):
 def terminal_focus_exit():
     """Zavolá terminál pri zavretí bez dokončenia."""
     db_connector.execute_query("UPDATE b2b_objednavky SET aktualne_na_vahe = 0 WHERE aktualne_na_vahe = 1", fetch="none")
+
+def update_b2b_profile(data: dict):
+    """
+    Umožní B2B zákazníkovi upraviť si svoje fakturačné údaje.
+    Volá sa z b2b_app.js (profil zákazníka).
+    """
+    user_id = data.get("id")
+    if not user_id:
+        return {"error": "Chýba identifikácia zákazníka."}
+
+    # Vyťahujeme očistené dáta, ak neprídu, nastavíme na None
+    ico = data.get("ico", "").strip() or None
+    dic = data.get("dic", "").strip() or None
+    ic_dph = data.get("ic_dph", "").strip() or None
+    iban = data.get("iban", "").strip() or None
+    adresa = data.get("adresa", "").strip() or None
+    email = data.get("email", "").strip() or None
+
+    try:
+        # Uložíme zmeny do databázy
+        db_connector.execute_query("""
+            UPDATE b2b_zakaznici 
+            SET ico = %s, dic = %s, ic_dph = %s, iban = %s, adresa = %s, email = %s
+            WHERE id = %s
+        """, (ico, dic, ic_dph, iban, adresa, email, user_id), fetch="none")
+        
+        return {"message": "Fakturačné údaje boli úspešne aktualizované."}
+    except Exception as e:
+        print(f"Chyba pri aktualizácii B2B profilu: {e}")
+        return {"error": "Nepodarilo sa uložiť fakturačné údaje."}

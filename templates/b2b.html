@@ -29,8 +29,8 @@
     h3 { color:var(--primary-color); border-bottom:2px solid var(--border-color); padding-bottom:10px; margin-top:30px; }
     
     /* NAVIGÁCIA */
-    .tab-nav { display:flex; border-bottom:2px solid var(--border-color); margin-bottom:25px; gap:6px; }
-    .tab-button { flex:1; padding:15px; cursor:pointer; border:none; background:transparent; font-size:1rem; font-weight:600; color:#6b7280; border-bottom:3px solid transparent; transition:.2s; }
+    .tab-nav { display:flex; border-bottom:2px solid var(--border-color); margin-bottom:25px; gap:6px; flex-wrap:wrap; }
+    .tab-button { flex:1; padding:15px; cursor:pointer; border:none; background:transparent; font-size:1rem; font-weight:600; color:#6b7280; border-bottom:3px solid transparent; transition:.2s; min-width: 150px;}
     .tab-button.active { color:var(--primary-color); border-bottom-color:var(--primary-color); }
     
     /* FORMULÁRE */
@@ -364,9 +364,61 @@
         <button id="tab-btn-order" class="tab-button active" onclick="showPortalView('view-new-order')">Nová objednávka</button>
         <button id="tab-btn-history" class="tab-button" onclick="showPortalView('view-order-history')">História objednávok</button>
         <button id="tab-btn-comm" class="tab-button" onclick="showPortalView('view-communication')">Komunikácia</button>
+        <button id="tab-btn-profile" class="tab-button" onclick="showPortalView('view-profile')">Fakturačné údaje</button>
       </div>
 
       <div id="portal-views-container">
+        
+        <div id="view-profile" class="hidden">
+          <h3>Moje fakturačné údaje</h3>
+          <p style="color:#64748b; font-size:0.9rem; margin-bottom: 20px;">Prosím, skontrolujte si a doplňte svoje fakturačné údaje. Tieto údaje budú použité pri generovaní daňových dokladov.</p>
+          
+          <form id="profileForm">
+            <div class="form-group">
+                <label for="prof-name">Názov firmy / Meno</label>
+                <input type="text" id="prof-name" name="nazov_firmy" disabled style="background:#f1f5f9; cursor:not-allowed;" />
+                <small style="color:#64748b;">Názov firmy nie je možné zmeniť. V prípade zmeny kontaktujte expedíciu.</small>
+            </div>
+            
+            <div style="display:flex; gap:15px; flex-wrap:wrap;">
+                <div class="form-group" style="flex:1; min-width:150px;">
+                    <label for="prof-ico">IČO</label>
+                    <input type="text" id="prof-ico" name="ico" placeholder="Napr. 12345678" />
+                </div>
+                <div class="form-group" style="flex:1; min-width:150px;">
+                    <label for="prof-dic">DIČ</label>
+                    <input type="text" id="prof-dic" name="dic" placeholder="Napr. 2021234567" />
+                </div>
+                <div class="form-group" style="flex:1; min-width:150px;">
+                    <label for="prof-icdph">IČ DPH</label>
+                    <input type="text" id="prof-icdph" name="ic_dph" placeholder="Napr. SK2021234567" />
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="prof-iban">Bankové spojenie (IBAN)</label>
+                <input type="text" id="prof-iban" name="iban" placeholder="SK00 0000 0000 0000 0000 0000" />
+            </div>
+
+            <div class="form-group">
+                <label for="prof-addr">Fakturačná adresa</label>
+                <textarea id="prof-addr" name="adresa" rows="2"></textarea>
+            </div>
+
+            <div style="display:flex; gap:15px; flex-wrap:wrap;">
+                <div class="form-group" style="flex:1; min-width:200px;">
+                    <label for="prof-email">Kontaktný E-mail</label>
+                    <input type="email" id="prof-email" name="email" />
+                </div>
+                <div class="form-group" style="flex:1; min-width:100px;">
+                    <label>Splatnosť (dni)</label>
+                    <input type="text" id="prof-splatnost" disabled style="background:#f1f5f9; cursor:not-allowed;" />
+                </div>
+            </div>
+
+            <button type="submit" class="button" style="width:100%; margin-top:10px;">💾 Uložiť fakturačné údaje</button>
+          </form>
+        </div>
         <div id="view-new-order">
           <h3>Krok 1: Zvoľte cenník</h3>
           <div class="form-group">
@@ -388,9 +440,9 @@
                   </small>
               </div>
               <div class="form-group" style="margin-bottom: 15px;">
-    <label for="cc-emails" style="font-weight: bold; display: block; margin-bottom: 5px;">Kópia potvrdenia objednávky (e-maily oddelené čiarkou):</label>
-    <input type="text" id="cc-emails" class="filter-input" placeholder="napr. uctovnicka@firma.sk, kuchar@firma.sk" style="width: 100%;">
-</div>
+                <label for="cc-emails" style="font-weight: bold; display: block; margin-bottom: 5px;">Kópia potvrdenia objednávky (e-maily oddelené čiarkou):</label>
+                <input type="text" id="cc-emails" class="filter-input" placeholder="napr. uctovnicka@firma.sk, kuchar@firma.sk" style="width: 100%; padding:12px; border:1px solid var(--border-color); border-radius:6px;">
+              </div>
               <div class="form-group"><label for="order-note">Poznámka k objednávke:</label><textarea id="order-note" rows="3"></textarea></div>
               <div id="order-summary" class="order-summary"></div>
               <div class="btn-row">
@@ -434,7 +486,7 @@
 
   <div id="modal-container"></div>
 
-  <script src="{{ url_for('static', filename='js/b2b_app.js', v=9) }}"></script>
+  <script src="{{ url_for('static', filename='js/b2b_app.js', v=10) }}"></script>
   
   <div id="product-info-modal" class="modal-overlay">
     <div class="modal-content">

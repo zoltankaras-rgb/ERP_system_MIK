@@ -1067,7 +1067,60 @@ function setMinDeliveryDate() {
       <p>V prípade problémov s portálom alebo objednávkami kontaktujte prosím expedíciu na uvedenom telefónnom čísle alebo e-maile.</p>
     `;
   }
+// =========================
+  // FAKTURAČNÉ ÚDAJE (PROFIL)
+  // =========================
+  function loadProfileData() {
+      // appState.currentUser obsahuje všetky dáta, ktoré si pridal v b2b_handler.py (ico, dic, atď.)
+      const u = appState.currentUser;
+      if (!u) return;
 
+      const f = document.getElementById('profileForm');
+      if (!f) return;
+
+      f.elements['nazov_firmy'].value = u.nazov_firmy || '';
+      f.elements['ico'].value = u.ico || '';
+      f.elements['dic'].value = u.dic || '';
+      f.elements['ic_dph'].value = u.ic_dph || '';
+      f.elements['iban'].value = u.iban || '';
+      f.elements['adresa'].value = u.adresa || '';
+      f.elements['email'].value = u.email || '';
+      
+      const s = document.getElementById('prof-splatnost');
+      if (s) s.value = (u.splatnost_dni || 14) + ' dní';
+  }
+
+  const profileForm = document.getElementById('profileForm');
+  if (profileForm) {
+      profileForm.addEventListener('submit', async (e) => {
+          e.preventDefault();
+          if (!appState.currentUser) return;
+
+          const data = {
+              id: appState.currentUser.id, // Potrebujeme vedieť, komu to ukladáme
+              ico: profileForm.elements['ico'].value.trim(),
+              dic: profileForm.elements['dic'].value.trim(),
+              ic_dph: profileForm.elements['ic_dph'].value.trim(),
+              iban: profileForm.elements['iban'].value.trim(),
+              adresa: profileForm.elements['adresa'].value.trim(),
+              email: profileForm.elements['email'].value.trim()
+          };
+
+          const out = await apiCall('/api/b2b/update-profile', data);
+          if (out) {
+              showNotification('Fakturačné údaje boli úspešne uložené.', 'success');
+              
+              // Zaktualizujeme lokálnu kópiu
+              appState.currentUser.ico = data.ico;
+              appState.currentUser.dic = data.dic;
+              appState.currentUser.ic_dph = data.ic_dph;
+              appState.currentUser.iban = data.iban;
+              appState.currentUser.adresa = data.adresa;
+              appState.currentUser.email = data.email;
+              sessionStorage.setItem('b2bUser', JSON.stringify(appState.currentUser));
+          }
+      });
+  }
   // =========================
   // Prepínač view v portáli
   // =========================
@@ -1089,6 +1142,10 @@ function setMinDeliveryDate() {
       document.getElementById('tab-btn-help')?.classList.add('active');
       ensureHelpView();
       loadHelpSection();
+    }
+    if (viewId === 'view-profile') {
+      document.getElementById('tab-btn-profile')?.classList.add('active');
+      loadProfileData();
     }
   };
 
