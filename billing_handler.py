@@ -1,6 +1,7 @@
 from flask import Blueprint, request, jsonify
 from datetime import datetime, timedelta
 import db_connector
+import traceback
 
 billing_bp = Blueprint("billing", __name__)
 
@@ -35,6 +36,7 @@ def generate_doc_number(typ_dokladu):
     else:
         nove_cislo = 1
     return f"{prefix}{nove_cislo:04d}"
+
 
 # --- 1. ZÍSKANIE NÁVRHOV (ČAKAJÚCE NA DL) ---
 @billing_bp.get("/api/billing/ready_for_invoice")
@@ -80,49 +82,72 @@ def get_ready_for_invoice():
     return jsonify({"trasy": vystup})
 
 
-# --- 2. ZÍSKANIE NEVYFAKTUROVANÝCH DL (FÁZA 2) ---
-@billing_bp.get("/api/billing/uninvoiced_dls")
-def get_uninvoiced_dls():
-    sql = """
-        SELECT o.id as obj_id, o.cislo_objednavky, o.zakaznik_id, o.nazov_firmy,
-               COALESCE(o.finalna_suma, o.celkova_suma_s_dph, 0) as suma,
-               dh.id as dl_id, dh.cislo_dokladu, dh.datum_vystavenia,
-               COALESCE(t.nazov, 'Nepriradená trasa') as trasa
-        FROM b2b_objednavky o
-        JOIN doklady_hlavicka dh ON o.dodaci_list_id = dh.id
-        LEFT JOIN b2b_zakaznici z ON CAST(o.zakaznik_id AS CHAR) = CAST(z.zakaznik_id AS CHAR)
-        LEFT JOIN logistika_trasy t ON z.trasa_id = t.id
-        WHERE o.dodaci_list_id IS NOT NULL AND (o.faktura_id IS NULL OR o.faktura_id = 0)
-    """
-    rows = db_connector.execute_query(sql, fetch="all") or []
-    z_map = {}
-    for r in rows:
-        zid = str(r['zakaznik_id'])
-        if zid not in z_map:
-            z_map[zid] = {
-                "zakaznik_id": zid,
-                "nazov_firmy": r['nazov_firmy'],
-                "trasa": r['trasa'],
-                "dodacie_listy": {}
-            }
-        dl_id = r['dl_id']
-        if dl_id not in z_map[zid]["dodacie_listy"]:
-            z_map[zid]["dodacie_listy"][dl_id] = {
-                "dl_id": dl_id, "cislo_dl": r['cislo_dokladu'], "datum": r['datum_vystavenia'], "suma": 0, "obj_ids": []
-            }
-        z_map[zid]["dodacie_listy"][dl_id]["suma"] += float(r['suma'])
-        z_map[zid]["dodacie_listy"][dl_id]["obj_ids"].append(r['obj_id'])
+# --- NAČÍTANIE POLOŽIEK PRE ŠÍPKU (BEZPEČNÉ!) ---
+@billing_bp.get("/api/billing/order_items/<int:order_id>")
+def get_order_items_for_billing(order_id):
+    try:
+        # Dynamicky zistíme, aké stĺpce v skutočnosti máš
+        cols_db = db_connector.execute_query("SHOW COLUMNS FROM b2b_objednavky_polozky", fetch="all")
+        cols = [c['Field'] for c in cols_db]
+        
+        qty_col = 'dodane_mnozstvo' if 'dodane_mnozstvo' in cols else 'mnozstvo'
+        price_col = 'cena_skutocna' if 'cena_skutocna' in cols else 'cena_bez_dph'
+        
+        sql = f"""
+            SELECT id, ean_produktu as ean, nazov_vyrobku as name, 
+                   COALESCE({qty_col}, mnozstvo) as qty, 
+                   mj, 
+                   COALESCE({price_col}, cena_bez_dph, 0) as price
+            FROM b2b_objednavky_polozky
+            WHERE objednavka_id = %s
+        """
+        items = db_connector.execute_query(sql, (order_id,), fetch="all") or []
+        return jsonify({"items": items})
+    except Exception as e:
+        print("CHYBA pri načítaní položiek:", e)
+        return jsonify({"error": str(e)}), 500
 
-    # Preklopíme z dictionary na list pre Frontend
-    for zid in z_map:
-        z_map[zid]["dodacie_listy"] = list(z_map[zid]["dodacie_listy"].values())
-    vystup = list(z_map.values())
-    vystup.sort(key=lambda x: x['nazov_firmy'])
+
+# --- UKLADANIE ZMIEN POLOŽIEK (BEZPEČNÉ!) ---
+@billing_bp.route('/api/billing/update_order_items', methods=['POST'])
+def update_order_items():
+    data = request.json
+    items = data.get('items', [])
+    if not items: return jsonify({"status": "error", "message": "Žiadne dáta"}), 400
     
-    return jsonify({"zakaznici": vystup})
+    try:
+        cols_db = db_connector.execute_query("SHOW COLUMNS FROM b2b_objednavky_polozky", fetch="all")
+        cols = [c['Field'] for c in cols_db]
+        
+        conn = db_connector.get_connection()
+        cursor = conn.cursor()
+        
+        for item in items:
+            upd_parts = ["mnozstvo = %s", "cena_bez_dph = %s"]
+            params = [item['mnozstvo'], item['cena_bez_dph']]
+            
+            # Ak máš stĺpce aj pre skutočnú váhu/cenu, updatneme aj tie, nech je poriadok
+            if 'dodane_mnozstvo' in cols:
+                upd_parts.append("dodane_mnozstvo = %s")
+                params.append(item['mnozstvo'])
+            if 'cena_skutocna' in cols:
+                upd_parts.append("cena_skutocna = %s")
+                params.append(item['cena_bez_dph'])
+                
+            params.append(item['id'])
+            query = f"UPDATE b2b_objednavky_polozky SET {', '.join(upd_parts)} WHERE id = %s"
+            cursor.execute(query, tuple(params))
+            
+        conn.commit()
+        return jsonify({"status": "success"})
+    except Exception as e:
+        if 'conn' in locals() and conn: conn.rollback()
+        return jsonify({"status": "error", "message": str(e)}), 500
+    finally:
+        if 'conn' in locals() and conn: cursor.close(); conn.close()
 
 
-# --- 3. VYSTAVENIE DOKLADOV (FÁZA 1) ---
+# --- VYSTAVENIE DOKLADOV (FÁZA 1: DL/FA) ---
 @billing_bp.post("/api/billing/issue_documents")
 def issue_documents():
     data = request.get_json(force=True) or {}
@@ -135,10 +160,10 @@ def issue_documents():
     orders = db_connector.execute_query(f"SELECT * FROM b2b_objednavky WHERE id IN ({placeholders})", tuple(order_ids), fetch="all")
     if not orders: return jsonify({"error": "Objednávky nenájdené."}), 404
 
-    zakaznik_id = orders[0]['zakaznik_id']
-    zakaznik = db_connector.execute_query("SELECT * FROM b2b_zakaznici WHERE zakaznik_id = %s LIMIT 1", (zakaznik_id,), fetch="one") or {}
+    zakaznik_id = str(orders[0]['zakaznik_id']).strip()
+    zakaznik = db_connector.execute_query("SELECT * FROM b2b_zakaznici WHERE zakaznik_id = %s OR CAST(id AS CHAR) = %s LIMIT 1", (zakaznik_id, zakaznik_id), fetch="one") or {}
 
-    total_bez_dph = sum(float(o.get('finalna_suma_bez_dph') or o.get('celkova_suma_bez_dph') or 0) for o in orders)
+    total_bez_dph = sum(float(o.get('finalna_suma') or o.get('celkova_suma_s_dph') or 0) / 1.2 for o in orders) # Aproximácia, ak chýba exaktná
     total_s_dph = sum(float(o.get('finalna_suma') or o.get('celkova_suma_s_dph') or 0) for o in orders)
     total_dph = total_s_dph - total_bez_dph
     
@@ -148,30 +173,40 @@ def issue_documents():
 
     conn = db_connector.get_connection()
     try:
-        cur = conn.cursor(dictionary=True)
-        
+        cur = conn.cursor()
         fa_id = None
-        # Ak chceme aj FA, vytvoríme ju najprv
+        
+        # 1. FA hlavička (ak treba)
         if create_fa:
             cislo_fa = generate_doc_number('FA')
+            vs = cislo_fa.replace('FA-', '').replace('-', '')
             cur.execute("""
-                INSERT INTO doklady_hlavicka (typ_dokladu, cislo_dokladu, zakaznik_id, odberatel_nazov, odberatel_ico, odberatel_dic, odberatel_ic_dph, odberatel_adresa, datum_vystavenia, datum_dodania, datum_splatnosti, suma_bez_dph, suma_dph, suma_s_dph, variabilny_symbol)
-                VALUES ('FA', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """, (cislo_fa, zakaznik_id, zakaznik.get('nazov_firmy', ''), zakaznik.get('ico'), zakaznik.get('dic'), zakaznik.get('ic_dph'), zakaznik.get('adresa'), datum, datum, datum + timedelta(days=splatnost_dni), total_bez_dph, total_dph, total_s_dph, cislo_fa.replace('FA-', '').replace('-', '')))
+                INSERT INTO doklady_hlavicka 
+                (typ_dokladu, cislo_dokladu, zakaznik_id, odberatel_nazov, odberatel_ico, odberatel_dic, odberatel_ic_dph, 
+                 odberatel_adresa, datum_vystavenia, datum_dodania, datum_splatnosti, suma_bez_dph, suma_dph, suma_s_dph, variabilny_symbol)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """, ('FA', cislo_fa, zakaznik_id, zakaznik.get('nazov_firmy', ''), zakaznik.get('ico'), zakaznik.get('dic'), 
+                  zakaznik.get('ic_dph'), zakaznik.get('adresa'), datum, datum, datum + timedelta(days=splatnost_dni), 
+                  total_bez_dph, total_dph, total_s_dph, vs))
             fa_id = cur.lastrowid
 
-        # Vytvorenie DL
+        # 2. DL hlavička
         cur.execute("""
-            INSERT INTO doklady_hlavicka (typ_dokladu, cislo_dokladu, zakaznik_id, odberatel_nazov, odberatel_ico, odberatel_dic, odberatel_ic_dph, odberatel_adresa, datum_vystavenia, datum_dodania, datum_splatnosti, suma_bez_dph, suma_dph, suma_s_dph, nadradena_faktura_id)
-            VALUES ('DL', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-        """, (cislo_dl, zakaznik_id, zakaznik.get('nazov_firmy', ''), zakaznik.get('ico'), zakaznik.get('dic'), zakaznik.get('ic_dph'), zakaznik.get('adresa'), datum, datum, datum, total_bez_dph, total_dph, total_s_dph, fa_id))
+            INSERT INTO doklady_hlavicka 
+            (typ_dokladu, cislo_dokladu, zakaznik_id, odberatel_nazov, odberatel_ico, odberatel_dic, odberatel_ic_dph, 
+             odberatel_adresa, datum_vystavenia, datum_dodania, datum_splatnosti, suma_bez_dph, suma_dph, suma_s_dph, variabilny_symbol, nadradena_faktura_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """, ('DL', cislo_dl, zakaznik_id, zakaznik.get('nazov_firmy', ''), zakaznik.get('ico'), zakaznik.get('dic'), 
+              zakaznik.get('ic_dph'), zakaznik.get('adresa'), datum, datum, datum, 
+              total_bez_dph, total_dph, total_s_dph, cislo_dl, fa_id))
         dl_id = cur.lastrowid
 
-        # Aktualizácia objednávok
+        # 3. Zviazanie s objednavkou
         cur.execute(f"UPDATE b2b_objednavky SET dodaci_list_id = %s, faktura_id = %s WHERE id IN ({placeholders})", (dl_id, fa_id, *order_ids))
 
-        # Zapísanie položiek a ODPIS ZO SKLADU
+        # 4. Položky a sklad
         typ_pohybu = 'VYDAJ_FAKTURA' if create_fa else 'VYDAJ_DL'
+        now_dt = datetime.now()
         
         for o in orders:
             cur.execute("SELECT * FROM b2b_objednavky_polozky WHERE objednavka_id = %s", (o['id'],))
@@ -180,43 +215,81 @@ def issue_documents():
                 if mnozstvo <= 0: continue
                 cena = float(p.get('cena_skutocna') or p.get('cena_bez_dph') or 0)
                 dph = float(p.get('dph') or 20.0)
+                c_bez = mnozstvo * cena
+                c_s = c_bez * (1 + (dph/100))
                 
-                # Uložíme do dokladov
-                cur.execute("INSERT INTO doklady_polozky (doklad_id, objednavka_id, ean, nazov_polozky, mnozstvo, mj, cena_bez_dph, dph_percento) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
-                            (dl_id, o['id'], p['ean_produktu'], p['nazov_vyrobku'], mnozstvo, p['mj'], cena, dph))
-                if fa_id:
-                    cur.execute("INSERT INTO doklady_polozky (doklad_id, objednavka_id, ean, nazov_polozky, mnozstvo, mj, cena_bez_dph, dph_percento) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
-                                (fa_id, o['id'], p['ean_produktu'], p['nazov_vyrobku'], mnozstvo, p['mj'], cena, dph))
-                
-                # Fyzický odpis zo skladu!
-                cur.execute("INSERT INTO skladove_pohyby (ean, nazov_vyrobku, typ_pohybu, mnozstvo, mj, doklad_id, predajna_cena_bez_dph) VALUES (%s, %s, %s, %s, %s, %s, %s)",
-                            (p['ean_produktu'], p['nazov_vyrobku'], typ_pohybu, -mnozstvo, p['mj'], fa_id or dl_id, cena))
-                cur.execute("UPDATE produkty SET aktualny_sklad_finalny_kg = aktualny_sklad_finalny_kg - %s WHERE ean = %s", (mnozstvo, p['ean_produktu']))
+                try:
+                    cur.execute("INSERT INTO doklady_polozky (doklad_id, objednavka_id, ean, nazov_polozky, mnozstvo, mj, cena_bez_dph, dph_percento, celkom_bez_dph, celkom_s_dph) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)", 
+                                (dl_id, o['id'], p.get('ean_produktu'), p.get('nazov_vyrobku'), mnozstvo, p.get('mj'), cena, dph, c_bez, c_s))
+                    if fa_id:
+                        cur.execute("INSERT INTO doklady_polozky (doklad_id, objednavka_id, ean, nazov_polozky, mnozstvo, mj, cena_bez_dph, dph_percento, celkom_bez_dph, celkom_s_dph) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)", 
+                                    (fa_id, o['id'], p.get('ean_produktu'), p.get('nazov_vyrobku'), mnozstvo, p.get('mj'), cena, dph, c_bez, c_s))
+                except Exception as ex: print("Chyba zapisovania polozky:", ex)
+                    
+                try:
+                    cur.execute("INSERT INTO skladove_pohyby (datum_pohybu, ean, nazov_vyrobku, typ_pohybu, mnozstvo, mj, doklad_id, predajna_cena_bez_dph) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)", 
+                                (now_dt, p.get('ean_produktu'), p.get('nazov_vyrobku'), typ_pohybu, -mnozstvo, p.get('mj'), fa_id or dl_id, cena))
+                    cur.execute("UPDATE produkty SET aktualny_sklad_finalny_kg = aktualny_sklad_finalny_kg - %s WHERE ean = %s", (mnozstvo, p.get('ean_produktu')))
+                except Exception as ex: print("Chyba odpisovania skladu:", ex)
 
         conn.commit()
-        sprava = f"Doklady úspešne vystavené: DL č. {cislo_dl}" + (f" a FA č. {cislo_fa}" if create_fa else "")
-        return jsonify({"message": sprava})
+        return jsonify({"message": f"Doklady úspešne vystavené: DL č. {cislo_dl}" + (f" a FA č. {cislo_fa}" if create_fa else "")})
     except Exception as e:
         if conn: conn.rollback()
-        return jsonify({"error": str(e)}), 500
+        print("KRITICKÁ CHYBA issue_documents:", e)
+        traceback.print_exc()
+        return jsonify({"error": f"Chyba na serveri: {str(e)}"}), 500
     finally:
         if conn: cur.close(); conn.close()
 
 
-# --- 4. ZBERNÁ FAKTÚRA (FÁZA 2) ---
+# --- ZBERNÁ FAKTÚRA Z NEVYFAKTUROVANÝCH DL ---
+@billing_bp.get("/api/billing/uninvoiced_dls")
+def get_uninvoiced_dls():
+    try:
+        sql = """
+            SELECT o.id as obj_id, o.cislo_objednavky, o.zakaznik_id, o.nazov_firmy,
+                   COALESCE(o.finalna_suma, o.celkova_suma_s_dph, 0) as suma,
+                   dh.id as dl_id, dh.cislo_dokladu, dh.datum_vystavenia,
+                   COALESCE(t.nazov, 'Nepriradená trasa') as trasa
+            FROM b2b_objednavky o
+            JOIN doklady_hlavicka dh ON o.dodaci_list_id = dh.id
+            LEFT JOIN b2b_zakaznici z ON CAST(o.zakaznik_id AS CHAR) = CAST(z.zakaznik_id AS CHAR)
+            LEFT JOIN logistika_trasy t ON z.trasa_id = t.id
+            WHERE o.dodaci_list_id IS NOT NULL AND (o.faktura_id IS NULL OR o.faktura_id = 0)
+        """
+        rows = db_connector.execute_query(sql, fetch="all") or []
+        z_map = {}
+        for r in rows:
+            zid = str(r['zakaznik_id'])
+            if zid not in z_map:
+                z_map[zid] = {"zakaznik_id": zid, "nazov_firmy": r['nazov_firmy'], "trasa": r['trasa'], "dodacie_listy": {}}
+            dl_id = r['dl_id']
+            if dl_id not in z_map[zid]["dodacie_listy"]:
+                z_map[zid]["dodacie_listy"][dl_id] = {"dl_id": dl_id, "cislo_dl": r['cislo_dokladu'], "datum": r['datum_vystavenia'], "suma": 0, "obj_ids": []}
+            z_map[zid]["dodacie_listy"][dl_id]["suma"] += float(r['suma'])
+            z_map[zid]["dodacie_listy"][dl_id]["obj_ids"].append(r['obj_id'])
+
+        for zid in z_map: z_map[zid]["dodacie_listy"] = list(z_map[zid]["dodacie_listy"].values())
+        vystup = list(z_map.values())
+        vystup.sort(key=lambda x: x['nazov_firmy'])
+        return jsonify({"zakaznici": vystup})
+    except Exception as e:
+        print("Chyba uninvoiced_dls:", e)
+        return jsonify({"error": str(e)}), 500
+
 @billing_bp.post("/api/billing/create_collective_invoice")
 def create_collective_invoice():
     data = request.get_json(force=True) or {}
     dl_ids = data.get("dl_ids", [])
-    
     if not dl_ids: return jsonify({"error": "Neboli vybrané DL."}), 400
 
     placeholders = ','.join(['%s'] * len(dl_ids))
     dls = db_connector.execute_query(f"SELECT * FROM doklady_hlavicka WHERE id IN ({placeholders}) AND typ_dokladu='DL'", tuple(dl_ids), fetch="all")
     if not dls: return jsonify({"error": "DL nenájdené."}), 404
         
-    zakaznik_id = dls[0]['zakaznik_id']
-    zakaznik = db_connector.execute_query("SELECT * FROM b2b_zakaznici WHERE zakaznik_id = %s LIMIT 1", (zakaznik_id,), fetch="one") or {}
+    zakaznik_id = str(dls[0]['zakaznik_id']).strip()
+    zakaznik = db_connector.execute_query("SELECT * FROM b2b_zakaznici WHERE zakaznik_id = %s OR CAST(id AS CHAR) = %s LIMIT 1", (zakaznik_id, zakaznik_id), fetch="one") or {}
 
     total_bez_dph = sum(float(d['suma_bez_dph']) for d in dls)
     total_s_dph = sum(float(d['suma_s_dph']) for d in dls)
@@ -229,23 +302,20 @@ def create_collective_invoice():
     conn = db_connector.get_connection()
     try:
         cur = conn.cursor()
-        
-        # Vytvoríme Zbernú Faktúru
         cur.execute("""
             INSERT INTO doklady_hlavicka (typ_dokladu, cislo_dokladu, zakaznik_id, odberatel_nazov, odberatel_ico, odberatel_dic, odberatel_ic_dph, odberatel_adresa, datum_vystavenia, datum_dodania, datum_splatnosti, suma_bez_dph, suma_dph, suma_s_dph, variabilny_symbol)
             VALUES ('FA', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """, (cislo_fa, zakaznik_id, zakaznik.get('nazov_firmy', ''), zakaznik.get('ico'), zakaznik.get('dic'), zakaznik.get('ic_dph'), zakaznik.get('adresa'), datum, datum, datum + timedelta(days=splatnost_dni), total_bez_dph, total_dph, total_s_dph, cislo_fa.replace('FA-', '').replace('-', '')))
         fa_id = cur.lastrowid
 
-        # Zviažeme staré DL s touto FA
         cur.execute(f"UPDATE doklady_hlavicka SET nadradena_faktura_id = %s WHERE id IN ({placeholders})", (fa_id, *dl_ids))
         cur.execute(f"UPDATE b2b_objednavky SET faktura_id = %s WHERE dodaci_list_id IN ({placeholders})", (fa_id, *dl_ids))
 
-        # Prepíšeme položky z DL do FA (SKLAD SA UŽ NEODPISUJE!)
+        # Prepíšeme položky bez odpisu skladu
         cur.execute(f"SELECT * FROM doklady_polozky WHERE doklad_id IN ({placeholders})")
         for p in cur.fetchall():
-            cur.execute("INSERT INTO doklady_polozky (doklad_id, objednavka_id, ean, nazov_polozky, mnozstvo, mj, cena_bez_dph, dph_percento) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
-                        (fa_id, p['objednavka_id'], p['ean'], p['nazov_polozky'], p['mnozstvo'], p['mj'], p['cena_bez_dph'], p['dph_percento']))
+            cur.execute("INSERT INTO doklady_polozky (doklad_id, objednavka_id, ean, nazov_polozky, mnozstvo, mj, cena_bez_dph, dph_percento, celkom_bez_dph, celkom_s_dph) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                        (fa_id, p['objednavka_id'], p['ean'], p['nazov_polozky'], p['mnozstvo'], p['mj'], p['cena_bez_dph'], p['dph_percento'], p.get('celkom_bez_dph',0), p.get('celkom_s_dph',0)))
 
         conn.commit()
         return jsonify({"message": f"Zberná faktúra {cislo_fa} bola úspešne vystavená."})
@@ -254,27 +324,3 @@ def create_collective_invoice():
         return jsonify({"error": str(e)}), 500
     finally:
         if conn: cur.close(); conn.close()
-
-# Uloženie položiek
-@billing_bp.route('/api/billing/update_order_items', methods=['POST'])
-def update_order_items():
-    data = request.json
-    items = data.get('items', [])
-    if not items: return jsonify({"status": "error", "message": "Žiadne dáta"}), 400
-    conn = db_connector.get_connection()
-    try:
-        cursor = conn.cursor()
-        update_data = [(item['mnozstvo'], item['cena_bez_dph'], item['id']) for item in items]
-        cursor.executemany("UPDATE b2b_objednavky_polozky SET dodane_mnozstvo = %s, cena_skutocna = %s WHERE id = %s", update_data)
-        conn.commit()
-        return jsonify({"status": "success"})
-    except Exception as e:
-        if conn: conn.rollback()
-        return jsonify({"status": "error", "message": str(e)}), 500
-    finally:
-        if conn: cursor.close(); conn.close()
-
-@billing_bp.get("/api/billing/order_items/<int:order_id>")
-def get_order_items_for_billing(order_id):
-    items = db_connector.execute_query("SELECT id, ean_produktu as ean, nazov_vyrobku as name, COALESCE(dodane_mnozstvo, mnozstvo) as qty, mj, COALESCE(cena_skutocna, cena_bez_dph) as price, dph FROM b2b_objednavky_polozky WHERE objednavka_id = %s", (order_id,), fetch="all") or []
-    return jsonify({"items": items})
