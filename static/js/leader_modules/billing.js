@@ -176,3 +176,55 @@
       renderReadyForInvoice(shell);
     };
   })(window, document);
+  // Funkcia očakáva, že inputy majú špecifické triedy a dáta-atribúty
+async function saveOrderItems(orderId) {
+    // Nájdeme všetky riadky (prvky) položiek, ktoré patria k danej objednávke
+    // Predpokladám HTML štruktúru: <tr class="item-row" data-item-id="123" data-order-id="456">...
+    const rowElements = document.querySelectorAll(`.item-row[data-order-id="${orderId}"]`);
+    const itemsToUpdate = [];
+
+    rowElements.forEach(row => {
+        const itemId = row.dataset.itemId;
+        const newQuantity = row.querySelector('.qty-input').value;
+        const newPrice = row.querySelector('.price-input').value;
+
+        // Validácia, či sú zadané čísla
+        if (newQuantity && newPrice) {
+            itemsToUpdate.push({
+                id: itemId,
+                mnozstvo: parseFloat(newQuantity),
+                cena_bez_dph: parseFloat(newPrice)
+            });
+        }
+    });
+
+    if (itemsToUpdate.length === 0) {
+        alert("Žiadne položky na uloženie.");
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/billing/update_order_items', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ items: itemsToUpdate })
+        });
+
+        const result = await response.json();
+        
+        if (result.status === 'success') {
+            // Vizuálna spätná väzba pre lídra (napr. Toast notifikácia alebo zmena farby ikony)
+            alert('Váhy a ceny boli úspešne aktualizované.');
+            
+            // Voliteľné: Tu by mohlo byť povolenie (enable) tlačidla "Vyfakturovať", 
+            // aby líder nemohol fakturovať neuložené zmeny.
+        } else {
+            alert('Chyba pri ukladaní: ' + result.message);
+        }
+    } catch (error) {
+        console.error('Chyba pri komunikácii so serverom:', error);
+        alert('Nepodarilo sa spojiť so serverom. Skúste to znova.');
+    }
+}

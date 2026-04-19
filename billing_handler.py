@@ -1,7 +1,6 @@
 from flask import Blueprint, request, jsonify
 from datetime import datetime, timedelta
 import db_connector
-
 billing_bp = Blueprint("billing", __name__)
 
 def generate_doc_number(typ_dokladu):
@@ -220,3 +219,115 @@ def get_order_items_for_billing(order_id):
     """
     items = db_connector.execute_query(sql, (order_id,), fetch="all") or []
     return jsonify({"items": items})
+
+@billing_bp.post("/api/billing/update_order_items/<int:order_id>")
+def update_order_items(order_id):
+    """
+    Uloží upravené množstvá a ceny položiek pre danú objednávku pred fakturáciou.
+    Zároveň prepočíta a aktualizuje celkovú finálnu sumu objednávky.
+    """
+    # 1. Prijatie dát z frontendu
+    data = request.get_json(force=True) or {}
+    items = data.get("items", [])
+    
+    if not items:
+        return jsonify({"error": "Žiadne položky na aktualizáciu."}), 400
+
+    conn = db_connector.get_connection()
+    try:
+        cur = conn.cursor(dictionary=True)
+        
+        total_bez_dph = 0
+        total_s_dph = 0
+        
+        # 2. Prechádzame všetky položky a ukladáme zmeny
+        for item in items:
+            polozka_id = item.get("id")
+            nove_mnozstvo = float(item.get("qty", 0))
+            nova_cena = float(item.get("price", 0))
+            
+            # Zistíme si aktuálne percento DPH pre túto položku priamo z DB
+            cur.execute(
+                "SELECT dph FROM b2b_objednavky_polozky WHERE id = %s AND objednavka_id = %s", 
+                (polozka_id, order_id)
+            )
+            row = cur.fetchone()
+            if not row:
+                continue # Ak položka neexistuje, preskočíme ju
+                
+            dph_perc = float(row['dph'] or 20.0)
+            
+            # Priebežne si počítame celkovú sumu objednávky
+            suma_polozka_bez_dph = nove_mnozstvo * nova_cena
+            suma_polozka_s_dph = suma_polozka_bez_dph * (1 + (dph_perc / 100))
+            
+            total_bez_dph += suma_polozka_bez_dph
+            total_s_dph += suma_polozka_s_dph
+            
+            # Fyzický zápis úprav do databázy (používame stĺpce pre skutočné dodanie)
+            cur.execute("""
+                UPDATE b2b_objednavky_polozky 
+                SET dodane_mnozstvo = %s, cena_skutocna = %s 
+                WHERE id = %s AND objednavka_id = %s
+            """, (nove_mnozstvo, nova_cena, polozka_id, order_id))
+            
+        # 3. Aktualizácia celkovej sumy v hlavičke objednávky
+        cur.execute("""
+            UPDATE b2b_objednavky 
+            SET finalna_suma_bez_dph = %s, finalna_suma_s_dph = %s 
+            WHERE id = %s
+        """, (total_bez_dph, total_s_dph, order_id))
+        
+        # Ak všetko prebehlo bez chyby, potvrdíme transakciu
+        conn.commit()
+        
+        return jsonify({
+            "message": "Položky boli úspešne uložené a sumy prepočítané.",
+            "nova_suma_bez_dph": round(total_bez_dph, 2),
+            "nova_suma_s_dph": round(total_s_dph, 2)
+        }), 200
+        
+    except Exception as e:
+        if conn: conn.rollback()  # Ak nastane chyba, vrátime databázu do pôvodného stavu
+        return jsonify({"error": f"Chyba pri ukladaní položiek: {str(e)}"}), 500
+    finally:
+        if conn:
+            cur.close()
+            conn.close()
+
+@billing_bp.route('/api/billing/update_order_items', methods=['POST'])
+def update_order_items():
+    data = request.json
+    items = data.get('items', [])
+    
+    if not items:
+        return jsonify({"status": "error", "message": "Žiadne dáta na aktualizáciu"}), 400
+
+    try:
+        conn = db_connector.get_connection() # Použi svoju funkciu na DB
+        cursor = conn.cursor()
+        
+        # Uprav názov tabuľky b2b_objednavky_polozky podľa tvojej reálnej štruktúry
+        update_query = """
+            UPDATE b2b_objednavky_polozky 
+            SET mnozstvo = %s, cena_bez_dph = %s 
+            WHERE id = %s
+        """
+        
+        # Pripravíme dáta pre hromadný update (executemany je rýchlejší)
+        update_data = [(item['mnozstvo'], item['cena_bez_dph'], item['id']) for item in items]
+        
+        cursor.executemany(update_query, update_data)
+        conn.commit()
+        
+        return jsonify({"status": "success", "message": "Položky boli úspešne upravené."})
+        
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        return jsonify({"status": "error", "message": str(e)}), 500
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
