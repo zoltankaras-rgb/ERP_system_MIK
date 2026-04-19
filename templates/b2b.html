@@ -237,6 +237,34 @@
     box-shadow: 0 10px 25px rgba(0,0,0,0.3);
     color: var(--primary-color);
 }
+/* OZNAMY (Bežné vs Dôležité) */
+    .announcement-bar { background:var(--info-bg); color:var(--info-text); padding:15px; border-radius:6px; margin-bottom:20px; text-align:center; transition: all 0.3s ease; }
+    
+    @keyframes pulse-red-soft {
+        0% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.4); background-color: #fef2f2; border-color: #fca5a5; }
+        50% { box-shadow: 0 0 0 8px rgba(220, 38, 38, 0); background-color: #fee2e2; border-color: #f87171; }
+        100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0); background-color: #fef2f2; border-color: #fca5a5; }
+    }
+
+    .announcement-bar.important-announcement {
+        background: #fef2f2;
+        color: #991b1b;
+        border: 2px solid #f87171;
+        animation: pulse-red-soft 2.5s infinite;
+    }
+
+    .announcement-important-badge {
+        display: inline-block;
+        background: #dc2626;
+        color: white;
+        font-weight: bold;
+        padding: 4px 12px;
+        border-radius: 4px;
+        margin-bottom: 15px;
+        font-size: 0.9rem;
+        letter-spacing: 0.5px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
   </style>
 </head>
 <body>

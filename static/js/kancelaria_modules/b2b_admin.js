@@ -2653,17 +2653,20 @@ window.submitQuickAddProduct = async function() {
           }
           routesHtml += `</tbody></table>`;
 
-          box.innerHTML = `
-              <div class="logistics-grid" style="display:grid; grid-template-columns:1fr 1fr; gap:20px; align-items:start;">
-                  <div class="card" style="border:1px solid #e2e8f0; padding:20px; border-radius:8px;">
-                      <div class="form-group">
-    <label>Oznam pre zákazníkov (B2B Portál)</label>
-    <div id="b2b-announcement-editor" style="height: 150px; background: white;"></div>
-</div>
-                      <p style="font-size:0.85em; color:#64748b;">Text, ktorý sa zobrazí všetkým prihláseným odberateľom na ich nástenke.</p>
-                      <div id="b2b-announcement-editor" style="height: 150px; background: white; font-family: sans-serif;">${s.announcement || ''}</div>
-                      <button id="save-ann-btn" class="btn btn-primary" style="margin-top:10px; width:100%;">Uložiť oznam</button>
-                  </div>
+         box.innerHTML = `
+    <div class="logistics-grid" style="display:grid; grid-template-columns:1fr 1fr; gap:20px; align-items:start;">
+        <div class="card" style="border:1px solid #e2e8f0; padding:20px; border-radius:8px;">
+            <div class="form-group">
+                <label>Oznam pre zákazníkov (B2B Portál)</label>
+                <div id="b2b-announcement-editor" style="height: 150px; background: white;">${s.announcement || ''}</div>
+                <div style="margin-top:15px; display:flex; align-items:center; gap:10px; background:#fef2f2; padding:10px; border:1px solid #fecaca; border-radius:6px;">
+                    <input type="checkbox" id="ann-important-cb" ${s.is_important ? 'checked' : ''} style="width:20px; height:20px; cursor:pointer;">
+                    <label for="ann-important-cb" style="color:#b91c1c; font-weight:bold; cursor:pointer; margin:0;">⚠️ Zvýrazniť ako DÔLEŽITÚ SPRÁVU (bude blikať na červeno)</label>
+                </div>
+            </div>
+            <p style="font-size:0.85em; color:#64748b;">Text, ktorý sa zobrazí všetkým prihláseným odberateľom na ich nástenke.</p>
+            <button id="save-ann-btn" class="btn btn-primary" style="margin-top:10px; width:100%;">Uložiť oznam</button>
+        </div>
                   
                   <div class="card" style="border:1px solid #e2e8f0; padding:20px; border-radius:8px;">
                       <h4 style="margin-top:0; color:#0369a1;">🚛 Správa trás (Logistika)</h4>
@@ -2695,22 +2698,24 @@ window.submitQuickAddProduct = async function() {
           });
 
           // --- NOVÉ: Ukladanie oznamu s podporou HTML ---
-          doc.getElementById('save-ann-btn').onclick = async () => { 
-              // Vytiahnutie naformátovaného textu
-              const htmlContent = quill.root.innerHTML;
-              // Ak je editor prázdny, odstránime <p><br></p> balast
-              const announcementText = htmlContent === '<p><br></p>' ? '' : htmlContent;
+doc.getElementById('save-ann-btn').onclick = async () => { 
+    // Vytiahnutie naformátovaného textu
+    const htmlContent = quill.root.innerHTML;
+    // Ak je editor prázdny, odstránime <p><br></p> balast
+    const announcementText = htmlContent === '<p><br></p>' ? '' : htmlContent;
+    // Vytiahneme stav checkboxu
+    const isImportant = document.getElementById('ann-important-cb').checked;
 
-              try {
-                  await callFirstOk([{ 
-                      url:'/api/kancelaria/b2b/saveAnnouncement', 
-                      opts:{ method:'POST', body:{ announcement: announcementText } } 
-                  }]); 
-                  showStatus('Oznam uložený'); 
-              } catch(e) {
-                  showStatus('Chyba: ' + e.message, true);
-              }
-          };
+    try {
+        await callFirstOk([{ 
+            url:'/api/kancelaria/b2b/saveAnnouncement', 
+            opts:{ method:'POST', body:{ announcement: announcementText, is_important: isImportant } } 
+        }]); 
+        showStatus('Oznam uložený'); 
+    } catch(e) {
+        showStatus('Chyba: ' + e.message, true);
+    }
+};
 
           // Pridanie trasy
           doc.getElementById('add-route-btn').onclick = async () => {
