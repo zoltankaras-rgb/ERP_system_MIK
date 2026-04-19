@@ -1071,7 +1071,6 @@ function setMinDeliveryDate() {
   // FAKTURAČNÉ ÚDAJE (PROFIL)
   // =========================
   function loadProfileData() {
-      // appState.currentUser obsahuje všetky dáta, ktoré si pridal v b2b_handler.py (ico, dic, atď.)
       const u = appState.currentUser;
       if (!u) return;
 
@@ -1085,9 +1084,7 @@ function setMinDeliveryDate() {
       f.elements['iban'].value = u.iban || '';
       f.elements['adresa'].value = u.adresa || '';
       f.elements['email'].value = u.email || '';
-      
-      const s = document.getElementById('prof-splatnost');
-      if (s) s.value = (u.splatnost_dni || 14) + ' dní';
+      f.elements['splatnost_dni'].value = u.splatnost_dni || 14; // <-- ZMENENÉ (vymazané "dní")
   }
 
   const profileForm = document.getElementById('profileForm');
@@ -1097,26 +1094,27 @@ function setMinDeliveryDate() {
           if (!appState.currentUser) return;
 
           const data = {
-              id: appState.currentUser.id, // Potrebujeme vedieť, komu to ukladáme
+              id: appState.currentUser.id,
               ico: profileForm.elements['ico'].value.trim(),
               dic: profileForm.elements['dic'].value.trim(),
               ic_dph: profileForm.elements['ic_dph'].value.trim(),
               iban: profileForm.elements['iban'].value.trim(),
               adresa: profileForm.elements['adresa'].value.trim(),
-              email: profileForm.elements['email'].value.trim()
+              email: profileForm.elements['email'].value.trim(),
+              splatnost_dni: profileForm.elements['splatnost_dni'].value.trim() // <-- TOTO SME PRIDALI
           };
 
           const out = await apiCall('/api/b2b/update-profile', data);
-          if (out) {
+          if (out && !out.error) {
               showNotification('Fakturačné údaje boli úspešne uložené.', 'success');
               
-              // Zaktualizujeme lokálnu kópiu
               appState.currentUser.ico = data.ico;
               appState.currentUser.dic = data.dic;
               appState.currentUser.ic_dph = data.ic_dph;
               appState.currentUser.iban = data.iban;
               appState.currentUser.adresa = data.adresa;
               appState.currentUser.email = data.email;
+              appState.currentUser.splatnost_dni = data.splatnost_dni; // Aktualizácia pamäte
               sessionStorage.setItem('b2bUser', JSON.stringify(appState.currentUser));
           }
       });

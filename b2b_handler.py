@@ -2658,28 +2658,32 @@ def terminal_focus_exit():
 
 def update_b2b_profile(data: dict):
     """
-    Umožní B2B zákazníkovi upraviť si svoje fakturačné údaje.
-    Volá sa z b2b_app.js (profil zákazníka).
+    Umožní B2B zákazníkovi upraviť si svoje fakturačné údaje vrátane splatnosti.
     """
     user_id = data.get("id")
     if not user_id:
         return {"error": "Chýba identifikácia zákazníka."}
 
-    # Vyťahujeme očistené dáta, ak neprídu, nastavíme na None
     ico = data.get("ico", "").strip() or None
     dic = data.get("dic", "").strip() or None
     ic_dph = data.get("ic_dph", "").strip() or None
     iban = data.get("iban", "").strip() or None
     adresa = data.get("adresa", "").strip() or None
     email = data.get("email", "").strip() or None
+    
+    # Bezpečné načítanie splatnosti na číslo
+    try:
+        splatnost = int(data.get("splatnost_dni", 14))
+    except (ValueError, TypeError):
+        splatnost = 14
 
     try:
-        # Uložíme zmeny do databázy
+        import db_connector
         db_connector.execute_query("""
             UPDATE b2b_zakaznici 
-            SET ico = %s, dic = %s, ic_dph = %s, iban = %s, adresa = %s, email = %s
+            SET ico = %s, dic = %s, ic_dph = %s, iban = %s, adresa = %s, email = %s, splatnost_dni = %s
             WHERE id = %s
-        """, (ico, dic, ic_dph, iban, adresa, email, user_id), fetch="none")
+        """, (ico, dic, ic_dph, iban, adresa, email, splatnost, user_id), fetch="none")
         
         return {"message": "Fakturačné údaje boli úspešne aktualizované."}
     except Exception as e:

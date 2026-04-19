@@ -380,6 +380,10 @@ def api_b2b_submit_order():
 def api_b2b_get_order_history():
     data = request.get_json(silent=True) or {}
     return handle_request(b2b_handler.get_order_history, data.get('userId'))
+@app.post('/api/b2b/update-profile')
+def api_b2b_update_profile():
+    data = request.get_json(silent=True) or {}
+    return handle_request(b2b_handler.update_b2b_profile, data)
 
 # >>> PDF pre zákazníka (zobraziť/stiahnuť)
 @app.get('/api/b2b/order-pdf/<int:order_id>')
