@@ -394,25 +394,55 @@ async function loadAndRenderForecast() {
       `;
 
       (data.forecast[category] || []).forEach(product => {
-        const total = dates.reduce((s, d) => s + (Number(product.daily_needs?.[d] || 0)), 0);
-        const stockNum = parseStockNum(product.stock_display, product.mj);
-        const deficit = Math.max(total - stockNum, 0);
-        const isDeficit = deficit > 0;
+        const mjOrder = String(product.mj || 'ks').trim().toLowerCase();
+        const totalOrder = dates.reduce((s, d) => s + (Number(product.daily_needs?.[d] || 0)), 0);
+        
+        const stockData = parseStockData(product.stock_display);
+        const stockNum = stockData.num;
+        const mjStock = stockData.unit || mjOrder; // Ak by sklad nemal textovú jednotku, predpokladáme, že je rovnaká
+
+        const isMismatch = (mjOrder !== mjStock && mjStock !== '');
+        
+        // Formátovacie funkcie pre zobrazenie (kg nechá desatinné, ks zaokrúhli)
+        const formatVal = (val, unit) => (unit === 'kg') ? safeToFixed(val, 2) : Math.ceil(val);
+
+        let deficit = 0;
+        let deficitDisplay = '';
+        let isDeficit = false;
+
+        if (isMismatch && totalOrder > 0) {
+            // NEZHODA JEDNOTIEK: Máme napr. 150 ks na sklade a objednaných 5 kg. 
+            // Bez prepočtu to nevieme odčítať, takže vypíšeme varovanie a presné požadované množstvo.
+            deficit = totalOrder; 
+            isDeficit = true;
+            deficitDisplay = `<div style="color:#b91c1c; line-height:1.2;">
+                                <span title="Nesúlad jednotiek: Sklad je v ${mjStock}, ale objednávky v ${mjOrder}!" style="font-weight:bold;">⚠️ ${formatVal(deficit, mjOrder)} ${mjOrder}</span><br>
+                                <small style="font-size:0.75em; color:#64748b;">(Na sklade: ${stockNum} ${mjStock})</small>
+                              </div>`;
+        } else {
+            // ZHODA JEDNOTIEK: Normálne matematické odčítanie
+            deficit = Math.max(totalOrder - stockNum, 0);
+            isDeficit = deficit > 0;
+            deficitDisplay = `<strong>${isDeficit ? formatVal(deficit, mjOrder) + ' ' + mjOrder : '0'}</strong>`;
+        }
         
         const actionBtn = (isDeficit && product.isManufacturable)
-          ? `<button class="btn btn-primary" style="margin:0;" onclick="openUrgentProductionModal('${(product.name||'').replace(/'/g, "\\'")}', ${Math.ceil(deficit)})">Vytvoriť výrobu</button>`
+          ? `<button class="btn btn-primary" style="margin:0; padding: 4px 8px; font-size: 0.85rem;" onclick="openUrgentProductionModal('${escapeHtml(product.name)}', ${formatVal(deficit, mjOrder)})">Vytvoriť výrobu</button>`
           : '';
 
         tableHtml += `
           <tr ${isDeficit ? 'style="background:#fee2e2;"' : ''}>
-            <td><strong>${product.name}</strong></td>
-            <td>${product.stock_display}</td>
+            <td>
+              <strong>${escapeHtml(product.name)}</strong>
+              ${isMismatch && totalOrder > 0 ? `<br><small style="color:#b91c1c; font-weight:bold; font-size:0.75rem;">⚠️ Pozor: Rôzne merné jednotky</small>` : ''}
+            </td>
+            <td><span style="${isMismatch && totalOrder > 0 ? 'color:#b91c1c; font-weight:bold;' : ''}">${escapeHtml(product.stock_display || '—')}</span></td>
             ${dates.map(d => {
               const v = Number(product.daily_needs?.[d] || 0);
-              return `<td>${v > 0 ? `${v} ${product.mj}` : ''}</td>`;
+              return `<td>${v > 0 ? `${formatVal(v, mjOrder)} ${mjOrder}` : ''}</td>`;
             }).join('')}
-            <td>${total} ${product.mj}</td>
-            <td class="${isDeficit ? 'loss' : ''}">${isDeficit ? Math.ceil(deficit) + ' ' + product.mj : '0'}</td>
+            <td><strong>${formatVal(totalOrder, mjOrder)} ${mjOrder}</strong></td>
+            <td class="${isDeficit ? 'loss' : ''}">${deficitDisplay}</td>
             <td>${actionBtn}</td>
           </tr>
         `;
@@ -449,21 +479,21 @@ function mergeForecastPayloads(a, b) {
     }
   };
   add(a); add(b);
-  for (const cat of Object.keys(out.forecast)) {
-    out.forecast[cat].forEach(p => {
-      p.total_needed = out.dates.reduce((s, d) => s + Number(p.daily_needs?.[d]||0), 0);
-      p.deficit = Math.max(p.total_needed - parseStockNum(p.stock_display, p.mj), 0);
-    });
-  }
   return out;
 }
-function parseStockNum(stock_display, mj) {
-  if (!stock_display) return 0;
-  const m = String(stock_display).match(/([0-9]+(?:[.,][0-9]+)?)\s*[a-zA-Z]*/);
-  if (!m) return 0;
+
+// Nová funkcia, ktorá vyťahuje presné číslo aj typ jednotky priamo z textu skladu
+function parseStockData(stock_display) {
+  if (!stock_display) return { num: 0, unit: '' };
+  const m = String(stock_display).match(/([0-9]+(?:[.,][0-9]+)?)\s*([a-zA-Z]*)/);
+  if (!m) return { num: 0, unit: '' };
   const n = parseFloat(m[1].replace(',', '.'));
-  return Number.isFinite(n) ? n : 0;
+  return { 
+      num: Number.isFinite(n) ? n : 0, 
+      unit: m[2] ? m[2].toLowerCase().trim() : '' 
+  };
 }
+
 
 // ---------- Návrh Nákupu ----------
 async function loadAndRenderPurchaseSuggestion() {
