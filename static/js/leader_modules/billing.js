@@ -55,6 +55,54 @@
       return node;
     }
   
+    // --- PROFI VYSKAKOVACIE OKNO PRE TLAČ ---
+    function showPrintModal(onConfirm) {
+        const overlay = document.createElement('div');
+        overlay.style = "position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(15, 23, 42, 0.7); z-index:9999; display:flex; justify-content:center; align-items:center; backdrop-filter: blur(4px);";
+        
+        const box = document.createElement('div');
+        box.style = "background:#fff; padding:40px; border-radius:16px; width:550px; max-width:90%; box-shadow:0 25px 50px -12px rgba(0,0,0,0.5); text-align:center; animation: popIn 0.3s ease-out;";
+        
+        // Pridáme malú CSS animáciu priamo sem pre plynulý nábeh
+        if(!document.getElementById('modal-styles')) {
+            const s = document.createElement('style');
+            s.id = 'modal-styles';
+            s.innerHTML = `@keyframes popIn { 0% { transform: scale(0.9); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+                           .btn-print-choice { transition: all 0.2s; border: 2px solid transparent; }
+                           .btn-print-choice:hover { transform: translateY(-3px); box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); }`;
+            document.head.appendChild(s);
+        }
+
+        box.innerHTML = `
+            <div style="background:#eff6ff; width:80px; height:80px; border-radius:50%; display:flex; align-items:center; justify-content:center; margin: 0 auto 20px auto; color:#3b82f6; font-size:35px;">
+                <i class="fa-solid fa-print"></i>
+            </div>
+            <h2 style="margin-top:0; color:#1e293b; font-weight:800;">Tlač dokladov a Odpis skladu</h2>
+            <p style="color:#64748b; margin-bottom:30px; font-size:15px;">Vyberte, aký balík dokladov chcete vygenerovať. Tovar bude <strong>okamžite odpísaný zo skladu</strong> a spustí sa automatická tlač.</p>
+            
+            <div style="display:flex; flex-direction:column; gap:15px;">
+                <button id="btn-print-dlfa" class="btn btn-success btn-lg btn-print-choice" style="padding:20px; font-size:18px; font-weight:bold; background:#10b981; border-color:#059669;">
+                    <i class="fa-solid fa-file-invoice-dollar" style="margin-right:10px;"></i> Vystaviť DL + Faktúru
+                    <div style="font-size:13px; font-weight:normal; opacity:0.9; margin-top:5px;">(Vytlačia sa automaticky 2 kópie DL a 2 kópie FA)</div>
+                </button>
+                
+                <button id="btn-print-dl" class="btn btn-primary btn-lg btn-print-choice" style="padding:20px; font-size:18px; font-weight:bold; background:#3b82f6; border-color:#2563eb;">
+                    <i class="fa-solid fa-file-lines" style="margin-right:10px;"></i> Vystaviť Iba Dodací list
+                    <div style="font-size:13px; font-weight:normal; opacity:0.9; margin-top:5px;">(Vytlačia sa automaticky 4 kópie DL)</div>
+                </button>
+                
+                <button id="btn-print-cancel" class="btn btn-light" style="margin-top:15px; font-weight:bold; color:#64748b;">Zrušiť a vrátiť sa späť</button>
+            </div>
+        `;
+        overlay.appendChild(box);
+        document.body.appendChild(overlay);
+
+        // Akcie po kliknutí na tlačidlá v modale
+        box.querySelector('#btn-print-dlfa').onclick = () => { document.body.removeChild(overlay); onConfirm(true); };
+        box.querySelector('#btn-print-dl').onclick = () => { document.body.removeChild(overlay); onConfirm(false); };
+        box.querySelector('#btn-print-cancel').onclick = () => { document.body.removeChild(overlay); };
+    }
+
     // --- FÁZA 1: NÁVRHY ---
     async function renderReadyForInvoice(shell) {
         const body = shell.querySelector("#billing-body");
@@ -93,7 +141,7 @@
                         <div class="card-body">
                             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
                                 <div><h4 style="margin:0;">${window.escapeHtml(cust.nazov_firmy)}</h4></div>
-                                <button class="btn btn-success btn-sm js-issue-docs"><i class="fa-solid fa-print"></i> Vystaviť doklady (DL/FA)</button>
+                                <button class="btn btn-success btn-sm js-issue-docs"><i class="fa-solid fa-print"></i> Vystaviť doklady (Výber tlače)</button>
                             </div>
                             <table class="table table-hover">
                                 <thead style="background:#f1f5f9;"><tr><th style="text-align:center;"><input type="checkbox" class="js-select-all" checked></th><th>Návrh (Obj.)</th><th>Dátum</th><th style="text-align:right">Suma</th><th></th></tr></thead>
@@ -102,7 +150,7 @@
                         </div>
                     `;
 
-                    // Rozklikávanie a ukladanie
+                    // Rozklikávanie a ukladanie položiek
                     card.querySelectorAll('.toggle-items-btn').forEach(btn => {
                         btn.onclick = async function() {
                             const tr = this.closest('.obj-row');
@@ -134,7 +182,7 @@
                                             btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>...'; btn.disabled = true;
                                             await apiRequest('/api/billing/update_order_items', 'POST', { items: itemsToUpdate });
                                             btn.innerHTML = '<i class="fa-solid fa-check"></i> OK';
-                                            setTimeout(() => { btn.innerHTML = 'Uložiť zmeny'; btn.disabled = false; }, 1500);
+                                            setTimeout(() => { btn.innerHTML = '<i class="fa-solid fa-save"></i> Uložiť zmeny'; btn.disabled = false; }, 1500);
                                         });
                                     } catch (e) { itemsRow.querySelector('td').innerHTML = `<span style="color:red;">Chyba: ${e.message}</span>`; }
                                 }
@@ -149,23 +197,41 @@
                         card.querySelectorAll('.dl-checkbox').forEach(cb => cb.checked = e.target.checked);
                     });
 
+                    // TLAČIDLO VYSTAVIŤ DOKLADY -> OTVÁRA PROFI OKNO
                     card.querySelector('.js-issue-docs').addEventListener('click', async () => {
                         const selectedIds = Array.from(card.querySelectorAll('.dl-checkbox:checked')).map(cb => parseInt(cb.value));
                         if (selectedIds.length === 0) return alert("Vyberte aspoň jeden návrh!");
 
-                        if(confirm(`Kliknite na OK pre vystavenie DL + FAKTÚRY (Áno).\nKliknite na ZRUŠIŤ pre vystavenie Iba Dodacieho listu (Nie).`)) {
-                            issueDocs(selectedIds, true);
-                        } else {
-                            issueDocs(selectedIds, false);
-                        }
+                        // Zavoláme našu novú profi funkciu
+                        showPrintModal((createFa) => {
+                            issueDocs(selectedIds, createFa);
+                        });
                     });
 
                     async function issueDocs(ids, createFa) {
                         try {
+                            // Tmavý overlay kým sa to spracúva na servery
+                            const loadingOverlay = document.createElement('div');
+                            loadingOverlay.style = "position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(255,255,255,0.8); z-index:9999; display:flex; justify-content:center; align-items:center; font-size:24px; font-weight:bold; color:#2563eb;";
+                            loadingOverlay.innerHTML = '<i class="fas fa-spinner fa-spin" style="margin-right:15px;"></i> Vystavujem doklady...';
+                            document.body.appendChild(loadingOverlay);
+
                             const res = await apiRequest('/api/billing/issue_documents', 'POST', { order_ids: ids, create_fa: createFa });
-                            alert(res.message + "\\n\\nDoklad nájdete v záložke Vystavené doklady (TLAČ).");
+                            
+                            document.body.removeChild(loadingOverlay);
+                            
+                            // OKAMŽITÉ OTVORENIE TLAČOVÉHO BALÍKA V NOVOM OKNE
+                            let printUrl = `/api/billing/print_pack?dl_id=${res.dl_id}`;
+                            if (createFa && res.fa_id) {
+                                printUrl += `&fa_id=${res.fa_id}`;
+                            }
+                            window.open(printUrl, '_blank');
+
+                            // Refreshnem zoznam návrhov v pozadí
                             renderReadyForInvoice(shell);
-                        } catch (e) { alert("Chyba: " + e.message); }
+                        } catch (e) { 
+                            alert("Chyba pri vystavovaní: " + e.message); 
+                        }
                     }
 
                     trasaDiv.appendChild(card);

@@ -234,7 +234,11 @@ def issue_documents():
                 except Exception as ex: print("Chyba odpisovania skladu:", ex)
 
         conn.commit()
-        return jsonify({"message": f"Doklady úspešne vystavené: DL č. {cislo_dl}" + (f" a FA č. {cislo_fa}" if create_fa else "")})
+        return jsonify({
+            "message": f"Doklady úspešne vystavené: DL č. {cislo_dl}" + (f" a FA č. {cislo_fa}" if create_fa else ""),
+            "dl_id": dl_id,
+            "fa_id": fa_id
+        })
     except Exception as e:
         if conn: conn.rollback()
         print("KRITICKÁ CHYBA issue_documents:", e)
@@ -302,7 +306,6 @@ def create_collective_invoice():
 
     conn = db_connector.get_connection()
     try:
-        # OPRAVA: Pridané dictionary=True
         cur = conn.cursor(dictionary=True)
         cur.execute("""
             INSERT INTO doklady_hlavicka (typ_dokladu, cislo_dokladu, zakaznik_id, odberatel_nazov, odberatel_ico, odberatel_dic, odberatel_ic_dph, odberatel_adresa, datum_vystavenia, datum_dodania, datum_splatnosti, suma_bez_dph, suma_dph, suma_s_dph, variabilny_symbol)
@@ -310,12 +313,16 @@ def create_collective_invoice():
         """, (cislo_fa, zakaznik_id, zakaznik.get('nazov_firmy', ''), zakaznik.get('ico'), zakaznik.get('dic'), zakaznik.get('ic_dph'), zakaznik.get('adresa'), datum, datum, datum + timedelta(days=splatnost_dni), total_bez_dph, total_dph, total_s_dph, cislo_fa.replace('FA-', '').replace('-', '')))
         fa_id = cur.lastrowid
 
+        # Zviazanie dodacích listov a objednávok na túto Zbernú Faktúru
         cur.execute(f"UPDATE doklady_hlavicka SET nadradena_faktura_id = %s WHERE id IN ({placeholders})", (fa_id, *dl_ids))
         cur.execute(f"UPDATE b2b_objednavky SET faktura_id = %s WHERE dodaci_list_id IN ({placeholders})", (fa_id, *dl_ids))
 
-        # Prepíšeme položky bez odpisu skladu
-        cur.execute(f"SELECT * FROM doklady_polozky WHERE doklad_id IN ({placeholders})")
-        for p in cur.fetchall():
+        # === TOTO JE TEN OPRAVENÝ RIADOK ===
+        # Chýbalo tu: , tuple(dl_ids)
+        cur.execute(f"SELECT * FROM doklady_polozky WHERE doklad_id IN ({placeholders})", tuple(dl_ids))
+        
+        polozky_z_dl = cur.fetchall()
+        for p in polozky_z_dl:
             cur.execute("INSERT INTO doklady_polozky (doklad_id, objednavka_id, ean, nazov_polozky, mnozstvo, mj, cena_bez_dph, dph_percento, celkom_bez_dph, celkom_s_dph) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
                         (fa_id, p['objednavka_id'], p['ean'], p['nazov_polozky'], p['mnozstvo'], p['mj'], p['cena_bez_dph'], p['dph_percento'], p.get('celkom_bez_dph',0), p.get('celkom_s_dph',0)))
 
@@ -326,7 +333,6 @@ def create_collective_invoice():
         return jsonify({"error": str(e)}), 500
     finally:
         if conn: cur.close(); conn.close()
-
 # --- 5. ARCHÍV DOKLADOV (Prehľad a Tlač) ---
 @billing_bp.get("/api/billing/issued_documents")
 def get_issued_documents():
@@ -469,3 +475,116 @@ def print_document(doc_id):
     </html>
     """
     return make_response(html)
+def get_doc_html_block(doc_id):
+    """Pomocná funkcia: Vygeneruje HTML pre 1 stranu dokladu"""
+    hlavicka = db_connector.execute_query("SELECT * FROM doklady_hlavicka WHERE id = %s", (doc_id,), fetch="one")
+    if not hlavicka: return ""
+    polozky = db_connector.execute_query("SELECT * FROM doklady_polozky WHERE doklad_id = %s", (doc_id,), fetch="all") or []
+    
+    nazov_dokladu = "Faktúra" if hlavicka['typ_dokladu'] == 'FA' else "Dodací list"
+    datum_str = hlavicka['datum_vystavenia'].strftime('%d.%m.%Y') if hasattr(hlavicka['datum_vystavenia'], 'strftime') else str(hlavicka['datum_vystavenia'])
+    
+    html = f"""
+    <div class="doc-page">
+        <div class="header">
+            <div class="title">{nazov_dokladu} č. {hlavicka['cislo_dokladu']}</div>
+            <div style="text-align:right;">
+                <strong>Dátum vystavenia:</strong> {datum_str}<br>
+                <strong>Dátum dodania:</strong> {datum_str}
+            </div>
+        </div>
+        <div class="boxes">
+            <div class="box">
+                <div class="box-title">Dodávateľ</div>
+                <strong style="font-size:18px;">MIK, s.r.o.</strong><br><br>
+                Záhradnícka 4/25<br>927 01 Šaľa, Slovensko<br><br>
+                <strong>IČO:</strong> 34099514<br><strong>DIČ:</strong> 2020400000<br>
+            </div>
+            <div class="box">
+                <div class="box-title">Odberateľ</div>
+                <strong style="font-size:18px;">{hlavicka['odberatel_nazov']}</strong><br><br>
+                {hlavicka['odberatel_adresa'] or ''}<br><br>
+                <strong>IČO:</strong> {hlavicka['odberatel_ico'] or 'Nezadané'}<br>
+                <strong>IČ DPH:</strong> {hlavicka['odberatel_ic_dph'] or 'Nezadané'}
+            </div>
+        </div>
+        <table>
+            <thead>
+                <tr><th>Názov položky</th><th>EAN</th><th style="text-align:center;">Množstvo</th><th>MJ</th><th style="text-align:right;">Cena/MJ</th><th style="text-align:right;">DPH</th><th style="text-align:right;">Celkom s DPH</th></tr>
+            </thead>
+            <tbody>
+    """
+    for p in polozky:
+        html += f"<tr><td>{p['nazov_polozky']}</td><td><small>{p.get('ean') or ''}</small></td><td style='text-align:center; font-weight:bold;'>{float(p['mnozstvo']):.2f}</td><td>{p['mj']}</td><td style='text-align:right;'>{float(p['cena_bez_dph']):.3f} €</td><td style='text-align:right;'>{p.get('dph_percento') or 20}%</td><td style='text-align:right; font-weight:bold;'>{float(p.get('celkom_s_dph') or 0):.2f} €</td></tr>"
+        
+    html += f"""
+            </tbody>
+        </table>
+        <div class="totals">
+            <p>Suma bez DPH: <strong>{float(hlavicka['suma_bez_dph']):.2f} €</strong></p>
+            <p>Výška DPH: <strong>{float(hlavicka['suma_dph']):.2f} €</strong></p>
+            <div class="grand-total">CELKOM K ÚHRADE: {float(hlavicka['suma_s_dph']):.2f} €</div>
+        </div>
+        <div class="signatures">
+            <div>Vystavil (Podpis a pečiatka):<br><br>...........................................................</div>
+            <div>Tovar prevzal (Podpis):<br><br>...........................................................</div>
+        </div>
+    </div>
+    """
+    return html
+
+@billing_bp.get("/api/billing/print_pack")
+def print_pack():
+    """Zostaví tlačový balík: 4x DL, alebo 2x DL + 2x FA a vyvolá okamžitú tlač."""
+    dl_id = request.args.get('dl_id')
+    fa_id = request.args.get('fa_id')
+    
+    pages = []
+    
+    if dl_id and fa_id:
+        # 2x DL + 2x FA
+        html_dl = get_doc_html_block(dl_id)
+        html_fa = get_doc_html_block(fa_id)
+        pages = [html_dl, html_dl, html_fa, html_fa]
+    elif dl_id:
+        # 4x DL
+        html_dl = get_doc_html_block(dl_id)
+        pages = [html_dl, html_dl, html_dl, html_dl]
+        
+    joined_pages = "\n<div class='page-break'></div>\n".join(pages)
+    
+    final_html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <title>Tlačový balík dokladov</title>
+        <style>
+            body {{ font-family: 'Arial', sans-serif; color: #222; font-size: 14px; margin: 0; padding: 20px; background: #525659; }}
+            .doc-page {{ background: white; width: 210mm; min-height: 297mm; padding: 20mm; margin: 0 auto 20px auto; box-shadow: 0 0 10px rgba(0,0,0,0.5); box-sizing: border-box; position: relative; }}
+            .page-break {{ display: block; height: 1px; }}
+            .header {{ display: flex; justify-content: space-between; border-bottom: 3px solid #1e293b; padding-bottom: 10px; margin-bottom: 30px; }}
+            .title {{ font-size: 28px; font-weight: 900; text-transform: uppercase; color: #1e293b; }}
+            .boxes {{ display: flex; justify-content: space-between; margin-bottom: 40px; }}
+            .box {{ width: 45%; border: 1px solid #000; padding: 20px; border-radius: 8px; }}
+            .box-title {{ font-size: 12px; text-transform: uppercase; color: #555; margin-bottom: 10px; letter-spacing: 1px; font-weight: bold; }}
+            table {{ width: 100%; border-collapse: collapse; margin-bottom: 30px; }}
+            th, td {{ border-bottom: 1px solid #000; padding: 10px; text-align: left; }}
+            th {{ background-color: #f1f5f9; font-weight: bold; color: #000; border-top: 2px solid #000; border-bottom: 2px solid #000; }}
+            .totals {{ text-align: right; font-size: 16px; margin-top: 20px; padding-top: 20px; border-top: 2px solid #000; }}
+            .grand-total {{ font-size: 24px; font-weight: bold; color: #000; margin-top: 10px; }}
+            .signatures {{ margin-top: 80px; display: flex; justify-content: space-between; font-weight: bold; }}
+            
+            @media print {{ 
+                body {{ padding: 0; background: white; }} 
+                .doc-page {{ margin: 0; padding: 15mm; box-shadow: none; width: auto; min-height: auto; }}
+                .page-break {{ page-break-after: always; }}
+            }}
+        </style>
+    </head>
+    <body onload="setTimeout(() => window.print(), 500);">
+        {joined_pages}
+    </body>
+    </html>
+    """
+    return make_response(final_html)
