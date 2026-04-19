@@ -168,8 +168,16 @@
             </div>
         </div>
 
-        <div class="form-group">
-            <input type="text" id="cat-search" placeholder="🔍 Hľadať produkt (názov, EAN)..." style="width:100%; padding:10px; font-size:1.1em; border:1px solid #cbd5e1; border-radius:6px;">
+        <div class="form-group" style="display:flex; gap:10px;">
+            <input type="text" id="cat-search" placeholder="🔍 Hľadať produkt (názov, EAN)..." style="flex:1; padding:10px; font-size:1.1em; border:1px solid #cbd5e1; border-radius:6px;">
+            <select id="cat-type-filter" style="width:220px; padding:10px; font-size:1.1em; border:1px solid #cbd5e1; border-radius:6px; background-color: #fff; cursor: pointer;">
+                <option value="">Všetky typy položiek</option>
+                <option value="VÝROBOK">VÝROBOK</option>
+                <option value="VÝROBOK_KRAJANY">VÝROBOK_KRAJANY</option>
+                <option value="VÝROBOK_KUSOVY">VÝROBOK_KUSOVY</option>
+                <option value="TOVAR">TOVAR</option>
+                <option value="TOVAR_KUSOVY">TOVAR_KUSOVY</option>
+            </select>
         </div>
 
         <div id="cat-tabs" class="inventory-tabs" style="display:flex; gap:5px; margin-top:10px; flex-wrap:wrap;">
@@ -198,6 +206,7 @@
         // --- RENDER TABLE with Pagination ---
         function renderTable() {
             const q = searchInput.value.trim().toLowerCase();
+            const typeFilter = document.getElementById('cat-type-filter').value; // Nacitanie selectu
             
             // 1. Filter
             currentFilteredProducts = products.filter(p => {
@@ -209,6 +218,12 @@
                     const hay = (String(p.nazov_vyrobku) + ' ' + String(p.ean)).toLowerCase();
                     if (!hay.includes(q)) return false;
                 }
+                
+                // NOVÉ: Filter podľa typu položky
+                if (typeFilter && p.typ_polozky !== typeFilter) {
+                    return false;
+                }
+                
                 return true;
             });
 
@@ -352,9 +367,18 @@
             });
         }
 
-        // --- Event Listeners ---
+       // --- Event Listeners ---
         searchInput.addEventListener('page-change', (e) => { currentPage = e.detail; renderTable(); });
         searchInput.oninput = () => { currentPage = 1; renderTable(); };
+        
+        // Listener pre roletové menu typu položky
+        const typeSelect = document.getElementById('cat-type-filter');
+        if (typeSelect) {
+            typeSelect.onchange = () => { 
+                currentPage = 1; 
+                renderTable(); 
+            };
+        }
 
         tabsContainer.querySelectorAll('.btn-tab').forEach(btn => {
             btn.onclick = () => {
