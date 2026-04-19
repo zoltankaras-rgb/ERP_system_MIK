@@ -27,53 +27,106 @@ def generate_doc_number(typ_dokladu):
 # --- 1. ENDPOINT NA ZOBRAZENIE OBJEDNÁVOK ---
 @billing_bp.get("/api/billing/ready_for_invoice")
 def get_ready_for_invoice():
-    # Používame LEFT JOIN s castingom a veľmi voľnou podmienkou, aby sme odchytili všetko
-    sql = """
-        SELECT 
-            o.id as obj_id, o.cislo_objednavky, o.datum_vytvorenia, o.pozadovany_datum_dodania,
-            o.finalna_suma_s_dph, o.celkova_suma_s_dph,
-            o.zakaznik_id as obj_zakaznik_id,
-            COALESCE(z.nazov_firmy, CONCAT('Nespárovaný (ERP ID: ', COALESCE(o.zakaznik_id, 'NULL'), ')')) as nazov_firmy, 
-            COALESCE(z.typ_fakturacie, 'Jednotlivo') as typ_fakturacie,
-            COALESCE(t.nazov, 'Bez priradenej trasy') as trasa_nazov
-        FROM b2b_objednavky o
-        LEFT JOIN b2b_zakaznici z ON CAST(o.zakaznik_id AS CHAR) = CAST(z.id AS CHAR) 
-                                  OR CAST(o.zakaznik_id AS CHAR) = CAST(z.zakaznik_id AS CHAR)
-        LEFT JOIN logistika_trasy t ON z.trasa_id = t.id
-        WHERE o.stav = 'Hotová' 
-          AND (o.faktura_id IS NULL OR o.faktura_id = 0)
-        ORDER BY t.nazov, z.nazov_firmy, o.pozadovany_datum_dodania
     """
-    rows = db_connector.execute_query(sql, fetch="all") or []
+    Vráti 'Hotové' objednávky z terminálu (Návrhy DL).
+    Párovanie zákazníkov prebieha priamo parsovaním čísla objednávky (napr. B2B-12345-...).
+    """
+    # 1. Natiahneme IBA objednávky (žiadne SQL JOINY, aby nám databáza nič nezahodila)
+    try:
+        sql_orders = """
+            SELECT id as obj_id, cislo_objednavky, pozadovany_datum_dodania, 
+                   COALESCE(finalna_suma_s_dph, celkova_suma_s_dph, 0) as suma,
+                   zakaznik_id, odberatel, nazov_firmy
+            FROM b2b_objednavky
+            WHERE stav = 'Hotová' AND (faktura_id IS NULL OR faktura_id = 0)
+        """
+        orders = db_connector.execute_query(sql_orders, fetch="all") or []
+    except Exception as e:
+        # Fallback pre istotu, ak by tabuľka chvíľkovo štrajkovala kvôli stĺpcu faktura_id
+        print("Chyba dotazu na faktura_id:", e)
+        sql_fallback = """
+            SELECT id as obj_id, cislo_objednavky, pozadovany_datum_dodania, 
+                   COALESCE(finalna_suma_s_dph, celkova_suma_s_dph, 0) as suma,
+                   zakaznik_id, odberatel, nazov_firmy
+            FROM b2b_objednavky
+            WHERE stav = 'Hotová'
+        """
+        orders = db_connector.execute_query(sql_fallback, fetch="all") or []
+
+    # 2. Natiahneme všetkých zákazníkov do pamäte
+    sql_customers = """
+        SELECT z.id, z.zakaznik_id as erp_id, z.nazov_firmy, z.typ_fakturacie, 
+               COALESCE(t.nazov, 'Nepriradená trasa') as trasa
+        FROM b2b_zakaznici z
+        LEFT JOIN logistika_trasy t ON z.trasa_id = t.id
+    """
+    customers_db = db_connector.execute_query(sql_customers, fetch="all") or []
     
+    # Vytvoríme si vyhľadávací slovník pre rýchle párovanie v pamäti
+    cust_map = {}
+    for c in customers_db:
+        if c.get('erp_id'): cust_map[str(c['erp_id']).strip()] = c
+        if c.get('id'): cust_map[str(c['id']).strip()] = c
+
     trasy_map = {}
-    for r in rows:
-        trasa = r['trasa_nazov']
-        zid = str(r['obj_zakaznik_id']) if r['obj_zakaznik_id'] else 'neznamy'
+    
+    # 3. TVOJ ALGORITMUS: Parsovanie a párovanie objednávok
+    for o in orders:
+        cislo = o.get('cislo_objednavky') or ''
         
+        # Extrahujeme IDčko zo stringu (B2B-12345-2026...)
+        vyextrahovane_id = None
+        parts = cislo.split('-')
+        if len(parts) >= 2 and parts[0] in ('B2B', 'B2C'):
+            vyextrahovane_id = parts[1].strip()
+            
+        # Spárujeme so zákazníkom zo slovníka
+        found_cust = None
+        if vyextrahovane_id:
+            found_cust = cust_map.get(vyextrahovane_id)
+        if not found_cust and o.get('zakaznik_id'):
+            found_cust = cust_map.get(str(o.get('zakaznik_id')).strip())
+            
+        # Priradíme dáta
+        if found_cust:
+            z_id = str(found_cust['erp_id'] or found_cust['id'])
+            z_meno = found_cust['nazov_firmy']
+            trasa = found_cust['trasa']
+            typ_fa = found_cust.get('typ_fakturacie') or 'Jednotlivo'
+        else:
+            # Ak by predsa len zákazník neexistoval, aspoň ukážeme objednávku!
+            z_id = str(vyextrahovane_id or o.get('zakaznik_id') or 'Neznáme')
+            z_meno = o.get('odberatel') or o.get('nazov_firmy') or f"Nespárovaný ({z_id})"
+            trasa = 'Nepriradená trasa'
+            typ_fa = 'Jednotlivo'
+
+        # 4. Zoskupenie pre Frontend (do podoby Návrhov DL roztriedených podľa trasy)
         if trasa not in trasy_map:
             trasy_map[trasa] = {}
             
-        if zid not in trasy_map[trasa]:
-            trasy_map[trasa][zid] = {
-                "zakaznik_id": zid,
-                "nazov_firmy": r['nazov_firmy'],
-                "typ_fakturacie": r['typ_fakturacie'],
+        if z_id not in trasy_map[trasa]:
+            trasy_map[trasa][z_id] = {
+                "zakaznik_id": z_id,
+                "nazov_firmy": z_meno,
+                "typ_fakturacie": typ_fa,
                 "objednavky": []
             }
             
-        suma = r.get('finalna_suma_s_dph') or r.get('celkova_suma_s_dph') or 0
-        
-        trasy_map[trasa][zid]["objednavky"].append({
-            "id": r['obj_id'],
-            "cislo": r['cislo_objednavky'],
-            "datum": r['pozadovany_datum_dodania'],
-            "suma": float(suma)
+        trasy_map[trasa][z_id]["objednavky"].append({
+            "id": o['obj_id'],
+            "cislo": cislo,
+            "datum": o['pozadovany_datum_dodania'],
+            "suma": float(o['suma'])
         })
 
     vystup = [{"trasa": k, "zakaznici": list(v.values())} for k, v in trasy_map.items()]
-    return jsonify({"trasy": vystup})
+    
+    # Zoradíme abecedne trasy a následne aj zákazníkov pre lepší prehľad
+    vystup.sort(key=lambda x: x['trasa'])
+    for t in vystup:
+        t['zakaznici'].sort(key=lambda c: c['nazov_firmy'])
 
+    return jsonify({"trasy": vystup})
 # --- 2. ENDPOINT NA NAČÍTANIE POLOŽIEK ---
 @billing_bp.get("/api/billing/order_items/<int:order_id>")
 def get_order_items_for_billing(order_id):
