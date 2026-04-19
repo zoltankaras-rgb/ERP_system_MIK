@@ -268,6 +268,7 @@ def _portal_customer_payload(login_id: str):
         (login_id,),
     ) or []
     
+    # Nacitame text aj dolezitost
     row = db_connector.execute_query("SELECT hodnota FROM system_settings WHERE kluc='b2b_announcement' LIMIT 1", fetch="one")
     row_imp = db_connector.execute_query("SELECT hodnota FROM system_settings WHERE kluc='b2b_announcement_important' LIMIT 1", fetch="one")
     
@@ -280,7 +281,6 @@ def _portal_customer_payload(login_id: str):
     if len(pricelists) == 1:
         payload |= get_products_for_pricelist(pricelists[0]["id"])
     return payload
-
 def process_b2b_login(data: dict):
     if (data or {}).get("hp"):
         return {"error": "Neplatný vstup."}
@@ -1020,14 +1020,9 @@ def update_pricelist(data: dict):
 
 def get_announcement():
     _ensure_system_settings()
-    row = db_connector.execute_query(
-        "SELECT hodnota FROM system_settings WHERE kluc='b2b_announcement' LIMIT 1",
-        fetch="one",
-    )
-    row_imp = db_connector.execute_query(
-        "SELECT hodnota FROM system_settings WHERE kluc='b2b_announcement_important' LIMIT 1",
-        fetch="one",
-    )
+    row = db_connector.execute_query("SELECT hodnota FROM system_settings WHERE kluc='b2b_announcement' LIMIT 1", fetch="one")
+    row_imp = db_connector.execute_query("SELECT hodnota FROM system_settings WHERE kluc='b2b_announcement_important' LIMIT 1", fetch="one")
+    
     is_imp = True if row_imp and row_imp["hodnota"] == "1" else False
     
     return {
@@ -1040,14 +1035,14 @@ def save_announcement(data: dict):
     is_important = "1" if (data or {}).get("is_important") else "0"
     _ensure_system_settings()
     
-    # 1. Uloženie textu oznamu
+    # 1. Ulozenie textu
     exists = db_connector.execute_query("SELECT kluc FROM system_settings WHERE kluc='b2b_announcement' LIMIT 1", fetch="one")
     if exists:
         db_connector.execute_query("UPDATE system_settings SET hodnota=%s WHERE kluc='b2b_announcement'", (text,), fetch='none')
     else:
         db_connector.execute_query("INSERT INTO system_settings (kluc, hodnota) VALUES ('b2b_announcement', %s)", (text,), fetch='none')
         
-    # 2. Uloženie flagu o dôležitosti
+    # 2. Ulozenie dolezitosti
     exists_imp = db_connector.execute_query("SELECT kluc FROM system_settings WHERE kluc='b2b_announcement_important' LIMIT 1", fetch="one")
     if exists_imp:
         db_connector.execute_query("UPDATE system_settings SET hodnota=%s WHERE kluc='b2b_announcement_important'", (is_important,), fetch='none')
@@ -1055,7 +1050,6 @@ def save_announcement(data: dict):
         db_connector.execute_query("INSERT INTO system_settings (kluc, hodnota) VALUES ('b2b_announcement_important', %s)", (is_important,), fetch='none')
         
     return {"message": "Oznam uložený."}
-
 def _get_pricelist_price_map(login_id: str, eans: List[str]) -> Dict[str, float]:
     try:
         if not login_id or not eans:

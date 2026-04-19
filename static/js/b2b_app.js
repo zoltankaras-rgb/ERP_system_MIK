@@ -348,9 +348,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const bar = document.getElementById('announcement-bar');
     if (user.announcement) {
-        bar.innerHTML = user.announcement; // <-- Umožní spracovať HTML (farby, hrúbka, veľkosť)
+        // Ak je flag z databázy True, pridáme blikanie a odznak
+        if (user.announcement_is_important) {
+            bar.innerHTML = `<div class="announcement-important-badge"><i class="fas fa-exclamation-triangle"></i> DÔLEŽITÝ OZNAM</div>` + user.announcement;
+            bar.classList.add('important-announcement');
+        } else {
+            bar.innerHTML = user.announcement;
+            bar.classList.remove('important-announcement');
+        }
         bar.classList.remove('hidden');
-    } else bar.classList.add('hidden');
+    } else {
+        bar.classList.add('hidden');
+    }
 
     const sel = document.getElementById('pricelist-select');
     const stepProducts = document.getElementById('step-products');
