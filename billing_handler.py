@@ -131,3 +131,100 @@ def create_collective_invoice():
     """, polozky, multi=True, fetch="none")
 
     return jsonify({"message": f"Zberná faktúra {cislo_fa} bola úspešne vystavená.", "faktura_id": fa_id})
+@billing_bp.post("/api/billing/create_dl_from_order")
+def create_dl_from_order():
+    """
+    Preklopí B2B objednávku na Dodací list (DL) a odpíše tovar zo skladu.
+    """
+    data = request.get_json(force=True) or {}
+    order_id = data.get("order_id")
+    
+    if not order_id:
+        return jsonify({"error": "Chýba ID objednávky."}), 400
+
+    conn = db_connector.get_connection()
+    try:
+        cur = conn.cursor(dictionary=True)
+
+        # 1. Načítame B2B objednávku
+        cur.execute("SELECT * FROM b2b_objednavky WHERE id = %s", (order_id,))
+        order = cur.fetchone()
+        if not order:
+            return jsonify({"error": "Objednávka neexistuje."}), 404
+
+        # 2. Kontrola, či už nebol vystavený DL pre túto objednávku (VS = order_id)
+        cur.execute("SELECT id FROM doklady_hlavicka WHERE typ_dokladu='DL' AND variabilny_symbol = %s", (str(order_id),))
+        if cur.fetchone():
+            return jsonify({"error": "Dodací list pre túto objednávku už bol vystavený!"}), 400
+
+        # 3. Načítame zákazníka pre detailné údaje
+        cur.execute("SELECT * FROM b2b_zakaznici WHERE zakaznik_id = %s", (order['zakaznik_id'],))
+        zakaznik = cur.fetchone() or {}
+
+        # 4. Vygenerujeme číslo a hlavičku DL
+        cislo_dl = generate_doc_number('DL')
+        datum_vystavenia = datetime.now().date()
+        
+        # Zistíme finálnu sumu objednávky (ak bola upravovaná po vážení)
+        suma_bez_dph = order.get('finalna_suma_bez_dph') or order.get('celkova_suma_bez_dph') or 0
+        suma_s_dph = order.get('finalna_suma_s_dph') or order.get('celkova_suma_s_dph') or 0
+        
+        cur.execute("""
+            INSERT INTO doklady_hlavicka 
+            (typ_dokladu, cislo_dokladu, zakaznik_id, odberatel_nazov, odberatel_ico, odberatel_dic, odberatel_ic_dph, 
+            odberatel_adresa, datum_vystavenia, datum_dodania, suma_bez_dph, suma_s_dph, variabilny_symbol)
+            VALUES ('DL', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """, (
+            cislo_dl, order['zakaznik_id'], order.get('nazov_firmy', ''), 
+            zakaznik.get('ico'), zakaznik.get('dic'), zakaznik.get('ic_dph'), zakaznik.get('adresa'), 
+            datum_vystavenia, datum_vystavenia, suma_bez_dph, suma_s_dph, str(order_id)
+        ))
+        dl_id = cur.lastrowid
+
+        # 5. Načítame položky objednávky
+        cur.execute("SELECT * FROM b2b_objednavky_polozky WHERE objednavka_id = %s", (order_id,))
+        polozky = cur.fetchall()
+
+        for p in polozky:
+            mnozstvo = float(p.get('dodane_mnozstvo') or p.get('mnozstvo') or 0)
+            if mnozstvo <= 0: continue # Preskočíme položky, ktoré sa nedodali
+            
+            cena_bez_dph = float(p.get('cena_skutocna') or p.get('cena_bez_dph') or 0)
+            dph_perc = float(p.get('dph') or 20.0)
+            celkom_bez_dph = mnozstvo * cena_bez_dph
+            celkom_s_dph = celkom_bez_dph * (1 + (dph_perc / 100))
+
+            # A. Zápis do položiek dokladu
+            cur.execute("""
+                INSERT INTO doklady_polozky 
+                (doklad_id, objednavka_id, ean, nazov_polozky, mnozstvo, mj, cena_bez_dph, dph_percento, celkom_bez_dph, celkom_s_dph)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """, (
+                dl_id, order_id, p['ean_produktu'], p['nazov_vyrobku'], mnozstvo, p['mj'], 
+                cena_bez_dph, dph_perc, celkom_bez_dph, celkom_s_dph
+            ))
+
+            # B. Zápis do Skladového denníka (Mínusový pohyb)
+            cur.execute("""
+                INSERT INTO skladove_pohyby 
+                (ean, nazov_vyrobku, typ_pohybu, mnozstvo, mj, doklad_id, predajna_cena_bez_dph)
+                VALUES (%s, %s, 'VYDAJ_DL', %s, %s, %s, %s)
+            """, (p['ean_produktu'], p['nazov_vyrobku'], -mnozstvo, p['mj'], dl_id, cena_bez_dph))
+
+            # C. Odpis tovaru z Centrálneho skladu (tabuľka produkty)
+            cur.execute("""
+                UPDATE produkty 
+                SET aktualny_sklad_finalny_kg = aktualny_sklad_finalny_kg - %s 
+                WHERE ean = %s
+            """, (mnozstvo, p['ean_produktu']))
+
+        conn.commit()
+        return jsonify({"message": f"Dodací list {cislo_dl} bol úspešne vystavený a sklad zaktualizovaný.", "dl_id": dl_id})
+
+    except Exception as e:
+        if conn: conn.rollback()
+        return jsonify({"error": f"Chyba pri tvorbe DL: {str(e)}"}), 500
+    finally:
+        if conn:
+            cur.close()
+            conn.close()

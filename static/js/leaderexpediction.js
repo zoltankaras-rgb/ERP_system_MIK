@@ -442,7 +442,11 @@
             
             let buttons = `<button class="btn btn-sm" data-b2b-pdf="${escapeHtml(id)}">Zadanie (PDF)</button> <button class="btn btn-sm" data-b2b-edit="${escapeHtml(id)}">Upraviť</button>`;
             if (r.stav === 'Hotová') {
-                buttons += `<br><button class="btn btn-sm btn-success" style="margin-top: 4px;" data-b2b-finished-pdf="${escapeHtml(id)}">Vypracovaná (PDF)</button>`;
+                buttons += `<br>
+                <div style="display:flex; gap:4px; margin-top:4px;">
+                    <button class="btn btn-sm btn-success" data-b2b-finished-pdf="${escapeHtml(id)}">Vypracovaná (PDF)</button>
+                    <button class="btn btn-sm btn-primary" data-b2b-create-dl="${escapeHtml(r.id)}" title="Vystaví dodací list a odpíše zo skladu"><i class="fa-solid fa-truck-fast"></i> Vystaviť DL</button>
+                </div>`;
             }
 
             return `<tr><td>${escapeHtml(id)}</td><td>${escapeHtml(who)}</td><td>${priceCell(r)}</td><td>${escapeHtml(r.stav||'')}</td><td>${buttons}</td></tr>`; 
@@ -455,7 +459,19 @@
       // NOVÉ: Kliknutie pre vypracovanú (terminálovú) objednávku
       $$('[data-b2b-finished-pdf]').forEach(b=> b.onclick = ()=> openB2bPdfSmart(b.getAttribute('data-b2b-finished-pdf'), 'finished') );
       $$('[data-b2b-edit]').forEach(b=> b.onclick = ()=>{ const id = b.getAttribute('data-b2b-edit'); const row = rows.find(x=> String(x.cislo_objednavky||x.id) === id); if (row) openB2BEditModal(row); });
-      
+      $$('[data-b2b-create-dl]').forEach(b => b.onclick = async () => {
+          const orderId = b.getAttribute('data-b2b-create-dl');
+          if (!confirm("Naozaj vystaviť Dodací list? Táto akcia fyzicky odpíše tovar zo skladu a zapíše ho do Skladového denníka.")) return;
+          
+          try {
+              showStatus("Vystavujem Dodací list...", false);
+              const res = await apiRequest('/api/billing/create_dl_from_order', 'POST', { order_id: orderId });
+              showStatus(res.message, false);
+              b.style.display = 'none'; // Skryjeme tlačidlo po vystavení
+          } catch(e) {
+              showStatus(e.message, true);
+          }
+      });
       if (!$('#b2b-filter')) injectB2bFilterUI();
     }catch(e){ tb.innerHTML = `<tr><td colspan="6" class="muted">Chyba: ${escapeHtml(e.message||'')}</td></tr>`; }
   }
