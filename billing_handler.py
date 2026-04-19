@@ -28,67 +28,64 @@ def generate_doc_number(typ_dokladu):
 @billing_bp.get("/api/billing/ready_for_invoice")
 def get_ready_for_invoice():
     """
-    Vráti 'Hotové' objednávky z terminálu (Návrhy DL).
-    Párovanie zákazníkov prebieha priamo parsovaním čísla objednávky.
+    Vráti 'Hotové' objednávky (Návrhy DL).
+    Párovanie prebieha podľa interného kódu vyextrahovaného z čísla objednávky.
+    Dopyt je teraz nastavený presne na stĺpce v tabuľke b2b_objednavky.
     """
-    # 1. Opravené SQL: Bez stĺpca 'odberatel' !
     try:
+        # POUŽITÉ PRESNÉ STĹPCE PODĽA TVOJHO VÝPISU: datum_objednavky, finalna_suma, celkova_suma_s_dph
         sql_orders = """
             SELECT id as obj_id, cislo_objednavky, pozadovany_datum_dodania, 
-                   COALESCE(finalna_suma_s_dph, celkova_suma_s_dph, 0) as suma,
+                   COALESCE(finalna_suma, celkova_suma_s_dph, 0) as suma,
                    zakaznik_id, nazov_firmy
             FROM b2b_objednavky
             WHERE stav = 'Hotová' AND (faktura_id IS NULL OR faktura_id = 0)
         """
         orders = db_connector.execute_query(sql_orders, fetch="all") or []
+        print(f"DEBUG: Úspešne natiahnutých {len(orders)} objednávok z databázy.")
     except Exception as e:
         print("Kritická chyba SQL pri objednávkach:", e)
         return jsonify({"error": str(e)}), 500
 
-    # 2. Natiahneme všetkých zákazníkov do pamäte
+    # Načítanie zákazníkov pre pamäťové párovanie
     sql_customers = """
-        SELECT z.id, z.zakaznik_id as erp_id, z.nazov_firmy, z.typ_fakturacie, 
+        SELECT z.id, z.zakaznik_id as erp_code, z.nazov_firmy, z.typ_fakturacie, 
                COALESCE(t.nazov, 'Nepriradená trasa') as trasa
         FROM b2b_zakaznici z
         LEFT JOIN logistika_trasy t ON z.trasa_id = t.id
     """
     customers_db = db_connector.execute_query(sql_customers, fetch="all") or []
     
-    # Vyhľadávací slovník pre párovanie podľa tvojho interného 'zakaznik_id' (napr. 12345)
-    cust_map = {}
-    for c in customers_db:
-        if c.get('erp_id'): cust_map[str(c['erp_id']).strip()] = c
+    # Slovník zákazníkov podľa tvojho interného čísla (napr. 12345)
+    cust_map = {str(c['erp_code']).strip(): c for c in customers_db if c.get('erp_code')}
 
     trasy_map = {}
     
-    # 3. Tvoj systém párovania: Rozstrihneme číslo objednávky
     for o in orders:
         cislo = str(o.get('cislo_objednavky') or '')
         
-        # B2B-12345-2026... -> získa číslo 12345
-        vyextrahovane_id = None
+        # Extrakcia kódu z B2B-12345-... / EDI-321547-...
+        vyextrahovany_kod = None
         parts = cislo.split('-')
-        if len(parts) >= 2 and parts[0] in ('B2B', 'B2C'):
-            vyextrahovane_id = parts[1].strip()
+        if len(parts) >= 2:
+            vyextrahovany_kod = parts[1].strip()
             
-        # Hľadáme zákazníka v slovníku podľa vyextrahovaného čísla (alebo fallback na zakaznik_id z tabuľky)
-        found_cust = cust_map.get(vyextrahovane_id) if vyextrahovane_id else None
-        if not found_cust and o.get('zakaznik_id'):
-            found_cust = cust_map.get(str(o.get('zakaznik_id')).strip())
-            
-        # Priradenie k trase
+        # Nájdenie zákazníka podľa vyextrahovaného kódu (alebo fallback)
+        found_cust = cust_map.get(vyextrahovany_kod) or cust_map.get(str(o.get('zakaznik_id')).strip())
+        
         if found_cust:
-            z_id = str(found_cust['erp_id'])
+            z_id = str(found_cust['erp_code'])
             z_meno = found_cust['nazov_firmy']
             trasa = found_cust['trasa']
-            typ_fa = found_cust.get('typ_fakturacie') or 'Jednotlivo'
+            typ_fa = found_cust.get('typ_fakturacie') or 'Zberná'
         else:
-            z_id = str(vyextrahovane_id or o.get('zakaznik_id') or 'Neznáme')
+            z_id = str(vyextrahovany_kod or o.get('zakaznik_id') or 'Neznáme')
             z_meno = o.get('nazov_firmy') or f"Nespárovaný ({z_id})"
             trasa = 'Nepriradená trasa'
-            typ_fa = 'Jednotlivo'
+            typ_fa = 'Zberná'
 
-        if trasa not in trasy_map:
+        # Zaradenie do správnej skupiny
+        if trasa not in trasy_map: 
             trasy_map[trasa] = {}
             
         if z_id not in trasy_map[trasa]:
@@ -108,7 +105,7 @@ def get_ready_for_invoice():
 
     vystup = [{"trasa": k, "zakaznici": list(v.values())} for k, v in trasy_map.items()]
     
-    # Zoradíme pre prehľadnosť
+    # Zoradenie podľa trasy a následne abecedy
     vystup.sort(key=lambda x: x['trasa'])
     for t in vystup:
         t['zakaznici'].sort(key=lambda c: c['nazov_firmy'])
