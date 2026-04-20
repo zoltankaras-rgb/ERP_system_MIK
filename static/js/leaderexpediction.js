@@ -2388,25 +2388,22 @@ window.printDailySummary = async function() {
           btn.disabled = false;
       }
   };
-// ================= MANUÁLNE OBJEDNÁVKY (NEREGISTROVANÍ AJ REGISTROVANÍ) =================
-  function initManualOrdersUI() {
+function initManualOrdersUI() {
       const custSearch = $('#manual-customer-search');
       const custResults = $('#manual-customer-results');
-      const prodSearch = $('#man-product-search');
-      const prodResults = $('#man-product-results');
       const submitBtn = $('#man-order-submit');
       const saveCustBtn = $('#man-cust-save');
       const plContainer = $('#manual-pricelist-container');
       const plSelect = $('#manual-pricelist-select');
       const plTbody = $('#manual-pricelist-tbody');
       
-      if(!custSearch || !prodSearch) return;
+      // OPRAVA: Vyhodená kontrola na starý prodSearch. Ak tu nie je zákaznícky search, nepokračujeme.
+      if(!custSearch) return;
 
       $('#man-order-date').value = todayISO();
       
       if(typeof loadManualOrderHistory === 'function') loadManualOrderHistory();
 
-      // TÁTO PREMENNÁ CHÝBALA (Pamätá si položky z cenníka)
       let activePricelistItems = {};
 
       // ================= AUTO-SAVE KONCEPTU =================
@@ -2445,12 +2442,10 @@ window.printDailySummary = async function() {
               }
           });
 
-          // Ulož len ak je aspoň niečo vyplnené (id, názov, košík alebo poznámka)
           if (customer.interne_cislo || customer.nazov_firmy || items.length > 0 || order.note) {
               const draft = { customer, order, items, timestamp: new Date().getTime() };
               localStorage.setItem('manualB2BDraft', JSON.stringify(draft));
               
-              // Vizuálny indikátor uloženia
               const titleEl = document.querySelector('#leader-manual-b2b h3');
               if (titleEl && !titleEl.innerHTML.includes('fa-cloud-arrow-up')) {
                    const orig = titleEl.innerHTML;
@@ -2483,25 +2478,21 @@ window.printDailySummary = async function() {
                   cancelText: 'Zahodiť'
               }).then(res => {
                   if (res) {
-                      // Obnova zákazníka
                       $('#man-cust-id').value = draft.customer.interne_cislo || '';
                       $('#man-cust-name').value = draft.customer.nazov_firmy || '';
                       $('#man-cust-addr').value = draft.customer.adresa || '';
                       $('#man-cust-contact').value = draft.customer.kontakt || '';
                       $('#man-cust-is-registered').value = draft.customer.is_registered || '0';
 
-                      // Obnova dátumu a poznámky
                       if (draft.order.date) $('#man-order-date').value = draft.order.date;
                       $('#man-order-note').value = draft.order.note || '';
 
-                      // Obnova košíka
                       const tbody = $('#man-order-items tbody');
                       tbody.innerHTML = '';
                       
                       if (draft.items.length === 0) {
-                          tbody.innerHTML = '<tr id="man-empty-row"><td colspan="6" style="text-align:center;" class="muted">Zatiaľ neboli pridané žiadne položky.</td></tr>';
+                          tbody.innerHTML = '<tr id="man-empty-row"><td colspan="6" style="text-align:center; padding: 20px;" class="muted">Zatiaľ neboli pridané žiadne položky.</td></tr>';
                       } else {
-                          // Pridávame odzadu, pretože funkcia vkladá vždy na vrch tabuľky
                           [...draft.items].reverse().forEach(it => {
                               const p = {
                                   ean: it.ean,
@@ -2515,7 +2506,6 @@ window.printDailySummary = async function() {
                       }
                       showStatus('Koncept bol úspešne obnovený.', false);
                   } else {
-                      // Ak klikne Zahodiť, pamäť sa vymaže
                       localStorage.removeItem('manualB2BDraft');
                   }
               });
@@ -2524,17 +2514,14 @@ window.printDailySummary = async function() {
           }
       }
 
-      // Spustenie autosave na pozadí (každé 3 sekundy)
       setInterval(saveManualB2BDraft, 3000);
-      
-      // Pokus o obnovu pri načítaní stránky
       setTimeout(restoreManualB2BDraft, 500);
-      // ======================================================
 
+      // ================= VYHĽADÁVANIE ZÁKAZNÍKA A CENNÍKY =================
       const loadFullPricelist = async (plId) => {
           if(!plTbody) return;
           plTbody.innerHTML = '<tr><td colspan="4" class="text-center muted">Načítavam položky cenníka...</td></tr>';
-          activePricelistItems = {}; // Reset pred načítaním nového cenníka
+          activePricelistItems = {}; 
           
           try {
               const items = await apiRequest(`/api/leader/manual_order/pricelist_items?pricelist_id=${plId}`);
@@ -2544,7 +2531,6 @@ window.printDailySummary = async function() {
               }
               
               plTbody.innerHTML = items.map(p => {
-                  // Uložíme do pamäte, aby to vyhľadávač vedel nájsť
                   if(p.ean) activePricelistItems[String(p.ean)] = toNum(p.price, 0);
                   
                   return `
@@ -2579,7 +2565,6 @@ window.printDailySummary = async function() {
                       }
                   });
               });
-              
           } catch(e) {
               plTbody.innerHTML = '<tr><td colspan="4" class="text-center" style="color:red;">Chyba pri načítaní cenníka.</td></tr>';
           }
@@ -2628,7 +2613,7 @@ window.printDailySummary = async function() {
                           custResults.style.display = 'none';
                           
                           if(saveCustBtn) saveCustBtn.style.display = (c.is_registered === '1') ? 'none' : 'inline-block';
-                          activePricelistItems = {}; // Reset cenníka
+                          activePricelistItems = {}; 
                           
                           if(c.is_registered === '1' && plContainer && plSelect) {
                               plContainer.style.display = 'block';
@@ -2673,7 +2658,7 @@ window.printDailySummary = async function() {
           };
       }
 
-     // ==============================================================
+      // ==============================================================
       // RÝCHLE NAHADZOVANIE - ENTER FLOW (Skener + Klávesnica)
       // ==============================================================
       const fastEan = $('#fast-ean');
@@ -2686,7 +2671,6 @@ window.printDailySummary = async function() {
       let fastSelectedProduct = null;
 
       if (fastEan) {
-          // 1. Pri písaní (ako nášepkávač, ak nepoužíva skener ale píše ručne)
           let fastTimer;
           fastEan.addEventListener('input', () => {
               clearTimeout(fastTimer);
@@ -2695,7 +2679,6 @@ window.printDailySummary = async function() {
               fastTimer = setTimeout(() => doFastSearch(q), 300);
           });
 
-          // 2. Počíta so skenerom (Odpípne EAN a stlačí ENTER) alebo s manuálnym odentrovaním
           fastEan.addEventListener('keydown', async (e) => {
               if (e.key === 'Enter') {
                   e.preventDefault();
@@ -2711,7 +2694,6 @@ window.printDailySummary = async function() {
               }
           });
 
-          // 3. Po zadaní Váhy a odentrovaní skočíme na Cenu
           fastQty.addEventListener('keydown', (e) => {
               if (e.key === 'Enter') {
                   e.preventDefault();
@@ -2720,7 +2702,6 @@ window.printDailySummary = async function() {
               }
           });
 
-          // 4. Po zadaní Ceny a odentrovaní Pridáme do košíka
           fastPrice.addEventListener('keydown', (e) => {
               if (e.key === 'Enter') {
                   e.preventDefault();
@@ -2728,7 +2709,6 @@ window.printDailySummary = async function() {
               }
           });
 
-          // 5. Akcia pridania a reset späť na skener (EAN)
           fastAddBtn.addEventListener('click', (e) => {
               e.preventDefault();
               if (!fastSelectedProduct) {
@@ -2751,24 +2731,11 @@ window.printDailySummary = async function() {
               
               addManualOrderRow(pToAdd, qty); 
               
-              // Reset a focus na ďalší EAN
               fastSelectedProduct = null;
               fastEan.value = '';
               fastQty.value = '';
               fastPrice.value = '';
               fastEan.focus();
-          });
-
-          // Skrytie zoznamu pri kliku inam
-          document.addEventListener('click', (e) => {
-              if (!fastEan.contains(e.target) && !fastResults.contains(e.target)) {
-                  fastResults.style.display = 'none';
-              }
-              const custSearch = $('#manual-customer-search');
-              const custResults = $('#manual-customer-results');
-              if (custSearch && custResults && !custSearch.contains(e.target) && !custResults.contains(e.target)) {
-                  custResults.style.display = 'none';
-              }
           });
 
           async function doFastSearch(q, autoSelectExact = false) {
@@ -2844,7 +2811,12 @@ window.printDailySummary = async function() {
           }
       }
 
-      // Odošle celú objednávku
+      document.addEventListener('click', (e) => {
+          if (fastEan && fastResults && !fastEan.contains(e.target) && !fastResults.contains(e.target)) fastResults.style.display = 'none';
+          if (custSearch && custResults && !custSearch.contains(e.target) && !custResults.contains(e.target)) custResults.style.display = 'none';
+      });
+
+      // ================= ODOSLANIE OBJEDNÁVKY =================
       if (submitBtn) {
           submitBtn.onclick = async () => {
               const payload = {
@@ -2903,7 +2875,6 @@ window.printDailySummary = async function() {
                   $('#man-cust-contact').value = '';
                   $('#man-cust-is-registered').value = '0';
                   $('#man-order-note').value = '';
-                  const plContainer = $('#manual-pricelist-container');
                   if(plContainer) plContainer.style.display = 'none';
                   activePricelistItems = {};
                   
@@ -2918,7 +2889,7 @@ window.printDailySummary = async function() {
               }
           };
       }
-
+  
   // Globálna funkcia volaná priamo z tlačidla v rozbalenom cenníku
   window.addFromPricelistGrid = function(p) {
       const input = document.getElementById(`pl-qty-${p.ean}`);
