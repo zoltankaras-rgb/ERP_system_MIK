@@ -2845,7 +2845,6 @@ window.printDailySummary = async function() {
       }
 
       // Odošle celú objednávku
-      const submitBtn = $('#man-order-submit');
       if (submitBtn) {
           submitBtn.onclick = async () => {
               const payload = {
