@@ -2889,6 +2889,7 @@ function initManualOrdersUI() {
               }
           };
       }
+    }
   
   // Globálna funkcia volaná priamo z tlačidla v rozbalenom cenníku
   window.addFromPricelistGrid = function(p) {
@@ -3610,12 +3611,10 @@ window.printExpeditionBreakdown = function() {
     $('#cut-refresh') && ($('#cut-refresh').onclick = loadCutJobs);
     $('#cut-new')     && ($('#cut-new').onclick     = openNewCutModal);
 
-    initManualOrdersUI(); // <--- PRIDANÉ INICIALIZOVANIE TU
+  initManualOrdersUI();
     initTvBoardUI();
     loadDashboard();
   }
 
   boot();
-  }
 })(window, document);
-
