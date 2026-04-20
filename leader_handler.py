@@ -1359,9 +1359,11 @@ def search_standard_products():
             SELECT ean, nazov_vyrobku as name, mj, COALESCE(dph, 20) as dph
             FROM produkty 
             WHERE LOWER(nazov_vyrobku) LIKE %s OR ean LIKE %s
+            ORDER BY (ean = %s) DESC, nazov_vyrobku ASC
             LIMIT 30
         """
-        rows = db_connector.execute_query(sql, (like_q, like_q), fetch='all') or []
+        # Pridaný parameter 'q' pre triedenie presnej zhody
+        rows = db_connector.execute_query(sql, (like_q, like_q, q), fetch='all') or []
     except Exception as e1:
         # Ak tabuľka produkty zlyhá, skúsime záložnú tabuľku sklad2
         try:
@@ -1369,9 +1371,10 @@ def search_standard_products():
                 SELECT ean, nazov_produktu as name, COALESCE(mj, 'kg') as mj, COALESCE(dph, 20) as dph
                 FROM sklad2 
                 WHERE LOWER(nazov_produktu) LIKE %s OR ean LIKE %s
+                ORDER BY (ean = %s) DESC, nazov_produktu ASC
                 LIMIT 30
             """
-            rows = db_connector.execute_query(sql_fallback, (like_q, like_q), fetch='all') or []
+            rows = db_connector.execute_query(sql_fallback, (like_q, like_q, q), fetch='all') or []
         except Exception as e2:
             return jsonify({'error': f"Chyba databázy produktov: {str(e2)}"}), 500
             

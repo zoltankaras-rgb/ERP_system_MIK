@@ -2673,144 +2673,252 @@ window.printDailySummary = async function() {
           };
       }
 
-      let prodTimer;
-      prodSearch.addEventListener('input', () => {
-          clearTimeout(prodTimer);
-          const q = prodSearch.value.trim();
-          if(q.length < 2) { prodResults.style.display = 'none'; return; }
-          
-          prodTimer = setTimeout(async () => {
-              prodResults.style.display = 'block';
-              prodResults.innerHTML = '<div style="padding:10px;color:#666;">Hľadám produkt...</div>';
+     // ==============================================================
+      // RÝCHLE NAHADZOVANIE - ENTER FLOW (Skener + Klávesnica)
+      // ==============================================================
+      const fastEan = $('#fast-ean');
+      const fastQty = $('#fast-qty');
+      const fastMj  = $('#fast-mj');
+      const fastPrice = $('#fast-price');
+      const fastAddBtn = $('#fast-add-btn');
+      const fastResults = $('#fast-search-results');
+
+      let fastSelectedProduct = null;
+
+      if (fastEan) {
+          // 1. Pri písaní (ako nášepkávač, ak nepoužíva skener ale píše ručne)
+          let fastTimer;
+          fastEan.addEventListener('input', () => {
+              clearTimeout(fastTimer);
+              const q = fastEan.value.trim();
+              if (q.length < 2) { fastResults.style.display = 'none'; return; }
+              fastTimer = setTimeout(() => doFastSearch(q), 300);
+          });
+
+          // 2. Počíta so skenerom (Odpípne EAN a stlačí ENTER) alebo s manuálnym odentrovaním
+          fastEan.addEventListener('keydown', async (e) => {
+              if (e.key === 'Enter') {
+                  e.preventDefault();
+                  if (fastResults.style.display === 'block' && fastResults.children.length > 0) {
+                      fastResults.children[0].click();
+                  } else {
+                      const q = fastEan.value.trim();
+                      if (q) {
+                          const res = await doFastSearch(q, true);
+                          if (res && res.length > 0) selectFastProduct(res[0]);
+                      }
+                  }
+              }
+          });
+
+          // 3. Po zadaní Váhy a odentrovaní skočíme na Cenu
+          fastQty.addEventListener('keydown', (e) => {
+              if (e.key === 'Enter') {
+                  e.preventDefault();
+                  fastPrice.focus();
+                  fastPrice.select();
+              }
+          });
+
+          // 4. Po zadaní Ceny a odentrovaní Pridáme do košíka
+          fastPrice.addEventListener('keydown', (e) => {
+              if (e.key === 'Enter') {
+                  e.preventDefault();
+                  fastAddBtn.click();
+              }
+          });
+
+          // 5. Akcia pridania a reset späť na skener (EAN)
+          fastAddBtn.addEventListener('click', (e) => {
+              e.preventDefault();
+              if (!fastSelectedProduct) {
+                  showStatus("Najprv vyberte produkt stlačením Enter v poli EAN.", true);
+                  fastEan.focus();
+                  return;
+              }
+              const qty = toNum(fastQty.value, 0);
+              if (qty <= 0) {
+                  showStatus("Množstvo/Váha musí byť väčšie ako 0.", true);
+                  fastQty.focus();
+                  return;
+              }
+              
+              const pToAdd = {
+                  ...fastSelectedProduct,
+                  mj: fastMj.value,
+                  price: toNum(fastPrice.value, 0)
+              };
+              
+              addManualOrderRow(pToAdd, qty); 
+              
+              // Reset a focus na ďalší EAN
+              fastSelectedProduct = null;
+              fastEan.value = '';
+              fastQty.value = '';
+              fastPrice.value = '';
+              fastEan.focus();
+          });
+
+          // Skrytie zoznamu pri kliku inam
+          document.addEventListener('click', (e) => {
+              if (!fastEan.contains(e.target) && !fastResults.contains(e.target)) {
+                  fastResults.style.display = 'none';
+              }
+              const custSearch = $('#manual-customer-search');
+              const custResults = $('#manual-customer-results');
+              if (custSearch && custResults && !custSearch.contains(e.target) && !custResults.contains(e.target)) {
+                  custResults.style.display = 'none';
+              }
+          });
+
+          async function doFastSearch(q, autoSelectExact = false) {
+              fastResults.style.display = 'block';
+              fastResults.innerHTML = '<div style="padding:15px;color:#666;font-size:1.2rem;">Hľadám produkt...</div>';
               try {
                   const custId = $('#man-cust-id').value.trim();
                   const data = await apiRequest(`/api/leader/products_standard/search?q=${encodeURIComponent(q)}&customer_id=${encodeURIComponent(custId)}`);
                   
-                  if(!data.length) { prodResults.innerHTML = '<div style="padding:10px;color:#999;">Produkt nenájdený.</div>'; return; }
-                  
-                  prodResults.innerHTML = data.map(p => {
+                  if (!data.length) { 
+                      fastResults.innerHTML = '<div style="padding:15px;color:#ef4444;font-weight:bold;">Produkt nenájdený!</div>'; 
+                      return []; 
+                  }
+
+                  data.forEach(p => {
                       let currentPrice = p.price || 0.00;
-                      let priceBadge = '';
-                      
                       if(activePricelistItems[String(p.ean)] !== undefined) {
                           currentPrice = activePricelistItems[String(p.ean)];
-                          priceBadge = `<span style="background:#fef08a; color:#166534; padding:2px 4px; border-radius:3px; font-size:0.75rem;">Z CENNÍKA: ${currentPrice.toFixed(2)} €</span>`;
-                      } 
-                      else if (p.has_history_price) {
+                          p._priceSource = 'cenník';
+                      } else if (p.has_history_price) {
                           currentPrice = p.price;
-                          priceBadge = `<span style="background:#e0e7ff; color:#1d4ed8; padding:2px 4px; border-radius:3px; font-size:0.75rem;">NAPOSLEDY: ${currentPrice.toFixed(2)} €</span>`;
+                          p._priceSource = 'história';
                       }
-                      
                       p.price = currentPrice;
+                  });
+
+                  if (autoSelectExact && (data.length === 1 || data[0].ean === q)) {
+                      fastResults.style.display = 'none';
+                      return [data[0]];
+                  }
+
+                  fastResults.innerHTML = data.map((p, index) => {
+                      let badge = '';
+                      if (p._priceSource === 'cenník') badge = `<span style="background:#fef08a; color:#166534; padding:4px 8px; border-radius:4px; font-size:0.8rem; font-weight:bold;">CENNÍK</span>`;
+                      else if (p._priceSource === 'história') badge = `<span style="background:#e0e7ff; color:#1d4ed8; padding:4px 8px; border-radius:4px; font-size:0.8rem; font-weight:bold;">NAPOSLEDY</span>`;
 
                       return `
-                      <div class="product-search-item" data-json='${escapeHtml(JSON.stringify(p))}'>
+                      <div class="product-search-item" data-idx="${index}" style="padding: 15px; border-bottom: 1px solid #e2e8f0; cursor: pointer; display:flex; justify-content:space-between;">
                           <div>
-                              <strong>${escapeHtml(p.name)}</strong><br>
-                              <span class="meta">EAN: ${escapeHtml(p.ean)} | DPH: ${p.dph}%</span>
+                              <strong style="font-size: 1.2rem; color:#0f172a;">${escapeHtml(p.name)}</strong><br>
+                              <span class="meta" style="font-size:1rem;">EAN: ${escapeHtml(p.ean)} | DPH: ${p.dph}%</span>
                           </div>
                           <div style="text-align:right;">
-                              ${priceBadge}<br>
-                              <span style="color:#2563eb; font-weight:bold;">${escapeHtml(p.mj)}</span>
+                              ${badge}<br>
+                              <strong style="color:#16a34a; font-size: 1.3rem;">${p.price.toFixed(2)} €</strong> <span style="color:#64748b;">/ ${escapeHtml(p.mj)}</span>
                           </div>
-                      </div>
-                      `;
+                      </div>`;
                   }).join('');
-                  
-                  prodResults.querySelectorAll('.product-search-item').forEach(el => {
+
+                  fastResults.querySelectorAll('.product-search-item').forEach(el => {
                       el.onclick = () => {
-                          const p = JSON.parse(el.getAttribute('data-json'));
-                          addManualOrderRow(p, 0); 
-                          prodSearch.value = '';
-                          prodResults.style.display = 'none';
+                          const idx = el.getAttribute('data-idx');
+                          selectFastProduct(data[idx]);
+                          fastResults.style.display = 'none';
                       };
                   });
-              } catch(e) { 
-                  console.error(e);
-                  prodResults.innerHTML = `<div style="padding:10px;color:red;"><b>Chyba API:</b> ${escapeHtml(e.message)}</div>`; 
+                  
+                  return data;
+              } catch(e) {
+                  fastResults.innerHTML = `<div style="padding:15px;color:red;"><b>Chyba pripojenia.</b></div>`;
+                  return [];
               }
-          }, 300);
-      });
+          }
 
-      document.addEventListener('click', (e) => {
-          if (!custSearch.contains(e.target) && !custResults.contains(e.target)) custResults.style.display = 'none';
-          if (!prodSearch.contains(e.target) && !prodResults.contains(e.target)) prodResults.style.display = 'none';
-      });
+          function selectFastProduct(p) {
+              fastSelectedProduct = p;
+              fastEan.value = `${p.name} (${p.ean})`;
+              fastMj.value = p.mj;
+              fastPrice.value = p.price.toFixed(2);
+              
+              fastQty.focus();
+              fastQty.select();
+          }
+      }
 
-      submitBtn.onclick = async () => {
-          const payload = {
-              customer: {
-                  interne_cislo: $('#man-cust-id').value.trim(),
-                  nazov_firmy: $('#man-cust-name').value.trim(),
-                  adresa: $('#man-cust-addr').value.trim(),
-                  kontakt: $('#man-cust-contact').value.trim(),
-                  is_registered: $('#man-cust-is-registered').value
-              },
-              delivery_date: $('#man-order-date').value,
-              note: $('#man-order-note').value.trim(),
-              items: []
+      // Odošle celú objednávku
+      const submitBtn = $('#man-order-submit');
+      if (submitBtn) {
+          submitBtn.onclick = async () => {
+              const payload = {
+                  customer: {
+                      interne_cislo: $('#man-cust-id').value.trim(),
+                      nazov_firmy: $('#man-cust-name').value.trim(),
+                      adresa: $('#man-cust-addr').value.trim(),
+                      kontakt: $('#man-cust-contact').value.trim(),
+                      is_registered: $('#man-cust-is-registered').value
+                  },
+                  delivery_date: $('#man-order-date').value,
+                  note: $('#man-order-note').value.trim(),
+                  items: []
+              };
+
+              if(!payload.customer.interne_cislo || !payload.customer.nazov_firmy) {
+                  return showStatus("Vyplňte údaje zákazníka (Číslo a Názov).", true);
+              }
+
+              const trs = $$('#man-order-items tbody tr:not(#man-empty-row)');
+              trs.forEach(tr => {
+                  const qty = toNum(tr.querySelector('.mo-qty').value);
+                  const price = toNum(tr.querySelector('.mo-price').value);
+                  if(qty > 0) {
+                      payload.items.push({
+                          ean: tr.dataset.ean,
+                          name: tr.dataset.name,
+                          unit: tr.querySelector('.mo-unit').value,
+                          dph: tr.dataset.dph,
+                          quantity: qty,
+                          price: price
+                      });
+                  }
+              });
+
+              if(!payload.items.length) return showStatus("Objednávka musí obsahovať položky s množstvom > 0.", true);
+
+              submitBtn.disabled = true;
+              submitBtn.textContent = "Spracúvam...";
+
+              try {
+                  const res = await apiRequest('/api/leader/manual_order/submit', {method: 'POST', body: payload});
+                  showStatus(res.message, false);
+                  
+                  localStorage.removeItem('manualB2BDraft');
+                  const ind = document.getElementById('draft-indicator');
+                  if(ind) ind.remove();
+                  
+                  const pdfUrl = `/api/kancelaria/b2b/print_order_pdf/${res.order_id}`;
+                  window.open(pdfUrl, '_blank');
+                  
+                  $('#man-order-items tbody').innerHTML = '<tr id="man-empty-row"><td colspan="6" style="text-align:center; padding: 20px;" class="muted">Zatiaľ neboli pridané žiadne položky.</td></tr>';
+                  $('#man-cust-id').value = '';
+                  $('#man-cust-name').value = '';
+                  $('#man-cust-addr').value = '';
+                  $('#man-cust-contact').value = '';
+                  $('#man-cust-is-registered').value = '0';
+                  $('#man-order-note').value = '';
+                  const plContainer = $('#manual-pricelist-container');
+                  if(plContainer) plContainer.style.display = 'none';
+                  activePricelistItems = {};
+                  
+                  if(typeof loadManualOrderHistory === 'function') loadManualOrderHistory();
+                  if(typeof loadB2B === 'function') loadB2B();
+
+              } catch(e) {
+                  showStatus("Chyba odoslania: " + e.message, true);
+              } finally {
+                  submitBtn.disabled = false;
+                  submitBtn.innerHTML = '<i class="fas fa-check-circle"></i> Vytvoriť a odoslať objednávku';
+              }
           };
-
-          if(!payload.customer.interne_cislo || !payload.customer.nazov_firmy) {
-              return showStatus("Vyplňte údaje zákazníka (Číslo a Názov).", true);
-          }
-
-          const trs = $$('#man-order-items tbody tr:not(#man-empty-row)');
-          trs.forEach(tr => {
-              const qty = toNum(tr.querySelector('.mo-qty').value);
-              const price = toNum(tr.querySelector('.mo-price').value);
-              if(qty > 0) {
-                  payload.items.push({
-                      ean: tr.dataset.ean,
-                      name: tr.dataset.name,
-                      unit: tr.querySelector('.mo-unit').value,
-                      dph: tr.dataset.dph,
-                      quantity: qty,
-                      price: price
-                  });
-              }
-          });
-
-          if(!payload.items.length) return showStatus("Objednávka musí obsahovať položky s množstvom > 0.", true);
-
-          submitBtn.disabled = true;
-          submitBtn.textContent = "Spracúvam...";
-
-          try {
-              const res = await apiRequest('/api/leader/manual_order/submit', {method: 'POST', body: payload});
-              showStatus(res.message, false);
-              
-              // ============================================
-              // VYMAZANIE KONCEPTU PO ÚSPEŠNOM ODOSLANÍ
-              localStorage.removeItem('manualB2BDraft');
-              const ind = document.getElementById('draft-indicator');
-              if(ind) ind.remove();
-              // ============================================
-              
-              const pdfUrl = `/api/kancelaria/b2b/print_order_pdf/${res.order_id}`;
-              window.open(pdfUrl, '_blank');
-              
-              $('#man-order-items tbody').innerHTML = '<tr id="man-empty-row"><td colspan="6" style="text-align:center;" class="muted">Zatiaľ neboli pridané žiadne položky.</td></tr>';
-              $('#man-cust-id').value = '';
-              $('#man-cust-name').value = '';
-              $('#man-cust-addr').value = '';
-              $('#man-cust-contact').value = '';
-              $('#man-cust-is-registered').value = '0';
-              $('#man-order-note').value = '';
-              if(plContainer) plContainer.style.display = 'none';
-              activePricelistItems = {};
-              
-              if(typeof loadManualOrderHistory === 'function') loadManualOrderHistory();
-              if(typeof loadB2B === 'function') loadB2B();
-
-          } catch(e) {
-              showStatus("Chyba odoslania: " + e.message, true);
-          } finally {
-              submitBtn.disabled = false;
-              submitBtn.innerHTML = '<i class="fas fa-check-circle"></i> Vytvoriť a odoslať objednávku';
-          }
-      };
-  }
+      }
 
   // Globálna funkcia volaná priamo z tlačidla v rozbalenom cenníku
   window.addFromPricelistGrid = function(p) {
@@ -3517,5 +3625,6 @@ window.printExpeditionBreakdown = function() {
   }
 
   boot();
+  }
 })(window, document);
 

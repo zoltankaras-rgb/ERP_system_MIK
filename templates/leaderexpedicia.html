@@ -404,11 +404,39 @@
         </div>
     </div>
     <div class="card-body">
-      <div class="form-group product-search-wrapper" style="margin-bottom:15px;">
-          <label style="font-weight:bold;">Pridať položku ručne (ak nie je v cenníku)</label>
-          <input id="man-product-search" class="form-control" placeholder="Začnite písať..." autocomplete="off">
-          <div id="man-product-results" class="product-search-results"></div>
-      </div>
+      <div style="background: #e0f2fe; padding: 20px; border-radius: 8px; border: 2px solid #7dd3fc; margin-bottom: 20px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);">
+    <h4 style="margin-top:0; color: #0369a1; font-size:1.2rem; margin-bottom:15px;"><i class="fas fa-bolt text-warning"></i> Rýchle nahadzovanie položiek (Klávesnica / Skener)</h4>
+    <div style="display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap;">
+        
+        <div style="flex: 3; position: relative; min-width: 250px;">
+            <label style="font-weight:bold; color: #0284c7;">EAN alebo Názov <small>(Potvrďte Enterom)</small></label>
+            <input id="fast-ean" class="form-control" placeholder="Naskenujte kód..." autocomplete="off" style="font-size: 1.4rem; padding: 12px; border: 2px solid #38bdf8; font-weight:bold;">
+            <div id="fast-search-results" class="product-search-results" style="top: 100%; font-size: 1.1rem; max-height: 400px;"></div>
+        </div>
+
+        <div style="flex: 1; min-width: 120px;">
+            <label style="font-weight:bold; color: #0284c7;">Množstvo</label>
+            <input id="fast-qty" type="number" step="0.001" class="form-control" placeholder="0.00" style="font-size: 1.4rem; padding: 12px; border: 2px solid #38bdf8; font-weight: bold; color: #0f172a; text-align:center;">
+        </div>
+
+        <div style="flex: 1; max-width: 100px;">
+            <label style="font-weight:bold; color: #0284c7;">MJ</label>
+            <select id="fast-mj" class="form-control" style="font-size: 1.4rem; padding: 12px; border: 2px solid #38bdf8; height: 54px;">
+                <option value="kg">kg</option>
+                <option value="ks">ks</option>
+            </select>
+        </div>
+
+        <div style="flex: 1; min-width: 120px;">
+            <label style="font-weight:bold; color: #0284c7;">Cena</label>
+            <input id="fast-price" type="number" step="0.01" class="form-control" placeholder="0.00" style="font-size: 1.4rem; padding: 12px; border: 2px solid #38bdf8; font-weight: bold; color: #16a34a; text-align:center;">
+        </div>
+
+        <div>
+            <button id="fast-add-btn" class="btn btn-primary" style="padding: 12px 25px; font-size: 1.4rem; height: 54px;"><i class="fas fa-plus"></i></button>
+        </div>
+    </div>
+</div>
 
       <table id="man-order-items" class="tbl" style="width:100%; margin-bottom:15px;">
         <thead style="background:#f1f5f9;">
