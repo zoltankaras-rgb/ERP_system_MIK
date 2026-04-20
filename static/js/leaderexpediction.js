@@ -2955,7 +2955,7 @@ window.printDailySummary = async function() {
       const empty = $('#man-empty-row');
       if(empty) empty.remove();
 
-      const tr = doc.createElement('tr');
+      const tr = document.createElement('tr');
       tr.dataset.ean = p.ean;
       tr.dataset.name = p.name;
       tr.dataset.dph = p.dph;
@@ -2963,27 +2963,48 @@ window.printDailySummary = async function() {
       const qtyStr = initialQty > 0 ? initialQty.toFixed(2) : "0.00";
       const priceStr = p.price !== undefined ? p.price.toFixed(2) : "0.00";
 
+      // Zväčšené polia a krajší dizajn
       tr.innerHTML = `
-          <td>${escapeHtml(p.ean)}</td>
-          <td><strong>${escapeHtml(p.name)}</strong><br><small style="color:#666">DPH: ${p.dph}%</small></td>
-          <td><input type="number" class="form-control mo-qty" step="0.01" value="${qtyStr}" style="padding:6px;width:100%"></td>
+          <td style="vertical-align:middle; font-size:1.1rem; color:#475569;">${escapeHtml(p.ean)}</td>
+          <td style="vertical-align:middle; font-size:1.1rem;"><strong>${escapeHtml(p.name)}</strong><br><small style="color:#94a3b8">DPH: ${p.dph}%</small></td>
+          <td><input type="number" class="form-control mo-qty" step="0.01" value="${qtyStr}" style="padding:10px; font-size:1.2rem; font-weight:bold; width:100%; text-align:center;"></td>
           <td>
-            <select class="form-control mo-unit" style="padding:6px;width:100%">
+            <select class="form-control mo-unit" style="padding:10px; font-size:1.1rem; width:100%">
                 <option value="kg" ${p.mj==='kg'?'selected':''}>kg</option>
                 <option value="ks" ${p.mj==='ks'?'selected':''}>ks</option>
             </select>
           </td>
-          <td><input type="number" class="form-control mo-price" step="0.01" value="${priceStr}" style="padding:6px;width:100%"></td>
-          <td style="text-align:right;"><button class="btn btn-sm btn-danger mo-del">✖</button></td>
+          <td><input type="number" class="form-control mo-price" step="0.01" value="${priceStr}" style="padding:10px; font-size:1.2rem; font-weight:bold; color:#16a34a; width:100%; text-align:center;"></td>
+          <td style="text-align:right; vertical-align:middle;"><button class="btn btn-danger mo-del" style="padding:10px 15px; font-size:1.1rem;"><i class="fas fa-trash"></i></button></td>
       `;
 
       tbody.insertBefore(tr, tbody.firstChild);
+      
+      const qtyInput = tr.querySelector('.mo-qty');
+      const priceInput = tr.querySelector('.mo-price');
+      
+      // Podpora Enteru aj priamo v tabuľke (pre opravy rukou)
+      qtyInput.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') { e.preventDefault(); priceInput.focus(); priceInput.select(); }
+      });
+      priceInput.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') {
+              e.preventDefault();
+              const mainEan = document.getElementById('fast-ean');
+              if (mainEan) { mainEan.focus(); mainEan.select(); }
+          }
+      });
+
       tr.querySelector('.mo-del').onclick = () => {
           tr.remove();
-          if(!tbody.children.length) tbody.innerHTML = '<tr id="man-empty-row"><td colspan="6" style="text-align:center;" class="muted">Zatiaľ neboli pridané žiadne položky.</td></tr>';
+          if(!tbody.children.length) tbody.innerHTML = '<tr id="man-empty-row"><td colspan="6" style="text-align:center; padding: 20px;" class="muted">Zatiaľ neboli pridané žiadne položky.</td></tr>';
       };
       
-      if(initialQty === 0) tr.querySelector('.mo-qty').select();
+      // Ak bola funkcia zavolaná bez počiatočnej váhy, automaticky vyzve na jej zadanie
+      if(initialQty === 0) {
+          qtyInput.select();
+          qtyInput.focus();
+      }
   }
 
   // Funkcia na načítanie histórie manuálnych objednávok
