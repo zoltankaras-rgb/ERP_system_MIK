@@ -1238,7 +1238,62 @@ def leader_b2b_search_products():
         })
         
     return jsonify(out)
+@leader_bp.route('/catalog/products/delete', methods=['DELETE'])
+@login_required(role=('veduci','admin'))
+def leader_delete_product():
+    """Odstráni produkt z centrálneho katalógu"""
+    ean = request.args.get('ean')
+    if not ean:
+        return jsonify({'error': 'Chýba EAN.'}), 400
+    
+    try:
+        db_connector.execute_query("DELETE FROM produkty WHERE ean = %s", (ean,), fetch='none')
+        return jsonify({'message': 'Produkt bol úspešne odstránený z katalógu.'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
+@leader_bp.route('/catalog/products/stock_card', methods=['GET'])
+@login_required(role=('veduci','admin'))
+def leader_product_stock_card():
+    """Vráti detailné skladové informácie o produkte"""
+    ean = request.args.get('ean')
+    sql = """
+        SELECT nazov_vyrobku as name, mj as unit, 
+               COALESCE(aktualny_sklad_finalny_kg, 0) as stock,
+               COALESCE(rezervovane_objednavky_kg, 0) as reserved
+        FROM produkty WHERE ean = %s
+    """
+    row = db_connector.execute_query(sql, (ean,), fetch='one')
+    if not row:
+        return jsonify({'error': 'Produkt sa nenašiel.'}), 404
+    
+    return jsonify({
+        'name': row['name'],
+        'unit': row['unit'],
+        'stock': float(row['stock']),
+        'reserved': float(row['reserved'])
+    })
+
+@leader_bp.route('/catalog/products/history', methods=['GET'])
+@login_required(role=('veduci','admin'))
+def leader_product_history():
+    """Vráti históriu pohybov pre konkrétny EAN zo skladového denníka"""
+    ean = request.args.get('ean')
+    # Hľadáme v skladovom denníku (upravte názov tabuľky podľa vašej schémy, napr. skladovy_dennik alebo stock_logs)
+    sql = """
+        SELECT created_at as timestamp, typ_pohybu as action, 
+               mnozstvo as `change`, user_name as user, poznamka as note
+        FROM skladovy_dennik 
+        WHERE ean = %s 
+        ORDER BY created_at DESC LIMIT 50
+    """
+    try:
+        rows = db_connector.execute_query(sql, (ean,), fetch='all') or []
+        for r in rows:
+            r['change'] = float(r['change'] or 0)
+        return jsonify(rows)
+    except:
+        return jsonify([]) # Ak tabuľka denníka neexistuje, vrátime prázdny zoznam
 # =============================================================================
 # ZRKADLENIE LOGISTIKY Z KANCELÁRIE (Volá priamo funkcie b2b_handler.py)
 # =============================================================================

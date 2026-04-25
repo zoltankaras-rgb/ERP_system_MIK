@@ -3688,17 +3688,28 @@ window.printExpeditionBreakdown = function() {
           return;
       }
 
-      tbody.innerHTML = filtered.slice(0, 150).map(p => `
+     tbody.innerHTML = filtered.slice(0, 150).map(p => `
           <tr style="border-bottom:1px solid #f1f5f9;">
               <td style="font-family:monospace; font-weight:bold; color:#0369a1;">${escapeHtml(p.ean)}</td>
               <td style="font-weight:600; color:#0f172a;">${escapeHtml(p.nazov_vyrobku)}</td>
               <td><span style="background:#e2e8f0; padding:2px 6px; border-radius:4px; font-size:0.85rem; color:#475569;">${escapeHtml(p.predajna_kategoria || 'Nezaradené')}</span></td>
               <td>${escapeHtml(p.mj)}</td>
               <td>${p.dph}%</td>
-              <td style="text-align:right;">
-                  <button class="btn btn-sm btn-primary" onclick='window.showProductEditor(${JSON.stringify(p).replace(/'/g, "&apos;")})'>
-                      <i class="fas fa-edit"></i> Upraviť
-                  </button>
+              <td style="text-align:right; white-space:nowrap;">
+                  <div style="display:flex; gap:5px; justify-content:flex-end;">
+                      <button class="btn btn-sm btn-light" onclick="window.showProductStockCard('${p.ean}')" title="Skladová karta">
+                          <i class="fas fa-warehouse"></i>
+                      </button>
+                      <button class="btn btn-sm btn-light" onclick="window.showProductHistory('${p.ean}')" title="História">
+                          <i class="fas fa-history"></i>
+                      </button>
+                      <button class="btn btn-sm btn-primary" onclick='window.showProductEditor(${JSON.stringify(p).replace(/'/g, "&apos;")})'>
+                          <i class="fas fa-edit"></i>
+                      </button>
+                      <button class="btn btn-sm btn-danger" onclick="window.deleteLeaderProduct('${p.ean}', '${escapeHtml(p.nazov_vyrobku)}')" title="Odstrániť">
+                          <i class="fas fa-trash"></i>
+                      </button>
+                  </div>
               </td>
           </tr>
       `).join('');
@@ -3791,6 +3802,79 @@ window.printExpeditionBreakdown = function() {
       } catch(e) {
           showStatus('Chyba: ' + e.message, true);
       }
+  };
+  // Odstránenie produktu
+  window.deleteLeaderProduct = async function(ean, name) {
+      if (!confirm(`Naozaj chcete odstrániť produkt "${name}" (EAN: ${ean}) z centrálneho katalógu?`)) return;
+      
+      try {
+          showStatus('Odstraňujem...', false);
+          await apiRequest(`/api/leader/catalog/products/delete?ean=${ean}`, { method: 'DELETE' });
+          showStatus('Produkt bol odstránený.', false);
+          window._cachedProducts = null;
+          window.loadLeaderProducts();
+      } catch(e) {
+          showStatus('Chyba: ' + e.message, true);
+      }
+  };
+
+  // Zobrazenie skladovej karty (simulácia erp_admin.js)
+  window.showProductStockCard = async function(ean) {
+      window.openLeaderModal('<div style="padding:20px; text-align:center;"><i class="fas fa-spinner fa-spin fa-2x"></i><br>Načítavam skladovú kartu...</div>');
+      try {
+          const data = await apiRequest(`/api/leader/catalog/products/stock_card?ean=${ean}`);
+          const html = `
+              <div style="padding-bottom:10px; border-bottom:2px solid #e2e8f0; margin-bottom:15px; display:flex; justify-content:space-between; align-items:center;">
+                  <h3 style="margin:0; color:#1e293b;">📦 Skladová karta: ${escapeHtml(data.name)}</h3>
+                  <span style="font-family:monospace; font-weight:bold; background:#f1f5f9; padding:5px 10px; border-radius:5px;">EAN: ${ean}</span>
+              </div>
+              <div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px; margin-bottom:20px;">
+                  <div style="background:#f8fafc; padding:15px; border-radius:8px; border:1px solid #e2e8f0;">
+                      <div class="muted">Aktuálny stav na sklade</div>
+                      <div style="font-size:2rem; font-weight:800; color:#0369a1;">${Number(data.stock).toFixed(2)} ${data.unit}</div>
+                  </div>
+                  <div style="background:#f8fafc; padding:15px; border-radius:8px; border:1px solid #e2e8f0;">
+                      <div class="muted">Rezervované v objednávkach</div>
+                      <div style="font-size:2rem; font-weight:800; color:#f59e0b;">${Number(data.reserved).toFixed(2)} ${data.unit}</div>
+                  </div>
+              </div>
+              <div style="text-align:right;">
+                  <button class="btn btn-secondary" onclick="window.closeLeaderModal()">Zatvoriť</button>
+              </div>
+          `;
+          window.openLeaderModal(html);
+      } catch(e) { window.openLeaderModal(`<div class="error">Chyba: ${e.message}</div>`); }
+  };
+
+  // Zobrazenie histórie (simulácia erp_admin.js)
+  window.showProductHistory = async function(ean) {
+      window.openLeaderModal('<div style="padding:20px; text-align:center;"><i class="fas fa-spinner fa-spin fa-2x"></i><br>Načítavam históriu pohybov...</div>');
+      try {
+          const logs = await apiRequest(`/api/leader/catalog/products/history?ean=${ean}`);
+          let rowsHtml = logs.map(l => `
+              <tr>
+                  <td style="font-size:0.85rem;">${new Date(l.timestamp).toLocaleString('sk-SK')}</td>
+                  <td style="font-weight:600;">${escapeHtml(l.action)}</td>
+                  <td class="${l.change < 0 ? 'loss' : 'profit'}">${l.change > 0 ? '+' : ''}${l.change.toFixed(2)}</td>
+                  <td>${escapeHtml(l.user || 'Systém')}</td>
+                  <td class="muted" style="font-size:0.8rem;">${escapeHtml(l.note || '')}</td>
+              </tr>
+          `).join('');
+
+          const html = `
+              <h3 style="border-bottom:2px solid #eee; padding-bottom:10px;">🕒 História pohybu a zmien (EAN: ${ean})</h3>
+              <div class="table-container" style="max-height:400px; overflow-y:auto; margin-bottom:15px;">
+                  <table class="tbl" style="width:100%;">
+                      <thead>
+                          <tr><th>Dátum</th><th>Akcia</th><th>Zmena</th><th>Používateľ</th><th>Poznámka</th></tr>
+                      </thead>
+                      <tbody>${rowsHtml || '<tr><td colspan="5" class="text-center muted">Žiadne záznamy.</td></tr>'}</tbody>
+                  </table>
+              </div>
+              <div style="text-align:right;"><button class="btn btn-secondary" onclick="window.closeLeaderModal()">Zatvoriť</button></div>
+          `;
+          window.openLeaderModal(html);
+      } catch(e) { window.openLeaderModal(`<div class="error">Chyba: ${e.message}</div>`); }
   };
  function boot(){
     $$('.sidebar-link').forEach(a=>{
