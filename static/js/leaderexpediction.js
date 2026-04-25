@@ -4076,22 +4076,75 @@ window._se_render_table = function() {
       } catch(e) { window.openLeaderModal(`<div class="error">Chyba: ${e.message}</div>`); }
   };
 
-  window.addLeaderOrderNote = async function(orderId, customerName) {
-    const note = prompt(`Zadajte jednorázovú poznámku pre objednávku ${customerName}:`);
+  // 1. Zobrazenie štýlového modálneho okna namiesto obyčajného promptu
+window.addLeaderOrderNote = function(orderId, customerName) {
+    const html = `
+        <div style="padding-bottom:15px; border-bottom:2px solid #fde68a; margin-bottom:20px;">
+            <h3 style="margin:0; color:#b45309;"><i class="fas fa-sticky-note"></i> Jednorázová poznámka k objednávke</h3>
+            <div style="color:#64748b; font-size:1rem; margin-top:5px;">
+                Odberateľ: <strong style="color:#1e293b;">${escapeHtml(customerName)}</strong>
+            </div>
+        </div>
+        
+        <div class="form-group" style="margin-bottom:20px;">
+            <label style="font-weight:bold; color:#1e293b; margin-bottom:8px; display:block;">
+                Text poznámky <span class="muted" style="font-weight:normal;">(Zobrazí sa na TV tabuli pri váhe)</span>:
+            </label>
+            <textarea id="tv-single-note-text" class="form-control" rows="4" 
+                placeholder="Napr. Nabaliť do čistých prepraviek..." 
+                style="width:100%; border:2px solid #fbd58e; border-radius:8px; padding:12px; font-size:1.1rem; resize:vertical;"></textarea>
+        </div>
+        
+        <div style="display:flex; justify-content:flex-end; gap:10px; border-top:1px solid #e2e8f0; padding-top:15px;">
+            <button class="btn btn-secondary" onclick="window.closeLeaderModal()" style="padding:10px 20px;">Zrušiť</button>
+            <button id="btn-save-single-note" class="btn btn-warning" onclick="window.submitLeaderOrderNote('${escapeHtml(orderId)}')" 
+                style="padding:10px 25px; font-weight:bold; color:#000; background:#f59e0b; border:none; box-shadow:0 2px 4px rgba(245, 158, 11, 0.3);">
+                <i class="fas fa-paper-plane"></i> Uložiť a poslať na TV
+            </button>
+        </div>
+    `;
     
-    if (note === null) return; // Používateľ zrušil
+    // Otvorenie modálneho okna
+    window.openLeaderModal(html);
+    
+    // Automatické nastavenie kurzora do textového poľa
+    setTimeout(() => {
+        const ta = document.getElementById('tv-single-note-text');
+        if (ta) ta.focus();
+    }, 100);
+};
 
+// 2. Samotné uloženie dát na server
+window.submitLeaderOrderNote = async function(orderId) {
+    const noteInput = document.getElementById('tv-single-note-text');
+    const btn = document.getElementById('btn-save-single-note');
+    if (!noteInput || !btn) return;
+    
+    const note = noteInput.value.trim();
+    
     try {
-        showStatus('Ukladám poznámku...', false);
+        // Vizuálna odozva tlačidla počas ukladania
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Ukladám...';
+        btn.disabled = true;
+        showStatus('Odosielam poznámku...', false);
+
         const res = await apiRequest('/api/leader/b2b/save-order-note', {
             method: 'POST',
             body: { order_id: orderId, note: note }
         });
+        
         showStatus(res.message, false);
-        // Voliteľne obnoviť tabuľku
-        if (window.loadB2BOrders) window.loadB2BOrders();
+        window.closeLeaderModal();
+        
+        // Znovu načítať B2B tabuľku
+        if (typeof window.loadB2B === 'function') {
+            window.loadB2B();
+        }
     } catch(e) {
         showStatus('Chyba: ' + e.message, true);
+        // Vrátenie tlačidla do pôvodného stavu v prípade chyby
+        btn.innerHTML = '<i class="fas fa-paper-plane"></i> Uložiť a poslať na TV';
+        btn.disabled = false;
     }
 };
  function boot(){
