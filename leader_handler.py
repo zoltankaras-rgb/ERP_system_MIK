@@ -1293,17 +1293,16 @@ def leader_delete_product():
 @leader_bp.route('/catalog/products/stock_card', methods=['GET'])
 @login_required(role=('veduci','admin'))
 def leader_product_stock_card():
-    """Vráti detailné skladové informácie pre Vedúcu expedície, vrátane REÁLNYCH VÁH Z TERMINÁLU"""
+    """Vráti detailné skladové informácie pre Vedúcu expedície, vrátane REÁLNYCH VÁH Z TERMINÁLU a dynamických rezervácií"""
     ean = request.args.get('ean')
     if not ean: 
         return jsonify({"error": "Chýba EAN"}), 400
 
     try:
-        # 1. Základné info o produkte
+        # 1. Základné info o produkte (z tabuľky produkty, bez neexistujúceho stĺpca rezervácií)
         prod_sql = """
             SELECT ean, nazov_vyrobku as name, mj, 
                    COALESCE(aktualny_sklad_finalny_kg, 0) as stock,
-                   COALESCE(rezervovane_objednavky_kg, 0) as reserved,
                    typ_polozky
             FROM produkty WHERE ean = %s
         """
@@ -1311,10 +1310,26 @@ def leader_product_stock_card():
         if not prod_row:
             return jsonify({"error": "Produkt s týmto EAN neexistuje v skladovej evidencii."}), 404
         
-        # Zistenie, či ide o vlastný výrobok (pre zobrazenie tabuľky výroby)
         is_made = str(prod_row.get('typ_polozky', '')).upper().startswith('VÝROBOK')
 
-        # 2. Posledné B2B predaje -> TOTO ŤAHÁ DÁTA PRIAMO Z TERMINÁLU (dodane_mnozstvo)
+        # 2. DYNAMICKÝ VÝPOČET REZERVÁCIÍ (Spočíta tovar z aktívnych objednávok)
+        res_b2b = db_connector.execute_query("""
+            SELECT COALESCE(SUM(p.mnozstvo), 0) as res 
+            FROM b2b_objednavky_polozky p
+            JOIN b2b_objednavky o ON p.objednavka_id = o.id
+            WHERE p.ean_produktu = %s AND o.stav NOT IN ('Hotová', 'Expedovaná', 'Zrušená', 'Vybavená')
+        """, (ean,), fetch='one')
+        
+        res_b2c = db_connector.execute_query("""
+            SELECT COALESCE(SUM(p.mnozstvo), 0) as res 
+            FROM b2c_objednavky_polozky p
+            JOIN b2c_objednavky o ON p.objednavka_id = o.id
+            WHERE p.ean_produktu = %s AND o.stav NOT IN ('Hotová', 'Expedovaná', 'Zrušená', 'Vybavená')
+        """, (ean,), fetch='one')
+
+        total_reserved = float((res_b2b['res'] if res_b2b else 0) + (res_b2c['res'] if res_b2c else 0))
+
+        # 3. Posledné B2B predaje (Ťahá aj reálne váhy dodane_mnozstvo)
         b2b_sql = """
             SELECT 
                 o.datum_vypracovania as date, 
@@ -1322,14 +1337,14 @@ def leader_product_stock_card():
                 COALESCE(p.dodane_mnozstvo, p.mnozstvo) as qty, 
                 p.mj
             FROM b2b_objednavky_polozky p
-            JOIN b2b_objednavky o ON o.id = p.objednavka_id
-            WHERE p.ean_produktu = %s AND o.stav = 'Hotová'
+            JOIN b2b_objednavky o ON p.objednavka_id = o.id
+            WHERE p.ean_produktu = %s AND o.stav IN ('Hotová', 'Expedovaná', 'Vybavená')
             ORDER BY o.datum_vypracovania DESC 
             LIMIT 15
         """
         b2b_rows = db_connector.execute_query(b2b_sql, (ean,), fetch='all') or []
 
-        # 3. Posledné B2C predaje
+        # 4. Posledné B2C predaje
         b2c_sql = """
             SELECT 
                 o.datum_objednavky as date, 
@@ -1337,14 +1352,14 @@ def leader_product_stock_card():
                 p.mnozstvo as qty, 
                 p.mj
             FROM b2c_objednavky_polozky p
-            JOIN b2c_objednavky o ON o.id = p.objednavka_id
+            JOIN b2c_objednavky o ON p.objednavka_id = o.id
             WHERE p.ean_produktu = %s AND o.stav NOT IN ('Zrušená')
             ORDER BY o.datum_objednavky DESC 
             LIMIT 15
         """
         b2c_rows = db_connector.execute_query(b2c_sql, (ean,), fetch='all') or []
 
-        # 4. Posledná výroba (ak je to výrobok)
+        # 5. Posledná výroba (ak je to výrobok)
         prod_hist = []
         if is_made:
             prod_hist_sql = """
@@ -1366,18 +1381,18 @@ def leader_product_stock_card():
             except Exception as e:
                 print("Chyba vyroby:", e)
 
-        # Formátovanie B2B a B2C dát
+        # Formátovanie B2B a B2C dát pre JSON výstup
         b2b_list = [{"date": str(r['date']) if r['date'] else '', "customer": r['customer'], "qty": float(r['qty']), "mj": r['mj']} for r in b2b_rows]
         b2c_list = [{"date": str(r['date']) if r['date'] else '', "order_no": r['order_no'], "qty": float(r['qty']), "mj": r['mj']} for r in b2c_rows]
 
-        # Vrátenie presnej štruktúry, ktorú frontend očakáva
+        # Vrátenie presnej štruktúry pre frontend
         return jsonify({
             "product": {
                 "ean": prod_row['ean'],
                 "name": prod_row['name'],
                 "mj": prod_row['mj'] or 'kg',
                 "stock": float(prod_row['stock']),
-                "reserved": float(prod_row['reserved']),
+                "reserved": total_reserved,
                 "is_made": is_made
             },
             "b2b": b2b_list,
