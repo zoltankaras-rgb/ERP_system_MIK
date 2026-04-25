@@ -153,18 +153,25 @@ def leader_catalog_names():
 @leader_bp.get('/catalog/products')
 @login_required(role=('veduci','admin'))
 def leader_get_products():
-    """Vráti katalóg produktov vrátane aktuálneho stavu skladu"""
+    """Vráti katalóg produktov, stav skladu a dynamicky vypočítanú priemernú cenu z predajov"""
     sql = """
-        SELECT ean, nazov_vyrobku, predajna_kategoria, mj, 
-               COALESCE(dph, 20) as dph,
-               COALESCE(aktualny_sklad_finalny_kg, 0) as stock 
-        FROM produkty 
-        ORDER BY nazov_vyrobku
+        SELECT p.ean, p.nazov_vyrobku, p.predajna_kategoria, p.mj, 
+               COALESCE(p.dph, 20) as dph,
+               COALESCE(p.aktualny_sklad_finalny_kg, 0) as stock,
+               (
+                   SELECT COALESCE(AVG(pol.cena_bez_dph), 0)
+                   FROM b2b_objednavky_polozky pol
+                   JOIN b2b_objednavky obj ON obj.id = pol.objednavka_id
+                   WHERE pol.ean_produktu = p.ean AND obj.stav NOT IN ('Zrušená')
+               ) as avg_price
+        FROM produkty p
+        ORDER BY p.nazov_vyrobku
     """
     rows = db_connector.execute_query(sql, fetch='all') or []
     for r in rows:
         r['dph'] = float(r.get('dph') or 20)
         r['stock'] = float(r.get('stock') or 0)
+        r['avg_price'] = float(r.get('avg_price') or 0)
     return jsonify(rows)
 
 @leader_bp.route('/catalog/products/sales_explorer', methods=['GET'])

@@ -3698,6 +3698,7 @@ window.printExpeditionBreakdown = function() {
               <td style="font-weight:600; color:#0f172a;">${escapeHtml(p.nazov_vyrobku)}</td>
               <td><span style="background:#e2e8f0; padding:2px 6px; border-radius:4px; font-size:0.85rem; color:#475569;">${escapeHtml(p.predajna_kategoria || 'Nezaradené')}</span></td>
               <td style="text-align:right; font-weight:bold; color:${p.stock <= 0 ? '#ef4444' : '#10b981'};">${Number(p.stock || 0).toFixed(2)}</td>
+              <td style="text-align:right; font-weight:bold; color:#d97706;" title="Priemerná B2B predajná cena bez DPH">${Number(p.avg_price || 0).toFixed(2)} €</td>
               <td>${escapeHtml(p.mj)}</td>
               <td>${p.dph}%</td>
               <td style="text-align:right; white-space:nowrap;">
