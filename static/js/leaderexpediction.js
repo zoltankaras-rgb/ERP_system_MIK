@@ -3655,6 +3655,7 @@ window.printExpeditionBreakdown = function() {
   // SKLADOVÉ KARTY (Centrálny katalóg produktov pre vedúcu)
   // =================================================================
   window._cachedProducts = null;
+  window._cachedCategories = [];
 
   window.loadLeaderProducts = async function() {
       const tbody = document.getElementById('stock-cards-tbody');
@@ -3664,6 +3665,10 @@ window.printExpeditionBreakdown = function() {
           tbody.innerHTML = '<tr><td colspan="6" class="muted text-center" style="padding:20px;"><i class="fas fa-spinner fa-spin"></i> Načítavam katalóg...</td></tr>';
           try {
               window._cachedProducts = await apiRequest('/api/leader/catalog/products');
+              // Extrakcia unikátnych predajných kategórií
+              const catSet = new Set();
+              window._cachedProducts.forEach(p => { if (p.predajna_kategoria) catSet.add(p.predajna_kategoria); });
+              window._cachedCategories = Array.from(catSet).sort();
           } catch(e) {
               tbody.innerHTML = `<tr><td colspan="6" class="text-center" style="color:red; padding:20px;">Chyba: ${e.message}</td></tr>`;
               return;
@@ -3725,8 +3730,11 @@ window.printExpeditionBreakdown = function() {
 
           <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:15px; margin-bottom:25px; background:#f8fafc; padding:15px; border-radius:6px; border:1px solid #e2e8f0;">
               <div class="form-group">
-                  <label style="font-weight:bold;">Kategória</label>
-                  <input type="text" id="pe-kat" class="form-control" style="width:100%;" value="${escapeHtml(kat)}" placeholder="Napr. bravčové mäso">
+                  <label style="font-weight:bold;">Predajná Kategória</label>
+                  <select id="pe-kat" class="form-control" style="width:100%;">
+                      <option value="">-- Nezaradené --</option>
+                      ${window._cachedCategories.map(c => `<option value="${escapeHtml(c)}" ${kat === c ? 'selected' : ''}>${escapeHtml(c)}</option>`).join('')}
+                  </select>
               </div>
               <div class="form-group">
                   <label style="font-weight:bold;">MJ</label>
