@@ -881,17 +881,25 @@ def tv_board_live_kpi():
 @login_required(role=('veduci','admin'))
 def get_tv_board_customers():
     """Vráti zoznam registrovaných aj manuálnych B2B zákazníkov a globálny oznam."""
-    _ensure_manual_customers_table()  # <--- TENTO RIADOK PRIDAJTE SEM
+    _ensure_manual_customers_table()
     
     conn = _get_conn()
     try:
         cur = conn.cursor(dictionary=True)
-        # UNION spojí registrovaných (B2B) a manuálnych zákazníkov do jedného zoznamu
+        # CAST na CHAR zjednotí collation (kódovanie) a zabráni chybe "Illegal mix of collations"
         sql = """
-            SELECT zakaznik_id, nazov_firmy, stala_poznamka_expedicia, 'reg' as source 
+            SELECT 
+                CAST(zakaznik_id AS CHAR) as zakaznik_id, 
+                CAST(nazov_firmy AS CHAR) as nazov_firmy, 
+                CAST(stala_poznamka_expedicia AS CHAR) as stala_poznamka_expedicia, 
+                'reg' as source 
             FROM b2b_zakaznici WHERE typ='B2B'
             UNION ALL
-            SELECT interne_cislo as zakaznik_id, nazov_firmy, stala_poznamka_expedicia, 'man' as source 
+            SELECT 
+                CAST(interne_cislo AS CHAR) as zakaznik_id, 
+                CAST(nazov_firmy AS CHAR) as nazov_firmy, 
+                CAST(stala_poznamka_expedicia AS CHAR) as stala_poznamka_expedicia, 
+                'man' as source 
             FROM b2b_manual_zakaznici
             ORDER BY nazov_firmy
         """
@@ -906,7 +914,8 @@ def get_tv_board_customers():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
     finally:
-        conn.close()
+        if conn:
+            conn.close()
 
 @leader_bp.route('/tv_board/global_note', methods=['POST'])
 @login_required(role=('veduci','admin'))
