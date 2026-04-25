@@ -876,10 +876,13 @@ def tv_board_live_kpi():
         'odhad_konca': odhad_konca,
         'target_date': t_date
     })
+
 @leader_bp.route('/tv_board/customers', methods=['GET'])
 @login_required(role=('veduci','admin'))
 def get_tv_board_customers():
     """Vráti zoznam registrovaných aj manuálnych B2B zákazníkov a globálny oznam."""
+    _ensure_manual_customers_table()  # <--- TENTO RIADOK PRIDAJTE SEM
+    
     conn = _get_conn()
     try:
         cur = conn.cursor(dictionary=True)
@@ -928,6 +931,8 @@ def save_global_note():
 @login_required(role=('veduci','admin'))
 def save_customer_note():
     """Uloží stálu požiadavku. Skúsi obe tabuľky (registrovaných aj manuálnych)."""
+    _ensure_manual_customers_table()  # <--- TENTO RIADOK PRIDAJTE SEM
+    
     data = request.json
     zakaznik_id = data.get('zakaznik_id')
     note = data.get('note', '')
