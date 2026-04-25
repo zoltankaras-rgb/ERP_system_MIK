@@ -147,6 +147,66 @@ def leader_catalog_names():
     return jsonify(result)
 
 # =============================================================================
+# Správa Katalógu Produktov (Skladové Karty)
+# =============================================================================
+
+@leader_bp.get('/catalog/products')
+@login_required(role=('veduci','admin'))
+def leader_get_products():
+    """Vráti kompletný katalóg produktov pre Skladové karty vedúcej"""
+    sql = """
+        SELECT ean, nazov_vyrobku, predajna_kategoria, mj, COALESCE(dph, 20) as dph 
+        FROM produkty 
+        ORDER BY nazov_vyrobku
+    """
+    rows = db_connector.execute_query(sql, fetch='all') or []
+    # Zaistíme, že DPH pôjde na frontend ako číslo
+    for r in rows:
+        r['dph'] = float(r.get('dph') or 20)
+    return jsonify(rows)
+
+@leader_bp.post('/catalog/products/save')
+@login_required(role=('veduci','admin'))
+def leader_save_product():
+    """Vytvorí alebo upraví produkt v centrálnom katalógu"""
+    data = request.json or {}
+    old_ean = data.get('old_ean')
+    ean = data.get('ean', '').strip()
+    nazov = data.get('nazov_vyrobku', '').strip()
+    kat = data.get('predajna_kategoria', 'Nezaradené').strip()
+    mj = data.get('mj', 'kg').strip()
+    dph = float(data.get('dph', 20))
+
+    if not ean or not nazov:
+        return jsonify({'error': 'EAN a Názov sú povinné.'}), 400
+
+    conn = _get_conn()
+    try:
+        cur = conn.cursor()
+        if old_ean:
+            cur.execute("""
+                UPDATE produkty 
+                SET ean=%s, nazov_vyrobku=%s, predajna_kategoria=%s, mj=%s, dph=%s 
+                WHERE ean=%s
+            """, (ean, nazov, kat, mj, dph, old_ean))
+        else:
+            cur.execute("""
+                INSERT INTO produkty (ean, nazov_vyrobku, predajna_kategoria, mj, dph) 
+                VALUES (%s, %s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE nazov_vyrobku=%s, predajna_kategoria=%s, mj=%s, dph=%s
+            """, (ean, nazov, kat, mj, dph, nazov, kat, mj, dph))
+            
+        conn.commit()
+        return jsonify({'message': 'Produkt bol úspešne uložený do databázy.'})
+    except Exception as e:
+        if conn: conn.rollback()
+        return jsonify({'error': f"Chyba databázy: {str(e)}"}), 500
+    finally:
+        if conn:
+            cur.close()
+            conn.close()
+
+# =============================================================================
 # B2B: zákazníci + cenníky
 # =============================================================================
 

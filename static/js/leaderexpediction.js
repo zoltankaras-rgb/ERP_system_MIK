@@ -3651,7 +3651,137 @@ window.printExpeditionBreakdown = function() {
       $('#tv-customer-note').value = c.stala_poznamka_expedicia || '';
       $('#btn-save-customer-note').disabled = false;
   }
-  
+  // =================================================================
+  // SKLADOVÉ KARTY (Centrálny katalóg produktov pre vedúcu)
+  // =================================================================
+  window._cachedProducts = null;
+
+  window.loadLeaderProducts = async function() {
+      const tbody = document.getElementById('stock-cards-tbody');
+      const q = (document.getElementById('stock-cards-search')?.value || '').toLowerCase().trim();
+
+      if (!window._cachedProducts) {
+          tbody.innerHTML = '<tr><td colspan="6" class="muted text-center" style="padding:20px;"><i class="fas fa-spinner fa-spin"></i> Načítavam katalóg...</td></tr>';
+          try {
+              window._cachedProducts = await apiRequest('/api/leader/catalog/products');
+          } catch(e) {
+              tbody.innerHTML = `<tr><td colspan="6" class="text-center" style="color:red; padding:20px;">Chyba: ${e.message}</td></tr>`;
+              return;
+          }
+      }
+
+      let filtered = window._cachedProducts;
+      if (q) {
+          filtered = filtered.filter(p => 
+              (p.nazov_vyrobku && p.nazov_vyrobku.toLowerCase().includes(q)) || 
+              (p.ean && String(p.ean).toLowerCase().includes(q))
+          );
+      }
+
+      if (filtered.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="6" class="muted text-center" style="padding:20px;">Nenašli sa žiadne produkty.</td></tr>';
+          return;
+      }
+
+      tbody.innerHTML = filtered.slice(0, 150).map(p => `
+          <tr style="border-bottom:1px solid #f1f5f9;">
+              <td style="font-family:monospace; font-weight:bold; color:#0369a1;">${escapeHtml(p.ean)}</td>
+              <td style="font-weight:600; color:#0f172a;">${escapeHtml(p.nazov_vyrobku)}</td>
+              <td><span style="background:#e2e8f0; padding:2px 6px; border-radius:4px; font-size:0.85rem; color:#475569;">${escapeHtml(p.predajna_kategoria || 'Nezaradené')}</span></td>
+              <td>${escapeHtml(p.mj)}</td>
+              <td>${p.dph}%</td>
+              <td style="text-align:right;">
+                  <button class="btn btn-sm btn-primary" onclick='window.showProductEditor(${JSON.stringify(p).replace(/'/g, "&apos;")})'>
+                      <i class="fas fa-edit"></i> Upraviť
+                  </button>
+              </td>
+          </tr>
+      `).join('');
+  };
+
+  window.showProductEditor = function(p) {
+      const isEdit = !!p;
+      const ean = p ? p.ean : '';
+      const nazov = p ? p.nazov_vyrobku : '';
+      const kat = p ? p.predajna_kategoria : '';
+      const mj = p ? p.mj : 'kg';
+      const dph = p ? p.dph : '20';
+
+      const html = `
+          <div style="padding-bottom:10px; border-bottom:2px solid #e2e8f0; margin-bottom:15px;">
+              <h3 style="margin:0; color:#1e293b;">${isEdit ? '✏️ Úprava produktu' : '➕ Nový produkt'}</h3>
+          </div>
+          <input type="hidden" id="pe-old-ean" value="${escapeHtml(ean)}">
+          
+          <div class="form-group" style="margin-bottom:15px;">
+              <label style="font-weight:bold; color:#0f172a;">EAN (Čiarový kód) *</label>
+              <input type="text" id="pe-ean" class="form-control" style="width:100%; font-family:monospace; font-size:1.1rem;" value="${escapeHtml(ean)}" placeholder="Napr. 280001">
+          </div>
+          
+          <div class="form-group" style="margin-bottom:15px;">
+              <label style="font-weight:bold; color:#0f172a;">Názov produktu *</label>
+              <input type="text" id="pe-nazov" class="form-control" style="width:100%; font-size:1.1rem;" value="${escapeHtml(nazov)}" placeholder="Presný názov výrobku...">
+          </div>
+
+          <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:15px; margin-bottom:25px; background:#f8fafc; padding:15px; border-radius:6px; border:1px solid #e2e8f0;">
+              <div class="form-group">
+                  <label style="font-weight:bold;">Kategória</label>
+                  <input type="text" id="pe-kat" class="form-control" style="width:100%;" value="${escapeHtml(kat)}" placeholder="Napr. bravčové mäso">
+              </div>
+              <div class="form-group">
+                  <label style="font-weight:bold;">MJ</label>
+                  <select id="pe-mj" class="form-control" style="width:100%;">
+                      <option value="kg" ${mj === 'kg' ? 'selected' : ''}>kg</option>
+                      <option value="ks" ${mj === 'ks' ? 'selected' : ''}>ks</option>
+                  </select>
+              </div>
+              <div class="form-group">
+                  <label style="font-weight:bold;">DPH (%)</label>
+                  <select id="pe-dph" class="form-control" style="width:100%;">
+                      <option value="20" ${dph == 20 ? 'selected' : ''}>20%</option>
+                      <option value="10" ${dph == 10 ? 'selected' : ''}>10%</option>
+                      <option value="0" ${dph == 0 ? 'selected' : ''}>0%</option>
+                  </select>
+              </div>
+          </div>
+
+          <div style="display:flex; justify-content:flex-end; gap:10px;">
+              <button class="btn btn-secondary" onclick="window.closeLeaderModal()" style="padding:10px 20px;">Zrušiť</button>
+              <button class="btn btn-success" onclick="window.saveLeaderProduct()" style="padding:10px 20px; font-weight:bold;"><i class="fas fa-save"></i> Uložiť produkt</button>
+          </div>
+      `;
+      window.openLeaderModal(html);
+  };
+
+  window.saveLeaderProduct = async function() {
+      const payload = {
+          old_ean: document.getElementById('pe-old-ean').value,
+          ean: document.getElementById('pe-ean').value.trim(),
+          nazov_vyrobku: document.getElementById('pe-nazov').value.trim(),
+          predajna_kategoria: document.getElementById('pe-kat').value.trim(),
+          mj: document.getElementById('pe-mj').value,
+          dph: document.getElementById('pe-dph').value
+      };
+
+      if (!payload.ean || !payload.nazov_vyrobku) {
+          return showStatus('EAN a Názov sú povinné!', true);
+      }
+
+      try {
+          showStatus('Ukladám...', false);
+          const res = await apiRequest('/api/leader/catalog/products/save', {
+              method: 'POST',
+              body: payload
+          });
+          showStatus(res.message, false);
+          window.closeLeaderModal();
+          
+          window._cachedProducts = null;
+          window.loadLeaderProducts();
+      } catch(e) {
+          showStatus('Chyba: ' + e.message, true);
+      }
+  };
  function boot(){
     $$('.sidebar-link').forEach(a=>{
       a.onclick = ()=>{
@@ -3682,6 +3812,7 @@ window.printExpeditionBreakdown = function() {
                 showStatus('Fakturačný modul sa nenačítal. Skúste obnoviť stránku.', true);
             }
         }
+        if (secId === 'leader-stock-cards') { window.loadLeaderProducts(); }
       };
     });
 

@@ -107,7 +107,11 @@
                 <i class="fa-solid fa-file-invoice-dollar"></i> Sklady a Fakturácia
             </a>
           </li>
-          
+          <li>
+            <a class="sidebar-link" href="#" data-section="leader-stock-cards">
+                <i class="fas fa-box-open"></i> Skladové Karty
+            </a>
+          </li>
           <li><a class="sidebar-link" href="#" data-section="leader-b2c"><i class="fas fa-basket-shopping"></i> B2C Objednávky</a></li>
           <li><a class="sidebar-link" href="#" data-section="leader-b2b"><i class="fas fa-building"></i> B2B Objednávky</a></li>
           <li><a class="sidebar-link" href="#" data-section="leader-manual-b2b"><i class="fas fa-plus-square"></i> Manuálna B2B objednávka</a></li>
@@ -136,8 +140,39 @@
 
       <main class="main-content">
         
-        <div id="section-billing" class="content-section">
+        <div id="section-billing" class="content-section"></div>
+
+        <div id="leader-stock-cards" class="content-section">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+            <h3 style="margin:0;">Centrálny katalóg produktov (Skladové karty)</h3>
+            <button class="btn btn-success" onclick="window.showProductEditor(null)"><i class="fas fa-plus"></i> Pridať nový produkt</button>
+          </div>
+          <div class="card">
+            <div class="card-body p-0">
+              <div style="padding:15px; border-bottom:1px solid #e5e7eb; display:flex; gap:10px; background:#f8fafc;">
+                 <input type="text" id="stock-cards-search" class="form-control" style="width:100%; max-width: 400px;" placeholder="Hľadať podľa EAN alebo Názvu..." oninput="window.loadLeaderProducts()">
+                 <button class="btn btn-secondary" onclick="window._cachedProducts=null; window.loadLeaderProducts();"><i class="fas fa-sync"></i> Obnoviť</button>
+              </div>
+              <div class="table-container" style="max-height: 65vh; overflow-y: auto;">
+                <table class="tbl" style="width:100%; margin:0;">
+                  <thead style="position:sticky; top:0; background:#f1f5f9; z-index:1;">
+                    <tr>
+                      <th>EAN</th>
+                      <th>Názov produktu</th>
+                      <th>Kategória</th>
+                      <th>MJ</th>
+                      <th>DPH</th>
+                      <th style="text-align:right;">Akcie</th>
+                    </tr>
+                  </thead>
+                  <tbody id="stock-cards-tbody">
+                    <tr><td colspan="6" class="muted text-center" style="padding:20px;">Načítavam produkty...</td></tr>
+                  </tbody>
+                </table>
+              </div>
             </div>
+          </div>
+        </div>
 
         <div id="leader-dashboard" class="content-section active">
           <h3>Prehľad dňa</h3>
@@ -318,149 +353,149 @@
         </div>
 
         <div id="leader-manual-b2b" class="content-section">
-  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
-      <h3 style="margin:0;">Zadanie manuálnej objednávky</h3>
-  </div>
-
-  <div class="card" style="margin-bottom: 20px;">
-    <div class="card-header" style="background:#f8fafc;"><strong>1. Identifikácia odberateľa</strong></div>
-    <div class="card-body">
-      <div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px;">
-        
-        <div style="border: 1px solid #e2e8f0; padding:15px; border-radius:8px;">
-          <h4 style="margin-top:0; color:#0369a1;">Vyhľadať odberateľa</h4>
-          <div class="form-group product-search-wrapper">
-              <input id="manual-customer-search" class="form-control" placeholder="Názov firmy alebo interné číslo (hľadá všade)..." autocomplete="off">
-              <div id="manual-customer-results" class="product-search-results"></div>
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+              <h3 style="margin:0;">Zadanie manuálnej objednávky</h3>
           </div>
-          
-          <div id="manual-pricelist-container" style="display:none; margin-top:15px; padding-top:15px; border-top:1px dashed #ccc;">
-              <label style="font-weight:bold; color:#16a34a;">Tento zákazník má cenníky:</label>
-              <select id="manual-pricelist-select" class="form-control mb-3"></select>
-              
-              <div style="max-height: 350px; overflow-y:auto; border:1px solid #cbd5e1; border-radius:6px;">
-                  <table class="tbl" style="width:100%; font-size:0.9rem;">
-                      <thead style="position:sticky; top:0; background:#f1f5f9; z-index:1;">
-                          <tr>
-                              <th style="width:50%;">Názov produktu</th>
-                              <th style="width:15%;">Cena</th>
-                              <th style="width:20%;">Množstvo</th>
-                              <th style="width:15%;"></th>
-                          </tr>
-                      </thead>
-                      <tbody id="manual-pricelist-tbody">
-                      </tbody>
-                  </table>
+
+          <div class="card" style="margin-bottom: 20px;">
+            <div class="card-header" style="background:#f8fafc;"><strong>1. Identifikácia odberateľa</strong></div>
+            <div class="card-body">
+              <div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px;">
+                
+                <div style="border: 1px solid #e2e8f0; padding:15px; border-radius:8px;">
+                  <h4 style="margin-top:0; color:#0369a1;">Vyhľadať odberateľa</h4>
+                  <div class="form-group product-search-wrapper">
+                      <input id="manual-customer-search" class="form-control" placeholder="Názov firmy alebo interné číslo (hľadá všade)..." autocomplete="off">
+                      <div id="manual-customer-results" class="product-search-results"></div>
+                  </div>
+                  
+                  <div id="manual-pricelist-container" style="display:none; margin-top:15px; padding-top:15px; border-top:1px dashed #ccc;">
+                      <label style="font-weight:bold; color:#16a34a;">Tento zákazník má cenníky:</label>
+                      <select id="manual-pricelist-select" class="form-control mb-3"></select>
+                      
+                      <div style="max-height: 350px; overflow-y:auto; border:1px solid #cbd5e1; border-radius:6px;">
+                          <table class="tbl" style="width:100%; font-size:0.9rem;">
+                              <thead style="position:sticky; top:0; background:#f1f5f9; z-index:1;">
+                                  <tr>
+                                      <th style="width:50%;">Názov produktu</th>
+                                      <th style="width:15%;">Cena</th>
+                                      <th style="width:20%;">Množstvo</th>
+                                      <th style="width:15%;"></th>
+                                  </tr>
+                              </thead>
+                              <tbody id="manual-pricelist-tbody">
+                              </tbody>
+                          </table>
+                      </div>
+                  </div>
+                </div>
+
+                <div>
+                    <div style="border: 1px solid #e2e8f0; padding:15px; border-radius:8px; background:#f8fafc; margin-bottom:15px;">
+                      <h4 style="margin-top:0; color:#16a34a;">Údaje odberateľa</h4>
+                      <div class="form-grid" style="grid-template-columns: 1fr 1fr;">
+                          <div class="form-group"><label>Interné číslo (Odberné)</label><input id="man-cust-id" class="form-control"></div>
+                          <div class="form-group"><label>Názov firmy / prevádzky</label><input id="man-cust-name" class="form-control"></div>
+                          <div class="form-group"><label>Adresa</label><input id="man-cust-addr" class="form-control"></div>
+                          <div class="form-group"><label>Kontakt (E-mail / Tel)</label><input id="man-cust-contact" class="form-control"></div>
+                      </div>
+                      <input type="hidden" id="man-cust-is-registered" value="0">
+                      <button id="man-cust-save" class="btn btn-sm btn-outline-success mt-2">Uložiť neregistrovaného do adresára</button>
+                    </div>
+                    
+                    <div class="card">
+                        <div class="card-header" style="background:#fefce8; color:#a16207; display:flex; justify-content:space-between; align-items:center;">
+                            <strong><i class="fas fa-history"></i> Nedávne manuálne objednávky</strong>
+                            <button class="btn btn-sm btn-light" onclick="loadManualOrderHistory()" style="border:1px solid #ca8a04;"><i class="fas fa-sync"></i></button>
+                        </div>
+                        <div class="card-body p-0">
+                            <div style="padding:10px; border-bottom:1px solid #eee;">
+                                <input type="text" id="man-history-search" class="form-control form-control-sm" placeholder="Filtrovať podľa odberateľa..." oninput="loadManualOrderHistory()">
+                            </div>
+                            <div style="max-height: 300px; overflow-y:auto;">
+                                <table class="tbl" style="width:100%; font-size:0.85rem; margin:0;">
+                                    <thead>
+                                        <tr><th>Dodanie</th><th>Odberateľ</th><th>Suma</th><th>Akcia</th></tr>
+                                    </thead>
+                                    <tbody id="man-history-tbody">
+                                        <tr><td colspan="4" class="muted text-center">Načítavam históriu...</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
               </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header" style="background:#f8fafc; display:flex; justify-content:space-between; align-items:center;">
+                <strong>2. Vytvorená objednávka (Košík)</strong>
+                <div class="muted"><i class="fas fa-keyboard"></i> Klávesová skratka pre vytvorenie: <b>Alt + End</b></div>
+            </div>
+            <div class="card-body">
+              <div style="background: #e0f2fe; padding: 20px; border-radius: 8px; border: 2px solid #7dd3fc; margin-bottom: 20px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);">
+            <h4 style="margin-top:0; color: #0369a1; font-size:1.2rem; margin-bottom:15px;"><i class="fas fa-bolt text-warning"></i> Rýchle nahadzovanie položiek (Klávesnica / Skener)</h4>
+            <div style="display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap;">
+                
+                <div style="flex: 3; position: relative; min-width: 250px;">
+                    <label style="font-weight:bold; color: #0284c7;">EAN alebo Názov <small>(Potvrďte Enterom)</small></label>
+                    <input id="fast-ean" class="form-control" placeholder="Naskenujte kód..." autocomplete="off" style="font-size: 1.4rem; padding: 12px; border: 2px solid #38bdf8; font-weight:bold;">
+                    <div id="fast-search-results" class="product-search-results" style="top: 100%; font-size: 1.1rem; max-height: 400px;"></div>
+                </div>
+
+                <div style="flex: 1; min-width: 120px;">
+                    <label style="font-weight:bold; color: #0284c7;">Množstvo</label>
+                    <input id="fast-qty" type="number" step="0.001" class="form-control" placeholder="0.00" style="font-size: 1.4rem; padding: 12px; border: 2px solid #38bdf8; font-weight: bold; color: #0f172a; text-align:center;">
+                </div>
+
+                <div style="flex: 1; max-width: 100px;">
+                    <label style="font-weight:bold; color: #0284c7;">MJ</label>
+                    <select id="fast-mj" class="form-control" style="font-size: 1.4rem; padding: 12px; border: 2px solid #38bdf8; height: 54px;">
+                        <option value="kg">kg</option>
+                        <option value="ks">ks</option>
+                    </select>
+                </div>
+
+                <div style="flex: 1; min-width: 120px;">
+                    <label style="font-weight:bold; color: #0284c7;">Cena</label>
+                    <input id="fast-price" type="number" step="0.01" class="form-control" placeholder="0.00" style="font-size: 1.4rem; padding: 12px; border: 2px solid #38bdf8; font-weight: bold; color: #16a34a; text-align:center;">
+                </div>
+
+                <div>
+                    <button id="fast-add-btn" class="btn btn-primary" style="padding: 12px 25px; font-size: 1.4rem; height: 54px;"><i class="fas fa-plus"></i></button>
+                </div>
+            </div>
+        </div>
+
+              <table id="man-order-items" class="tbl" style="width:100%; margin-bottom:15px;">
+                <thead style="background:#f1f5f9;">
+                  <tr>
+                    <th style="width:15%">EAN</th>
+                    <th style="width:35%">Názov</th>
+                    <th style="width:15%">Množstvo</th>
+                    <th style="width:10%">MJ</th>
+                    <th style="width:15%">Cena (Bez DPH)</th>
+                    <th style="width:10%"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr id="man-empty-row"><td colspan="6" style="text-align:center;" class="muted">Zatiaľ neboli pridané žiadne položky.</td></tr>
+                </tbody>
+              </table>
+
+              <div class="form-group">
+                  <label>Poznámka k objednávke</label>
+                  <input id="man-order-note" class="form-control" placeholder="napr. volal ráno, dodať do 10:00...">
+              </div>
+            </div>
+            <div class="card-footer" style="text-align:right;">
+              <button id="man-order-submit" class="btn btn-primary" style="font-size:1.1rem; padding:10px 20px;"><i class="fas fa-check-circle"></i> Vytvoriť objednávku </button>
+            </div>
           </div>
         </div>
-
-        <div>
-            <div style="border: 1px solid #e2e8f0; padding:15px; border-radius:8px; background:#f8fafc; margin-bottom:15px;">
-              <h4 style="margin-top:0; color:#16a34a;">Údaje odberateľa</h4>
-              <div class="form-grid" style="grid-template-columns: 1fr 1fr;">
-                  <div class="form-group"><label>Interné číslo (Odberné)</label><input id="man-cust-id" class="form-control"></div>
-                  <div class="form-group"><label>Názov firmy / prevádzky</label><input id="man-cust-name" class="form-control"></div>
-                  <div class="form-group"><label>Adresa</label><input id="man-cust-addr" class="form-control"></div>
-                  <div class="form-group"><label>Kontakt (E-mail / Tel)</label><input id="man-cust-contact" class="form-control"></div>
-              </div>
-              <input type="hidden" id="man-cust-is-registered" value="0">
-              <button id="man-cust-save" class="btn btn-sm btn-outline-success mt-2">Uložiť neregistrovaného do adresára</button>
-            </div>
-            
-            <div class="card">
-                <div class="card-header" style="background:#fefce8; color:#a16207; display:flex; justify-content:space-between; align-items:center;">
-                    <strong><i class="fas fa-history"></i> Nedávne manuálne objednávky</strong>
-                    <button class="btn btn-sm btn-light" onclick="loadManualOrderHistory()" style="border:1px solid #ca8a04;"><i class="fas fa-sync"></i></button>
-                </div>
-                <div class="card-body p-0">
-                    <div style="padding:10px; border-bottom:1px solid #eee;">
-                        <input type="text" id="man-history-search" class="form-control form-control-sm" placeholder="Filtrovať podľa odberateľa..." oninput="loadManualOrderHistory()">
-                    </div>
-                    <div style="max-height: 300px; overflow-y:auto;">
-                        <table class="tbl" style="width:100%; font-size:0.85rem; margin:0;">
-                            <thead>
-                                <tr><th>Dodanie</th><th>Odberateľ</th><th>Suma</th><th>Akcia</th></tr>
-                            </thead>
-                            <tbody id="man-history-tbody">
-                                <tr><td colspan="4" class="muted text-center">Načítavam históriu...</td></tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-      </div>
-    </div>
-  </div>
-
-  <div class="card">
-    <div class="card-header" style="background:#f8fafc; display:flex; justify-content:space-between;">
-    <strong>2. Vytvorená objednávka (Košík)</strong>
-    <div class="muted"><i class="fas fa-keyboard"></i> Klávesová skratka pre vytvorenie: <b>Alt + End</b></div>
-</div>
-    </div>
-    <div class="card-body">
-      <div style="background: #e0f2fe; padding: 20px; border-radius: 8px; border: 2px solid #7dd3fc; margin-bottom: 20px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);">
-    <h4 style="margin-top:0; color: #0369a1; font-size:1.2rem; margin-bottom:15px;"><i class="fas fa-bolt text-warning"></i> Rýchle nahadzovanie položiek (Klávesnica / Skener)</h4>
-    <div style="display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap;">
-        
-        <div style="flex: 3; position: relative; min-width: 250px;">
-            <label style="font-weight:bold; color: #0284c7;">EAN alebo Názov <small>(Potvrďte Enterom)</small></label>
-            <input id="fast-ean" class="form-control" placeholder="Naskenujte kód..." autocomplete="off" style="font-size: 1.4rem; padding: 12px; border: 2px solid #38bdf8; font-weight:bold;">
-            <div id="fast-search-results" class="product-search-results" style="top: 100%; font-size: 1.1rem; max-height: 400px;"></div>
-        </div>
-
-        <div style="flex: 1; min-width: 120px;">
-            <label style="font-weight:bold; color: #0284c7;">Množstvo</label>
-            <input id="fast-qty" type="number" step="0.001" class="form-control" placeholder="0.00" style="font-size: 1.4rem; padding: 12px; border: 2px solid #38bdf8; font-weight: bold; color: #0f172a; text-align:center;">
-        </div>
-
-        <div style="flex: 1; max-width: 100px;">
-            <label style="font-weight:bold; color: #0284c7;">MJ</label>
-            <select id="fast-mj" class="form-control" style="font-size: 1.4rem; padding: 12px; border: 2px solid #38bdf8; height: 54px;">
-                <option value="kg">kg</option>
-                <option value="ks">ks</option>
-            </select>
-        </div>
-
-        <div style="flex: 1; min-width: 120px;">
-            <label style="font-weight:bold; color: #0284c7;">Cena</label>
-            <input id="fast-price" type="number" step="0.01" class="form-control" placeholder="0.00" style="font-size: 1.4rem; padding: 12px; border: 2px solid #38bdf8; font-weight: bold; color: #16a34a; text-align:center;">
-        </div>
-
-        <div>
-            <button id="fast-add-btn" class="btn btn-primary" style="padding: 12px 25px; font-size: 1.4rem; height: 54px;"><i class="fas fa-plus"></i></button>
-        </div>
-    </div>
-</div>
-
-      <table id="man-order-items" class="tbl" style="width:100%; margin-bottom:15px;">
-        <thead style="background:#f1f5f9;">
-          <tr>
-            <th style="width:15%">EAN</th>
-            <th style="width:35%">Názov</th>
-            <th style="width:15%">Množstvo</th>
-            <th style="width:10%">MJ</th>
-            <th style="width:15%">Cena (Bez DPH)</th>
-            <th style="width:10%"></th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr id="man-empty-row"><td colspan="6" style="text-align:center;" class="muted">Zatiaľ neboli pridané žiadne položky.</td></tr>
-        </tbody>
-      </table>
-
-      <div class="form-group">
-          <label>Poznámka k objednávke</label>
-          <input id="man-order-note" class="form-control" placeholder="napr. volal ráno, dodať do 10:00...">
-      </div>
-    </div>
-    <div class="card-footer" style="text-align:right;">
-      <button id="man-order-submit" class="btn btn-primary" style="font-size:1.1rem; padding:10px 20px;"><i class="fas fa-check-circle"></i> Vytvoriť objednávku </button>
-  </div>
-</div>
 
         <div id="leader-logistics" class="content-section">
             <div id="leader-logistics-container"></div>
