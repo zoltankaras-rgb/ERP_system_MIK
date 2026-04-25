@@ -7,8 +7,6 @@ let rotaciaInterval = null;
 // PREMENNÉ PRE TERMINÁL FOCUS
 let aktualnyFocus = null;
 let vsetkyPoznamkyData = []; 
-let tvStopwatchInterval = null;
-let localFocusStartTime = null;
 
 const MAX_KARIET_NA_OBRAZOVKU = 8; 
 
@@ -78,27 +76,47 @@ style.innerHTML = `
       margin-bottom: 4vh;
       line-height: 1.2;
   }
-  .tv-timer-container {
-      display: inline-block;
+  
+  /* Nový dizajn pre poznámky */
+  .tv-notes-container {
       background: #0f172a;
-      padding: 3vh 6vw;
+      padding: 4vh 4vw;
       border-radius: 3vh;
-      border-bottom: 1vh solid #22c55e;
-  }
-  .tv-timer {
-      font-size: 18vh; /* Extrémne obrovský časovač */
-      font-weight: bold;
-      color: #4ade80;
-      font-family: monospace;
+      border-left: 1vw solid #f59e0b;
+      text-align: left;
+      min-height: 20vh;
+      display: flex;
+      flex-direction: column;
+      gap: 2vh;
   }
   
-  /* Pulzujúci efekt pre časovač */
-  @keyframes pulse-time {
-      0% { opacity: 1; }
-      50% { opacity: 0.7; }
-      100% { opacity: 1; }
+  .tv-note-item {
+      font-size: 4vh;
+      color: #f8fafc;
+      background: rgba(255, 255, 255, 0.05);
+      padding: 2vh 3vw;
+      border-radius: 1.5vh;
+      border-left: 0.5vw solid #3b82f6;
   }
-  .tv-timer.running { animation: pulse-time 2s infinite; }
+  
+  .tv-note-item i {
+      margin-right: 1.5vw;
+      color: #60a5fa;
+  }
+  
+  .tv-note-item.permanent {
+      border-left-color: #ef4444;
+  }
+  .tv-note-item.permanent i {
+      color: #f87171;
+  }
+  
+  .tv-note-item.empty {
+      border-left-color: #64748b;
+      color: #94a3b8;
+      text-align: center;
+      background: transparent;
+  }
 `;
 document.head.appendChild(style);
 
@@ -277,18 +295,21 @@ function nacitajPoznamkyNaTabulu() {
 }
 
 // =======================================================================
-// MASÍVNY OVERLAY PRE VÁŽENIE (FOCUS MÓD)
+// MASÍVNY OVERLAY PRE VÁŽENIE (FOCUS MÓD) - UPRAVENÝ
 // =======================================================================
 
-// Funkcia na zapnutie a vizuálne nastavenie Overlay okna
+// Funkcia na zapnutie a vizuálne nastavenie Overlay okna (s poznámkami)
 function ukazTvFocusOverlay(cisloObjednavky, jeNovyFocus = false) {
     const overlay = document.getElementById('tv-focus-overlay');
     const customerEl = document.getElementById('tv-focus-customer');
-    const timerEl = document.getElementById('tv-focus-timer');
+    const notesEl = document.getElementById('tv-focus-notes');
 
     if (!overlay) return;
 
     let custName = cisloObjednavky;
+    let notesHtml = '';
+    
+    // Hľadáme údaje o objednávke v načítaných dátach
     const obj = vsetkyPoznamkyData.find(o => o.id_objednavky === cisloObjednavky);
     
     if (obj) {
@@ -296,24 +317,37 @@ function ukazTvFocusOverlay(cisloObjednavky, jeNovyFocus = false) {
         if (obj.cislo_prevadzky && obj.cislo_prevadzky.trim() !== '') {
             custName = `<span style="color: #94a3b8;">[${obj.cislo_prevadzky}]</span> ${custName}`;
         }
+        
+        // Zostavenie HTML pre poznámky
+        let hasNotes = false;
+        
+        if (obj.trvala_poznamka && obj.trvala_poznamka.trim() !== '') {
+            notesHtml += `<div class="tv-note-item permanent"><i class="fas fa-exclamation-circle"></i> <strong>STÁLA POŽIADAVKA:</strong> ${obj.trvala_poznamka}</div>`;
+            hasNotes = true;
+        }
+        
+        if (obj.poznamka_objednavky && obj.poznamka_objednavky.trim() !== '') {
+            notesHtml += `<div class="tv-note-item"><i class="fas fa-info-circle"></i> <strong>K OBJEDNÁVKE:</strong> ${obj.poznamka_objednavky}</div>`;
+            hasNotes = true;
+        }
+        
+        if (obj.mrazene_polozky && obj.mrazene_polozky.trim() !== '') {
+            notesHtml += `<div class="tv-note-item"><i class="fas fa-snowflake"></i> <strong>MRAZENÉ:</strong> ${obj.mrazene_polozky}</div>`;
+            hasNotes = true;
+        }
+        
+        if (!hasNotes) {
+            notesHtml = `<div class="tv-note-item empty"><i class="fas fa-check"></i> Žiadne špeciálne poznámky k objednávke.</div>`;
+        }
+        
+    } else {
+        // Ak sa objednávka nenájde v zozname (napr. už je hotová a zmizla)
+        notesHtml = `<div class="tv-note-item empty"><i class="fas fa-search"></i> Načítavam detaily objednávky...</div>`;
     }
     
     customerEl.innerHTML = custName;
+    notesEl.innerHTML = notesHtml;
     overlay.classList.add('active');
-
-    // Zapnutie hodín len ak ide o prvotný signál (inak bežia nezávisle na pozadí)
-    if (jeNovyFocus) {
-        if (tvStopwatchInterval) clearInterval(tvStopwatchInterval);
-        localFocusStartTime = new Date().getTime();
-        timerEl.textContent = "00:00";
-
-        tvStopwatchInterval = setInterval(() => {
-            let diffSec = Math.floor((new Date().getTime() - localFocusStartTime) / 1000);
-            let m = Math.floor(diffSec / 60).toString().padStart(2, '0');
-            let s = (diffSec % 60).toString().padStart(2, '0');
-            timerEl.textContent = `${m}:${s}`;
-        }, 1000);
-    }
 }
 
 // Funkcia na vypnutie Overlay okna
@@ -321,11 +355,7 @@ function skryTvFocusOverlay() {
     const overlay = document.getElementById('tv-focus-overlay');
     if (overlay) overlay.classList.remove('active');
     
-    if (tvStopwatchInterval) {
-        clearInterval(tvStopwatchInterval);
-        tvStopwatchInterval = null;
-    }
-    localFocusStartTime = null;
+    // Zvyšok nechávame pre spätnú kompatibilitu alebo neskoršie využitie
 }
 
 async function kontrolujFocus() {
@@ -491,7 +521,7 @@ function zastavRotaciu() {
 // =======================================================================
 document.addEventListener("DOMContentLoaded", function() {
     
-    // Pridanie Overlay elementu do DOMu pre TV Focus Mode
+    // Pridanie Overlay elementu do DOMu pre TV Focus Mode - UPRAVENÉ (s poznámkami)
     if (!document.getElementById('tv-focus-overlay')) {
         const overlay = document.createElement('div');
         overlay.id = 'tv-focus-overlay';
@@ -499,9 +529,8 @@ document.addEventListener("DOMContentLoaded", function() {
             <div class="tv-focus-box">
                 <div class="tv-title"><i class="fas fa-satellite-dish fa-fade"></i> Práve sa chystá</div>
                 <div class="tv-customer" id="tv-focus-customer">HĽADÁM OBJEDNÁVKU...</div>
-                <div class="tv-timer-container">
-                    <div class="tv-timer running" id="tv-focus-timer">00:00</div>
-                </div>
+                <div class="tv-notes-container" id="tv-focus-notes">
+                    </div>
             </div>
         `;
         document.body.appendChild(overlay);
