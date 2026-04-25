@@ -55,6 +55,7 @@ def get_b2b_special_notes():
             z.stala_poznamka_expedicia AS trvala_poznamka,
             o.cislo_objednavky AS id_objednavky,
             o.poznamka AS poznamka_objednavky,
+            o.poznamka_veduceho,  -- PRIDANÝ STĹPEC: Jednorazová poznámka vedúcej
             o.stav,
             (SELECT GROUP_CONCAT(CONCAT(nazov_vyrobku, ': ', poznamka) SEPARATOR ' | ') 
              FROM b2b_objednavky_polozky 
@@ -114,7 +115,7 @@ def get_b2b_special_notes():
             SELECT p.product_name 
             FROM b2b_promotions p
             JOIN b2b_retail_chains c ON p.chain_id = c.id
-            WHERE LOWER(c.name) LIKE '%coop%'
+            WHERE LOWER(c.name) LIKE '%%coop%%'
               AND p.start_date <= %s
               AND (p.end_date >= %s OR p.end_date IS NULL)
               AND c.is_active = 1
@@ -137,7 +138,6 @@ def is_holiday(check_date):
     """
     date_str = check_date.strftime('%Y-%m-%d')
     
-    # Používame správne stĺpce z vašej databázy: type, is_deleted a status
     sql = """
         SELECT id FROM calendar_events 
         WHERE type = 'HOLIDAY' 
