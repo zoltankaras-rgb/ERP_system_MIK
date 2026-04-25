@@ -3721,90 +3721,126 @@ window.printExpeditionBreakdown = function() {
   };
 
 window.openSalesExplorer = async function(ean, productName) {
-    const body = document.querySelector('#ldr-modal .b2c-modal-body');
-    body.innerHTML = '<div class="text-center" style="padding:40px;"><i class="fas fa-spinner fa-spin fa-2x"></i><br>Prehľadávam históriu predajov...</div>';
+    // 1. Zobrazíme načítavanie cez overenú funkciu modálneho okna
+    window.openLeaderModal('<div style="padding:40px; text-align:center;"><i class="fas fa-spinner fa-spin fa-3x" style="color:#0369a1; margin-bottom:15px;"></i><br><h3 style="color:#1e293b;">Prehľadávam históriu predajov...</h3></div>');
     
     try {
+        // Získame dáta z databázy
         const allSales = await apiRequest(`/api/leader/catalog/products/sales_explorer?ean=${ean}`);
-        
-        // Získanie unikátnych odberateľov pre dropdown
         const customers = [...new Set(allSales.map(s => s.customer))].sort();
 
-        const renderFilteredUI = (mode = 'customer', selectedValue = '') => {
-            let html = `
-                <div style="background:#f8fafc; padding:15px; border-radius:10px; margin-bottom:15px; border:1px solid #e2e8f0;">
-                    <div style="display:flex; gap:15px; align-items:flex-end; flex-wrap:wrap;">
-                        <div style="flex:1; min-width:200px;">
-                            <label class="muted small" style="font-weight:bold; display:block; margin-bottom:5px;">Filter predaja:</label>
-                            <select id="se-customer-select" class="form-control" onchange="window._se_update()">
-                                <option value="">-- Vyberte Odberateľa (Všetky predaje) --</option>
-                                ${customers.map(c => `<option value="${escapeHtml(c)}" ${selectedValue === c ? 'selected' : ''}>${escapeHtml(c)}</option>`).join('')}
-                            </select>
-                        </div>
-                        <div style="color:#64748b; font-size:0.9rem; padding-bottom:10px;">
-                            Nájdených záznamov: <b>${allSales.length}</b>
-                        </div>
+        // Uložíme ich do globálnej premennej pre rýchle filtrovanie
+        window._currentSalesData = allSales;
+
+        // 2. Vytvoríme hlavnú štruktúru okna s filtrom
+        const html = `
+            <div style="padding-bottom:10px; border-bottom:2px solid #e2e8f0; margin-bottom:15px;">
+                <h3 style="margin:0; color:#1e293b;"><i class="fas fa-search-dollar"></i> Prieskumník predajov: ${escapeHtml(productName)}</h3>
+            </div>
+            
+            <div style="background:#f8fafc; padding:15px; border-radius:10px; margin-bottom:15px; border:1px solid #e2e8f0;">
+                <div style="display:flex; gap:15px; align-items:flex-end; flex-wrap:wrap;">
+                    <div style="flex:1; min-width:250px;">
+                        <label class="muted small" style="font-weight:bold; display:block; margin-bottom:5px;">Filter podľa Odberateľa:</label>
+                        <select id="se-customer-select" class="form-control" onchange="window._se_render_table()">
+                            <option value="">-- Všetci odberatelia (Kompletná história) --</option>
+                            ${customers.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('')}
+                        </select>
+                    </div>
+                    <div style="color:#64748b; font-size:0.95rem; padding-bottom:8px;" id="se-count-display">
+                        Nájdených záznamov: <b>${allSales.length}</b>
                     </div>
                 </div>
-                <div class="table-container" style="max-height:500px; overflow-y:auto;">
-                    <table class="tbl" style="width:100%;">
-                        <thead style="position:sticky; top:0; background:#fff; z-index:2; box-shadow:0 1px 0 #eee;">
-                            <tr>
-                                <th>Dátum</th>
-                                <th>Odberateľ</th>
-                                <th style="text-align:right;">Množstvo</th>
-                                <th style="text-align:right;">Cena</th>
-                                <th style="text-align:center; width:80px;">PDF</th>
-                            </tr>
-                        </thead>
-                        <tbody>`;
+            </div>
+            
+            <div id="se-table-container"></div>
+            
+            <div style="margin-top:20px; border-top:1px solid #e2e8f0; padding-top:15px; display:flex; justify-content:flex-end;">
+                <button class="btn btn-secondary" onclick="window.showProductStockCard('${ean}')" style="padding:10px 20px;">
+                    <i class="fas fa-arrow-left"></i> Späť na Skladovú kartu
+                </button>
+            </div>
+        `;
 
-            const filteredSales = selectedValue ? allSales.filter(s => s.customer === selectedValue) : allSales;
-
-            if (filteredSales.length === 0) {
-                html += '<tr><td colspan="5" class="text-center muted" style="padding:30px;">Žiadne predaje pre tento filter.</td></tr>';
-            } else {
-                filteredSales.forEach(s => {
-                    const pdfUrl = s.type === 'B2B' 
-                        ? `/api/leader/b2b/order-pdf?order_id=${s.order_id}&type=finished` 
-                        : `/api/kancelaria/b2c/order-pdf?order_id=${s.order_id}`;
-
-                    html += `
-                        <tr style="border-bottom:1px solid #f1f5f9;">
-                            <td style="font-size:0.85rem; color:#64748b;">${s.date}</td>
-                            <td style="font-weight:600;">${escapeHtml(s.customer)}</td>
-                            <td style="text-align:right; font-weight:bold; color:#0369a1;">${s.qty.toFixed(2)} ${s.unit}</td>
-                            <td style="text-align:right; color:#16a34a; font-weight:600;">${s.price.toFixed(2)}€</td>
-                            <td style="text-align:center;">
-                                <button class="btn btn-sm btn-light" style="border:1px solid #cbd5e1;" onclick="window.open('${pdfUrl}', '_blank')" title="Otvoriť PDF dodacieho listu">
-                                    <i class="fas fa-file-pdf" style="color:#dc2626;"></i>
-                                </button>
-                            </td>
-                        </tr>`;
-                });
-            }
-
-            html += `</tbody></table></div>
-                <div style="margin-top:20px; border-top:1px solid #eee; padding-top:15px;">
-                    <button class="btn btn-secondary" onclick="window.showProductStockCard('${ean}')">← Späť na Skladovú kartu</button>
-                </div>`;
-
-            body.innerHTML = html;
-        };
-
-        // Pomocná funkcia na reakciu pri zmene selectu
-        window._se_update = () => {
-            const val = document.getElementById('se-customer-select').value;
-            renderFilteredUI('customer', val);
-        };
-
-        renderFilteredUI();
+        // Zobrazíme rozhranie
+        window.openLeaderModal(html);
+        
+        // 3. Spustíme vykreslenie tabuľky
+        setTimeout(() => {
+            window._se_render_table();
+        }, 50);
 
     } catch (e) {
-        body.innerHTML = `<div class="error" style="padding:20px; text-align:center;">Chyba pri načítaní prieskumníka: ${e.message}</div>`;
+        window.openLeaderModal(`<div class="error" style="padding:30px; text-align:center; color:#dc2626;"><i class="fas fa-exclamation-triangle fa-3x"></i><br><br>Chyba pri načítaní: ${e.message}</div>`);
     }
 };
-  window.showProductEditor = function(p) {
+
+// Pomocná funkcia, ktorá sa volá pri zmene Odberateľa (prepíše iba tabuľku, nie celé okno)
+window._se_render_table = function() {
+    const container = document.getElementById('se-table-container');
+    if (!container) return;
+    
+    const selectedValue = document.getElementById('se-customer-select').value;
+    const allSales = window._currentSalesData || [];
+    
+    // Vyfiltrujeme dáta
+    const filteredSales = selectedValue ? allSales.filter(s => s.customer === selectedValue) : allSales;
+    
+    // Aktualizujeme počet nájdených
+    document.getElementById('se-count-display').innerHTML = `Nájdených záznamov: <b style="color:#0369a1;">${filteredSales.length}</b>`;
+
+    let html = `
+    <div class="table-container" style="max-height:450px; overflow-y:auto; border:1px solid #e2e8f0; border-radius:8px;">
+        <table class="tbl" style="width:100%; margin:0;">
+            <thead style="position:sticky; top:0; background:#f1f5f9; z-index:2; box-shadow:0 1px 0 #cbd5e1;">
+                <tr>
+                    <th style="width:140px;">Dátum dodania</th>
+                    <th>Odberateľ</th>
+                    <th style="text-align:right;">Dodané množstvo</th>
+                    <th style="text-align:right;">Jednotková Cena</th>
+                    <th style="text-align:center; width:80px;">Doklad</th>
+                </tr>
+            </thead>
+            <tbody>`;
+
+    if (filteredSales.length === 0) {
+        html += '<tr><td colspan="5" class="text-center muted" style="padding:30px;">Žiadne predaje pre tento filter.</td></tr>';
+    } else {
+        filteredSales.forEach(s => {
+            // Generovanie správnej cesty k PDF na základe typu objednávky
+            const pdfUrl = s.type === 'B2B' 
+                ? `/api/leader/b2b/order-pdf?order_id=${s.order_id}&type=finished` 
+                : `/api/kancelaria/b2c/order-pdf?order_id=${s.order_id}`;
+
+            html += `
+                <tr style="border-bottom:1px solid #f1f5f9; transition: background 0.2s;" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='transparent'">
+                    <td style="font-size:0.85rem; color:#64748b;">${s.date}</td>
+                    <td style="font-weight:600; color:#1e293b;">${escapeHtml(s.customer)}</td>
+                    <td style="text-align:right; font-weight:800; color:#0369a1; font-size:1.05rem;">${s.qty.toFixed(2)} ${s.unit}</td>
+                    <td style="text-align:right; color:#16a34a; font-weight:600;">${s.price.toFixed(2)} €</td>
+                    <td style="text-align:center;">
+                        <button class="btn btn-sm" style="background:#fee2e2; color:#dc2626; border:1px solid #fca5a5;" onclick="window.open('${pdfUrl}', '_blank')" title="Otvoriť PDF dodacieho listu">
+                            <i class="fas fa-file-pdf"></i> PDF
+                        </button>
+                    </td>
+                </tr>`;
+        });
+    }
+    
+    html += `</tbody></table></div>`;
+    container.innerHTML = html;
+};
+ window.showProductEditor = async function(p) {
+      // Ak nemáme kategórie v pamäti, skúsime ich načítať z nového endpointu
+      if (!window._cachedCategories || window._cachedCategories.length === 0) {
+          try {
+              window._cachedCategories = await apiRequest('/api/leader/catalog/categories');
+          } catch (e) {
+              console.error("Nepodarilo sa načítať kategórie:", e);
+              window._cachedCategories = []; // Fallback na prázdny zoznam
+          }
+      }
+
       const isEdit = !!p;
       const ean = p ? p.ean : '';
       const nazov = p ? p.nazov_vyrobku : '';

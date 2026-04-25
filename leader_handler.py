@@ -207,6 +207,14 @@ def leader_product_sales_explorer():
 
     return jsonify(sorted(combined, key=lambda x: x['date'], reverse=True))
 
+@leader_bp.get('/catalog/categories')
+@login_required(role=('veduci','admin'))
+def leader_get_categories():
+    """Vráti zoznam všetkých unikátnych predajných kategórií z databázy"""
+    sql = "SELECT DISTINCT predajna_kategoria FROM produkty WHERE predajna_kategoria IS NOT NULL AND predajna_kategoria <> '' ORDER BY predajna_kategoria"
+    rows = db_connector.execute_query(sql, fetch='all') or []
+    return jsonify([r['predajna_kategoria'] for r in rows])
+
 @leader_bp.post('/catalog/products/save')
 @login_required(role=('veduci','admin'))
 def leader_save_product():
