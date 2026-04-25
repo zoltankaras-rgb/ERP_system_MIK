@@ -3658,51 +3658,68 @@ window.printExpeditionBreakdown = function() {
   window._cachedCategories = [];
 
   window.loadLeaderProducts = async function() {
-    const tbody = document.getElementById('stock-cards-tbody');
-    const searchQ = (document.getElementById('stock-cards-search')?.value || '').toLowerCase().trim();
-    const catF = document.getElementById('stock-cards-cat-filter')?.value || '';
+      const tbody = document.getElementById('stock-cards-tbody');
+      const searchQ = (document.getElementById('stock-cards-search')?.value || '').toLowerCase().trim();
+      const catF = document.getElementById('stock-cards-cat-filter')?.value || '';
 
-    if (!window._cachedProducts) {
-        tbody.innerHTML = '<tr><td colspan="7" class="text-center" style="padding:40px;"><i class="fas fa-spinner fa-spin fa-2x"></i></td></tr>';
-        try {
-            window._cachedProducts = await apiRequest('/api/leader/catalog/products');
-            
-            // Naplnenie filtra kategórií
-            const cats = [...new Set(window._cachedProducts.map(p => p.predajna_kategoria).filter(Boolean))].sort();
-            const catSelect = document.getElementById('stock-cards-cat-filter');
-            if (catSelect) {
-                catSelect.innerHTML = '<option value="">Všetky kategórie</option>' + 
-                    cats.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
-                catSelect.value = catF;
-            }
-        } catch(e) {
-            tbody.innerHTML = `<tr><td colspan="7" class="error">${e.message}</td></tr>`;
-            return;
-        }
-    }
+      if (!window._cachedProducts) {
+          tbody.innerHTML = '<tr><td colspan="7" class="text-center" style="padding:40px;"><i class="fas fa-spinner fa-spin fa-2x"></i><br>Načítavam katalóg...</td></tr>';
+          try {
+              window._cachedProducts = await apiRequest('/api/leader/catalog/products');
+              
+              // Naplnenie filtra kategórií
+              const cats = [...new Set(window._cachedProducts.map(p => p.predajna_kategoria).filter(Boolean))].sort();
+              const catSelect = document.getElementById('stock-cards-cat-filter');
+              if (catSelect) {
+                  catSelect.innerHTML = '<option value="">Všetky kategórie</option>' + 
+                      cats.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+                  catSelect.value = catF;
+              }
+          } catch(e) {
+              tbody.innerHTML = `<tr><td colspan="7" class="error text-center" style="color:red; padding:20px;">Chyba: ${e.message}</td></tr>`;
+              return;
+          }
+      }
 
-    let filtered = window._cachedProducts.filter(p => {
-        const matchesSearch = !searchQ || (p.nazov_vyrobku?.toLowerCase().includes(searchQ) || p.ean?.includes(searchQ));
-        const matchesCat = !catF || p.predajna_kategoria === catF;
-        return matchesSearch && matchesCat;
-    });
+      let filtered = window._cachedProducts.filter(p => {
+          const matchesSearch = !searchQ || (p.nazov_vyrobku?.toLowerCase().includes(searchQ) || p.ean?.includes(searchQ));
+          const matchesCat = !catF || p.predajna_kategoria === catF;
+          return matchesSearch && matchesCat;
+      });
 
-    tbody.innerHTML = filtered.slice(0, 200).map(p => `
-        <tr>
-            <td style="font-family:monospace; font-weight:bold;">${escapeHtml(p.ean)}</td>
-            <td><strong>${escapeHtml(p.nazov_vyrobku)}</strong></td>
-            <td><span class="chip">${escapeHtml(p.predajna_kategoria || '—')}</span></td>
-            <td style="text-align:right; font-weight:bold; color:${p.stock <= 0 ? '#ef4444' : '#10b981'};">${p.stock.toFixed(2)}</td>
-            <td>${escapeHtml(p.mj)}</td>
-            <td>${p.dph}%</td>
-            <td style="text-align:right;">
-              <button class="btn btn-primary" onclick="window.openSalesExplorer('${ean}', '${escapeHtml(data.name)}')">
-    <i class="fas fa-search-dollar"></i> Prieskumník predajov z databázy
-</button>
-            </td>
-        </tr>
-    `).join('');
-};
+      if (filtered.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="7" class="muted text-center" style="padding:20px;">Nenašli sa žiadne produkty.</td></tr>';
+          return;
+      }
+
+      tbody.innerHTML = filtered.slice(0, 150).map(p => `
+          <tr style="border-bottom:1px solid #f1f5f9;">
+              <td style="font-family:monospace; font-weight:bold; color:#0369a1;">${escapeHtml(p.ean)}</td>
+              <td style="font-weight:600; color:#0f172a;">${escapeHtml(p.nazov_vyrobku)}</td>
+              <td><span style="background:#e2e8f0; padding:2px 6px; border-radius:4px; font-size:0.85rem; color:#475569;">${escapeHtml(p.predajna_kategoria || 'Nezaradené')}</span></td>
+              <td style="text-align:right; font-weight:bold; color:${p.stock <= 0 ? '#ef4444' : '#10b981'};">${Number(p.stock || 0).toFixed(2)}</td>
+              <td>${escapeHtml(p.mj)}</td>
+              <td>${p.dph}%</td>
+              <td style="text-align:right; white-space:nowrap;">
+                  <div style="display:flex; gap:5px; justify-content:flex-end;">
+                      <button class="btn btn-sm btn-light" onclick="window.showProductStockCard('${p.ean}')" title="Skladová karta">
+                          <i class="fa-solid fa-boxes-stacked" style="color: #0369a1;"></i>
+                      </button>
+                      <button class="btn btn-sm btn-light" onclick="window.showProductHistory('${p.ean}')" title="História pohybov">
+                          <i class="fas fa-history"></i>
+                      </button>
+                      <button class="btn btn-sm btn-primary" onclick='window.showProductEditor(${JSON.stringify(p).replace(/'/g, "&apos;")})' title="Upraviť">
+                          <i class="fas fa-edit"></i>
+                      </button>
+                      <button class="btn btn-sm btn-danger" onclick="window.deleteLeaderProduct('${p.ean}', '${escapeHtml(p.nazov_vyrobku)}')" title="Odstrániť">
+                          <i class="fas fa-trash"></i>
+                      </button>
+                  </div>
+              </td>
+          </tr>
+      `).join('');
+  };
+  
 window.openSalesExplorer = async function(ean, productName) {
     const body = document.querySelector('#ldr-modal .b2c-modal-body');
     body.innerHTML = '<div class="text-center" style="padding:40px;"><i class="fas fa-spinner fa-spin fa-2x"></i><br>Sťahujem kompletnú databázu predajov...</div>';
