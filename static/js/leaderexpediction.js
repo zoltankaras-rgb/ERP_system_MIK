@@ -3818,75 +3818,96 @@ window.printExpeditionBreakdown = function() {
       }
   };
 
-  // Zobrazenie skladovej karty (simulácia erp_admin.js)
+  // Zobrazenie skladovej karty (ÚPLNÁ KOPIA ERP_ADMIN.JS)
   window.showProductStockCard = async function(ean) {
       window.openLeaderModal('<div style="padding:30px; text-align:center;"><i class="fas fa-spinner fa-spin fa-2x"></i><br>Načítavam skladovú kartu...</div>');
       try {
-          const data = await apiRequest(`/api/leader/catalog/products/stock_card?ean=${ean}`);
+          const response = await apiRequest(`/api/leader/catalog/products/stock_card?ean=${ean}`);
           
-          const available = data.stock - data.reserved;
-          const statusColor = available < 0 ? '#dc2626' : '#16a34a'; // červená vs zelená pre voľné
+          if (response.error) throw new Error(response.error);
 
+          const prod = response.product;
+          const b2b = response.b2b || [];
+          const b2c = response.b2c || [];
+          const prodHist = response.production || [];
+
+          // Formátovanie dátumu do pekného tvaru
+          const formatDate = (iso) => {
+              if (!iso) return '';
+              const d = new Date(iso);
+              return isNaN(d.getTime()) ? iso : d.toLocaleString('sk-SK');
+          };
+
+          // Generovanie riadkov pre tabuľky
+          let b2bHtml = b2b.map(o => `<tr><td style="font-size:0.85rem;">${formatDate(o.date)}</td><td>${escapeHtml(o.customer)}</td><td style="text-align:right;font-weight:bold;color:#0369a1;">${o.qty} ${o.mj}</td></tr>`).join('') || '<tr><td colspan="3" class="muted text-center" style="padding:15px;">Žiadne nedávne B2B predaje.</td></tr>';
+          
+          let b2cHtml = b2c.map(o => `<tr><td style="font-size:0.85rem;">${formatDate(o.date)}</td><td><span style="font-family:monospace; background:#f1f5f9; padding:2px 5px; border-radius:4px;">${escapeHtml(o.order_no)}</span></td><td style="text-align:right;font-weight:bold;color:#d97706;">${o.qty} ${o.mj}</td></tr>`).join('') || '<tr><td colspan="3" class="muted text-center" style="padding:15px;">Žiadne nedávne B2C predaje.</td></tr>';
+          
+          let prodHtml = prodHist.map(p => `<tr><td style="font-size:0.85rem;">${formatDate(p.date)}</td><td><span style="font-family:monospace;">${escapeHtml(p.batch)}</span></td><td style="text-align:right;font-weight:bold;color:#16a34a;">+${p.qty} kg</td></tr>`).join('') || '<tr><td colspan="3" class="muted text-center" style="padding:15px;">Žiadne nedávne výroby.</td></tr>';
+
+          // Vytvorenie HTML modálneho okna vo vizuále Kancelárie
           const html = `
-              <div style="padding: 10px 5px 20px 5px;">
-                  <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:20px; border-bottom:1px solid #eee; padding-bottom:15px;">
-                      <div>
-                          <h2 style="margin:0; color:#1e293b; font-size:1.6rem;">Skladová karta: ${escapeHtml(data.name)}</h2>
-                          <div style="margin-top:5px; font-family:monospace; font-weight:bold; color:#64748b; font-size:1.1rem;">EAN: ${ean}</div>
+              <div style="padding-bottom:15px; border-bottom:2px solid #e2e8f0; margin-bottom:20px; display:flex; justify-content:space-between; align-items:center;">
+                  <div>
+                      <h3 style="margin:0; color:#1e293b; font-size:1.5rem;">📦 Skladová karta: ${escapeHtml(prod.name)}</h3>
+                      <div style="color:#64748b; font-family:monospace; font-weight:bold; margin-top:5px; background:#f1f5f9; display:inline-block; padding:3px 8px; border-radius:5px;">EAN: ${escapeHtml(prod.ean)}</div>
+                  </div>
+                  <div style="background:#f0f9ff; border:1px solid #bae6fd; padding:10px 20px; border-radius:8px; text-align:center; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
+                      <div style="font-size:0.8rem; font-weight:bold; color:#0369a1; text-transform:uppercase;">Stav na sklade</div>
+                      <div style="font-size:2rem; font-weight:900; color:#0c4a6e; line-height:1;">${prod.stock.toFixed(2)} <span style="font-size:1rem;">${escapeHtml(prod.mj)}</span></div>
+                  </div>
+              </div>
+
+              <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-bottom:20px;">
+                  
+                  ${prod.is_made ? `
+                  <div style="grid-column: span 2; background:#fff; border:1px solid #e2e8f0; border-radius:8px; overflow:hidden;">
+                      <div style="background:#f0fdf4; padding:12px 15px; border-bottom:1px solid #bbf7d0; color:#166534; font-weight:bold;">
+                          <i class="fas fa-industry"></i> Posledné záznamy z výroby
                       </div>
-                      <div style="text-align:right;">
-                          <span style="background:#f1f5f9; color:#475569; padding:5px 12px; border-radius:20px; font-size:0.9rem; font-weight:600;">
-                              ${escapeHtml(data.category || 'Bez kategórie')}
-                          </span>
+                      <div class="table-container" style="max-height:220px; overflow-y:auto; margin:0;">
+                          <table class="tbl" style="margin:0; width:100%; border:none;">
+                              <thead style="position:sticky; top:0; background:#fff; box-shadow: 0 1px 0 #eee;"><tr><th>Dátum ukončenia</th><th>Šarža (Dávka)</th><th style="text-align:right;">Vyrobené množstvo</th></tr></thead>
+                              <tbody>${prodHtml}</tbody>
+                          </table>
+                      </div>
+                  </div>` : ''}
+                  
+                  <div style="background:#fff; border:1px solid #e2e8f0; border-radius:8px; overflow:hidden;">
+                      <div style="background:#f0f9ff; padding:12px 15px; border-bottom:1px solid #bae6fd; color:#0369a1; font-weight:bold;">
+                          <i class="fas fa-building"></i> Posledné B2B predaje
+                      </div>
+                      <div class="table-container" style="max-height:250px; overflow-y:auto; margin:0;">
+                          <table class="tbl" style="margin:0; width:100%; border:none;">
+                              <thead style="position:sticky; top:0; background:#fff; box-shadow: 0 1px 0 #eee;"><tr><th>Dátum</th><th>Odberateľ</th><th style="text-align:right;">Množstvo</th></tr></thead>
+                              <tbody>${b2bHtml}</tbody>
+                          </table>
                       </div>
                   </div>
 
-                  <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:15px; margin-bottom:25px;">
-                      
-                      <div style="background:#eff6ff; border:1px solid #bfdbfe; border-radius:12px; padding:15px; text-align:center; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
-                          <div style="font-size:0.8rem; font-weight:bold; color:#1e40af; text-transform:uppercase; margin-bottom:5px;">Fyzický stav</div>
-                          <div style="font-size:1.8rem; font-weight:800; color:#1e3a8a;">${data.stock.toFixed(2)} <small style="font-size:0.9rem;">${data.unit}</small></div>
+                  <div style="background:#fff; border:1px solid #e2e8f0; border-radius:8px; overflow:hidden;">
+                      <div style="background:#fffbeb; padding:12px 15px; border-bottom:1px solid #fde68a; color:#b45309; font-weight:bold;">
+                          <i class="fas fa-shopping-basket"></i> Posledné B2C predaje
                       </div>
-
-                      <div style="background:#fff7ed; border:1px solid #fed7aa; border-radius:12px; padding:15px; text-align:center; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
-                          <div style="font-size:0.8rem; font-weight:bold; color:#9a3412; text-transform:uppercase; margin-bottom:5px;">Rezervácie</div>
-                          <div style="font-size:1.8rem; font-weight:800; color:#7c2d12;">${data.reserved.toFixed(2)} <small style="font-size:0.9rem;">${data.unit}</small></div>
+                      <div class="table-container" style="max-height:250px; overflow-y:auto; margin:0;">
+                          <table class="tbl" style="margin:0; width:100%; border:none;">
+                              <thead style="position:sticky; top:0; background:#fff; box-shadow: 0 1px 0 #eee;"><tr><th>Dátum</th><th>Objednávka</th><th style="text-align:right;">Množstvo</th></tr></thead>
+                              <tbody>${b2cHtml}</tbody>
+                          </table>
                       </div>
-
-                      <div style="background:${available < 0 ? '#fef2f2' : '#f0fdf4'}; border:1px solid ${available < 0 ? '#fecaca' : '#bbf7d0'}; border-radius:12px; padding:15px; text-align:center; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
-                          <div style="font-size:0.8rem; font-weight:bold; color:${available < 0 ? '#991b1b' : '#166534'}; text-transform:uppercase; margin-bottom:5px;">Voľné na predaj</div>
-                          <div style="font-size:1.8rem; font-weight:800; color:${available < 0 ? '#7f1d1d' : '#14532d'};">${available.toFixed(2)} <small style="font-size:0.9rem;">${data.unit}</small></div>
-                      </div>
-
                   </div>
+              </div>
 
-                  <div style="background:#f8fafc; border-radius:8px; padding:15px; border:1px solid #e2e8f0; margin-bottom:20px;">
-                      <table style="width:100%; font-size:1rem; border-collapse:collapse;">
-                          <tr>
-                              <td style="padding:5px 0; color:#64748b;">Merná jednotka:</td>
-                              <td style="padding:5px 0; text-align:right; font-weight:bold;">${escapeHtml(data.unit)}</td>
-                          </tr>
-                          <tr>
-                              <td style="padding:5px 0; color:#64748b;">Evidovaná kategória:</td>
-                              <td style="padding:5px 0; text-align:right; font-weight:bold;">${escapeHtml(data.category || 'Nezaradené')}</td>
-                          </tr>
-                      </table>
-                  </div>
-
-                  <div style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid #eee; padding-top:20px;">
-                      <button class="btn btn-secondary" onclick="window.closeLeaderModal()" style="padding:10px 20px;">Zatvoriť kartu</button>
-                      <button class="btn btn-primary" onclick="window.showProductHistory('${ean}')" style="padding:10px 25px; font-weight:600;">
-                          <i class="fas fa-history"></i> Zobraziť všetky pohyby
-                      </button>
-                  </div>
+              <div style="text-align:right; border-top:1px solid #e2e8f0; padding-top:15px;">
+                  <button class="btn btn-secondary" onclick="window.closeLeaderModal()" style="padding:10px 20px;">Zatvoriť skladovú kartu</button>
               </div>
           `;
           window.openLeaderModal(html);
-      } catch(e) { 
-          window.openLeaderModal(`<div class="error" style="padding:30px; text-align:center;">
-              <i class="fas fa-exclamation-triangle fa-3x" style="color:#ef4444; margin-bottom:15px;"></i><br>
-              <span style="font-size:1.2rem; font-weight:bold;">Dáta nie sú dostupné</span><br>
-              <small class="muted">${e.message}</small>
+      } catch(e) {
+          window.openLeaderModal(`<div class="error" style="padding:30px; text-align:center; color:#dc2626;">
+              <i class="fas fa-exclamation-circle fa-3x" style="margin-bottom:15px;"></i><br><br>
+              <strong style="font-size:1.2rem;">Chyba pri načítaní dát</strong><br>
+              <span class="muted">${e.message}</span>
           </div>`); 
       }
   };
