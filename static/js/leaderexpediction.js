@@ -427,12 +427,40 @@
           // OPRAVA: Pridané r.nazov_firmy
           const id = r.cislo_objednavky || r.id; const who = safeStr(r.odberatel || r.nazov_firmy || r.zakaznik_meno || ''); const ddel = r.pozadovany_datum_dodania || '';
           
-          let buttons = `<button class="btn btn-sm" data-b2b-pdf="${escapeHtml(id)}">Zadanie (PDF)</button> 
-                         <button class="btn btn-sm" data-b2b-edit="${escapeHtml(id)}">Upraviť</button>
-                         <button class="btn btn-sm btn-outline-warning" style="border:1px solid #f59e0b; color:#b45309;" onclick="window.addLeaderOrderNote('${escapeHtml(r.id)}', '${escapeHtml(who)}')" title="Pridať jednorázovú poznámku pre TV"><i class="fas fa-sticky-note"></i></button>`;
-          if (r.stav === 'Hotová') {
-              buttons += `<br><button class="btn btn-sm btn-success" style="margin-top: 4px;" data-b2b-finished-pdf="${escapeHtml(id)}">Vypracovaná (PDF)</button>`;
-          }
+         // --- NOVÝ DIZAJN TLAČIDIEL PRE AKCIU ---
+let buttons = `
+<div style="display:flex; flex-direction:column; gap:6px;">
+    <div style="display:flex; gap:4px; flex-wrap:wrap;">
+        <button class="btn btn-sm" data-b2b-pdf="${escapeHtml(id)}" 
+            style="background:#f1f5f9; border:1px solid #cbd5e1; color:#475569; display:inline-flex; align-items:center; gap:5px; padding:4px 8px; font-weight:600;" title="Otvoriť Zadanie PDF">
+            <i class="fas fa-file-invoice" style="color:#64748b;"></i> Zadanie
+        </button> 
+        
+        <button class="btn btn-sm" data-b2b-edit="${escapeHtml(id)}" 
+            style="background:#f1f5f9; border:1px solid #cbd5e1; color:#475569; display:inline-flex; align-items:center; gap:5px; padding:4px 8px; font-weight:600;" title="Upraviť objednávku">
+            <i class="fas fa-edit" style="color:#0369a1;"></i>
+        </button>
+
+        <button class="btn btn-sm" onclick="window.addLeaderOrderNote('${escapeHtml(r.id)}', '${escapeHtml(who)}')" 
+            style="background:#fffbeb; border:1px solid #fde68a; color:#b45309; display:inline-flex; align-items:center; gap:5px; padding:4px 8px; font-weight:600;" title="Jednorázová poznámka pre TV">
+            <i class="fas fa-sticky-note" style="color:#f59e0b;"></i> Poznámka
+        </button>
+    </div>
+
+    ${r.stav === 'Hotová' ? `
+    <div style="display:flex; gap:4px; flex-wrap:wrap;">
+        <button class="btn btn-sm" data-b2b-finished-pdf="${escapeHtml(id)}" 
+            style="background:#f0fdf4; border:1px solid #bbf7d0; color:#166534; display:inline-flex; align-items:center; gap:5px; padding:4px 8px; font-weight:600;">
+            <i class="fas fa-check-double"></i> Vypracovaná
+        </button>
+        
+        <button class="btn btn-sm" data-b2b-create-dl="${escapeHtml(r.id)}" 
+            style="background:#eff6ff; border:1px solid #bfdbfe; color:#1d4ed8; display:inline-flex; align-items:center; gap:5px; padding:4px 8px; font-weight:600;" title="Vystaviť Dodací List">
+            <i class="fa-solid fa-truck-fast"></i> DL
+        </button>
+    </div>
+    ` : ''}
+</div>`;
 
           return `<tr><td>${escapeHtml(id)}</td><td style="font-weight:bold;">${escapeHtml(who)}</td><td>${escapeHtml(ddel||'')}</td><td>${priceCell(r)}</td><td>${escapeHtml(r.stav||'')}</td><td>${buttons}</td></tr>`;
         }).join('');
@@ -444,16 +472,40 @@
             // OPRAVA: Pridané r.nazov_firmy
             const id = r.cislo_objednavky || r.id; const who = safeStr(r.odberatel || r.nazov_firmy || r.zakaznik_meno || ''); 
             
-            let buttons = `<button class="btn btn-sm" data-b2b-pdf="${escapeHtml(id)}">Zadanie (PDF)</button> 
-                           <button class="btn btn-sm" data-b2b-edit="${escapeHtml(id)}">Upraviť</button>
-                           <button class="btn btn-sm btn-outline-warning" style="border:1px solid #f59e0b; color:#b45309;" onclick="window.addLeaderOrderNote('${escapeHtml(r.id)}', '${escapeHtml(who)}')" title="Pridať jednorázovú poznámku pre TV"><i class="fas fa-sticky-note"></i></button>`;
-            if (r.stav === 'Hotová') {
-                buttons += `<br>
-                <div style="display:flex; gap:4px; margin-top:4px;">
-                    <button class="btn btn-sm btn-success" data-b2b-finished-pdf="${escapeHtml(id)}">Vypracovaná (PDF)</button>
-                    <button class="btn btn-sm btn-primary" data-b2b-create-dl="${escapeHtml(r.id)}" title="Vystaví dodací list a odpíše zo skladu"><i class="fa-solid fa-truck-fast"></i> Vystaviť DL</button>
-                </div>`;
-            }
+            // --- NOVÝ DIZAJN TLAČIDIEL PRE AKCIU ---
+let buttons = `
+<div style="display:flex; flex-direction:column; gap:6px;">
+    <div style="display:flex; gap:4px; flex-wrap:wrap;">
+        <button class="btn btn-sm" data-b2b-pdf="${escapeHtml(id)}" 
+            style="background:#f1f5f9; border:1px solid #cbd5e1; color:#475569; display:inline-flex; align-items:center; gap:5px; padding:4px 8px; font-weight:600;" title="Otvoriť Zadanie PDF">
+            <i class="fas fa-file-invoice" style="color:#64748b;"></i> Zadanie
+        </button> 
+        
+        <button class="btn btn-sm" data-b2b-edit="${escapeHtml(id)}" 
+            style="background:#f1f5f9; border:1px solid #cbd5e1; color:#475569; display:inline-flex; align-items:center; gap:5px; padding:4px 8px; font-weight:600;" title="Upraviť objednávku">
+            <i class="fas fa-edit" style="color:#0369a1;"></i>
+        </button>
+
+        <button class="btn btn-sm" onclick="window.addLeaderOrderNote('${escapeHtml(r.id)}', '${escapeHtml(who)}')" 
+            style="background:#fffbeb; border:1px solid #fde68a; color:#b45309; display:inline-flex; align-items:center; gap:5px; padding:4px 8px; font-weight:600;" title="Jednorázová poznámka pre TV">
+            <i class="fas fa-sticky-note" style="color:#f59e0b;"></i> Poznámka
+        </button>
+    </div>
+
+    ${r.stav === 'Hotová' ? `
+    <div style="display:flex; gap:4px; flex-wrap:wrap;">
+        <button class="btn btn-sm" data-b2b-finished-pdf="${escapeHtml(id)}" 
+            style="background:#f0fdf4; border:1px solid #bbf7d0; color:#166534; display:inline-flex; align-items:center; gap:5px; padding:4px 8px; font-weight:600;">
+            <i class="fas fa-check-double"></i> Vypracovaná
+        </button>
+        
+        <button class="btn btn-sm" data-b2b-create-dl="${escapeHtml(r.id)}" 
+            style="background:#eff6ff; border:1px solid #bfdbfe; color:#1d4ed8; display:inline-flex; align-items:center; gap:5px; padding:4px 8px; font-weight:600;" title="Vystaviť Dodací List">
+            <i class="fa-solid fa-truck-fast"></i> DL
+        </button>
+    </div>
+    ` : ''}
+</div>`;
 
             return `<tr><td>${escapeHtml(id)}</td><td style="font-weight:bold;">${escapeHtml(who)}</td><td>${priceCell(r)}</td><td>${escapeHtml(r.stav||'')}</td><td>${buttons}</td></tr>`; 
           }).join('');
