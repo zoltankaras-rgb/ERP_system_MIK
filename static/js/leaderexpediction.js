@@ -3710,7 +3710,7 @@ window.printExpeditionBreakdown = function() {
       const nazov = p ? p.nazov_vyrobku : '';
       const kat = p ? p.predajna_kategoria : '';
       const mj = p ? p.mj : 'kg';
-      const dph = p ? p.dph : '20';
+      const dph = p ? p.dph : '23';
 
       const html = `
           <div style="padding-bottom:10px; border-bottom:2px solid #e2e8f0; margin-bottom:15px;">
@@ -3746,8 +3746,10 @@ window.printExpeditionBreakdown = function() {
               <div class="form-group">
                   <label style="font-weight:bold;">DPH (%)</label>
                   <select id="pe-dph" class="form-control" style="width:100%;">
-                      <option value="20" ${dph == 20 ? 'selected' : ''}>20%</option>
+                      <option value="23" ${dph == 23 ? 'selected' : ''}>23%</option>
+                      <option value="19" ${dph == 19 ? 'selected' : ''}>19%</option>
                       <option value="10" ${dph == 10 ? 'selected' : ''}>10%</option>
+                      <option value="5" ${dph == 5 ? 'selected' : ''}>5%</option>
                       <option value="0" ${dph == 0 ? 'selected' : ''}>0%</option>
                   </select>
               </div>
