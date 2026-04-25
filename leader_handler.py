@@ -1255,35 +1255,39 @@ def leader_delete_product():
 @leader_bp.route('/catalog/products/stock_card', methods=['GET'])
 @login_required(role=('veduci','admin'))
 def leader_product_stock_card():
-    """Vráti detailné skladové informácie o produkte (Konzistentné s Kanceláriou)"""
+    """Vráti detailné skladové informácie pre Vedúcu expedície"""
     ean = request.args.get('ean')
     
-    # Použijeme identický dopyt ako v admin rozhraní
+    # Dotaz, ktorý presne zrkadlí logiku z kancelária/erp_admin.js
     sql = """
         SELECT 
             nazov_vyrobku as name, 
             mj as unit, 
             predajna_kategoria as category,
             COALESCE(aktualny_sklad_finalny_kg, 0) as stock,
-            COALESCE(rezervovane_objednavky_kg, 0) as reserved,
-            COALESCE(nakupna_cena, 0) as cost_price
+            COALESCE(rezervovane_objednavky_kg, 0) as reserved
         FROM produkty 
         WHERE ean = %s
     """
-    row = db_connector.execute_query(sql, (ean,), fetch='one')
     
-    if not row:
-        return jsonify({'error': 'Produkt sa nenašiel.'}), 404
+    try:
+        row = db_connector.execute_query(sql, (ean,), fetch='one')
         
-    return jsonify({
-        'name': row['name'],
-        'unit': row['unit'],
-        'category': row['category'],
-        'stock': float(row['stock']),
-        'reserved': float(row['reserved']),
-        'available': float(row['stock']) - float(row['reserved']),
-        'cost_price': float(row['cost_price'])
-    })
+        if not row:
+            # Ak sa produkt nenašiel v tabuľke produkty, skúsime iný katalóg (fallback)
+            return jsonify({'error': 'Produkt s týmto EAN neexistuje v skladovej evidencii.'}), 404
+
+        # Prevedieme Decimal na float pre JSON
+        return jsonify({
+            'name': row['name'],
+            'unit': row['unit'] or 'kg',
+            'category': row['category'] or 'Nezaradené',
+            'stock': float(row['stock']),
+            'reserved': float(row['reserved'])
+        })
+    except Exception as e:
+        print(f"Chyba pri načítaní karty {ean}: {e}")
+        return jsonify({'error': 'Interná chyba pri komunikácii s databázou.'}), 500
 @leader_bp.route('/catalog/products/history', methods=['GET'])
 @login_required(role=('veduci','admin'))
 def leader_product_history():
