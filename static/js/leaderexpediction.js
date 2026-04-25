@@ -2400,7 +2400,7 @@ function initManualOrdersUI() {
       // OPRAVA: Vyhodená kontrola na starý prodSearch. Ak tu nie je zákaznícky search, nepokračujeme.
       if(!custSearch) return;
 
-      $('#man-order-date').value = todayISO();
+     
       
       if(typeof loadManualOrderHistory === 'function') loadManualOrderHistory();
 
@@ -2420,7 +2420,7 @@ function initManualOrdersUI() {
           };
 
           const order = {
-              date: $('#man-order-date').value,
+              date: '',
               note: $('#man-order-note').value
           };
 
@@ -2484,7 +2484,7 @@ function initManualOrdersUI() {
                       $('#man-cust-contact').value = draft.customer.kontakt || '';
                       $('#man-cust-is-registered').value = draft.customer.is_registered || '0';
 
-                      if (draft.order.date) $('#man-order-date').value = draft.order.date;
+                      
                       $('#man-order-note').value = draft.order.note || '';
 
                       const tbody = $('#man-order-items tbody');
