@@ -1255,42 +1255,34 @@ def leader_delete_product():
 @leader_bp.route('/catalog/products/stock_card', methods=['GET'])
 @login_required(role=('veduci','admin'))
 def leader_product_stock_card():
-    """Vráti detailné skladové informácie o produkte (Bezpečná verzia)"""
+    """Vráti detailné skladové informácie o produkte (Konzistentné s Kanceláriou)"""
     ean = request.args.get('ean')
     
-    # 1. Zistíme, či vôbec produkt existuje (pýtame sa len na isté a bezpečné stĺpce)
-    base_row = db_connector.execute_query("SELECT nazov_vyrobku as name, mj as unit FROM produkty WHERE ean = %s", (ean,), fetch='one')
+    # Použijeme identický dopyt ako v admin rozhraní
+    sql = """
+        SELECT 
+            nazov_vyrobku as name, 
+            mj as unit, 
+            predajna_kategoria as category,
+            COALESCE(aktualny_sklad_finalny_kg, 0) as stock,
+            COALESCE(rezervovane_objednavky_kg, 0) as reserved,
+            COALESCE(nakupna_cena, 0) as cost_price
+        FROM produkty 
+        WHERE ean = %s
+    """
+    row = db_connector.execute_query(sql, (ean,), fetch='one')
     
-    if not base_row:
-        return jsonify({'error': f'Produkt s EAN {ean} sa v databáze nenašiel.'}), 404
-        
-    name = base_row.get('name', 'Neznámy produkt')
-    unit = base_row.get('unit', 'kg')
-    stock = 0.0
-    reserved = 0.0
-    
-    # 2. Bezpečne sa pokúsime načítať stavy skladu (ak by stĺpce v DB chýbali, nespadne to)
-    try:
-        stock_row = db_connector.execute_query("""
-            SELECT 
-                aktualny_sklad_finalny_kg as stock,
-                rezervovane_objednavky_kg as reserved
-            FROM produkty 
-            WHERE ean = %s
-        """, (ean,), fetch='one')
-        
-        if stock_row:
-            stock = float(stock_row.get('stock') or 0.0)
-            reserved = float(stock_row.get('reserved') or 0.0)
-    except Exception as e:
-        print(f"Stĺpce pre sklad chýbajú alebo nastala chyba: {e}")
-        pass # Ak zlyhá hľadanie zásob (napr. chýba stĺpec), hodnoty ostanú 0.0
+    if not row:
+        return jsonify({'error': 'Produkt sa nenašiel.'}), 404
         
     return jsonify({
-        'name': name,
-        'unit': unit,
-        'stock': stock,
-        'reserved': reserved
+        'name': row['name'],
+        'unit': row['unit'],
+        'category': row['category'],
+        'stock': float(row['stock']),
+        'reserved': float(row['reserved']),
+        'available': float(row['stock']) - float(row['reserved']),
+        'cost_price': float(row['cost_price'])
     })
 @leader_bp.route('/catalog/products/history', methods=['GET'])
 @login_required(role=('veduci','admin'))

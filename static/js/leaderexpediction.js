@@ -3823,27 +3823,54 @@ window.printExpeditionBreakdown = function() {
       window.openLeaderModal('<div style="padding:20px; text-align:center;"><i class="fas fa-spinner fa-spin fa-2x"></i><br>Načítavam skladovú kartu...</div>');
       try {
           const data = await apiRequest(`/api/leader/catalog/products/stock_card?ean=${ean}`);
+          
+          // Výpočet voľného skladu (rovnako ako v kancelárii)
+          const available = data.stock - data.reserved;
+          
           const html = `
-              <div style="padding-bottom:10px; border-bottom:2px solid #e2e8f0; margin-bottom:15px; display:flex; justify-content:space-between; align-items:center;">
+              <div style="padding-bottom:15px; border-bottom:2px solid #e2e8f0; margin-bottom:20px; display:flex; justify-content:space-between; align-items:center;">
                   <h3 style="margin:0; color:#1e293b;">📦 Skladová karta: ${escapeHtml(data.name)}</h3>
-                  <span style="font-family:monospace; font-weight:bold; background:#f1f5f9; padding:5px 10px; border-radius:5px;">EAN: ${ean}</span>
+                  <span style="font-family:monospace; font-weight:bold; background:#f1f5f9; padding:5px 12px; border-radius:6px; border:1px solid #cbd5e1;">EAN: ${ean}</span>
               </div>
-              <div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px; margin-bottom:20px;">
-                  <div style="background:#f8fafc; padding:15px; border-radius:8px; border:1px solid #e2e8f0;">
-                      <div class="muted">Aktuálny stav na sklade</div>
-                      <div style="font-size:2rem; font-weight:800; color:#0369a1;">${Number(data.stock).toFixed(2)} ${data.unit}</div>
+
+              <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:15px; margin-bottom:20px;">
+                  <div style="background:#f0f9ff; padding:20px; border-radius:12px; border:1px solid #bae6fd; text-align:center;">
+                      <div style="color:#0369a1; font-weight:600; font-size:0.9rem; text-transform:uppercase; margin-bottom:8px;">Fyzický stav</div>
+                      <div style="font-size:2.2rem; font-weight:800; color:#0c4a6e;">${data.stock.toFixed(2)} <span style="font-size:1.2rem;">${data.unit}</span></div>
                   </div>
-                  <div style="background:#f8fafc; padding:15px; border-radius:8px; border:1px solid #e2e8f0;">
-                      <div class="muted">Rezervované v objednávkach</div>
-                      <div style="font-size:2rem; font-weight:800; color:#f59e0b;">${Number(data.reserved).toFixed(2)} ${data.unit}</div>
+                  <div style="background:#fff7ed; padding:20px; border-radius:12px; border:1px solid #fed7aa; text-align:center;">
+                      <div style="color:#9a3412; font-weight:600; font-size:0.9rem; text-transform:uppercase; margin-bottom:8px;">Rezervácie</div>
+                      <div style="font-size:2.2rem; font-weight:800; color:#7c2d12;">${data.reserved.toFixed(2)} <span style="font-size:1.2rem;">${data.unit}</span></div>
+                  </div>
+                  <div style="background:${available < 0 ? '#fef2f2' : '#f0fdf4'}; padding:20px; border-radius:12px; border:1px solid ${available < 0 ? '#fecaca' : '#bbf7d0'}; text-align:center;">
+                      <div style="color:${available < 0 ? '#991b1b' : '#166534'}; font-weight:600; font-size:0.9rem; text-transform:uppercase; margin-bottom:8px;">Voľné na predaj</div>
+                      <div style="font-size:2.2rem; font-weight:800; color:${available < 0 ? '#7f1d1d' : '#064e3b'};">${available.toFixed(2)} <span style="font-size:1.2rem;">${data.unit}</span></div>
                   </div>
               </div>
-              <div style="text-align:right;">
+
+              <div style="background:#f8fafc; padding:15px; border-radius:8px; border:1px solid #e2e8f0; margin-bottom:20px;">
+                  <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
+                      <span class="muted">Kategória:</span>
+                      <strong style="color:#334155;">${escapeHtml(data.category || 'Nezaradené')}</strong>
+                  </div>
+                  <div style="display:flex; justify-content:space-between;">
+                      <span class="muted">MJ (Základná jednotka):</span>
+                      <strong style="color:#334155;">${escapeHtml(data.unit)}</strong>
+                  </div>
+              </div>
+
+              <div style="text-align:right; display:flex; gap:10px; justify-content:flex-end;">
                   <button class="btn btn-secondary" onclick="window.closeLeaderModal()">Zatvoriť</button>
+                  <button class="btn btn-primary" onclick="window.showProductHistory('${ean}')"><i class="fas fa-history"></i> Zobraziť pohyby</button>
               </div>
           `;
           window.openLeaderModal(html);
-      } catch(e) { window.openLeaderModal(`<div class="error">Chyba: ${e.message}</div>`); }
+      } catch(e) { 
+          window.openLeaderModal(`<div class="error" style="padding:20px; text-align:center; color:#dc2626;">
+              <i class="fas fa-exclamation-circle fa-2x"></i><br><br>
+              Chyba pri načítaní dát: ${e.message}
+          </div>`); 
+      }
   };
 
   // Zobrazenie histórie (simulácia erp_admin.js)
