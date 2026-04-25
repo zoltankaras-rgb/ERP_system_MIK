@@ -426,7 +426,10 @@
         tb.innerHTML = list.map(r=>{
           const id = r.cislo_objednavky || r.id; const who = safeStr(r.odberatel || ''); const ddel = r.pozadovany_datum_dodania || '';
           
-          let buttons = `<button class="btn btn-sm" data-b2b-pdf="${escapeHtml(id)}">Zadanie (PDF)</button> <button class="btn btn-sm" data-b2b-edit="${escapeHtml(id)}">Upraviť</button>`;
+          // PRIDANÉ TLAČIDLO PRE JEDNORAZOVÚ POZNÁMKU
+          let buttons = `<button class="btn btn-sm" data-b2b-pdf="${escapeHtml(id)}">Zadanie (PDF)</button> 
+                         <button class="btn btn-sm" data-b2b-edit="${escapeHtml(id)}">Upraviť</button>
+                         <button class="btn btn-sm btn-outline-warning" style="border:1px solid #f59e0b; color:#b45309;" onclick="window.addLeaderOrderNote('${escapeHtml(r.id)}', '${escapeHtml(who)}')" title="Pridať jednorázovú poznámku pre TV"><i class="fas fa-sticky-note"></i></button>`;
           if (r.stav === 'Hotová') {
               buttons += `<br><button class="btn btn-sm btn-success" style="margin-top: 4px;" data-b2b-finished-pdf="${escapeHtml(id)}">Vypracovaná (PDF)</button>`;
           }
@@ -440,7 +443,10 @@
           const rowsHtml = groups[k].map(r=>{ 
             const id = r.cislo_objednavky || r.id; const who = safeStr(r.odberatel || ''); 
             
-            let buttons = `<button class="btn btn-sm" data-b2b-pdf="${escapeHtml(id)}">Zadanie (PDF)</button> <button class="btn btn-sm" data-b2b-edit="${escapeHtml(id)}">Upraviť</button>`;
+            // PRIDANÉ TLAČIDLO PRE JEDNORAZOVÚ POZNÁMKU (v zoskupenom režime)
+            let buttons = `<button class="btn btn-sm" data-b2b-pdf="${escapeHtml(id)}">Zadanie (PDF)</button> 
+                           <button class="btn btn-sm" data-b2b-edit="${escapeHtml(id)}">Upraviť</button>
+                           <button class="btn btn-sm btn-outline-warning" style="border:1px solid #f59e0b; color:#b45309;" onclick="window.addLeaderOrderNote('${escapeHtml(r.id)}', '${escapeHtml(who)}')" title="Pridať jednorázovú poznámku pre TV"><i class="fas fa-sticky-note"></i></button>`;
             if (r.stav === 'Hotová') {
                 buttons += `<br>
                 <div style="display:flex; gap:4px; margin-top:4px;">
@@ -456,18 +462,16 @@
       }
       
       $$('[data-b2b-pdf]').forEach(b=> b.onclick = ()=> openB2bPdfSmart(b.getAttribute('data-b2b-pdf')) );
-      // NOVÉ: Kliknutie pre vypracovanú (terminálovú) objednávku
       $$('[data-b2b-finished-pdf]').forEach(b=> b.onclick = ()=> openB2bPdfSmart(b.getAttribute('data-b2b-finished-pdf'), 'finished') );
       $$('[data-b2b-edit]').forEach(b=> b.onclick = ()=>{ const id = b.getAttribute('data-b2b-edit'); const row = rows.find(x=> String(x.cislo_objednavky||x.id) === id); if (row) openB2BEditModal(row); });
       $$('[data-b2b-create-dl]').forEach(b => b.onclick = async () => {
           const orderId = b.getAttribute('data-b2b-create-dl');
           if (!confirm("Naozaj vystaviť Dodací list? Táto akcia fyzicky odpíše tovar zo skladu a zapíše ho do Skladového denníka.")) return;
-          
           try {
               showStatus("Vystavujem Dodací list...", false);
               const res = await apiRequest('/api/billing/create_dl_from_order', 'POST', { order_id: orderId });
               showStatus(res.message, false);
-              b.style.display = 'none'; // Skryjeme tlačidlo po vystavení
+              b.style.display = 'none'; 
           } catch(e) {
               showStatus(e.message, true);
           }
@@ -4071,6 +4075,25 @@ window._se_render_table = function() {
           window.openLeaderModal(html);
       } catch(e) { window.openLeaderModal(`<div class="error">Chyba: ${e.message}</div>`); }
   };
+
+  window.addLeaderOrderNote = async function(orderId, customerName) {
+    const note = prompt(`Zadajte jednorázovú poznámku pre objednávku ${customerName}:`);
+    
+    if (note === null) return; // Používateľ zrušil
+
+    try {
+        showStatus('Ukladám poznámku...', false);
+        const res = await apiRequest('/api/leader/b2b/save-order-note', {
+            method: 'POST',
+            body: { order_id: orderId, note: note }
+        });
+        showStatus(res.message, false);
+        // Voliteľne obnoviť tabuľku
+        if (window.loadB2BOrders) window.loadB2BOrders();
+    } catch(e) {
+        showStatus('Chyba: ' + e.message, true);
+    }
+};
  function boot(){
     $$('.sidebar-link').forEach(a=>{
       a.onclick = ()=>{

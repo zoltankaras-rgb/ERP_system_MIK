@@ -635,6 +635,26 @@ def leader_b2b_orders():
             'polozky_json': r.get('polozky_json') or r.get('polozky') or '[]'
         })
     return jsonify(out)
+
+@leader_bp.post('/b2b/save-order-note')
+@login_required(role=('veduci','admin'))
+def save_b2b_order_note():
+    """Uloží špeciálnu poznámku vedúcej k jednej konkrétnej objednávke"""
+    data = request.json or {}
+    order_id = data.get('order_id')
+    note = data.get('note', '').strip()
+
+    if not order_id:
+        return jsonify({'error': 'Chýba ID objednávky'}), 400
+
+    try:
+        # Uložíme poznámku priamo k objednávke
+        sql = "UPDATE b2b_objednavky SET poznamka_veduceho = %s WHERE id = %s"
+        db_connector.execute_query(sql, (note, order_id), fetch='none')
+        
+        return jsonify({'message': 'Poznámka bola úspešne uložená a zobrazí sa na TV tabuli.'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 # =============================================================================
 # B2C: zrušenie (leader proxy)
 # =============================================================================

@@ -330,7 +330,11 @@ function ukazTvFocusOverlay(cisloObjednavky, jeNovyFocus = false) {
             notesHtml += `<div class="tv-note-item"><i class="fas fa-info-circle"></i> <strong>K OBJEDNÁVKE:</strong> ${obj.poznamka_objednavky}</div>`;
             hasNotes = true;
         }
-        
+        // PRIDANÉ: Jednorazová poznámka od vedúcej
+        if (obj.poznamka_veduceho && obj.poznamka_veduceho.trim() !== '') {
+            notesHtml += `<div class="tv-note-item" style="border-left-color: #f59e0b; background: rgba(245, 158, 11, 0.15); color: #fbbf24;"><i class="fas fa-comment-dots"></i> <strong>JEDNORÁZOVÁ POZNÁMKA:</strong> ${obj.poznamka_veduceho}</div>`;
+            hasNotes = true;
+        }
         if (obj.mrazene_polozky && obj.mrazene_polozky.trim() !== '') {
             notesHtml += `<div class="tv-note-item"><i class="fas fa-snowflake"></i> <strong>MRAZENÉ:</strong> ${obj.mrazene_polozky}</div>`;
             hasNotes = true;
@@ -439,13 +443,16 @@ function vykresliStranu() {
             badge = `<span class="status-badge" style="background:#e0f2fe; color:#0284c7; border: 1px solid #bae6fd;"><i class="fas fa-snowflake"></i> Chystať z mrazáku</span>`;
             poznamkyHtml = `<div class="p-riadok mrazena-poznamka"><i class="fas fa-snowflake" style="font-size: 1.5rem; margin-top: 5px;"></i><div style="font-size: 1.6rem;"><strong>MRAZENÉ:</strong> ${obj.mrazene_polozky}</div></div>`;
         } else {
-            const maPoznamku = obj.trvala_poznamka || obj.poznamka_objednavky || obj.mrazene_polozky;
+            // PRIDANÉ: Skontrolujeme aj poznamka_veduceho
+            const maPoznamku = obj.trvala_poznamka || obj.poznamka_objednavky || obj.mrazene_polozky || obj.poznamka_veduceho;
             cssClass = maPoznamku ? 'has-notes' : 'has-order';
             badge = `<span class="status-badge badge-order"><i class="fas fa-box"></i> Objednané</span>`;
 
             if (maPoznamku) {
                 if (obj.trvala_poznamka) poznamkyHtml += `<div class="p-riadok stala-poznamka"><i class="fas fa-exclamation-circle"></i><div><strong>VŽDY:</strong> ${obj.trvala_poznamka}</div></div>`;
                 if (obj.poznamka_objednavky) poznamkyHtml += `<div class="p-riadok dnesna-poznamka"><i class="fas fa-info-circle"></i><div><strong>DOPLNENIE:</strong> ${obj.poznamka_objednavky}</div></div>`;
+                // PRIDANÉ: Výpis jednorazovej poznámky do malej kartičky
+                if (obj.poznamka_veduceho) poznamkyHtml += `<div class="p-riadok" style="color: #b45309; background: #fef3c7; border-left: 4px solid #f59e0b;"><i class="fas fa-comment-dots"></i><div><strong>JEDNORÁZOVÁ:</strong> ${obj.poznamka_veduceho}</div></div>`;
                 if (obj.mrazene_polozky) poznamkyHtml += `<div class="p-riadok mrazena-poznamka"><i class="fas fa-snowflake"></i><div><strong>MRAZENÉ:</strong> ${obj.mrazene_polozky}</div></div>`;
             }
         }
