@@ -1293,17 +1293,101 @@ def leader_delete_product():
 @leader_bp.route('/catalog/products/stock_card', methods=['GET'])
 @login_required(role=('veduci','admin'))
 def leader_product_stock_card():
-    """Vráti detailné skladové informácie pre Vedúcu expedície - 100% zrkadlo Kancelárie"""
+    """Vráti detailné skladové informácie pre Vedúcu expedície, vrátane REÁLNYCH VÁH Z TERMINÁLU"""
     ean = request.args.get('ean')
-    
-    # Zavoláme priamo funkciu z Kancelárie, takže dáta a formát budú úplne identické
-    import office_handler
-    data = office_handler.get_product_stock_card_data({"ean": ean})
-    
-    if "error" in data:
-        return jsonify(data), 404
+    if not ean: 
+        return jsonify({"error": "Chýba EAN"}), 400
+
+    try:
+        # 1. Základné info o produkte
+        prod_sql = """
+            SELECT ean, nazov_vyrobku as name, mj, 
+                   COALESCE(aktualny_sklad_finalny_kg, 0) as stock,
+                   COALESCE(rezervovane_objednavky_kg, 0) as reserved,
+                   typ_polozky
+            FROM produkty WHERE ean = %s
+        """
+        prod_row = db_connector.execute_query(prod_sql, (ean,), fetch='one')
+        if not prod_row:
+            return jsonify({"error": "Produkt s týmto EAN neexistuje v skladovej evidencii."}), 404
         
-    return jsonify(data)
+        # Zistenie, či ide o vlastný výrobok (pre zobrazenie tabuľky výroby)
+        is_made = str(prod_row.get('typ_polozky', '')).upper().startswith('VÝROBOK')
+
+        # 2. Posledné B2B predaje -> TOTO ŤAHÁ DÁTA PRIAMO Z TERMINÁLU (dodane_mnozstvo)
+        b2b_sql = """
+            SELECT 
+                o.datum_vypracovania as date, 
+                o.nazov_firmy as customer, 
+                COALESCE(p.dodane_mnozstvo, p.mnozstvo) as qty, 
+                p.mj
+            FROM b2b_objednavky_polozky p
+            JOIN b2b_objednavky o ON o.id = p.objednavka_id
+            WHERE p.ean_produktu = %s AND o.stav = 'Hotová'
+            ORDER BY o.datum_vypracovania DESC 
+            LIMIT 15
+        """
+        b2b_rows = db_connector.execute_query(b2b_sql, (ean,), fetch='all') or []
+
+        # 3. Posledné B2C predaje
+        b2c_sql = """
+            SELECT 
+                o.datum_objednavky as date, 
+                o.cislo_objednavky as order_no, 
+                p.mnozstvo as qty, 
+                p.mj
+            FROM b2c_objednavky_polozky p
+            JOIN b2c_objednavky o ON o.id = p.objednavka_id
+            WHERE p.ean_produktu = %s AND o.stav NOT IN ('Zrušená')
+            ORDER BY o.datum_objednavky DESC 
+            LIMIT 15
+        """
+        b2c_rows = db_connector.execute_query(b2c_sql, (ean,), fetch='all') or []
+
+        # 4. Posledná výroba (ak je to výrobok)
+        prod_hist = []
+        if is_made:
+            prod_hist_sql = """
+                SELECT datum_ukoncenia as date, id_davky as batch, realne_mnozstvo_kg as qty
+                FROM zaznamy_vyroba 
+                WHERE JSON_UNQUOTE(JSON_EXTRACT(detaily_zmeny, '$.cielovyEan')) = %s
+                  AND stav = 'Ukončená'
+                ORDER BY datum_ukoncenia DESC 
+                LIMIT 15
+            """
+            try:
+                ph_rows = db_connector.execute_query(prod_hist_sql, (ean,), fetch='all') or []
+                for r in ph_rows:
+                    prod_hist.append({
+                        "date": str(r['date']) if r['date'] else '',
+                        "batch": r['batch'],
+                        "qty": float(r['qty'] or 0)
+                    })
+            except Exception as e:
+                print("Chyba vyroby:", e)
+
+        # Formátovanie B2B a B2C dát
+        b2b_list = [{"date": str(r['date']) if r['date'] else '', "customer": r['customer'], "qty": float(r['qty']), "mj": r['mj']} for r in b2b_rows]
+        b2c_list = [{"date": str(r['date']) if r['date'] else '', "order_no": r['order_no'], "qty": float(r['qty']), "mj": r['mj']} for r in b2c_rows]
+
+        # Vrátenie presnej štruktúry, ktorú frontend očakáva
+        return jsonify({
+            "product": {
+                "ean": prod_row['ean'],
+                "name": prod_row['name'],
+                "mj": prod_row['mj'] or 'kg',
+                "stock": float(prod_row['stock']),
+                "reserved": float(prod_row['reserved']),
+                "is_made": is_made
+            },
+            "b2b": b2b_list,
+            "b2c": b2c_list,
+            "production": prod_hist
+        })
+
+    except Exception as e:
+        print(f"Kritická chyba pri načítaní skladovej karty: {e}")
+        return jsonify({"error": f"Chyba databázy: {e}"}), 500
 
 @leader_bp.route('/catalog/products/history', methods=['GET'])
 @login_required(role=('veduci','admin'))
