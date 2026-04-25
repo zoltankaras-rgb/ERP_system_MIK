@@ -424,9 +424,9 @@
       
       if (!group){
         tb.innerHTML = list.map(r=>{
-          const id = r.cislo_objednavky || r.id; const who = safeStr(r.odberatel || ''); const ddel = r.pozadovany_datum_dodania || '';
+          // OPRAVA: Pridané r.nazov_firmy
+          const id = r.cislo_objednavky || r.id; const who = safeStr(r.odberatel || r.nazov_firmy || r.zakaznik_meno || ''); const ddel = r.pozadovany_datum_dodania || '';
           
-          // PRIDANÉ TLAČIDLO PRE JEDNORAZOVÚ POZNÁMKU
           let buttons = `<button class="btn btn-sm" data-b2b-pdf="${escapeHtml(id)}">Zadanie (PDF)</button> 
                          <button class="btn btn-sm" data-b2b-edit="${escapeHtml(id)}">Upraviť</button>
                          <button class="btn btn-sm btn-outline-warning" style="border:1px solid #f59e0b; color:#b45309;" onclick="window.addLeaderOrderNote('${escapeHtml(r.id)}', '${escapeHtml(who)}')" title="Pridať jednorázovú poznámku pre TV"><i class="fas fa-sticky-note"></i></button>`;
@@ -434,16 +434,16 @@
               buttons += `<br><button class="btn btn-sm btn-success" style="margin-top: 4px;" data-b2b-finished-pdf="${escapeHtml(id)}">Vypracovaná (PDF)</button>`;
           }
 
-          return `<tr><td>${escapeHtml(id)}</td><td>${escapeHtml(who)}</td><td>${escapeHtml(ddel||'')}</td><td>${priceCell(r)}</td><td>${escapeHtml(r.stav||'')}</td><td>${buttons}</td></tr>`;
+          return `<tr><td>${escapeHtml(id)}</td><td style="font-weight:bold;">${escapeHtml(who)}</td><td>${escapeHtml(ddel||'')}</td><td>${priceCell(r)}</td><td>${escapeHtml(r.stav||'')}</td><td>${buttons}</td></tr>`;
         }).join('');
       } else {
         const groups = {}; list.forEach(r=>{ const key = r.pozadovany_datum_dodania || '(bez dátumu)'; (groups[key] = groups[key] || []).push(r); });
         const keys = Object.keys(groups).sort((a,b)=>{ if (a==='(bez dátumu)') return 1; if (b==='(bez dátumu)') return -1; return a.localeCompare(b); });
         tb.innerHTML = keys.map(k=>{
           const rowsHtml = groups[k].map(r=>{ 
-            const id = r.cislo_objednavky || r.id; const who = safeStr(r.odberatel || ''); 
+            // OPRAVA: Pridané r.nazov_firmy
+            const id = r.cislo_objednavky || r.id; const who = safeStr(r.odberatel || r.nazov_firmy || r.zakaznik_meno || ''); 
             
-            // PRIDANÉ TLAČIDLO PRE JEDNORAZOVÚ POZNÁMKU (v zoskupenom režime)
             let buttons = `<button class="btn btn-sm" data-b2b-pdf="${escapeHtml(id)}">Zadanie (PDF)</button> 
                            <button class="btn btn-sm" data-b2b-edit="${escapeHtml(id)}">Upraviť</button>
                            <button class="btn btn-sm btn-outline-warning" style="border:1px solid #f59e0b; color:#b45309;" onclick="window.addLeaderOrderNote('${escapeHtml(r.id)}', '${escapeHtml(who)}')" title="Pridať jednorázovú poznámku pre TV"><i class="fas fa-sticky-note"></i></button>`;
@@ -455,7 +455,7 @@
                 </div>`;
             }
 
-            return `<tr><td>${escapeHtml(id)}</td><td>${escapeHtml(who)}</td><td>${priceCell(r)}</td><td>${escapeHtml(r.stav||'')}</td><td>${buttons}</td></tr>`; 
+            return `<tr><td>${escapeHtml(id)}</td><td style="font-weight:bold;">${escapeHtml(who)}</td><td>${priceCell(r)}</td><td>${escapeHtml(r.stav||'')}</td><td>${buttons}</td></tr>`; 
           }).join('');
           return `<tr class="muted"><td colspan="6"><strong>Dodanie:</strong> ${escapeHtml(k!=='(bez dátumu)'?`${fmtSK(k)} (${k})`:k)}</td></tr>${rowsHtml}`;
         }).join('');
