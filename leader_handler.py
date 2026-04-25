@@ -153,17 +153,55 @@ def leader_catalog_names():
 @leader_bp.get('/catalog/products')
 @login_required(role=('veduci','admin'))
 def leader_get_products():
-    """Vráti kompletný katalóg produktov pre Skladové karty vedúcej"""
+    """Vráti katalóg produktov vrátane aktuálneho stavu skladu"""
     sql = """
-        SELECT ean, nazov_vyrobku, predajna_kategoria, mj, COALESCE(dph, 20) as dph 
+        SELECT ean, nazov_vyrobku, predajna_kategoria, mj, 
+               COALESCE(dph, 20) as dph,
+               COALESCE(aktualny_sklad_finalny_kg, 0) as stock 
         FROM produkty 
         ORDER BY nazov_vyrobku
     """
     rows = db_connector.execute_query(sql, fetch='all') or []
-    # Zaistíme, že DPH pôjde na frontend ako číslo
     for r in rows:
         r['dph'] = float(r.get('dph') or 20)
+        r['stock'] = float(r.get('stock') or 0)
     return jsonify(rows)
+
+@leader_bp.route('/catalog/products/sales_explorer', methods=['GET'])
+@login_required(role=('veduci','admin'))
+def leader_product_sales_explorer():
+    """Vráti kompletnú históriu predajov (B2B aj B2C) pre daný EAN"""
+    ean = request.args.get('ean')
+    if not ean: return jsonify([])
+
+    # B2B Predaje
+    b2b_sql = """
+        SELECT o.pozadovany_datum_dodania as date, o.nazov_firmy as customer, 
+               p.mnozstvo as qty, p.mj as unit, p.cena_bez_dph as price, 'B2B' as type
+        FROM b2b_objednavky_polozky p
+        JOIN b2b_objednavky o ON o.id = p.objednavka_id
+        WHERE p.ean_produktu = %s AND o.stav NOT IN ('Zrušená')
+    """
+    
+    # B2C Predaje
+    b2c_sql = """
+        SELECT o.pozadovany_datum_dodania as date, COALESCE(o.nazov_firmy, 'B2C Zákazník') as customer, 
+               p.mnozstvo as qty, p.mj as unit, p.cena_s_dph as price, 'B2C' as type
+        FROM b2c_objednavky_polozky p
+        JOIN b2c_objednavky o ON o.id = p.objednavka_id
+        WHERE p.ean_produktu = %s AND o.stav NOT IN ('Zrušená')
+    """
+
+    b2b_rows = db_connector.execute_query(b2b_sql, (ean,), fetch='all') or []
+    b2c_rows = db_connector.execute_query(b2c_sql, (ean,), fetch='all') or []
+    
+    combined = b2b_rows + b2c_rows
+    for r in combined:
+        r['date'] = str(r['date']) if r['date'] else None
+        r['qty'] = float(r['qty'] or 0)
+        r['price'] = float(r['price'] or 0)
+
+    return jsonify(sorted(combined, key=lambda x: x['date'] or '', reverse=True))
 
 @leader_bp.post('/catalog/products/save')
 @login_required(role=('veduci','admin'))

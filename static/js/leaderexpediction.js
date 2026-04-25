@@ -3658,62 +3658,118 @@ window.printExpeditionBreakdown = function() {
   window._cachedCategories = [];
 
   window.loadLeaderProducts = async function() {
-      const tbody = document.getElementById('stock-cards-tbody');
-      const q = (document.getElementById('stock-cards-search')?.value || '').toLowerCase().trim();
+    const tbody = document.getElementById('stock-cards-tbody');
+    const searchQ = (document.getElementById('stock-cards-search')?.value || '').toLowerCase().trim();
+    const catF = document.getElementById('stock-cards-cat-filter')?.value || '';
 
-      if (!window._cachedProducts) {
-          tbody.innerHTML = '<tr><td colspan="6" class="muted text-center" style="padding:20px;"><i class="fas fa-spinner fa-spin"></i> Načítavam katalóg...</td></tr>';
-          try {
-              window._cachedProducts = await apiRequest('/api/leader/catalog/products');
-              // Extrakcia unikátnych predajných kategórií
-              const catSet = new Set();
-              window._cachedProducts.forEach(p => { if (p.predajna_kategoria) catSet.add(p.predajna_kategoria); });
-              window._cachedCategories = Array.from(catSet).sort();
-          } catch(e) {
-              tbody.innerHTML = `<tr><td colspan="6" class="text-center" style="color:red; padding:20px;">Chyba: ${e.message}</td></tr>`;
-              return;
-          }
-      }
+    if (!window._cachedProducts) {
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center" style="padding:40px;"><i class="fas fa-spinner fa-spin fa-2x"></i></td></tr>';
+        try {
+            window._cachedProducts = await apiRequest('/api/leader/catalog/products');
+            
+            // Naplnenie filtra kategórií
+            const cats = [...new Set(window._cachedProducts.map(p => p.predajna_kategoria).filter(Boolean))].sort();
+            const catSelect = document.getElementById('stock-cards-cat-filter');
+            if (catSelect) {
+                catSelect.innerHTML = '<option value="">Všetky kategórie</option>' + 
+                    cats.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+                catSelect.value = catF;
+            }
+        } catch(e) {
+            tbody.innerHTML = `<tr><td colspan="7" class="error">${e.message}</td></tr>`;
+            return;
+        }
+    }
 
-      let filtered = window._cachedProducts;
-      if (q) {
-          filtered = filtered.filter(p => 
-              (p.nazov_vyrobku && p.nazov_vyrobku.toLowerCase().includes(q)) || 
-              (p.ean && String(p.ean).toLowerCase().includes(q))
-          );
-      }
+    let filtered = window._cachedProducts.filter(p => {
+        const matchesSearch = !searchQ || (p.nazov_vyrobku?.toLowerCase().includes(searchQ) || p.ean?.includes(searchQ));
+        const matchesCat = !catF || p.predajna_kategoria === catF;
+        return matchesSearch && matchesCat;
+    });
 
-      if (filtered.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="6" class="muted text-center" style="padding:20px;">Nenašli sa žiadne produkty.</td></tr>';
-          return;
-      }
+    tbody.innerHTML = filtered.slice(0, 200).map(p => `
+        <tr>
+            <td style="font-family:monospace; font-weight:bold;">${escapeHtml(p.ean)}</td>
+            <td><strong>${escapeHtml(p.nazov_vyrobku)}</strong></td>
+            <td><span class="chip">${escapeHtml(p.predajna_kategoria || '—')}</span></td>
+            <td style="text-align:right; font-weight:bold; color:${p.stock <= 0 ? '#ef4444' : '#10b981'};">${p.stock.toFixed(2)}</td>
+            <td>${escapeHtml(p.mj)}</td>
+            <td>${p.dph}%</td>
+            <td style="text-align:right;">
+              <button class="btn btn-primary" onclick="window.openSalesExplorer('${ean}', '${escapeHtml(data.name)}')">
+    <i class="fas fa-search-dollar"></i> Prieskumník predajov z databázy
+</button>
+            </td>
+        </tr>
+    `).join('');
+};
+window.openSalesExplorer = async function(ean, productName) {
+    const body = document.querySelector('#ldr-modal .b2c-modal-body');
+    body.innerHTML = '<div class="text-center" style="padding:40px;"><i class="fas fa-spinner fa-spin fa-2x"></i><br>Sťahujem kompletnú databázu predajov...</div>';
+    
+    try {
+        const sales = await apiRequest(`/api/leader/catalog/products/sales_explorer?ean=${ean}`);
+        
+        const renderUI = (filterType = 'customer', filterValue = '') => {
+            let html = `
+                <div style="background:#f1f5f9; padding:15px; border-radius:8px; margin-bottom:15px; display:flex; gap:10px; align-items:center;">
+                    <div style="flex:1;">
+                        <label class="muted small">Filtrovať históriu podľa:</label>
+                        <select id="se-mode" class="form-control" onchange="window._se_render(this.value)">
+                            <option value="customer" ${filterType === 'customer' ? 'selected' : ''}>Odberateľa (Všetky jeho nákupy)</option>
+                            <option value="date" ${filterType === 'date' ? 'selected' : ''}>Dátumu (Komu to v ten deň išlo)</option>
+                        </select>
+                    </div>
+                </div>
+                <div id="se-results" class="table-container" style="max-height:450px;">`;
 
-     tbody.innerHTML = filtered.slice(0, 150).map(p => `
-          <tr style="border-bottom:1px solid #f1f5f9;">
-              <td style="font-family:monospace; font-weight:bold; color:#0369a1;">${escapeHtml(p.ean)}</td>
-              <td style="font-weight:600; color:#0f172a;">${escapeHtml(p.nazov_vyrobku)}</td>
-              <td><span style="background:#e2e8f0; padding:2px 6px; border-radius:4px; font-size:0.85rem; color:#475569;">${escapeHtml(p.predajna_kategoria || 'Nezaradené')}</span></td>
-              <td>${escapeHtml(p.mj)}</td>
-              <td>${p.dph}%</td>
-              <td style="text-align:right; white-space:nowrap;">
-                  <div style="display:flex; gap:5px; justify-content:flex-end;">
-                      <button class="btn btn-sm btn-light" onclick="window.showProductStockCard('${p.ean}')" title="Skladová karta">
-                          <i class="fa-solid fa-boxes-stacked" style="color: #0369a1;"></i>
-                      </button>
-                      <button class="btn btn-sm btn-light" onclick="window.showProductHistory('${p.ean}')" title="História">
-                          <i class="fas fa-history"></i>
-                      </button>
-                      <button class="btn btn-sm btn-primary" onclick='window.showProductEditor(${JSON.stringify(p).replace(/'/g, "&apos;")})'>
-                          <i class="fas fa-edit"></i>
-                      </button>
-                      <button class="btn btn-sm btn-danger" onclick="window.deleteLeaderProduct('${p.ean}', '${escapeHtml(p.nazov_vyrobku)}')" title="Odstrániť">
-                          <i class="fas fa-trash"></i>
-                      </button>
-                  </div>
-              </td>
-          </tr>
-      `).join('');
-  };
+            if (filterType === 'customer') {
+                // Grupy podľa odberateľa
+                const grouped = {};
+                sales.forEach(s => { grouped[s.customer] = grouped[s.customer] || []; grouped[s.customer].push(s); });
+                
+                Object.keys(grouped).sort().forEach(cust => {
+                    const items = grouped[cust];
+                    const totalQty = items.reduce((a, b) => a + b.qty, 0);
+                    html += `
+                        <details style="margin-bottom:5px; border:1px solid #e2e8f0; border-radius:6px; background:#fff;">
+                            <summary style="padding:10px; cursor:pointer; font-weight:bold; display:flex; justify-content:space-between;">
+                                <span>${escapeHtml(cust)}</span>
+                                <span style="color:#0369a1;">Spolu: ${totalQty.toFixed(2)}</span>
+                            </summary>
+                            <table class="tbl" style="margin:0; border:none; border-top:1px solid #eee;">
+                                <thead><tr><th>Dátum</th><th style="text-align:right;">Množstvo</th><th style="text-align:right;">Cena</th></tr></thead>
+                                <tbody>
+                                    ${items.map(i => `<tr><td>${i.date}</td><td style="text-align:right; font-weight:600;">${i.qty.toFixed(2)} ${i.unit}</td><td style="text-align:right; color:#16a34a;">${i.price.toFixed(2)}€</td></tr>`).join('')}
+                                </tbody>
+                            </table>
+                        </details>`;
+                });
+            } else {
+                // Grupy podľa dátumu
+                const grouped = {};
+                sales.forEach(s => { grouped[s.date] = grouped[s.date] || []; grouped[s.date].push(s); });
+                
+                Object.keys(grouped).sort().reverse().forEach(date => {
+                    const items = grouped[date];
+                    html += `
+                        <div style="margin-bottom:15px;">
+                            <div style="background:#e0f2fe; padding:5px 12px; font-weight:bold; color:#0369a1; border-radius:4px;">${date}</div>
+                            <table class="tbl" style="margin:0;">
+                                ${items.map(i => `<tr><td>${escapeHtml(i.customer)}</td><td style="text-align:right; font-weight:bold;">${i.qty.toFixed(2)} ${i.unit}</td></tr>`).join('')}
+                            </table>
+                        </div>`;
+                });
+            }
+            html += `</div><div style="margin-top:15px;"><button class="btn btn-secondary" onclick="window.showProductStockCard('${ean}')">Späť na kartu</button></div>`;
+            body.innerHTML = html;
+            window._se_render = (type) => renderUI(type);
+        };
+
+        renderUI();
+
+    } catch (e) { body.innerHTML = `<div class="error">${e.message}</div>`; }
+};
 
   window.showProductEditor = function(p) {
       const isEdit = !!p;

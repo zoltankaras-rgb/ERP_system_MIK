@@ -142,37 +142,41 @@
         
         <div id="section-billing" class="content-section"></div>
 
-        <div id="leader-stock-cards" class="content-section">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
-            <h3 style="margin:0;">Centrálny katalóg produktov (Skladové karty)</h3>
-            <button class="btn btn-success" onclick="window.showProductEditor(null)"><i class="fas fa-plus"></i> Pridať nový produkt</button>
-          </div>
-          <div class="card">
-            <div class="card-body p-0">
-              <div style="padding:15px; border-bottom:1px solid #e5e7eb; display:flex; gap:10px; background:#f8fafc;">
-                 <input type="text" id="stock-cards-search" class="form-control" style="width:100%; max-width: 400px;" placeholder="Hľadať podľa EAN alebo Názvu..." oninput="window.loadLeaderProducts()">
-                 <button class="btn btn-secondary" onclick="window._cachedProducts=null; window.loadLeaderProducts();"><i class="fas fa-sync"></i> Obnoviť</button>
-              </div>
-              <div class="table-container" style="max-height: 65vh; overflow-y: auto;">
-                <table class="tbl" style="width:100%; margin:0;">
-                  <thead style="position:sticky; top:0; background:#f1f5f9; z-index:1;">
-                    <tr>
-                      <th>EAN</th>
-                      <th>Názov produktu</th>
-                      <th>Kategória</th>
-                      <th>MJ</th>
-                      <th>DPH</th>
-                      <th style="text-align:right;">Akcie</th>
-                    </tr>
-                  </thead>
-                  <tbody id="stock-cards-tbody">
-                    <tr><td colspan="6" class="muted text-center" style="padding:20px;">Načítavam produkty...</td></tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        </div>
+       <div id="leader-stock-cards" class="content-section">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+    <h3 style="margin:0;">Skladové karty a História predaja</h3>
+    <button class="btn btn-success" onclick="window.showProductEditor(null)"><i class="fas fa-plus"></i> Pridať nový produkt</button>
+  </div>
+  <div class="card">
+    <div class="card-body p-0">
+      <div style="padding:15px; border-bottom:1px solid #e5e7eb; display:flex; gap:12px; background:#f8fafc; flex-wrap:wrap;">
+         <input type="text" id="stock-cards-search" class="form-control" style="flex: 2; min-width: 250px;" placeholder="Hľadať EAN alebo Názov..." oninput="window.loadLeaderProducts()">
+         
+         <select id="stock-cards-cat-filter" class="form-control" style="flex: 1; min-width: 200px;" onchange="window.loadLeaderProducts()">
+             <option value="">Všetky kategórie</option>
+         </select>
+
+         <button class="btn btn-secondary" onclick="window._cachedProducts=null; window.loadLeaderProducts();"><i class="fas fa-sync"></i></button>
+      </div>
+      <div class="table-container" style="max-height: 65vh; overflow-y: auto;">
+        <table class="tbl" style="width:100%; margin:0;">
+          <thead style="position:sticky; top:0; background:#f1f5f9; z-index:1;">
+            <tr>
+              <th>EAN</th>
+              <th>Názov produktu</th>
+              <th>Kategória</th>
+              <th style="text-align:right;">Skladom</th>
+              <th>MJ</th>
+              <th>DPH</th>
+              <th style="text-align:right;">Akcie</th>
+            </tr>
+          </thead>
+          <tbody id="stock-cards-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
 
         <div id="leader-dashboard" class="content-section active">
           <h3>Prehľad dňa</h3>
