@@ -3719,75 +3719,91 @@ window.printExpeditionBreakdown = function() {
           </tr>
       `).join('');
   };
-  
+
 window.openSalesExplorer = async function(ean, productName) {
     const body = document.querySelector('#ldr-modal .b2c-modal-body');
-    body.innerHTML = '<div class="text-center" style="padding:40px;"><i class="fas fa-spinner fa-spin fa-2x"></i><br>Sťahujem kompletnú databázu predajov...</div>';
+    body.innerHTML = '<div class="text-center" style="padding:40px;"><i class="fas fa-spinner fa-spin fa-2x"></i><br>Prehľadávam históriu predajov...</div>';
     
     try {
-        const sales = await apiRequest(`/api/leader/catalog/products/sales_explorer?ean=${ean}`);
+        const allSales = await apiRequest(`/api/leader/catalog/products/sales_explorer?ean=${ean}`);
         
-        const renderUI = (filterType = 'customer', filterValue = '') => {
+        // Získanie unikátnych odberateľov pre dropdown
+        const customers = [...new Set(allSales.map(s => s.customer))].sort();
+
+        const renderFilteredUI = (mode = 'customer', selectedValue = '') => {
             let html = `
-                <div style="background:#f1f5f9; padding:15px; border-radius:8px; margin-bottom:15px; display:flex; gap:10px; align-items:center;">
-                    <div style="flex:1;">
-                        <label class="muted small">Filtrovať históriu podľa:</label>
-                        <select id="se-mode" class="form-control" onchange="window._se_render(this.value)">
-                            <option value="customer" ${filterType === 'customer' ? 'selected' : ''}>Odberateľa (Všetky jeho nákupy)</option>
-                            <option value="date" ${filterType === 'date' ? 'selected' : ''}>Dátumu (Komu to v ten deň išlo)</option>
-                        </select>
+                <div style="background:#f8fafc; padding:15px; border-radius:10px; margin-bottom:15px; border:1px solid #e2e8f0;">
+                    <div style="display:flex; gap:15px; align-items:flex-end; flex-wrap:wrap;">
+                        <div style="flex:1; min-width:200px;">
+                            <label class="muted small" style="font-weight:bold; display:block; margin-bottom:5px;">Filter predaja:</label>
+                            <select id="se-customer-select" class="form-control" onchange="window._se_update()">
+                                <option value="">-- Vyberte Odberateľa (Všetky predaje) --</option>
+                                ${customers.map(c => `<option value="${escapeHtml(c)}" ${selectedValue === c ? 'selected' : ''}>${escapeHtml(c)}</option>`).join('')}
+                            </select>
+                        </div>
+                        <div style="color:#64748b; font-size:0.9rem; padding-bottom:10px;">
+                            Nájdených záznamov: <b>${allSales.length}</b>
+                        </div>
                     </div>
                 </div>
-                <div id="se-results" class="table-container" style="max-height:450px;">`;
+                <div class="table-container" style="max-height:500px; overflow-y:auto;">
+                    <table class="tbl" style="width:100%;">
+                        <thead style="position:sticky; top:0; background:#fff; z-index:2; box-shadow:0 1px 0 #eee;">
+                            <tr>
+                                <th>Dátum</th>
+                                <th>Odberateľ</th>
+                                <th style="text-align:right;">Množstvo</th>
+                                <th style="text-align:right;">Cena</th>
+                                <th style="text-align:center; width:80px;">PDF</th>
+                            </tr>
+                        </thead>
+                        <tbody>`;
 
-            if (filterType === 'customer') {
-                // Grupy podľa odberateľa
-                const grouped = {};
-                sales.forEach(s => { grouped[s.customer] = grouped[s.customer] || []; grouped[s.customer].push(s); });
-                
-                Object.keys(grouped).sort().forEach(cust => {
-                    const items = grouped[cust];
-                    const totalQty = items.reduce((a, b) => a + b.qty, 0);
-                    html += `
-                        <details style="margin-bottom:5px; border:1px solid #e2e8f0; border-radius:6px; background:#fff;">
-                            <summary style="padding:10px; cursor:pointer; font-weight:bold; display:flex; justify-content:space-between;">
-                                <span>${escapeHtml(cust)}</span>
-                                <span style="color:#0369a1;">Spolu: ${totalQty.toFixed(2)}</span>
-                            </summary>
-                            <table class="tbl" style="margin:0; border:none; border-top:1px solid #eee;">
-                                <thead><tr><th>Dátum</th><th style="text-align:right;">Množstvo</th><th style="text-align:right;">Cena</th></tr></thead>
-                                <tbody>
-                                    ${items.map(i => `<tr><td>${i.date}</td><td style="text-align:right; font-weight:600;">${i.qty.toFixed(2)} ${i.unit}</td><td style="text-align:right; color:#16a34a;">${i.price.toFixed(2)}€</td></tr>`).join('')}
-                                </tbody>
-                            </table>
-                        </details>`;
-                });
+            const filteredSales = selectedValue ? allSales.filter(s => s.customer === selectedValue) : allSales;
+
+            if (filteredSales.length === 0) {
+                html += '<tr><td colspan="5" class="text-center muted" style="padding:30px;">Žiadne predaje pre tento filter.</td></tr>';
             } else {
-                // Grupy podľa dátumu
-                const grouped = {};
-                sales.forEach(s => { grouped[s.date] = grouped[s.date] || []; grouped[s.date].push(s); });
-                
-                Object.keys(grouped).sort().reverse().forEach(date => {
-                    const items = grouped[date];
+                filteredSales.forEach(s => {
+                    const pdfUrl = s.type === 'B2B' 
+                        ? `/api/leader/b2b/order-pdf?order_id=${s.order_id}&type=finished` 
+                        : `/api/kancelaria/b2c/order-pdf?order_id=${s.order_id}`;
+
                     html += `
-                        <div style="margin-bottom:15px;">
-                            <div style="background:#e0f2fe; padding:5px 12px; font-weight:bold; color:#0369a1; border-radius:4px;">${date}</div>
-                            <table class="tbl" style="margin:0;">
-                                ${items.map(i => `<tr><td>${escapeHtml(i.customer)}</td><td style="text-align:right; font-weight:bold;">${i.qty.toFixed(2)} ${i.unit}</td></tr>`).join('')}
-                            </table>
-                        </div>`;
+                        <tr style="border-bottom:1px solid #f1f5f9;">
+                            <td style="font-size:0.85rem; color:#64748b;">${s.date}</td>
+                            <td style="font-weight:600;">${escapeHtml(s.customer)}</td>
+                            <td style="text-align:right; font-weight:bold; color:#0369a1;">${s.qty.toFixed(2)} ${s.unit}</td>
+                            <td style="text-align:right; color:#16a34a; font-weight:600;">${s.price.toFixed(2)}€</td>
+                            <td style="text-align:center;">
+                                <button class="btn btn-sm btn-light" style="border:1px solid #cbd5e1;" onclick="window.open('${pdfUrl}', '_blank')" title="Otvoriť PDF dodacieho listu">
+                                    <i class="fas fa-file-pdf" style="color:#dc2626;"></i>
+                                </button>
+                            </td>
+                        </tr>`;
                 });
             }
-            html += `</div><div style="margin-top:15px;"><button class="btn btn-secondary" onclick="window.showProductStockCard('${ean}')">Späť na kartu</button></div>`;
+
+            html += `</tbody></table></div>
+                <div style="margin-top:20px; border-top:1px solid #eee; padding-top:15px;">
+                    <button class="btn btn-secondary" onclick="window.showProductStockCard('${ean}')">← Späť na Skladovú kartu</button>
+                </div>`;
+
             body.innerHTML = html;
-            window._se_render = (type) => renderUI(type);
         };
 
-        renderUI();
+        // Pomocná funkcia na reakciu pri zmene selectu
+        window._se_update = () => {
+            const val = document.getElementById('se-customer-select').value;
+            renderFilteredUI('customer', val);
+        };
 
-    } catch (e) { body.innerHTML = `<div class="error">${e.message}</div>`; }
+        renderFilteredUI();
+
+    } catch (e) {
+        body.innerHTML = `<div class="error" style="padding:20px; text-align:center;">Chyba pri načítaní prieskumníka: ${e.message}</div>`;
+    }
 };
-
   window.showProductEditor = function(p) {
       const isEdit = !!p;
       const ean = p ? p.ean : '';

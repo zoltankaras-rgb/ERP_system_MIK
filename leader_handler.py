@@ -170,22 +170,26 @@ def leader_get_products():
 @leader_bp.route('/catalog/products/sales_explorer', methods=['GET'])
 @login_required(role=('veduci','admin'))
 def leader_product_sales_explorer():
-    """Vráti kompletnú históriu predajov (B2B aj B2C) pre daný EAN"""
+    """Vráti históriu predajov pre daný EAN vrátane ID pre PDF odkazy"""
     ean = request.args.get('ean')
     if not ean: return jsonify([])
 
-    # B2B Predaje
+    # B2B Predaje (zamerané na vypracované objednávky)
+    # Pridávame o.id ako 'order_id' pre PDF okná
     b2b_sql = """
-        SELECT o.pozadovany_datum_dodania as date, o.nazov_firmy as customer, 
-               p.mnozstvo as qty, p.mj as unit, p.cena_bez_dph as price, 'B2B' as type
+        SELECT o.id as order_id, o.cislo_objednavky as order_no, 
+               o.pozadovany_datum_dodania as date, o.nazov_firmy as customer, 
+               COALESCE(p.dodane_mnozstvo, p.mnozstvo) as qty, p.mj as unit, 
+               p.cena_bez_dph as price, 'B2B' as type
         FROM b2b_objednavky_polozky p
         JOIN b2b_objednavky o ON o.id = p.objednavka_id
-        WHERE p.ean_produktu = %s AND o.stav NOT IN ('Zrušená')
+        WHERE p.ean_produktu = %s AND o.stav IN ('Hotová', 'Expedovaná', 'Vybavená')
     """
     
     # B2C Predaje
     b2c_sql = """
-        SELECT o.pozadovany_datum_dodania as date, COALESCE(o.nazov_firmy, 'B2C Zákazník') as customer, 
+        SELECT o.id as order_id, o.cislo_objednavky as order_no, 
+               o.pozadovany_datum_dodania as date, COALESCE(o.nazov_firmy, 'B2C Zákazník') as customer, 
                p.mnozstvo as qty, p.mj as unit, p.cena_s_dph as price, 'B2C' as type
         FROM b2c_objednavky_polozky p
         JOIN b2c_objednavky o ON o.id = p.objednavka_id
@@ -197,11 +201,11 @@ def leader_product_sales_explorer():
     
     combined = b2b_rows + b2c_rows
     for r in combined:
-        r['date'] = str(r['date']) if r['date'] else None
+        r['date'] = str(r['date']) if r['date'] else 'Neuvedený'
         r['qty'] = float(r['qty'] or 0)
         r['price'] = float(r['price'] or 0)
 
-    return jsonify(sorted(combined, key=lambda x: x['date'] or '', reverse=True))
+    return jsonify(sorted(combined, key=lambda x: x['date'], reverse=True))
 
 @leader_bp.post('/catalog/products/save')
 @login_required(role=('veduci','admin'))
