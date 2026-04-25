@@ -879,11 +879,20 @@ def tv_board_live_kpi():
 @leader_bp.route('/tv_board/customers', methods=['GET'])
 @login_required(role=('veduci','admin'))
 def get_tv_board_customers():
-    """Vráti zoznam B2B zákazníkov a aktuálny globálny oznam."""
+    """Vráti zoznam registrovaných aj manuálnych B2B zákazníkov a globálny oznam."""
     conn = _get_conn()
     try:
         cur = conn.cursor(dictionary=True)
-        cur.execute("SELECT zakaznik_id, nazov_firmy, stala_poznamka_expedicia FROM b2b_zakaznici WHERE typ='B2B' ORDER BY nazov_firmy")
+        # UNION spojí registrovaných (B2B) a manuálnych zákazníkov do jedného zoznamu
+        sql = """
+            SELECT zakaznik_id, nazov_firmy, stala_poznamka_expedicia, 'reg' as source 
+            FROM b2b_zakaznici WHERE typ='B2B'
+            UNION ALL
+            SELECT interne_cislo as zakaznik_id, nazov_firmy, stala_poznamka_expedicia, 'man' as source 
+            FROM b2b_manual_zakaznici
+            ORDER BY nazov_firmy
+        """
+        cur.execute(sql)
         customers = cur.fetchall()
         
         cur.execute("SELECT hodnota FROM system_settings WHERE kluc = 'expedicia_globalny_oznam'")
@@ -918,16 +927,23 @@ def save_global_note():
 @leader_bp.route('/tv_board/customer_note', methods=['POST'])
 @login_required(role=('veduci','admin'))
 def save_customer_note():
-    """Uloží stálu požiadavku ku konkrétnemu zákazníkovi."""
+    """Uloží stálu požiadavku. Skúsi obe tabuľky (registrovaných aj manuálnych)."""
     data = request.json
     zakaznik_id = data.get('zakaznik_id')
     note = data.get('note', '')
     conn = _get_conn()
     try:
         cur = conn.cursor()
+        # Najskôr skúsime aktualizovať registrovaného zákazníka
         cur.execute("UPDATE b2b_zakaznici SET stala_poznamka_expedicia = %s WHERE zakaznik_id = %s", (note, zakaznik_id))
+        
+        # Potom skúsime aktualizovať manuálneho (ak zakaznik_id sedí na interne_cislo)
+        cur.execute("UPDATE b2b_manual_zakaznici SET stala_poznamka_expedicia = %s WHERE interne_cislo = %s", (note, zakaznik_id))
+        
         conn.commit()
-        return jsonify({"message": "Stála požiadavka uložená."})
+        return jsonify({"message": "Stála požiadavka uložená pre obe databázy."})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
     finally:
         conn.close()
 # =============================================================================
@@ -1274,6 +1290,7 @@ def _ensure_manual_customers_table():
     try:
         db_connector.execute_query("ALTER TABLE b2b_manual_zakaznici ADD COLUMN trasa_id INT NULL", fetch='none')
         db_connector.execute_query("ALTER TABLE b2b_manual_zakaznici ADD COLUMN trasa_poradie INT DEFAULT 999", fetch='none')
+        db_connector.execute_query("ALTER TABLE b2b_manual_zakaznici ADD COLUMN stala_poznamka_expedicia TEXT NULL", fetch='none')
     except Exception:
         pass
     
