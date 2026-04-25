@@ -3987,8 +3987,11 @@ window.openSalesExplorer = async function(ean, productName) {
                   </div>
               </div>
 
-              <div style="text-align:right; border-top:1px solid #e2e8f0; padding-top:15px;">
+             <div style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid #e2e8f0; padding-top:15px;">
                   <button class="btn btn-secondary" onclick="window.closeLeaderModal()" style="padding:10px 20px;">Zatvoriť skladovú kartu</button>
+                  <button class="btn btn-primary" onclick="window.openSalesExplorer('${ean}', '${escapeHtml(prod.name)}')" style="padding:10px 25px; font-weight:600;">
+                      <i class="fas fa-search-dollar"></i> Prieskumník predajov z databázy
+                  </button>
               </div>
           `;
           window.openLeaderModal(html);
