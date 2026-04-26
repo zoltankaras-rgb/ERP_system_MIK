@@ -1,5 +1,8 @@
 // static/js/kancelaria_modules/service.js
 
+// Pomocná funkcia pre aktuálny dátum
+const getTodayISO = () => new Date().toISOString().slice(0,10);
+
 window.ServiceModule = {
     init: function() {
         this.loadVahy();
@@ -62,7 +65,7 @@ window.ServiceModule = {
                 <div style="display:flex; gap:10px;" class="mb-3">
                     <div style="flex:1;">
                         <label>Dátum poslednej skúšky:</label>
-                        <input type="date" id="sv-posl" class="form-control" value="${v ? v.datum_poslednej : todayISO()}">
+                        <input type="date" id="sv-posl" class="form-control" value="${v ? v.datum_poslednej : getTodayISO()}">
                     </div>
                     <div style="flex:1;">
                         <label>Dátum ďalšej skúšky (Platí do):</label>
@@ -142,7 +145,7 @@ window.ServiceModule = {
                     </div>
                     <div style="flex:1;">
                         <label>Dátum:</label>
-                        <input type="date" id="ss-datum" class="form-control" value="${s ? s.datum_opravy : todayISO()}">
+                        <input type="date" id="ss-datum" class="form-control" value="${s ? s.datum_opravy : getTodayISO()}">
                     </div>
                 </div>
 
