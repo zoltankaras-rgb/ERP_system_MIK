@@ -12,18 +12,14 @@ window.openKancModal = function(html) {
         console.error('Modal container sa nenašiel!');
         return;
     }
-    
-    // Nastavíme obsah okna
     const body = modal.querySelector('.modal-body');
     const headerTitle = modal.querySelector('.modal-header h3');
     if (headerTitle) headerTitle.innerText = "Servis a Metrológia";
     if (body) body.innerHTML = html;
     
-    // Zobrazíme okno (väčšinou sa používa flex alebo block a class active)
     modal.style.display = 'flex';
     modal.classList.add('show');
     
-    // Pridáme logiku na zatvorenie okna cez krížik a kliknutím mimo okna
     const closeBtn = modal.querySelector('.close-btn');
     const backdrop = modal.querySelector('.modal-backdrop');
     if (closeBtn) closeBtn.onclick = window.closeKancModal;
@@ -41,7 +37,6 @@ window.closeKancModal = function() {
 // ==========================================
 // HLAVNÝ MODUL SERVISU
 // ==========================================
-
 window.ServiceModule = {
     init: function() {
         this.loadVahy();
@@ -62,11 +57,10 @@ window.ServiceModule = {
             }
             
             tbody.innerHTML = data.map(v => {
-                // SEMAFOR PLATNOSTI
-                let statusColor = '#16a34a'; // Zelená (OK)
+                let statusColor = '#16a34a'; 
                 let statusIkona = 'fa-check-circle';
-                if (v.dni_do_konca < 0) { statusColor = '#dc2626'; statusIkona = 'fa-times-circle'; } // Červená (Prepadnuté)
-                else if (v.dni_do_konca < 30) { statusColor = '#f59e0b'; statusIkona = 'fa-exclamation-triangle'; } // Žltá (Končí čoskoro)
+                if (v.dni_do_konca < 0) { statusColor = '#dc2626'; statusIkona = 'fa-times-circle'; }
+                else if (v.dni_do_konca < 30) { statusColor = '#f59e0b'; statusIkona = 'fa-exclamation-triangle'; } 
 
                 return `
                 <tr>
@@ -75,8 +69,9 @@ window.ServiceModule = {
                     <td>${v.datum_poslednej}</td>
                     <td style="color:${statusColor}; font-weight:bold;"><i class="fas ${statusIkona}"></i> ${v.datum_dalsej}</td>
                     <td>${escapeHtml(v.poznamka || '')}</td>
-                    <td class="text-right">
-                        <button class="btn btn-sm btn-light" onclick='ServiceModule.editVaha(${JSON.stringify(v).replace(/'/g, "&apos;")})'><i class="fas fa-edit"></i></button>
+                    <td class="text-right" style="white-space:nowrap;">
+                        <button class="btn btn-sm btn-light" onclick='ServiceModule.editVaha(${JSON.stringify(v).replace(/'/g, "&apos;")})' title="Upraviť"><i class="fas fa-edit"></i></button>
+                        <button class="btn btn-sm btn-danger" onclick="ServiceModule.deleteVaha(${v.id})" title="Zmazať"><i class="fas fa-trash"></i></button>
                     </td>
                 </tr>`;
             }).join('');
@@ -139,7 +134,16 @@ window.ServiceModule = {
             await apiRequest('/api/service/vahy', { method: 'POST', body: payload });
             window.closeKancModal();
             this.loadVahy();
-            showStatus("Váha uložená", false);
+            if(window.showStatus) showStatus("Váha uložená", false);
+        } catch(e) { alert(e.message); }
+    },
+
+    deleteVaha: async function(id) {
+        if (!confirm("Naozaj chcete natrvalo zmazať tento záznam o váhe?")) return;
+        try {
+            await apiRequest(`/api/service/vahy/${id}`, { method: 'DELETE' });
+            if(window.showStatus) showStatus("Záznam bol zmazaný.", false);
+            this.loadVahy();
         } catch(e) { alert(e.message); }
     },
 
@@ -162,9 +166,10 @@ window.ServiceModule = {
                     <td><span class="chip" style="background:${s.typ_zaznamu === 'Preventívna údržba' ? '#e0f2fe' : '#fee2e2'}; color:${s.typ_zaznamu === 'Preventívna údržba' ? '#0369a1' : '#dc2626'};">${escapeHtml(s.typ_zaznamu)}</span></td>
                     <td>${escapeHtml(s.popis_prace || '')}</td>
                     <td>${escapeHtml(s.dodavatel_servisu || '')}</td>
-                    <td class="text-right font-weight-bold">${s.cena_bez_dph.toFixed(2)} €<br><small class="muted">s DPH: ${s.cena_s_dph.toFixed(2)} €</small></td>
-                    <td class="text-right">
-                        <button class="btn btn-sm btn-light" onclick='ServiceModule.editStroj(${JSON.stringify(s).replace(/'/g, "&apos;")})'><i class="fas fa-edit"></i></button>
+                    <td class="text-right font-weight-bold">${Number(s.cena_bez_dph || 0).toFixed(2)} €<br><small class="muted">s DPH: ${Number(s.cena_s_dph || 0).toFixed(2)} €</small></td>
+                    <td class="text-right" style="white-space:nowrap;">
+                        <button class="btn btn-sm btn-light" onclick='ServiceModule.editStroj(${JSON.stringify(s).replace(/'/g, "&apos;")})' title="Upraviť"><i class="fas fa-edit"></i></button>
+                        <button class="btn btn-sm btn-danger" onclick="ServiceModule.deleteStroj(${s.id})" title="Zmazať"><i class="fas fa-trash"></i></button>
                     </td>
                 </tr>
             `).join('');
@@ -208,7 +213,7 @@ window.ServiceModule = {
                 <div style="display:flex; gap:10px;" class="mb-3">
                     <div style="flex:1;">
                         <label>Cena servisu BEZ DPH:</label>
-                        <input type="number" id="ss-cenabez" class="form-control" step="0.01" value="${s ? s.cena_bez_dph : '0.00'}" oninput="document.getElementById('ss-cenas').value = (this.value * 1.2).toFixed(2)">
+                        <input type="number" id="ss-cenabez" class="form-control" step="0.01" value="${s ? s.cena_bez_dph : '0.00'}" oninput="document.getElementById('ss-cenas').value = (Number(this.value) * 1.23).toFixed(2)">
                     </div>
                     <div style="flex:1;">
                         <label>Cena servisu S DPH:</label>
@@ -242,7 +247,16 @@ window.ServiceModule = {
             await apiRequest('/api/service/stroje', { method: 'POST', body: payload });
             window.closeKancModal();
             this.loadStroje();
-            showStatus("Záznam o servise uložený", false);
+            if(window.showStatus) showStatus("Záznam o servise uložený", false);
+        } catch(e) { alert(e.message); }
+    },
+
+    deleteStroj: async function(id) {
+        if (!confirm("Naozaj chcete natrvalo zmazať tento servisný záznam?")) return;
+        try {
+            await apiRequest(`/api/service/stroje/${id}`, { method: 'DELETE' });
+            if(window.showStatus) showStatus("Záznam bol zmazaný.", false);
+            this.loadStroje();
         } catch(e) { alert(e.message); }
     }
 };

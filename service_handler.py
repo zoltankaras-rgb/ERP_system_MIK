@@ -37,6 +37,15 @@ def save_vaha():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@service_bp.route('/api/service/vahy/<int:item_id>', methods=['DELETE'])
+@login_required(role='kancelaria')
+def delete_vaha(item_id):
+    try:
+        db_connector.execute_query("DELETE FROM servis_vahy WHERE id=%s", (item_id,), fetch='none')
+        return jsonify({"message": "Záznam o váhe bol zmazaný."})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 # ==========================================
 # STROJE A OPRAVY
 # ==========================================
@@ -69,5 +78,14 @@ def save_stroj():
             sql = "INSERT INTO servis_opravy (nazov_stroja, typ_zaznamu, datum_opravy, popis_prace, dodavatel_servisu, cena_bez_dph, cena_s_dph, poznamka) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)"
             db_connector.execute_query(sql, (data['nazov_stroja'], data['typ_zaznamu'], data['datum_opravy'], data['popis_prace'], data['dodavatel_servisu'], cena_bez, cena_s, data.get('poznamka', '')), fetch='none')
         return jsonify({"message": "Záznam o servise bol uložený."})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@service_bp.route('/api/service/stroje/<int:item_id>', methods=['DELETE'])
+@login_required(role='kancelaria')
+def delete_stroj(item_id):
+    try:
+        db_connector.execute_query("DELETE FROM servis_opravy WHERE id=%s", (item_id,), fetch='none')
+        return jsonify({"message": "Záznam o servise bol zmazaný."})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
