@@ -3,6 +3,45 @@
 // Pomocná funkcia pre aktuálny dátum
 const getTodayISO = () => new Date().toISOString().slice(0,10);
 
+// ==========================================
+// FUNKCIE PRE OVLÁDANIE MODÁLNEHO OKNA
+// ==========================================
+window.openKancModal = function(html) {
+    const modal = document.getElementById('modal-container');
+    if (!modal) {
+        console.error('Modal container sa nenašiel!');
+        return;
+    }
+    
+    // Nastavíme obsah okna
+    const body = modal.querySelector('.modal-body');
+    const headerTitle = modal.querySelector('.modal-header h3');
+    if (headerTitle) headerTitle.innerText = "Servis a Metrológia";
+    if (body) body.innerHTML = html;
+    
+    // Zobrazíme okno (väčšinou sa používa flex alebo block a class active)
+    modal.style.display = 'flex';
+    modal.classList.add('show');
+    
+    // Pridáme logiku na zatvorenie okna cez krížik a kliknutím mimo okna
+    const closeBtn = modal.querySelector('.close-btn');
+    const backdrop = modal.querySelector('.modal-backdrop');
+    if (closeBtn) closeBtn.onclick = window.closeKancModal;
+    if (backdrop) backdrop.onclick = window.closeKancModal;
+};
+
+window.closeKancModal = function() {
+    const modal = document.getElementById('modal-container');
+    if (modal) {
+        modal.style.display = 'none';
+        modal.classList.remove('show');
+    }
+};
+
+// ==========================================
+// HLAVNÝ MODUL SERVISU
+// ==========================================
+
 window.ServiceModule = {
     init: function() {
         this.loadVahy();
