@@ -89,3 +89,43 @@ def delete_stroj(item_id):
         return jsonify({"message": "Záznam o servise bol zmazaný."})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+    
+# ==========================================
+# BEŽNÁ ÚDRŽBA BUDOVY (RVPS, HYGIENA atď.)
+# ==========================================
+@service_bp.route('/api/service/budova', methods=['GET'])
+@login_required(role='kancelaria')
+def get_budova():
+    sql = """
+        SELECT id, DATE_FORMAT(datum, '%Y-%m-%d') as datum, miestnost,
+               popis_prace, nariadene_kym, vykonal, cena, stav
+        FROM servis_budova
+        ORDER BY datum DESC
+    """
+    rows = db_connector.execute_query(sql, fetch='all') or []
+    return jsonify(rows)
+
+@service_bp.route('/api/service/budova', methods=['POST'])
+@login_required(role='kancelaria')
+def save_budova():
+    data = request.json
+    cena = float(data.get('cena') or 0)
+    try:
+        if data.get('id'):
+            sql = "UPDATE servis_budova SET datum=%s, miestnost=%s, popis_prace=%s, nariadene_kym=%s, vykonal=%s, cena=%s, stav=%s WHERE id=%s"
+            db_connector.execute_query(sql, (data['datum'], data['miestnost'], data['popis_prace'], data['nariadene_kym'], data['vykonal'], cena, data['stav'], data['id']), fetch='none')
+        else:
+            sql = "INSERT INTO servis_budova (datum, miestnost, popis_prace, nariadene_kym, vykonal, cena, stav) VALUES (%s, %s, %s, %s, %s, %s, %s)"
+            db_connector.execute_query(sql, (data['datum'], data['miestnost'], data['popis_prace'], data['nariadene_kym'], data['vykonal'], cena, data['stav']), fetch='none')
+        return jsonify({"message": "Záznam údržby bol uložený."})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@service_bp.route('/api/service/budova/<int:item_id>', methods=['DELETE'])
+@login_required(role='kancelaria')
+def delete_budova(item_id):
+    try:
+        db_connector.execute_query("DELETE FROM servis_budova WHERE id=%s", (item_id,), fetch='none')
+        return jsonify({"message": "Záznam bol zmazaný."})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
