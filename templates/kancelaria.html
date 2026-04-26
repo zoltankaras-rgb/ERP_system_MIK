@@ -100,6 +100,9 @@
           <li><a class="sidebar-link" data-section="section-haccp"><i class="fas fa-file-shield"></i> HACCP</a></li>
           <li><a class="sidebar-link" data-section="section-core-temp"><i class="fas fa-thermometer-half"></i> Teplota jadra</a></li>
           <li><a class="sidebar-link" data-section="section-fleet"><i class="fas fa-truck"></i> Vozový park</a></li>
+          
+          <li><a class="sidebar-link" data-section="section-service"><i class="fas fa-tools"></i> Servis a Metrológia</a></li>
+          
           <li><a class="sidebar-link" data-section="section-hygiene"><i class="fas fa-soap"></i> Hygienický režim</a></li>
           <li><a class="sidebar-link" data-section="section-hr"><i class="fas fa-user-clock"></i> HR / Dochádzka</a></li>
           <li><a class="sidebar-link" data-section="section-mail"><i class="fas fa-envelope"></i> Pošta</a></li>
@@ -150,6 +153,63 @@
         <div id="section-calendar" class="content-section"></div>
         <div id="section-order-forecast" class="content-section"></div>
         <div id="section-erp-admin" class="content-section"></div>
+
+        <div id="section-service" class="content-section" style="display: none;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+                <h2><i class="fas fa-tools"></i> Servis strojov a Metrológia váh</h2>
+            </div>
+
+            <div class="row">
+                <div class="col-md-12" style="margin-bottom: 30px;">
+                    <div class="card">
+                        <div class="card-header" style="display:flex; justify-content:space-between; align-items:center; background:#f8fafc; border-bottom: 1px solid #e2e8f0; padding: 15px;">
+                            <h4 style="margin:0; color:#1e293b;"><i class="fas fa-balance-scale"></i> Evidencia Váh (Metrológia)</h4>
+                            <button class="btn btn-success" onclick="ServiceModule.editVaha()"><i class="fas fa-plus"></i> Pridať Váhu</button>
+                        </div>
+                        <div class="card-body p-0">
+                            <table class="tbl" style="width:100%; margin:0;">
+                                <thead style="background:#f1f5f9;">
+                                    <tr>
+                                        <th>Číslo Váhy</th>
+                                        <th>Umiestnenie</th>
+                                        <th>Posledná skúška</th>
+                                        <th>Platí DO (Semafor)</th>
+                                        <th>Poznámka</th>
+                                        <th style="text-align:right;">Akcia</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="tbody-service-vahy"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-md-12">
+                    <div class="card">
+                        <div class="card-header" style="display:flex; justify-content:space-between; align-items:center; background:#f8fafc; border-bottom: 1px solid #e2e8f0; padding: 15px;">
+                            <h4 style="margin:0; color:#1e293b;"><i class="fas fa-cogs"></i> Kniha opráv a údržby (Stroje)</h4>
+                            <button class="btn btn-primary" onclick="ServiceModule.editStroj()"><i class="fas fa-plus"></i> Nový záznam</button>
+                        </div>
+                        <div class="card-body p-0">
+                            <table class="tbl" style="width:100%; margin:0;">
+                                <thead style="background:#f1f5f9;">
+                                    <tr>
+                                        <th>Dátum</th>
+                                        <th>Názov stroja</th>
+                                        <th>Typ</th>
+                                        <th>Popis práce</th>
+                                        <th>Technik / Dodávateľ</th>
+                                        <th style="text-align:right;">Cena</th>
+                                        <th style="text-align:right;">Akcia</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="tbody-service-stroje"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
 
         <div id="section-pricelists" class="content-section">
           <div id="pricelist-vue-app"></div>
@@ -261,8 +321,9 @@
   <script src="{{ url_for('static', filename='js/task_planner.js') }}" defer></script>
   <script src="{{ url_for('static', filename='js/kancelaria_modules/gemini_tasks.js') }}" defer></script>
   <script src="{{ url_for('static', filename='js/kancelaria_modules/vezg.js') }}" defer></script>
-  
   <script src="{{ url_for('static', filename='js/kancelaria_modules/nakup.js') }}" defer></script>
+  
+  <script src="{{ url_for('static', filename='js/kancelaria_modules/service.js') }}" defer></script>
 
 </body>
 </html>

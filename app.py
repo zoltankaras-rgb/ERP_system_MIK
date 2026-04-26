@@ -63,6 +63,7 @@ from billing_handler import billing_bp
 os.environ['TZ'] = 'Europe/Bratislava'
 if hasattr(time, 'tzset'):
     time.tzset()
+from service_handler import service_bp
 # ===================== ENTERPRISE KALENDÁR – KONŠTANTY =========================
 
 EVENT_STATUS_OPEN = 'OPEN'
@@ -164,6 +165,7 @@ erp_bp = Blueprint("erp_bp", __name__)
 app.register_blueprint(pricelist_bp)
 app.register_blueprint(terminal_handler.terminal_bp)
 app.register_blueprint(billing_bp)
+app.register_blueprint(service_bp)
 # =================================================================
 # === DEKORÁTORY A POMOCNÉ FUNKCIE ===
 # =================================================================

@@ -339,7 +339,7 @@ async function setupSection(sectionId) {
     if (typeof window.renderNakupModule === 'function') {
         window.renderNakupModule('section-nakup');
     }
-}
+  }
 
   if (sectionId === 'section-mail') {
     if (sectionElement.dataset.initialized === 'true' &&
@@ -377,6 +377,10 @@ async function setupSection(sectionId) {
       case 'section-b2c-admin':       if (typeof initializeB2CAdminModule === 'function') initializeB2CAdminModule(); break;
       case 'section-haccp':           if (typeof initializeHaccpModule === 'function') initializeHaccpModule(); break;
       case 'section-fleet':           if (typeof initializeFleetModule === 'function') initializeFleetModule(); break;
+      
+      // >>> PRIDANÝ RIADOK PRE SERVIS A METROLÓGIU <<<
+      case 'section-service':         if (window.ServiceModule && typeof window.ServiceModule.init === 'function') window.ServiceModule.init(); break;
+      
       case 'section-hygiene':         if (typeof initializeHygieneModule === 'function') initializeHygieneModule(); break;
       case 'section-profitability':   if (typeof initializeProfitabilityModule === 'function') initializeProfitabilityModule(); break;
       case 'section-costs':           if (typeof initializeCostsModule === 'function') initializeCostsModule(); break;
@@ -397,7 +401,6 @@ async function setupSection(sectionId) {
     sectionElement.dataset.initialized = 'true';
   }
 }
-
 // =================================================================
 // === MODÁLNE OKNÁ =================================================
 // =================================================================
