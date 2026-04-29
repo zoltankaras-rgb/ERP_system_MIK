@@ -733,31 +733,87 @@ function switchInventoryTab(cat, btn) {
     document.getElementById('inventory-search-input').focus();
 }
 
-// Backend Save handler zostáva bez zmeny v Pythone, meníme len spôsob zbierania z DOMu
 function saveActiveCategory() {
     const activeTab = document.querySelector('.inventory-tabs .btn-primary');
     if (activeTab) {
+        // Tu zoberieme presnú kategóriu z aktívneho tlačidla
         saveProductCategoryInventory(activeTab.dataset.cat);
     }
 }
 
 async function saveProductCategoryInventory(category) {
-    const workerName = document.getElementById('inventory-worker-name').value;
-    if (!workerName) { showStatus("Zadajte meno pracovníka (hore).", true); document.getElementById('inventory-worker-name').focus(); return; }
+    // 1. Získame meno pracovníka
+    const workerName = document.getElementById('inventory-worker-name')?.value;
+    if (!workerName) { 
+        showStatus("Zadajte meno pracovníka (hore).", true); 
+        document.getElementById('inventory-worker-name')?.focus(); 
+        return; 
+    }
 
-    const tbodyId = `tbody-${_slugify(category)}`;
-    const inputs = document.querySelectorAll(`#${tbodyId} .prod-inv-input`);
+    // 2. BEZPEČNÉ VYHĽADANIE TABUĽKY:
+    // Už nebudeme spájať texty, ale nájdeme priamo ten kontajner, 
+    // ktorý má atribút data-category úplne rovnaký ako hľadáme.
+    const allTbodies = document.querySelectorAll('#global-inventory-table tbody');
+    let targetTbody = null;
+    
+    for (let tb of allTbodies) {
+        if (tb.dataset.category === category) {
+            targetTbody = tb;
+            break;
+        }
+    }
+
+    // Ak by náhodou padol DOM
+    if (!targetTbody) {
+        alert("Systémová chyba: Nenašla sa tabuľka pre kategóriu: " + category);
+        return;
+    }
+
+    // 3. Vytiahneme všetky inputy IBA z tejto konkrétnej kategórie
+    const inputs = targetTbody.querySelectorAll('.prod-inv-input');
     const itemsToSave = [];
     
     inputs.forEach(input => { 
-        if (input.value !== '') itemsToSave.push({ ean: input.dataset.ean, realQty: input.value }); 
+        // Vytiahneme len hodnoty, ktoré nie sú prázdne
+        const val = input.value.trim();
+        if (val !== '') {
+            itemsToSave.push({ ean: input.dataset.ean, realQty: val }); 
+        }
     });
     
-    if (!itemsToSave.length) { showStatus(`Nezadali ste žiadne hodnoty pre kategóriu ${category}.`, true); return; }
+    // 4. Skontrolujeme, či máme čo uložiť
+    if (itemsToSave.length === 0) { 
+        showStatus(`Nezadali ste žiadne hodnoty pre kategóriu ${category}.`, true); 
+        alert(`Nevyplnili ste žiadne množstvá pre: ${category}`);
+        return; 
+    }
+    
+    // 5. Odoslanie na server s vizuálnou odozvou pre pracovníka
     try {
-        const res = await apiRequest('/api/expedicia/saveInventoryCategory', { method:'POST', body: { items: itemsToSave, category: category, workerName: workerName } });
+        const saveBtn = document.getElementById('save-current-cat-btn');
+        const originalText = saveBtn ? saveBtn.innerHTML : '';
+        
+        // Zmeníme tlačidlo na odosielam
+        if(saveBtn) saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Ukladám...';
+        
+        const res = await apiRequest('/api/expedicia/saveInventoryCategory', { 
+            method:'POST', 
+            body: { items: itemsToSave, category: category, workerName: workerName } 
+        });
+        
         showStatus(res.message, false);
-    } catch(e) { showStatus("Chyba: " + e.message, true); }
+        
+        // Vizuálna odozva po úspešnom uložení
+        if(saveBtn) saveBtn.innerHTML = '<i class="fas fa-check"></i> Úspešne uložené!';
+        setTimeout(() => {
+            if(saveBtn) saveBtn.innerHTML = originalText;
+        }, 3000);
+        
+    } catch(e) { 
+        showStatus("Chyba: " + e.message, true); 
+        const saveBtn = document.getElementById('save-current-cat-btn');
+        if(saveBtn) saveBtn.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Skúsiť znova';
+    }
 }
 
 // BLESKOVÉ HĽADANIE - Nerefreshuje stránku, len skrýva riadky krížom cez kategórie
