@@ -736,64 +736,47 @@ function switchInventoryTab(cat, btn) {
 function saveActiveCategory() {
     const activeTab = document.querySelector('.inventory-tabs .btn-primary');
     if (activeTab) {
-        // Tu zoberieme presnú kategóriu z aktívneho tlačidla
         saveProductCategoryInventory(activeTab.dataset.cat);
     }
 }
 
 async function saveProductCategoryInventory(category) {
-    // 1. Získame meno pracovníka
-    const workerName = document.getElementById('inventory-worker-name')?.value;
-    if (!workerName) { 
-        showStatus("Zadajte meno pracovníka (hore).", true); 
-        document.getElementById('inventory-worker-name')?.focus(); 
-        return; 
-    }
+    const workerName = document.getElementById('inventory-worker-name')?.value || 'Neznámy';
 
-    // 2. BEZPEČNÉ VYHĽADANIE TABUĽKY:
-    // Už nebudeme spájať texty, ale nájdeme priamo ten kontajner, 
-    // ktorý má atribút data-category úplne rovnaký ako hľadáme.
-    const allTbodies = document.querySelectorAll('#global-inventory-table tbody');
-    let targetTbody = null;
-    
-    for (let tb of allTbodies) {
-        if (tb.dataset.category === category) {
-            targetTbody = tb;
-            break;
-        }
-    }
-
-    // Ak by náhodou padol DOM
-    if (!targetTbody) {
-        alert("Systémová chyba: Nenašla sa tabuľka pre kategóriu: " + category);
-        return;
-    }
-
-    // 3. Vytiahneme všetky inputy IBA z tejto konkrétnej kategórie
-    const inputs = targetTbody.querySelectorAll('.prod-inv-input');
+    // Berieme VŠETKY inputy na celej obrazovke
+    const allInputs = document.querySelectorAll('.prod-inv-input');
     const itemsToSave = [];
+    let totalItemsInCategory = 0;
     
-    inputs.forEach(input => { 
-        // Vytiahneme len hodnoty, ktoré nie sú prázdne
-        const val = input.value.trim();
-        if (val !== '') {
-            itemsToSave.push({ ean: input.dataset.ean, realQty: val }); 
+    allInputs.forEach(input => {
+        // Nájdeme riadok a prečítame kategóriu priamo z textu, ktorý svieti na obrazovke
+        const tr = input.closest('tr');
+        const rowCatSpan = tr ? tr.querySelector('.inv-cat') : null;
+        const rowCategory = rowCatSpan ? rowCatSpan.textContent.trim() : '';
+        
+        // Ignorujeme malé/veľké písmená pre 100% zhodu
+        if (rowCategory.toLowerCase() === category.toLowerCase()) {
+            totalItemsInCategory++;
+            const val = input.value.trim();
+            
+            // Zoberieme len tie, kde je nejaká hodnota zadaná (vrátane nuly)
+            if (val !== '') {
+                itemsToSave.push({ ean: input.dataset.ean, realQty: val }); 
+            }
         }
     });
     
-    // 4. Skontrolujeme, či máme čo uložiť
+    // FOOLPROOF HLÁŠKA PRE DEBUG
     if (itemsToSave.length === 0) { 
-        showStatus(`Nezadali ste žiadne hodnoty pre kategóriu ${category}.`, true); 
-        alert(`Nevyplnili ste žiadne množstvá pre: ${category}`);
+        alert(`CHYBA:\nKategória "${category}" má na sklade ${totalItemsInCategory} položiek, ale ani v jednej ste nepotvrdili váhu.\n\nSkontrolujte, či sa hodnota po zadaní na Numpade naozaj zapíše do bieleho políčka a zostane svietiť nazeleno.`);
         return; 
     }
     
-    // 5. Odoslanie na server s vizuálnou odozvou pre pracovníka
+    // Odoslanie na server
     try {
         const saveBtn = document.getElementById('save-current-cat-btn');
         const originalText = saveBtn ? saveBtn.innerHTML : '';
         
-        // Zmeníme tlačidlo na odosielam
         if(saveBtn) saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Ukladám...';
         
         const res = await apiRequest('/api/expedicia/saveInventoryCategory', { 
@@ -803,16 +786,13 @@ async function saveProductCategoryInventory(category) {
         
         showStatus(res.message, false);
         
-        // Vizuálna odozva po úspešnom uložení
-        if(saveBtn) saveBtn.innerHTML = '<i class="fas fa-check"></i> Úspešne uložené!';
-        setTimeout(() => {
-            if(saveBtn) saveBtn.innerHTML = originalText;
-        }, 3000);
+        // Odozva po úspešnom uložení
+        if(saveBtn) saveBtn.innerHTML = '<i class="fas fa-check"></i> Kategória uložená!';
+        setTimeout(() => { if(saveBtn) saveBtn.innerHTML = originalText; }, 3000);
         
     } catch(e) { 
         showStatus("Chyba: " + e.message, true); 
-        const saveBtn = document.getElementById('save-current-cat-btn');
-        if(saveBtn) saveBtn.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Skúsiť znova';
+        alert("Chyba pri ukladaní: " + e.message);
     }
 }
 
@@ -1203,79 +1183,131 @@ function attachTableSearch(inputId, containerId) {
 // =================================================================
 
 let currentNumpadInput = null;
+let currentNumpadValue = "";
+
+// =================================================================
+// === CUSTOM TABLET NUMPAD V2 (Opravený Grid & Fat Finger UI) ===
+// =================================================================
+
+let currentNumpadInput = null;
+let currentNumpadValue = "";
 
 function openCustomNumpad(inputElement, productName, mj) {
-    // Okamžite blur, aby nevyskočila klávesnica tabletu
     inputElement.blur();
     currentNumpadInput = inputElement;
+    currentNumpadValue = inputElement.value || "";
 
     let numpadModal = document.getElementById('custom-numpad-modal');
     if (!numpadModal) {
         numpadModal = document.createElement('div');
         numpadModal.id = 'custom-numpad-modal';
-        // Fixnutý panel na spodku obrazovky
-        numpadModal.style.cssText = "position:fixed; bottom:-100%; left:0; width:100%; background:#f8fafc; box-shadow:0 -10px 25px rgba(0,0,0,0.2); z-index:999999; display:flex; flex-direction:column; padding:20px; transition:bottom 0.2s ease-out; font-family:sans-serif; height:45vh; border-top-left-radius: 20px; border-top-right-radius: 20px;";
+        
+        // Modal sa roztiahne na 100% šírky, ale obsah vo vnútri vycentrujeme
+        numpadModal.style.cssText = "position:fixed; bottom:-100%; left:0; width:100%; background:#cbd5e1; box-shadow:0 -10px 25px rgba(0,0,0,0.3); z-index:999999; padding:15px; padding-bottom: max(15px, env(safe-area-inset-bottom)); transition:bottom 0.2s cubic-bezier(0.4, 0, 0.2, 1); font-family:sans-serif; border-top-left-radius: 20px; border-top-right-radius: 20px;";
         document.body.appendChild(numpadModal);
         
-        // CSS pre tlačidlá numpadu
+        // Čistý 4-stĺpcový Grid, ktorý sa nedeformuje
         const style = document.createElement('style');
         style.innerHTML = `
-            .numpad-btn { font-size:2.2rem; font-weight:bold; border:none; border-radius:12px; background:white; box-shadow:0 4px 6px rgba(0,0,0,0.1); cursor:pointer; color:#1e293b; display:flex; align-items:center; justify-content:center; touch-action:manipulation; }
-            .numpad-btn:active { transform:scale(0.95); background:#e2e8f0; }
-            .numpad-confirm { background:#16a34a; color:white; font-size:1.5rem; text-transform:uppercase; letter-spacing:1px; }
-            .numpad-confirm:active { background:#15803d; }
+            .numpad-container { max-width: 700px; margin: 0 auto; }
+            .numpad-header { display: flex; justify-content: space-between; align-items: center; background: #fff; padding: 12px 20px; border-radius: 12px; margin-bottom: 15px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+            .numpad-grid { display: grid; grid-template-columns: repeat(4, 1fr); grid-auto-rows: minmax(65px, auto); gap: 10px; }
+            .numpad-btn { font-size: 2rem; font-weight: bold; border: none; border-radius: 12px; background: #ffffff; color: #1e293b; box-shadow: 0 2px 4px rgba(0,0,0,0.1); cursor: pointer; touch-action: manipulation; display: flex; align-items: center; justify-content: center; }
+            .numpad-btn:active { transform: scale(0.96); background: #e2e8f0; }
+            .numpad-btn-ok { background: #16a34a; color: white; grid-row: span 2; font-size: 1.5rem; text-transform: uppercase; }
+            .numpad-btn-ok:active { background: #15803d; }
+            .numpad-btn-del { background: #fee2e2; color: #b91c1c; }
+            .numpad-btn-cancel { background: #f1f5f9; color: #475569; font-size: 1.2rem; }
         `;
         document.head.appendChild(style);
     }
 
-    // Vykreslenie vnútra Numpadu pre konkrétny produkt
+    // Ochrana voči XSS a zalomeniu textu
+    const safeName = escapeHtml(productName);
+    const safeMj = escapeHtml(mj);
+
+    // Renderujeme HTML (4 stĺpce, 4 riadky = 16 pozícií. OK tlačidlo zaberá 2 riadky)
     numpadModal.innerHTML = `
-        <div style="display:flex; justify-content:space-between; margin-bottom:15px; align-items:center;">
-            <div style="font-size:1.3rem; font-weight:bold; color:#1e40af; width:50%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
-                ${productName}
-            </div>
-            <div style="font-size:2.5rem; font-weight:900; background:white; padding:10px 20px; border-radius:12px; width:45%; text-align:right; border:3px solid #cbd5e1; color:#0f172a;" id="numpad-display">
-                ${inputElement.value || ''}<span style="font-size:1.2rem; color:#94a3b8; margin-left:5px;">${mj}</span>
-            </div>
-        </div>
-        
-        <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:15px; flex:1; height:100%;">
-            <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:15px; grid-column: span 3;">
-                ${[1,2,3,4,5,6,7,8,9].map(n => `<button class="numpad-btn" onclick="numpadType('${n}')">${n}</button>`).join('')}
-                <button class="numpad-btn" style="background:#f1f5f9;" onclick="numpadType('.')">.</button>
-                <button class="numpad-btn" onclick="numpadType('0')">0</button>
-                <button class="numpad-btn" style="background:#fee2e2; color:#b91c1c;" onclick="numpadBackspace()"><i class="fas fa-backspace"></i></button>
+        <div class="numpad-container">
+            <div class="numpad-header">
+                <div style="font-size:1.2rem; font-weight:bold; color:#1e40af; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:60%;">
+                    ${safeName}
+                </div>
+                <div style="font-size:2rem; font-weight:900; color:#0f172a;" id="numpad-display">
+                    ${currentNumpadValue}<span style="font-size:1.1rem; color:#94a3b8; margin-left:6px;">${safeMj}</span>
+                </div>
             </div>
             
-            <div style="display:flex; flex-direction:column; gap:15px;">
-                <button class="numpad-btn" style="background:#e2e8f0; font-size:1.2rem; color:#475569;" onclick="closeCustomNumpad()"><i class="fas fa-times" style="margin-right:5px;"></i> Zrušiť</button>
-                <button class="numpad-btn numpad-confirm" style="flex:2;" onclick="numpadConfirm()"><i class="fas fa-check" style="margin-right:8px;"></i> OK</button>
-            </div>
+            <div class="numpad-grid">
+                <button class="numpad-btn" onclick="numpadType('1')">1</button>
+                <button class="numpad-btn" onclick="numpadType('2')">2</button>
+                <button class="numpad-btn" onclick="numpadType('3')">3</button>
+                <button class="numpad-btn numpad-btn-del" onclick="numpadBackspace()"><i class="fas fa-backspace"></i></button>
+
+                <button class="numpad-btn" onclick="numpadType('4')">4</button>
+                <button class="numpad-btn" onclick="numpadType('5')">5</button>
+                <button class="numpad-btn" onclick="numpadType('6')">6</button>
+                <button class="numpad-btn numpad-btn-cancel" onclick="closeCustomNumpad()"><i class="fas fa-times"></i> Zrušiť</button>
+
+                <button class="numpad-btn" onclick="numpadType('7')">7</button>
+                <button class="numpad-btn" onclick="numpadType('8')">8</button>
+                <button class="numpad-btn" onclick="numpadType('9')">9</button>
+                <button class="numpad-btn numpad-btn-ok" onclick="numpadConfirm()"><i class="fas fa-check"></i> OK</button>
+
+                <button class="numpad-btn" style="background:#f8fafc;" onclick="numpadType('.')">.</button>
+                <button class="numpad-btn" onclick="numpadType('0')">0</button>
+                <button class="numpad-btn" style="background:#f8fafc; font-size: 1.5rem;" onclick="numpadType('00')">00</button>
+                </div>
         </div>
     `;
 
-    // Vysunutie nahor
     setTimeout(() => { numpadModal.style.bottom = "0"; }, 10);
 }
 
-// Logika Numpadu
-let currentNumpadValue = "";
 function numpadType(char) {
     const display = document.getElementById('numpad-display');
-    // Ak to bola prvá číslica, prepíšeme pôvodný obsah, inak dopisujeme
-    if (currentNumpadValue === "" && currentNumpadInput.value !== "") currentNumpadValue = currentNumpadInput.value;
-    
-    // Obmedzenie na 1 desatinnú bodku
     if (char === '.' && currentNumpadValue.includes('.')) return;
     
     currentNumpadValue += char;
-    // Zobrazenie čistého čísla bez MJ pre presnosť
-    display.innerText = currentNumpadValue; 
+    // Vrátime tam číslo + mernú jednotku z HTML, aby to neblikalo
+    if(display) {
+        const mjSpan = display.querySelector('span') ? display.querySelector('span').outerHTML : '';
+        display.innerHTML = `${currentNumpadValue}${mjSpan}`;
+    }
 }
 
 function numpadBackspace() {
     currentNumpadValue = currentNumpadValue.slice(0, -1);
-    document.getElementById('numpad-display').innerText = currentNumpadValue;
+    const display = document.getElementById('numpad-display');
+    if(display) {
+        const mjSpan = display.querySelector('span') ? display.querySelector('span').outerHTML : '';
+        display.innerHTML = `${currentNumpadValue}${mjSpan}`;
+    }
+}
+
+function numpadConfirm() {
+    if (currentNumpadInput) {
+        // Tvrdo zapíšeme hodnotu do elementu
+        currentNumpadInput.value = currentNumpadValue;
+        // NATVRDO TO VPÍŠEME DO HTML kódu (aby to `querySelectorAll` na 100% našiel)
+        currentNumpadInput.setAttribute('value', currentNumpadValue);
+        
+        // Podfarbenie - ak je prázdne, odznačiť
+        if (currentNumpadValue !== "") {
+            currentNumpadInput.style.backgroundColor = '#dcfce7'; 
+            currentNumpadInput.closest('tr').style.backgroundColor = '#dcfce7';
+        } else {
+            currentNumpadInput.style.backgroundColor = '#ffffff'; 
+            currentNumpadInput.closest('tr').style.backgroundColor = '';
+        }
+        
+        if (typeof beep === 'function') beep(800, 100, 0.2); 
+        
+        // Fokus naspäť hore pre skener
+        const searchInput = document.getElementById('inventory-search-input');
+        if (searchInput) searchInput.focus();
+    }
+    closeCustomNumpad();
 }
 
 function closeCustomNumpad() {
@@ -1283,18 +1315,6 @@ function closeCustomNumpad() {
     if (modal) modal.style.bottom = "-100%";
     currentNumpadValue = "";
     currentNumpadInput = null;
-}
-
-function numpadConfirm() {
-    if (currentNumpadInput) {
-        currentNumpadInput.value = currentNumpadValue;
-        // Označíme zelenou ako vybavené
-        currentNumpadInput.style.backgroundColor = '#dcfce7'; 
-        currentNumpadInput.closest('tr').style.backgroundColor = '#dcfce7';
-        beep(800, 100, 0.2); 
-        document.getElementById('inventory-search-input').focus();
-    }
-    closeCustomNumpad();
 }
 
 // Generátor systémového pípnutia bez nutnosti externých audio súborov
