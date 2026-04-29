@@ -5676,6 +5676,40 @@ def get_expedition_inventory_history():
     
     return {"history": rows}
 
+def get_expedition_inventory_detail(inv_id):
+    """Vráti detail konkrétnej inventúry expedície s ošetrenou JSON serializáciou."""
+    if not inv_id: return {"error": "Chýba ID."}
+
+    # 1. Načítame hlavičku inventúry
+    head = db_connector.execute_query(
+        "SELECT * FROM expedicia_inventury WHERE id=%s", (inv_id,), fetch='one'
+    )
+    if not head: return {"error": "Inventúra neexistuje."}
+
+    # Bezpečná konverzia dátumov na string, inak Flask hodí Error 500 (not JSON serializable)
+    if 'datum' in head and head['datum']:
+        head['datum'] = str(head['datum'])
+    if 'created_at' in head and head['created_at']:
+        head['created_at'] = str(head['created_at'])
+
+    # 2. Načítame položky inventúry
+    items = db_connector.execute_query("""
+        SELECT ean, nazov, kategoria, system_stav_kg, realny_stav_kg, rozdiel_kg, hodnota_eur
+        FROM expedicia_inventura_polozky
+        WHERE inventura_id=%s
+        ORDER BY kategoria, nazov
+    """, (inv_id,)) or []
+
+    # Bezpečná konverzia MySQL DECIMAL hodnôt na Float, inak Flask hodí Error 500
+    for i in items:
+        i['system_stav_kg'] = float(i['system_stav_kg'] or 0.0)
+        i['realny_stav_kg'] = float(i['realny_stav_kg'] or 0.0)
+        i['rozdiel_kg'] = float(i['rozdiel_kg'] or 0.0)
+        i['hodnota_eur'] = float(i['hodnota_eur'] or 0.0)
+    
+    return {"head": head, "items": items}
+
+
 def delete_expedition_inventory(data):
     """Mäkké zmazanie inventúry - skryje ju a zapíše dôvod do poznámky."""
     inv_id = data.get('id')

@@ -1410,6 +1410,8 @@ def exp_submit_product_inventory():
     body = request.get_json(force=True) or {}
     return handle_request(expedition_handler.submit_product_inventory, body.get('inventoryData'), body.get('workerName'))
 
+# --- INVENTÚRA EXPEDÍCIE (KANCELÁRIA / VEDÚCI) ---
+
 @app.route('/api/kancelaria/getExpeditionInventoryHistory')
 @login_required(role=('kancelaria','veduci','admin'))
 def kanc_get_exp_inv_history():
@@ -1420,7 +1422,12 @@ def kanc_get_exp_inv_history():
 def kanc_get_exp_inv_detail():
     inv_id = request.args.get('id')
     return handle_request(office_handler.get_expedition_inventory_detail, inv_id)
-# Pridajte do app.py pre expedíciu:
+
+@app.route('/api/kancelaria/deleteExpeditionInventory', methods=['POST'])
+@login_required(role=('kancelaria','veduci','admin'))
+def kanc_delete_exp_inv():
+    data = request.get_json(silent=True) or {}
+    return handle_request(office_handler.delete_expedition_inventory, data)
 
 def _finish_daily_reception_and_export(date_str: str, worker_name: str):
     """
