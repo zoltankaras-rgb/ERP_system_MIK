@@ -652,14 +652,20 @@ async function loadAndShowProductInventory() {
                             ${i.system_stock_display} <span style="font-size:0.9rem;">${escapeHtml(i.mj)}</span>
                         </td>
                         <td style="padding:15px; text-align:right;">
-                            <div style="display:flex; justify-content:flex-end; align-items:center; gap:8px;">
-                                <input type="text" readonly class="prod-inv-input form-control" data-ean="${escapeHtml(i.ean)}" 
-                                    placeholder="${i.system_stock_display}" 
-                                    onclick="openCustomNumpad(this, '${escapeHtml(i.nazov_vyrobku)}', '${escapeHtml(i.mj)}')"
-                                    style="width:140px; height:50px; font-size:1.5rem; font-weight:bold; text-align:center; border:2px solid #94a3b8; border-radius:8px; cursor:pointer; background-color:#ffffff;">
-                                <span style="font-size:1.2rem; color:#4b5563; min-width:30px;">${escapeHtml(i.mj)}</span>
-                            </div>
-                        </td>
+    <div style="display:flex; justify-content:flex-end; align-items:center; gap:8px;">
+        
+        <button onclick="quickUndo('${escapeHtml(i.ean)}', this)" class="undo-btn" 
+            style="display:none; background:#fee2e2; color:#ef4444; border:none; border-radius:10px; width:45px; height:45px; font-size:1.5rem; cursor:pointer; box-shadow:0 2px 4px rgba(0,0,0,0.1);">
+            <i class="fas fa-times"></i>
+        </button>
+
+        <input type="text" readonly class="prod-inv-input form-control" data-ean="${escapeHtml(i.ean)}" 
+            placeholder="${i.system_stock_display}" 
+            onclick="openCustomNumpad(this, '${escapeHtml(i.nazov_vyrobku)}', '${escapeHtml(i.mj)}')"
+            style="width:140px; height:50px; font-size:1.5rem; font-weight:bold; text-align:center; border:2px solid #94a3b8; border-radius:8px; cursor:pointer; background-color:#ffffff;">
+        <span style="font-size:1.2rem; color:#4b5563; min-width:30px;">${escapeHtml(i.mj)}</span>
+    </div>
+</td>
                     </tr>
                 `;
             });
@@ -705,6 +711,10 @@ async function loadAndShowProductInventory() {
         // Zapíname vyhľadávanie a kladieme tam automaticky kurzor
         attachGlobalInventorySearch('inventory-search-input');
         setTimeout(() => { document.getElementById('inventory-search-input').focus(); }, 300);
+
+        // ZAPNUTIE HARDVÉROVÝCH FUNKCIÍ:
+        restoreInventoryFromCache(); // Obnoví dáta ak spadol tablet
+        requestWakeLock();           // Nedovolí tabletu zhasnúť
 
     } catch(e) { console.error(e); }
 }
@@ -785,7 +795,14 @@ async function saveProductCategoryInventory(category) {
         });
         
         showStatus(res.message, false);
-        
+        // --- VYČISTENIE CACHE LEN PRE ODOSLANÉ EANY ---
+        const cached = localStorage.getItem(INV_CACHE_KEY);
+        if (cached) {
+            let cacheData = JSON.parse(cached);
+            itemsToSave.forEach(item => { delete cacheData[item.ean]; });
+            localStorage.setItem(INV_CACHE_KEY, JSON.stringify(cacheData));
+        }
+        // ----------------------------------------------
         // Vizuálna odozva po úspešnom uložení
         if(saveBtn) saveBtn.innerHTML = '<i class="fas fa-check"></i> Kategória uložená!';
         setTimeout(() => { if(saveBtn) saveBtn.innerHTML = originalText; }, 3000);
@@ -1269,23 +1286,26 @@ function numpadBackspace() {
 
 function numpadConfirm() {
     if (currentNumpadInput) {
-        // Tvrdo zapíšeme hodnotu do elementu
         currentNumpadInput.value = currentNumpadValue;
-        // NATVRDO TO VPÍŠEME DO HTML kódu (aby to `querySelectorAll` na 100% našiel)
         currentNumpadInput.setAttribute('value', currentNumpadValue);
         
-        // Podfarbenie - ak je prázdne, odznačiť
+        const undoBtn = currentNumpadInput.parentElement.querySelector('.undo-btn');
+
         if (currentNumpadValue !== "") {
             currentNumpadInput.style.backgroundColor = '#dcfce7'; 
             currentNumpadInput.closest('tr').style.backgroundColor = '#dcfce7';
+            if(undoBtn) undoBtn.style.display = 'block'; // Ukáže "X"
+            playFeedback('success'); // Zavibruje a pípne
         } else {
             currentNumpadInput.style.backgroundColor = '#ffffff'; 
             currentNumpadInput.closest('tr').style.backgroundColor = '';
+            if(undoBtn) undoBtn.style.display = 'none'; // Skryje "X"
+            playFeedback('delete');
         }
         
-        if (typeof beep === 'function') beep(800, 100, 0.2); 
+        // Okamžite uložíme stav do off-line cache tabletu
+        saveInventoryToCache();
         
-        // Fokus naspäť hore pre skener
         const searchInput = document.getElementById('inventory-search-input');
         if (searchInput) searchInput.focus();
     }
@@ -1299,7 +1319,29 @@ function closeCustomNumpad() {
     currentNumpadInput = null;
 }
 
-// Generátor systémového pípnutia bez nutnosti externých audio súborov
+// =================================================================
+// === HARDWARE & UX VYLEPŠENIA (Haptic, Audio, WakeLock) ===
+// =================================================================
+
+// 1. Zvuková a vibračná odozva
+function playFeedback(type) {
+    try {
+        if (type === 'success') {
+            // Krátke, povzbudzujúce vibrovanie a vysoké pípnutie
+            if ('vibrate' in navigator) navigator.vibrate(80);
+            beep(1000, 100, 0.2); 
+        } else if (type === 'error') {
+            // Dlhé varovné bzučanie a hlboký tón (zlé zadanie)
+            if ('vibrate' in navigator) navigator.vibrate([200, 100, 200]);
+            beep(300, 400, 0.4); 
+        } else if (type === 'delete') {
+            // Jemné odklepnutie pri vymazaní položky
+            if ('vibrate' in navigator) navigator.vibrate(40);
+            beep(600, 50, 0.1); 
+        }
+    } catch(e){}
+}
+
 function beep(frequency, duration, volume) {
     try {
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -1312,8 +1354,92 @@ function beep(frequency, duration, volume) {
         gainNode.connect(audioCtx.destination);
         oscillator.start();
         setTimeout(() => { oscillator.stop(); }, duration);
-    } catch(e) { console.log("Audio not supported"); }
+    } catch(e) {}
 }
+
+// 2. Zabránenie zhasnutiu obrazovky
+let wakeLock = null;
+async function requestWakeLock() {
+    try {
+        if ('wakeLock' in navigator) {
+            wakeLock = await navigator.wakeLock.request('screen');
+            console.log('Wake Lock aktívny - Tablet nezhasne.');
+            
+            // Ak by sa tablet uspal a znova prebudil, musíme lock obnoviť
+            document.addEventListener('visibilitychange', async () => {
+                if (wakeLock !== null && document.visibilityState === 'visible') {
+                    wakeLock = await navigator.wakeLock.request('screen');
+                }
+            });
+        }
+    } catch (err) { console.log('Wake Lock zlyhal:', err); }
+}
+// =================================================================
+// === OFFLINE CACHE (Auto-uloženie pri páde / zatvorení) ===
+// =================================================================
+const INV_CACHE_KEY = 'mik_inventory_wip';
+
+function saveInventoryToCache() {
+    const allInputs = document.querySelectorAll('#global-inventory-table .prod-inv-input');
+    const cacheData = {};
+    allInputs.forEach(input => {
+        const val = input.value.trim();
+        if (val !== '') cacheData[input.dataset.ean] = val;
+    });
+    // Uloží všetko do internej pamäte tabletu
+    localStorage.setItem(INV_CACHE_KEY, JSON.stringify(cacheData));
+}
+
+function restoreInventoryFromCache() {
+    const cached = localStorage.getItem(INV_CACHE_KEY);
+    if (!cached) return;
+    
+    const cacheData = JSON.parse(cached);
+    if (Object.keys(cacheData).length === 0) return;
+
+    // Vyskočí len vtedy, ak naozaj niečo zostalo rozpracované
+    if (confirm("⚠️ Zistila sa rozpracovaná inventúra!\n\nChcete pokračovať tam, kde ste prestali?")) {
+        const allInputs = document.querySelectorAll('#global-inventory-table .prod-inv-input');
+        let restoredCount = 0;
+        
+        allInputs.forEach(input => {
+            const ean = input.dataset.ean;
+            if (cacheData[ean]) {
+                input.value = cacheData[ean];
+                input.setAttribute('value', cacheData[ean]);
+                input.style.backgroundColor = '#dcfce7'; // Zelená
+                input.closest('tr').style.backgroundColor = '#dcfce7';
+                
+                // Zobrazí malé tlačidlo X (Undo)
+                const undoBtn = input.parentElement.querySelector('.undo-btn');
+                if (undoBtn) undoBtn.style.display = 'block';
+                
+                restoredCount++;
+            }
+        });
+        showStatus(`Obnovených ${restoredCount} položiek.`, false);
+    } else {
+        // Ak pracovník odmietne, vyčistíme pamäť a začíname nanovo
+        localStorage.removeItem(INV_CACHE_KEY);
+    }
+}
+
+// Funkcia na 1-klikové vymazanie preklepu priamo z riadku
+window.quickUndo = function(ean, btnElement) {
+    const input = document.querySelector(`.prod-inv-input[data-ean="${ean}"]`);
+    if (input) {
+        input.value = '';
+        input.setAttribute('value', '');
+        input.style.backgroundColor = '#ffffff';
+        input.closest('tr').style.backgroundColor = '';
+        btnElement.style.display = 'none'; // Skryje tlačidlo X
+        
+        playFeedback('delete');
+        saveInventoryToCache(); // Updatne cache
+    }
+}
+// Spustí sa po zapnutí inventúry:
+// requestWakeLock();
 // ALIAS
 window.submitProductInventory = finishProductInventoryGlobal;
 window.loadAndShowExpeditionMenu = loadAndShowExpeditionMenu;
