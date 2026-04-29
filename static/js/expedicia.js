@@ -1178,12 +1178,6 @@ function attachTableSearch(inputId, containerId) {
         });
     });
 }
-// =================================================================
-// === CUSTOM TABLET NUMPAD (Zabránenie vyskakovaniu OS klávesnice) ===
-// =================================================================
-
-let currentNumpadInput = null;
-let currentNumpadValue = "";
 
 // =================================================================
 // === CUSTOM TABLET NUMPAD V2 (Opravený Grid & Fat Finger UI) ===
