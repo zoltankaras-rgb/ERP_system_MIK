@@ -5660,38 +5660,42 @@ def get_production_plan_calendar():
 # office_handler.py - Pridajte na koniec
 
 def get_expedition_inventory_history():
-    """Vráti zoznam vykonaných inventúr v expedícii (Sklad 2)."""
+    """Vráti zoznam vykonaných inventúr, zoskupenie urobí JS. Skryje zmazané."""
     if not _table_exists('expedicia_inventury'):
         return {"history": []}
         
     rows = db_connector.execute_query("""
         SELECT 
-            id, datum, vytvoril, created_at, status,
+            id, datum, vytvoril, created_at, status, poznamka,
             (SELECT COUNT(*) FROM expedicia_inventura_polozky WHERE inventura_id = expedicia_inventury.id) as poloziek,
             (SELECT SUM(hodnota_eur) FROM expedicia_inventura_polozky WHERE inventura_id = expedicia_inventury.id) as celkova_hodnota_rozdielu
         FROM expedicia_inventury
+        WHERE status != 'DELETED'
         ORDER BY created_at DESC
     """) or []
     
     return {"history": rows}
 
-def get_expedition_inventory_detail(inv_id):
-    """Vráti detail konkrétnej inventúry expedície."""
-    if not inv_id: return {"error": "Chýba ID."}
+def delete_expedition_inventory(data):
+    """Mäkké zmazanie inventúry - skryje ju a zapíše dôvod do poznámky."""
+    inv_id = data.get('id')
+    reason = data.get('reason')
 
-    head = db_connector.execute_query(
-        "SELECT * FROM expedicia_inventury WHERE id=%s", (inv_id,), fetch='one'
-    )
-    if not head: return {"error": "Inventúra neexistuje."}
+    if not inv_id or not reason:
+        return {"error": "Chýba ID alebo dôvod vymazania."}
 
-    items = db_connector.execute_query("""
-        SELECT ean, nazov, kategoria, system_stav_kg, realny_stav_kg, rozdiel_kg, hodnota_eur
-        FROM expedicia_inventura_polozky
-        WHERE inventura_id=%s
-        ORDER BY kategoria, nazov
-    """, (inv_id,)) or []
-    
-    return {"head": head, "items": items}
+    try:
+        # Zmeníme status na DELETED a natvrdo zapíšeme dôvod zmazania do poznámky
+        db_connector.execute_query("""
+            UPDATE expedicia_inventury 
+            SET status = 'DELETED', 
+                poznamka = CONCAT(IFNULL(poznamka, ''), ' | ZMAZANÉ: ', %s)
+            WHERE id = %s
+        """, (reason, inv_id), fetch='none')
+        
+        return {"message": "Inventúra bola úspešne vymazaná zo zobrazenia."}
+    except Exception as e:
+        return {"error": f"Chyba pri mazaní: {str(e)}"}
 
 # =================================================================
 # === ERP SYNC (IMPORT/EXPORT) – FIXNÁ ŠÍRKA (CP1250) =============
