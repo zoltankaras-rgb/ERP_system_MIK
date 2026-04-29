@@ -754,21 +754,21 @@ async function saveProductCategoryInventory(category) {
         const rowCatSpan = tr ? tr.querySelector('.inv-cat') : null;
         const rowCategory = rowCatSpan ? rowCatSpan.textContent.trim() : '';
         
-        // Ignorujeme malé/veľké písmená pre 100% zhodu
+        // Ignorujeme malé/veľké písmená pre absolútnu zhodu
         if (rowCategory.toLowerCase() === category.toLowerCase()) {
             totalItemsInCategory++;
             const val = input.value.trim();
             
-            // Zoberieme len tie, kde je nejaká hodnota zadaná (vrátane nuly)
+            // Zoberieme len tie, kde je nejaká hodnota zadaná
             if (val !== '') {
                 itemsToSave.push({ ean: input.dataset.ean, realQty: val }); 
             }
         }
     });
     
-    // FOOLPROOF HLÁŠKA PRE DEBUG
+    // Ak naozaj nič nenájde, vyhodí túto novú diagnostickú hlášku
     if (itemsToSave.length === 0) { 
-        alert(`CHYBA:\nKategória "${category}" má na sklade ${totalItemsInCategory} položiek, ale ani v jednej ste nepotvrdili váhu.\n\nSkontrolujte, či sa hodnota po zadaní na Numpade naozaj zapíše do bieleho políčka a zostane svietiť nazeleno.`);
+        alert(`CHYBA:\nKategória "${category}" má na sklade ${totalItemsInCategory} položiek, ale ani v jednej nebola potvrdená váha.\n\nAk ste váhu zadali, uistite sa, že ste na Numpade stlačili veľké zelené 'OK'.`);
         return; 
     }
     
@@ -786,7 +786,7 @@ async function saveProductCategoryInventory(category) {
         
         showStatus(res.message, false);
         
-        // Odozva po úspešnom uložení
+        // Vizuálna odozva po úspešnom uložení
         if(saveBtn) saveBtn.innerHTML = '<i class="fas fa-check"></i> Kategória uložená!';
         setTimeout(() => { if(saveBtn) saveBtn.innerHTML = originalText; }, 3000);
         
@@ -795,7 +795,6 @@ async function saveProductCategoryInventory(category) {
         alert("Chyba pri ukladaní: " + e.message);
     }
 }
-
 // BLESKOVÉ HĽADANIE - Nerefreshuje stránku, len skrýva riadky krížom cez kategórie
 function attachGlobalInventorySearch(inputId) {
     const input = document.getElementById(inputId);
@@ -862,18 +861,7 @@ function attachGlobalInventorySearch(inputId) {
             }
         });
 
-async function saveProductCategoryInventory(category) {
-    const workerName = document.getElementById('inventory-worker-name').value;
-    if (!workerName) { showStatus("Zadajte meno pracovníka (hore).", true); document.getElementById('inventory-worker-name').focus(); return; }
-    const inputs = document.querySelectorAll(`.table-inventory-prod[data-category="${category}"] .prod-inv-input`);
-    const itemsToSave = [];
-    inputs.forEach(input => { if (input.value !== '') itemsToSave.push({ ean: input.dataset.ean, realQty: input.value }); });
-    if (!itemsToSave.length) { showStatus(`Nezadali ste žiadne hodnoty pre ${category}.`, true); return; }
-    try {
-        const res = await apiRequest('/api/expedicia/saveInventoryCategory', { method:'POST', body: { items: itemsToSave, category: category, workerName: workerName } });
-        showStatus(res.message, false);
-    } catch(e) { showStatus("Chyba: " + e.message, true); }
-}
+
 async function finishProductInventoryGlobal() {
     if (!confirm("Naozaj chcete UKONČIŤ inventúru Skladu 2?")) return;
     try {
