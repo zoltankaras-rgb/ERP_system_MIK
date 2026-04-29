@@ -1411,6 +1411,12 @@ def exp_submit_product_inventory():
     return handle_request(expedition_handler.submit_product_inventory, body.get('inventoryData'), body.get('workerName'))
 
 # --- INVENTÚRA EXPEDÍCIE (KANCELÁRIA / VEDÚCI) ---
+@app.route('/api/kancelaria/getProductsForInventory')
+@login_required(role=('kancelaria','veduci','admin'))
+def kanc_get_products_for_inventory():
+    import expedition_handler
+    # Využijeme funkciu z expedície, ale povolíme k nej prístup pre vedúceho
+    return handle_request(expedition_handler.get_products_for_inventory)
 
 @app.route('/api/kancelaria/getExpeditionInventoryHistory')
 @login_required(role=('kancelaria','veduci','admin'))

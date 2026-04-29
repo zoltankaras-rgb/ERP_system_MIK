@@ -3851,10 +3851,10 @@ window.viewLeaderInventoryDetail = async function(invId) {
                         onclick='window.printLeaderInventoryPDF(${JSON.stringify(head).replace(/'/g, "&apos;")}, ${JSON.stringify(groups).replace(/'/g, "&apos;")}, ${grandTotal})'>
                     <i class="fas fa-print"></i> KOMPLETNÝ PROTOKOL
                 </button>
-                <button class="btn btn-danger" style="flex:1; padding:15px; font-size:1.1rem; font-weight:bold; background:#ef4444; border:none; color:#fff; border-radius:6px; cursor:pointer; box-shadow: 0 4px 6px rgba(0,0,0,0.1);" 
-                        onclick='window.printLeaderNegativeInventoryPDF(${JSON.stringify(head).replace(/'/g, "&apos;")}, ${JSON.stringify(groups).replace(/'/g, "&apos;")})'>
-                    <i class="fas fa-exchange-alt"></i> TLAČIŤ MANKO / NA ZÁMENU (- hodnoty)
-                </button>
+                <button class="btn btn-warning" style="width:100%; margin-bottom:20px; padding:15px; font-size:1.1rem; font-weight:bold; background:#f59e0b; border:none; color:#000;" 
+                    onclick='window.printLeaderInventoryPDF(${JSON.stringify(head).replace(/'/g, "&apos;")}, ${JSON.stringify(groups).replace(/'/g, "&apos;")}, ${grandTotal})'>
+                <i class="fas fa-print"></i> VYTLAČIŤ KOMPLETNÝ INVENTÚRNY PROTOKOL (PDF)
+            </button>
             </div>
 
             <div class="table-container" style="max-height:50vh; overflow-y:auto; border:1px solid #e2e8f0; border-radius:8px;">
@@ -4648,20 +4648,18 @@ window.submitLeaderOrderNote = async function(orderId) {
     }
 };
 // =================================================================
-// === TLAČ MÍNUSOVÝCH STAVOV A INVENTÚRNYCH HÁRKOV (Sklad) ========
+// === TLAČ MÍNUSOVÝCH STAVOV A INVENTÚRNYCH HÁRKOV (Z AKTUÁLNEHO SKLADU) ==
 // =================================================================
 
-// 1. TLAČ MÍNUSOVÝCH STAVOV
+// 1. TLAČ MÍNUSOVÝCH STAVOV Z AKTUÁLNEHO SKLADU (Manká a Zámeny)
 window.printNegativeStock = async function() {
-    // Využijeme existujúci API endpoint, ktorý nám vráti celý sklad rozdelený do kategórií
     try {
-        const data = await apiRequest('/api/expedicia/getProductsForInventory'); 
+        // ZMENENÁ ADRESA (Oprava 403 Forbidden)
+        const data = await apiRequest('/api/kancelaria/getProductsForInventory'); 
         let content = '';
         let foundNegative = false;
 
-        // Prejdeme všetky kategórie (Bravčové, Hovädzie...)
         for (const cat of Object.keys(data).sort()) {
-            // Vyfiltrujeme len tie produkty, kde je sklad < 0
             const items = data[cat].filter(i => parseFloat(i.aktualny_sklad_finalny_kg || 0) < 0);
             if (items.length === 0) continue;
             
@@ -4672,9 +4670,10 @@ window.printNegativeStock = async function() {
                 const stock = parseFloat(i.aktualny_sklad_finalny_kg || 0).toFixed(3);
                 rows += `
                     <tr>
-                        <td style="font-family:monospace; font-size:11px;">${escapeHtml(i.ean || '-')}</td>
+                        <td style="font-family:monospace; font-size:11px; color:#555;">${escapeHtml(i.ean || '-')}</td>
                         <td style="font-size:14px;"><strong>${escapeHtml(i.nazov_vyrobku)}</strong></td>
                         <td style="text-align:right; color:red; font-weight:bold; font-size:14px;">${stock} ${escapeHtml(i.mj)}</td>
+                        <td style="border-bottom: 2px dotted #888; background:#fafafa;"></td>
                     </tr>
                 `;
             });
@@ -4685,9 +4684,10 @@ window.printNegativeStock = async function() {
                     <table style="width:100%; border-collapse:collapse; text-align:left;">
                         <thead>
                             <tr style="border-bottom:2px solid #000; background:#f8fafc;">
-                                <th style="padding:8px; width:20%;">EAN kód</th>
-                                <th style="padding:8px; width:60%;">Názov produktu</th>
-                                <th style="padding:8px; width:20%; text-align:right;">Skladový stav</th>
+                                <th style="padding:8px; width:15%;">EAN kód</th>
+                                <th style="padding:8px; width:35%;">Názov produktu</th>
+                                <th style="padding:8px; width:15%; text-align:right;">Chýba na sklade</th>
+                                <th style="padding:8px; width:35%; text-align:center;">Zámena za (vypíšte perom)</th>
                             </tr>
                         </thead>
                         <tbody>${rows}</tbody>
@@ -4697,7 +4697,7 @@ window.printNegativeStock = async function() {
         }
 
         if (!foundNegative) {
-            alert("✅ Sklad je čistý. V systéme nie sú žiadne položky so záporným stavom!");
+            alert("✅ Sklad je čistý. V systéme nie sú aktuálne žiadne položky so záporným stavom!");
             return;
         }
 
@@ -4707,17 +4707,20 @@ window.printNegativeStock = async function() {
             <style>
                 @page { size: A4 portrait; margin: 1.5cm; }
                 body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 13px; color:#111; -webkit-print-color-adjust:exact; }
-                table td { border-bottom: 1px solid #eee; padding: 6px 8px; }
+                table td { border-bottom: 1px solid #eee; padding: 8px 6px; }
                 h1 { margin: 0 0 5px 0; color:#dc2626; font-size: 24px; text-transform:uppercase; border-bottom:3px solid #000; padding-bottom:10px; }
             </style>
             </head><body>
-            <h1>ZOZNAM MÍNUSOVÝCH STAVOV NA SKLADE</h1>
-            <div style="margin-bottom: 30px; font-size:14px; color:#555;">
-                Dátum a čas generovania: <strong>${new Date().toLocaleString('sk-SK')}</strong>
+            <h1>ZOZNAM MÍNUSOVÝCH STAVOV A ZÁMIEN NA SKLADE</h1>
+            <div style="margin-bottom: 20px; font-size:14px; color:#555;">
+                Generované dňa: <strong>${new Date().toLocaleString('sk-SK')}</strong>
             </div>
+            <p style="font-size:12px; font-style:italic; margin-bottom:20px;">
+                * Tento dokument slúži na zápis fyzických zámien. Ak bol tovar zamenený za iný, vpíšte to do stĺpca vpravo.
+            </p>
             ${content}
-            <div style="margin-top: 50px; font-size:12px; color:#777; text-align:center; border-top:1px solid #ccc; padding-top:10px;">
-                Dokument vygenerovaný z ERP Systému MIK (Modul: Skladové karty)
+            <div style="margin-top: 50px; display: flex; justify-content: space-between; font-weight:bold;">
+                <div style="width: 250px; text-align: center; border-top: 1px solid #000; padding-top: 5px;">Podpis vedúceho / skladníka</div>
             </div>
             <script>setTimeout(() => window.print(), 500);<\/script>
             </body></html>
@@ -4729,10 +4732,11 @@ window.printNegativeStock = async function() {
     }
 };
 
-// 2. TLAČ INVENTÚRNEHO HÁRKU (S výberom kategórie)
+// 2. TLAČ INVENTÚRNEHO HÁRKU (Čisté papiere pre aktuálny sklad)
 window.printBlankInventorySheet = async function() {
     try {
-        const data = await apiRequest('/api/expedicia/getProductsForInventory');
+        // ZMENENÁ ADRESA (Oprava 403 Forbidden)
+        const data = await apiRequest('/api/kancelaria/getProductsForInventory');
         const categories = Object.keys(data).sort();
         
         if (categories.length === 0) {
@@ -4740,13 +4744,11 @@ window.printBlankInventorySheet = async function() {
             return;
         }
 
-        // Vytvoríme malé modálne okno pre výber
         let catOptions = `<option value="ALL">-- Všetky kategórie (Kompletný sklad) --</option>`;
         categories.forEach(c => {
             catOptions += `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`;
         });
 
-        // Uložíme si dáta dočasne, aby sme ich nemuseli sťahovať znova po kliknutí na Tlačiť
         window._tempInvSheetData = data;
 
         const modalDiv = document.createElement('div');
@@ -4756,20 +4758,20 @@ window.printBlankInventorySheet = async function() {
         modalDiv.innerHTML = `
             <div style="background:#fff; padding:30px; border-radius:10px; width:450px; box-shadow:0 10px 25px rgba(0,0,0,0.2);">
                 <h3 style="margin-top:0; color:#0369a1; border-bottom:2px solid #e2e8f0; padding-bottom:10px;">
-                    <i class="fas fa-file-alt"></i> Tlač inventúrneho hárku
+                    <i class="fas fa-file-alt"></i> Tlač prázdneho inventúrneho hárku
                 </h3>
                 <p style="color:#475569; font-size:14px; margin-bottom:20px;">
-                    Vyberte si, či chcete vytlačiť prázdne hárky pre celý sklad, alebo len pre konkrétnu kategóriu (na čiastkovú ručnú inventúru).
+                    Vyberte, či chcete vytlačiť podklady pre kompletnú inventúru skladu, alebo len jednu konkrétnu kategóriu na fyzické prerátanie.
                 </p>
                 
-                <label style="font-weight:bold; display:block; margin-bottom:8px;">Vyberte kategóriu:</label>
+                <label style="font-weight:bold; display:block; margin-bottom:8px;">Kategória tovaru:</label>
                 <select id="inv-sheet-cat" class="form-control" style="width:100%; padding:10px; font-size:1.1rem; margin-bottom:25px; border:1px solid #cbd5e1; border-radius:6px;">
                     ${catOptions}
                 </select>
 
                 <div style="display:flex; justify-content:flex-end; gap:10px;">
                     <button class="btn btn-secondary" onclick="document.body.removeChild(document.getElementById('inv-sheet-modal'))" style="padding:10px 20px;">Zrušiť</button>
-                    <button class="btn btn-primary" onclick="window.generateInventorySheetPDF()" style="padding:10px 20px; font-weight:bold;"><i class="fas fa-print"></i> Vygenerovať PDF</button>
+                    <button class="btn btn-primary" onclick="window.generateInventorySheetPDF()" style="padding:10px 20px; font-weight:bold;"><i class="fas fa-print"></i> Generovať PDF hárok</button>
                 </div>
             </div>
         `;
@@ -4784,14 +4786,12 @@ window.generateInventorySheetPDF = function() {
     const selectedCat = document.getElementById('inv-sheet-cat').value;
     const data = window._tempInvSheetData;
     
-    // Zatvoríme modal
     const modal = document.getElementById('inv-sheet-modal');
     if(modal) document.body.removeChild(modal);
 
     const win = window.open('', '_blank');
     let content = '';
 
-    // Ak zvolil ALL, vytlačíme všetky. Ak nie, vytlačíme len jednu.
     const categoriesToPrint = selectedCat === 'ALL' ? Object.keys(data).sort() : [selectedCat];
 
     categoriesToPrint.forEach(cat => {
@@ -4811,12 +4811,10 @@ window.generateInventorySheetPDF = function() {
             `;
         });
 
-        // "page-break-after: always" zabezpečí, že ak tlačíme celý sklad, 
-        // každá nová kategória (Hydina, Bravčové...) začne na úplne novom čistom papieri.
         content += `
             <div style="page-break-after: always;">
                 <h2 style="background:#e2e8f0; padding:10px 15px; border-left:6px solid #0369a1; text-transform:uppercase; margin-top:0;">
-                    Inventúrna kategória: ${escapeHtml(cat)}
+                    Kategória: ${escapeHtml(cat)}
                 </h2>
                 <table style="width:100%; border-collapse:collapse;">
                     <thead>
@@ -4840,21 +4838,20 @@ window.generateInventorySheetPDF = function() {
             @page { size: A4 portrait; margin: 1cm; }
             body { font-family: 'Segoe UI', Arial, sans-serif; margin: 0; padding: 0; color:#111; -webkit-print-color-adjust:exact;}
             table { margin-bottom: 20px; }
-            td { border: 1px solid #999; padding: 12px 5px; } /* Vysoký padding pre ľahké písanie perom */
+            td { border: 1px solid #999; padding: 12px 5px; } 
             .header { border-bottom:3px solid #000; margin-bottom: 30px; padding-bottom:15px; }
             .signatures { display:flex; justify-content: space-between; margin-top:20px; font-weight:bold; font-size:14px; }
         </style>
         </head><body>
         <div class="header">
-            <h1 style="margin:0 0 10px 0; text-align:center;">HÁROK PRE RUČNÚ / FYZICKÚ INVENTÚRU SKLADU</h1>
+            <h1 style="margin:0 0 10px 0; text-align:center;">HÁROK PRE RUČNÚ FYZICKÚ INVENTÚRU SKLADU</h1>
             <div style="display:flex; justify-content: space-between; font-size:14px;">
                 <div>Vygenerované: <strong>${new Date().toLocaleString('sk-SK')}</strong></div>
-                <div>Rozsah tlače: <strong>${selectedCat === 'ALL' ? 'KOMPLETNÝ SKLAD' : escapeHtml(selectedCat)}</strong></div>
+                <div>Kategórie: <strong>${selectedCat === 'ALL' ? 'KOMPLETNÝ SKLAD' : escapeHtml(selectedCat)}</strong></div>
             </div>
             <div class="signatures">
-                <div>Počítač (Meno): ________________________</div>
-                <div>Zapisovateľ (Meno): ________________________</div>
-                <div>Podpis: ________________________</div>
+                <div>Počítač (Meno a podpis): ________________________</div>
+                <div>Zapisovateľ (Meno a podpis): ________________________</div>
             </div>
         </div>
         ${content}
