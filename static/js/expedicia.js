@@ -580,6 +580,10 @@ function renderStockOverviewTab(cat, btn){
   document.getElementById('active-stock-overview-tab').innerHTML = h + `</tbody></table></div></div>`;
 }
 
+// =================================================================
+// === VYLEPŠENÁ INVENTÚRA PRE TABLET (Global EAN + Fat Finger UI) ===
+// =================================================================
+
 async function loadAndShowProductInventory() {
   try {
     const data = await apiRequest('/api/expedicia/getProductsForInventory'); 
@@ -596,14 +600,22 @@ async function loadAndShowProductInventory() {
         return; 
     }
 
-    // --- ZMENA: Pridané vyhľadávacie pole ---
+    // Vylepšený hľadáčik - veľký a pripravený na čítačku (skener)
     const searchHtml = `
-        <div style="margin-bottom: 15px;">
-            <input type="text" id="inventory-search-input" class="form-control" placeholder="🔍 Hľadať produkt v inventúre..." style="width: 100%; padding: 10px; font-size: 1rem; border: 1px solid #ccc; border-radius: 6px;">
+        <div style="margin-bottom: 20px; background: #fff; padding: 15px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.05);">
+            <label style="font-weight:bold; color:#1e40af; font-size:1.1rem; display:block; margin-bottom:8px;">
+                <i class="fas fa-barcode"></i> Naskenujte EAN alebo zadajte názov:
+            </label>
+            <input type="text" id="inventory-search-input" class="form-control" 
+                placeholder="🔍 Hľadať (EAN / Názov)..." 
+                autocomplete="off"
+                style="width: 100%; padding: 15px; font-size: 1.5rem; border: 2px solid #cbd5e1; border-radius: 8px; background: #f8fafc;">
         </div>
     `;
 
-    let tabs = `<div class="inventory-tabs" style="display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap;">` + categories.map((c,i)=>`<button class="btn-tab ${i===0?'btn-primary':'btn-secondary'}" onclick="renderProductInventoryTab('${escapeHtml(c)}',this); document.getElementById('inventory-search-input').value=''; document.getElementById('inventory-search-input').dispatchEvent(new Event('input'));">${escapeHtml(c)}</button>`).join('') + `</div>`;
+    let tabs = `<div class="inventory-tabs" style="display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap;">` + 
+        categories.map((c,i)=>`<button class="btn-tab ${i===0?'btn-primary':'btn-secondary'}" style="padding:12px 20px; font-size:1.1rem; border-radius:8px;" onclick="renderProductInventoryTab('${escapeHtml(c)}',this); document.getElementById('inventory-search-input').value=''; document.getElementById('inventory-search-input').focus();">${escapeHtml(c)}</button>`).join('') + 
+        `</div>`;
     
     container.innerHTML = searchHtml + tabs + `<div id="active-product-inventory-tab"></div>`;
     
@@ -611,24 +623,138 @@ async function loadAndShowProductInventory() {
     if (!finishBtnContainer) {
         finishBtnContainer = document.createElement('div');
         finishBtnContainer.id = 'finish-inventory-btn-container';
-        finishBtnContainer.style.marginTop='30px'; finishBtnContainer.style.borderTop='2px solid #ccc'; finishBtnContainer.style.paddingTop='20px'; finishBtnContainer.style.display='flex'; finishBtnContainer.style.justifyContent='space-between';
+        finishBtnContainer.style.cssText = 'margin-top:30px; border-top:2px solid #ccc; padding-top:20px; display:flex; justify-content:space-between; align-items:center;';
         document.querySelector('#view-expedition-inventory .section').appendChild(finishBtnContainer);
     }
-    finishBtnContainer.innerHTML = `<button class="btn-secondary" onclick="showExpeditionView('view-expedition-menu')"><i class="fas fa-arrow-left"></i> Späť do menu</button><div style="text-align:right;"><span class="text-muted" style="margin-right:10px;">Po dokončení všetkých kategórií:</span><button class="btn-danger" onclick="finishProductInventoryGlobal()" style="padding:15px 25px;font-size:1.1em;"><i class="fas fa-flag-checkered"></i> UKONČIŤ INVENTÚRU</button></div>`;
+    finishBtnContainer.innerHTML = `
+        <button class="btn-secondary" style="padding:15px 25px; font-size:1.1rem;" onclick="showExpeditionView('view-expedition-menu')"><i class="fas fa-arrow-left"></i> Späť</button>
+        <div style="text-align:right;">
+            <button class="btn-danger" onclick="finishProductInventoryGlobal()" style="padding:15px 30px; font-size:1.2rem; font-weight:bold; box-shadow: 0 4px 6px rgba(0,0,0,0.1);"><i class="fas fa-flag-checkered"></i> UKONČIŤ CELÚ INVENTÚRU</button>
+        </div>`;
     
     renderProductInventoryTab(categories[0]);
 
-    // Aktivácia vyhľadávania
-    attachTableSearch('inventory-search-input', 'active-product-inventory-tab');
+    // Nasadenie globálneho filtra, ktorý prehľadáva EAN vo všetkých kategóriách
+    attachGlobalInventorySearch('inventory-search-input');
+
+    // Automatický focus na vyhľadávanie pre čítačku kódov
+    setTimeout(() => { document.getElementById('inventory-search-input').focus(); }, 300);
 
   } catch(e) {}
 }
+
 function renderProductInventoryTab(cat, btn){
-    if(btn){ document.querySelectorAll('#view-expedition-inventory .btn-tab').forEach(b=>{b.classList.remove('btn-primary');b.classList.add('btn-secondary')}); btn.classList.remove('btn-secondary');btn.classList.add('btn-primary'); }
-    const items=productInventoryItems[cat]||[];
-    let h=`<div class="stat-card" style="border:1px solid #bfdbfe;background:#eff6ff"><h4 style="margin:0;color:#1e40af">${escapeHtml(cat)}</h4><div class="table-container" style="max-height:500px;background:white"><table class="table-inventory-prod" data-category="${escapeHtml(cat)}"><thead><tr><th>Názov</th><th>MJ</th><th>Systém</th><th>Reálne</th></tr></thead><tbody>`;
-    items.forEach(i=>h+=`<tr><td>${escapeHtml(i.nazov_vyrobku)}</td><td>${escapeHtml(i.mj)}</td><td>${i.system_stock_display}</td><td><input type="number" step="0.01" class="prod-inv-input form-control" data-ean="${escapeHtml(i.ean)}" placeholder="${i.system_stock_display}" style="font-weight:bold;width:100px;"></td></tr>`);
-    document.getElementById('active-product-inventory-tab').innerHTML = h + `</tbody></table></div><div style="text-align:right;margin-top:15px"><button onclick="saveProductCategoryInventory('${escapeHtml(cat)}')" style="background-color:#16a34a;color:white;padding:12px 24px;border:none;border-radius:6px;font-size:1rem;cursor:pointer;font-weight:600"><i class="fas fa-save"></i> Uložiť ${escapeHtml(cat)}</button></div></div>`;
+    if(btn){ 
+        document.querySelectorAll('#view-expedition-inventory .btn-tab').forEach(b=>{b.classList.remove('btn-primary');b.classList.add('btn-secondary')}); 
+        btn.classList.remove('btn-secondary');btn.classList.add('btn-primary'); 
+    }
+    const items = productInventoryItems[cat] || [];
+    
+    // Extrémne zväčšené riadky a fonty pre tablet "Fat Finger UI"
+    let h = `<div class="stat-card" style="border:1px solid #bfdbfe; background:#eff6ff; padding:20px;">
+                <h4 style="margin:0 0 15px 0; color:#1e40af; font-size:1.5rem;">${escapeHtml(cat)}</h4>
+                <div class="table-container" style="max-height:60vh; overflow-y:auto; background:white; border-radius:8px; border:1px solid #e5e7eb;">
+                    <table class="table-inventory-prod" data-category="${escapeHtml(cat)}" style="width:100%; border-collapse:collapse; font-size:1.1rem;">
+                        <thead style="position:sticky; top:0; background:#f3f4f6; z-index:10; box-shadow:0 2px 4px rgba(0,0,0,0.05);">
+                            <tr>
+                                <th style="padding:15px; border-bottom:2px solid #d1d5db;">Názov a EAN</th>
+                                <th style="padding:15px; text-align:center; border-bottom:2px solid #d1d5db;">Systém</th>
+                                <th style="padding:15px; text-align:right; border-bottom:2px solid #d1d5db;">Reálne narátané</th>
+                            </tr>
+                        </thead>
+                        <tbody>`;
+    
+    items.forEach(i => {
+        h += `<tr style="border-bottom:1px solid #e5e7eb; transition:background 0.2s;" id="inv-row-${escapeHtml(i.ean)}">
+                <td style="padding:15px;">
+                    <div style="font-weight:bold; font-size:1.2rem; margin-bottom:4px;">${escapeHtml(i.nazov_vyrobku)}</div>
+                    <div style="color:#6b7280; font-family:monospace; font-size:0.9rem;">EAN: ${escapeHtml(i.ean)}</div>
+                </td>
+                <td style="padding:15px; text-align:center; color:#4b5563; font-weight:500;">
+                    ${i.system_stock_display} <span style="font-size:0.9rem;">${escapeHtml(i.mj)}</span>
+                </td>
+                <td style="padding:15px; text-align:right;">
+                    <div style="display:flex; justify-content:flex-end; align-items:center; gap:8px;">
+                        <input type="text" readonly class="prod-inv-input form-control" data-ean="${escapeHtml(i.ean)}" 
+    placeholder="${i.system_stock_display}" 
+    onclick="openCustomNumpad(this, '${escapeHtml(i.nazov_vyrobku)}', '${escapeHtml(i.mj)}')"
+    oninput="this.closest('tr').style.backgroundColor = this.value !== '' ? '#dcfce7' : ''"
+    style="width:160px; height:55px; font-size:1.5rem; font-weight:bold; text-align:center; border:2px solid #94a3b8; border-radius:8px; cursor:pointer; background-color:#ffffff;">
+                        <span style="font-size:1.2rem; color:#4b5563; min-width:30px;">${escapeHtml(i.mj)}</span>
+                    </div>
+                </td>
+              </tr>`;
+    });
+    
+    h += `      </tbody>
+            </table>
+        </div>
+        <div style="text-align:right; margin-top:20px;">
+            <button onclick="saveProductCategoryInventory('${escapeHtml(cat)}')" 
+                style="background-color:#16a34a; color:white; padding:18px 30px; border:none; border-radius:8px; font-size:1.2rem; font-weight:bold; cursor:pointer; box-shadow:0 4px 6px rgba(0,0,0,0.1);">
+                <i class="fas fa-save"></i> ULOŽIŤ KATEGÓRIU ${escapeHtml(cat).toUpperCase()}
+            </button>
+        </div>
+    </div>`;
+    
+    document.getElementById('active-product-inventory-tab').innerHTML = h;
+}
+
+// 3. Globálne vyhľadávanie - Hľadá krížom cez kategórie (Názov aj EAN)
+function attachGlobalInventorySearch(inputId) {
+    const input = document.getElementById(inputId);
+    if (!input) return;
+
+    input.addEventListener('input', function(e) {
+        const query = this.value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+        
+        // Ak používate čítačku kódov, zvyčajne naskenuje len čísla (EAN)
+        if (query.length >= 6 && !isNaN(query)) {
+            // Hľadáme naprieč celým JSONom v pamäti
+            for (const cat in productInventoryItems) {
+                const foundItem = productInventoryItems[cat].find(p => p.ean && p.ean.includes(query));
+                if (foundItem) {
+                    // Nášli sme produkt v inej kategórii. Prepneme záložku.
+                    const tabBtns = document.querySelectorAll('.inventory-tabs .btn-tab');
+                    const targetBtn = Array.from(tabBtns).find(b => b.textContent === cat);
+                    
+                    if (targetBtn && !targetBtn.classList.contains('btn-primary')) {
+                        renderProductInventoryTab(cat, targetBtn);
+                    }
+                    
+                    // Počkáme na render a zazoomujeme/focusneme input
+                    setTimeout(() => {
+                        const targetInput = document.querySelector(`.prod-inv-input[data-ean="${foundItem.ean}"]`);
+                        if (targetInput) {
+                            const row = targetInput.closest('tr');
+                            row.style.backgroundColor = '#fef08a'; // Žltý highlight
+                            targetInput.focus();
+                            targetInput.select();
+                            // Scrollneme k položke, ak je schovaná
+                            row.scrollIntoView({ behavior: "smooth", block: "center" });
+                            // Po naskenovaní a nájdení môžeme hľadáčik vyčistiť pre ďalší kód (voliteľné)
+                            // input.value = ''; 
+                        }
+                    }, 50);
+                    return; // Vybavené, skončili sme
+                }
+            }
+        }
+
+        // Štandardné fulltextové filtrovanie ZOBRAZENEJ kategórie podľa Názvu alebo EANu
+        const rows = document.querySelectorAll(`#active-product-inventory-tab table tbody tr`);
+        rows.forEach(row => {
+            const nameText = row.cells[0].textContent.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+            const inputEl = row.querySelector('.prod-inv-input');
+            const eanText = inputEl ? (inputEl.dataset.ean || "").toLowerCase() : "";
+            
+            if (nameText.includes(query) || eanText.includes(query)) {
+                row.style.display = "";
+            } else {
+                row.style.display = "none";
+            }
+        });
+    });
 }
 async function saveProductCategoryInventory(category) {
     const workerName = document.getElementById('inventory-worker-name').value;
@@ -945,6 +1071,123 @@ function attachTableSearch(inputId, containerId) {
             }
         });
     });
+}
+// =================================================================
+// === CUSTOM TABLET NUMPAD (Zabránenie vyskakovaniu OS klávesnice) ===
+// =================================================================
+
+let currentNumpadInput = null;
+
+function openCustomNumpad(inputElement, productName, mj) {
+    // Okamžite blur, aby nevyskočila klávesnica tabletu
+    inputElement.blur();
+    currentNumpadInput = inputElement;
+
+    let numpadModal = document.getElementById('custom-numpad-modal');
+    if (!numpadModal) {
+        numpadModal = document.createElement('div');
+        numpadModal.id = 'custom-numpad-modal';
+        // Fixnutý panel na spodku obrazovky
+        numpadModal.style.cssText = "position:fixed; bottom:-100%; left:0; width:100%; background:#f8fafc; box-shadow:0 -10px 25px rgba(0,0,0,0.2); z-index:999999; display:flex; flex-direction:column; padding:20px; transition:bottom 0.2s ease-out; font-family:sans-serif; height:45vh; border-top-left-radius: 20px; border-top-right-radius: 20px;";
+        document.body.appendChild(numpadModal);
+        
+        // CSS pre tlačidlá numpadu
+        const style = document.createElement('style');
+        style.innerHTML = `
+            .numpad-btn { font-size:2.2rem; font-weight:bold; border:none; border-radius:12px; background:white; box-shadow:0 4px 6px rgba(0,0,0,0.1); cursor:pointer; color:#1e293b; display:flex; align-items:center; justify-content:center; touch-action:manipulation; }
+            .numpad-btn:active { transform:scale(0.95); background:#e2e8f0; }
+            .numpad-confirm { background:#16a34a; color:white; font-size:1.5rem; text-transform:uppercase; letter-spacing:1px; }
+            .numpad-confirm:active { background:#15803d; }
+        `;
+        document.head.appendChild(style);
+    }
+
+    // Vykreslenie vnútra Numpadu pre konkrétny produkt
+    numpadModal.innerHTML = `
+        <div style="display:flex; justify-content:space-between; margin-bottom:15px; align-items:center;">
+            <div style="font-size:1.3rem; font-weight:bold; color:#1e40af; width:50%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+                ${productName}
+            </div>
+            <div style="font-size:2.5rem; font-weight:900; background:white; padding:10px 20px; border-radius:12px; width:45%; text-align:right; border:3px solid #cbd5e1; color:#0f172a;" id="numpad-display">
+                ${inputElement.value || ''}<span style="font-size:1.2rem; color:#94a3b8; margin-left:5px;">${mj}</span>
+            </div>
+        </div>
+        
+        <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:15px; flex:1; height:100%;">
+            <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:15px; grid-column: span 3;">
+                ${[1,2,3,4,5,6,7,8,9].map(n => `<button class="numpad-btn" onclick="numpadType('${n}')">${n}</button>`).join('')}
+                <button class="numpad-btn" style="background:#f1f5f9;" onclick="numpadType('.')">.</button>
+                <button class="numpad-btn" onclick="numpadType('0')">0</button>
+                <button class="numpad-btn" style="background:#fee2e2; color:#b91c1c;" onclick="numpadBackspace()"><i class="fas fa-backspace"></i></button>
+            </div>
+            
+            <div style="display:flex; flex-direction:column; gap:15px;">
+                <button class="numpad-btn" style="background:#e2e8f0; font-size:1.2rem; color:#475569;" onclick="closeCustomNumpad()"><i class="fas fa-times" style="margin-right:5px;"></i> Zrušiť</button>
+                <button class="numpad-btn numpad-confirm" style="flex:2;" onclick="numpadConfirm()"><i class="fas fa-check" style="margin-right:8px;"></i> OK</button>
+            </div>
+        </div>
+    `;
+
+    // Vysunutie nahor
+    setTimeout(() => { numpadModal.style.bottom = "0"; }, 10);
+}
+
+// Logika Numpadu
+let currentNumpadValue = "";
+function numpadType(char) {
+    const display = document.getElementById('numpad-display');
+    // Ak to bola prvá číslica, prepíšeme pôvodný obsah, inak dopisujeme
+    if (currentNumpadValue === "" && currentNumpadInput.value !== "") currentNumpadValue = currentNumpadInput.value;
+    
+    // Obmedzenie na 1 desatinnú bodku
+    if (char === '.' && currentNumpadValue.includes('.')) return;
+    
+    currentNumpadValue += char;
+    // Zobrazenie čistého čísla bez MJ pre presnosť
+    display.innerText = currentNumpadValue; 
+}
+
+function numpadBackspace() {
+    currentNumpadValue = currentNumpadValue.slice(0, -1);
+    document.getElementById('numpad-display').innerText = currentNumpadValue;
+}
+
+function closeCustomNumpad() {
+    const modal = document.getElementById('custom-numpad-modal');
+    if (modal) modal.style.bottom = "-100%";
+    currentNumpadValue = "";
+    currentNumpadInput = null;
+}
+
+function numpadConfirm() {
+    if (currentNumpadInput) {
+        currentNumpadInput.value = currentNumpadValue;
+        // Spustíme event 'input', aby zafungovalo podfarbenie riadku na zeleno
+        currentNumpadInput.dispatchEvent(new Event('input'));
+        
+        // Zvuková odozva (Pípnutie)
+        beep(800, 100, 0.2); 
+
+        // Presunieme focus späť na hlavný hľadáčik (skener EAN)
+        document.getElementById('inventory-search-input').focus();
+    }
+    closeCustomNumpad();
+}
+
+// Generátor systémového pípnutia bez nutnosti externých audio súborov
+function beep(frequency, duration, volume) {
+    try {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const oscillator = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+        oscillator.type = 'sine';
+        oscillator.frequency.value = frequency;
+        gainNode.gain.value = volume;
+        oscillator.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        oscillator.start();
+        setTimeout(() => { oscillator.stop(); }, duration);
+    } catch(e) { console.log("Audio not supported"); }
 }
 // ALIAS
 window.submitProductInventory = finishProductInventoryGlobal;
