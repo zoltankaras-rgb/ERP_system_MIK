@@ -148,9 +148,13 @@
         <div id="section-billing" class="content-section"></div>
 
         <div id="leader-stock-cards" class="content-section">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; flex-wrap:wrap; gap:10px;">
             <h3 style="margin:0;">Skladové karty a História predaja</h3>
-            <button class="btn btn-success" onclick="window.showProductEditor(null)"><i class="fas fa-plus"></i> Pridať nový produkt</button>
+            <div style="display:flex; gap: 10px; flex-wrap:wrap;">
+                <button class="btn btn-danger" onclick="window.printNegativeStock()"><i class="fas fa-exclamation-triangle"></i> Tlačiť mínusové stavy</button>
+                <button class="btn btn-primary" onclick="window.printBlankInventorySheet()"><i class="fas fa-file-alt"></i> Tlačiť inventúrny hárok</button>
+                <button class="btn btn-success" onclick="window.showProductEditor(null)"><i class="fas fa-plus"></i> Pridať nový produkt</button>
+            </div>
           </div>
           <div class="card">
             <div class="card-body p-0">
