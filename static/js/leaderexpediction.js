@@ -3680,6 +3680,294 @@ window.printExpeditionBreakdown = function() {
       $('#btn-save-customer-note').disabled = false;
   }
   // =================================================================
+// === PREZRKADLENIE INVENTÚR (Z Kancelárie pre Vedúceho) ==========
+// =================================================================
+
+window.loadLeaderInventory = async function() {
+    let container = document.getElementById('leader-inventory-content');
+    if (!container) {
+        const section = document.getElementById('leader-inventory');
+        if (section) {
+            section.innerHTML = `
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; background:#f8fafc; padding:15px; border-radius:8px; border:1px solid #e2e8f0;">
+                    <h3 style="margin:0; color:#1e293b;"><i class="fas fa-clipboard-check"></i> História Inventúr Expedície</h3>
+                    <button class="btn btn-primary" onclick="window.loadLeaderInventory()"><i class="fas fa-sync"></i> Obnoviť zoznam</button>
+                </div>
+                <div id="leader-inventory-content"></div>
+            `;
+            container = document.getElementById('leader-inventory-content');
+        } else return;
+    }
+
+    container.innerHTML = '<div style="padding:40px; text-align:center; color:#64748b;"><i class="fas fa-spinner fa-spin fa-2x"></i><br>Načítavam dáta z centrálnej databázy...</div>';
+
+    try {
+        // Používame rovnaký endpoint ako kancelária, len to čítame cez apiRequest
+        const data = await apiRequest('/api/kancelaria/getExpeditionInventoryHistory');
+        const rows = data.history || [];
+
+        if (rows.length === 0) {
+            container.innerHTML = '<div class="alert alert-secondary">Zatiaľ nebola vykonaná žiadna inventúra v expedícii.</div>';
+            return;
+        }
+
+        let html = `
+            <div class="table-container" style="border:1px solid #cbd5e1; border-radius:8px;">
+                <table class="tbl" style="width: 100%; margin:0;">
+                    <thead style="background:#f1f5f9;">
+                        <tr>
+                            <th style="padding:12px;">Dátum</th>
+                            <th style="padding:12px;">Vykonal</th>
+                            <th style="padding:12px; text-align:center;">Status</th>
+                            <th style="padding:12px; text-align:center;">Položiek</th>
+                            <th style="padding:12px; text-align:right;">Hodnota rozdielu</th>
+                            <th style="padding:12px; text-align:center;">Akcia</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+        `;
+
+        rows.forEach(r => {
+            const dateStr = r.created_at ? new Date(r.created_at).toLocaleString('sk-SK') : r.datum;
+            const val = parseFloat(r.celkova_hodnota_rozdielu || 0);
+            const color = val < 0 ? '#ef4444' : (val > 0 ? '#10b981' : 'inherit');
+            
+            html += `
+                <tr style="border-bottom:1px solid #e2e8f0; transition:background 0.2s;" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='transparent'">
+                    <td style="padding:12px; font-weight:600; color:#334155;">${dateStr}</td>
+                    <td style="padding:12px;">${escapeHtml(r.vytvoril)}</td>
+                    <td style="padding:12px; text-align:center;"><span style="background:#e0f2fe; color:#0369a1; padding:4px 8px; border-radius:6px; font-weight:bold; font-size:0.8rem;">${escapeHtml(r.status)}</span></td>
+                    <td style="padding:12px; text-align:center; font-weight:bold;">${r.poloziek}</td>
+                    <td style="padding:12px; text-align:right; font-weight:bold; color:${color}; font-size:1.1rem;">${val.toFixed(2)} €</td>
+                    <td style="padding:12px; text-align:center;">
+                        <button class="btn btn-secondary btn-sm" onclick="window.viewLeaderInventoryDetail(${r.id})" style="border:1px solid #cbd5e1;">
+                            <i class="fas fa-eye"></i> Zobraziť a Tlačiť
+                        </button>
+                    </td>
+                </tr>
+            `;
+        });
+        
+        html += `</tbody></table></div>`;
+        container.innerHTML = html;
+
+    } catch (e) {
+        container.innerHTML = `<div class="alert alert-danger">Chyba pri sťahovaní dát: ${e.message}</div>`;
+    }
+};
+
+window.viewLeaderInventoryDetail = async function(invId) {
+    // Použijeme modálne okno leadera pre pekné zobrazenie detailu
+    window.openLeaderModal('<div style="padding:40px; text-align:center;"><i class="fas fa-spinner fa-spin fa-3x" style="color:#0369a1; margin-bottom:15px;"></i><br><h3 style="color:#1e293b;">Načítavam detail inventúry...</h3></div>');
+
+    try {
+        const data = await apiRequest(`/api/kancelaria/getExpeditionInventoryDetail?id=${invId}`);
+        const head = data.head;
+        const items = data.items || [];
+
+        const groups = {};
+        let grandTotal = 0;
+
+        items.forEach(i => {
+            const cat = i.kategoria || 'Nezaradené';
+            if (!groups[cat]) groups[cat] = { items: [], sum: 0 };
+            
+            groups[cat].items.push(i);
+            const val = parseFloat(i.hodnota_eur || 0);
+            groups[cat].sum += val;
+            grandTotal += val;
+        });
+
+        const grandColor = grandTotal < 0 ? '#ef4444' : (grandTotal > 0 ? '#10b981' : '#1e293b');
+        const dateStr = new Date(head.created_at).toLocaleString('sk-SK');
+
+        let html = `
+            <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:2px solid #e2e8f0; padding-bottom:15px; margin-bottom:20px;">
+                <div>
+                    <h3 style="margin:0; color:#1e293b;"><i class="fas fa-clipboard-check" style="color:#0369a1;"></i> Detail Inventúry #${head.id}</h3>
+                    <div style="color:#64748b; font-size:0.95rem; margin-top:5px;">Uzavreté: <b>${dateStr}</b> | Operátor: <b>${escapeHtml(head.vytvoril)}</b></div>
+                </div>
+                <div style="text-align:right; background:#f8fafc; padding:10px 20px; border-radius:8px; border:1px solid #e2e8f0;">
+                    <div style="font-size:0.85rem; font-weight:bold; color:#64748b; text-transform:uppercase;">Celkový finančný rozdiel</div>
+                    <div style="font-size:1.8rem; font-weight:900; color:${grandColor}">${grandTotal.toFixed(2)} €</div>
+                </div>
+            </div>
+            
+            <button class="btn btn-warning" style="width:100%; margin-bottom:20px; padding:15px; font-size:1.1rem; font-weight:bold; background:#f59e0b; border:none; color:#000;" onclick='window.printLeaderInventoryPDF(${JSON.stringify(head).replace(/'/g, "&apos;")}, ${JSON.stringify(groups).replace(/'/g, "&apos;")}, ${grandTotal})'>
+                <i class="fas fa-print"></i> VYTLAČIŤ INVENTÚRNY PROTOKOL (PDF)
+            </button>
+
+            <div class="table-container" style="max-height:50vh; overflow-y:auto; border:1px solid #e2e8f0; border-radius:8px;">
+        `;
+
+        for (const cat of Object.keys(groups).sort()) {
+            const g = groups[cat];
+            const gColor = g.sum < 0 ? '#ef4444' : (g.sum > 0 ? '#10b981' : '#1e293b');
+            
+            html += `
+                <h4 style="background:#f1f5f9; padding:10px 15px; margin:0; border-top:1px solid #e2e8f0; border-bottom:1px solid #e2e8f0; color:#0f172a;"><i class="fas fa-tags" style="color:#0369a1; margin-right:8px;"></i>${escapeHtml(cat)}</h4>
+                <table class="tbl" style="font-size:0.95rem; width:100%; margin:0;">
+                    <thead style="background:#fff; position:sticky; top:0; z-index:10; box-shadow:0 1px 0 #cbd5e1;">
+                        <tr>
+                            <th style="padding:10px;">EAN</th> 
+                            <th style="padding:10px;">Produkt</th>
+                            <th style="padding:10px; text-align:right">Zostalo v systéme</th>
+                            <th style="padding:10px; text-align:right">Nameraná realita</th>
+                            <th style="padding:10px; text-align:right">Rozdiel (kg)</th>
+                            <th style="padding:10px; text-align:right">Strata/Zisk</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+            
+            g.items.forEach(it => {
+                const diff = parseFloat(it.rozdiel_kg);
+                const val = parseFloat(it.hodnota_eur);
+                html += `
+                    <tr style="border-bottom:1px solid #f1f5f9;">
+                        <td style="padding:8px; font-family:monospace; color:#64748b;">${escapeHtml(it.ean || '')}</td> 
+                        <td style="padding:8px; font-weight:600; color:#1e293b;">${escapeHtml(it.nazov)}</td>
+                        <td style="padding:8px; text-align:right; color:#64748b;">${Number(it.system_stav_kg).toFixed(3)}</td>
+                        <td style="padding:8px; text-align:right; font-size:1.1rem; color:#0369a1;"><strong>${Number(it.realny_stav_kg).toFixed(3)}</strong></td>
+                        <td style="padding:8px; text-align:right; font-weight:bold; color:${diff<0?'#ef4444':(diff>0?'#10b981':'inherit')}">${diff>0?'+':''}${diff.toFixed(3)}</td>
+                        <td style="padding:8px; text-align:right; font-weight:bold; color:${val<0?'#ef4444':(val>0?'#10b981':'inherit')}">${val>0?'+':''}${val.toFixed(2)} €</td>
+                    </tr>
+                `;
+            });
+
+            html += `
+                    </tbody>
+                    <tfoot>
+                        <tr style="background:#f8fafc; font-weight: bold; border-top:2px solid #cbd5e1;">
+                            <td colspan="5" style="padding:10px; text-align:right; text-transform:uppercase;">Medzisúčet za ${escapeHtml(cat)}:</td>
+                            <td style="padding:10px; text-align:right; color:${gColor}; font-size:1.1rem;">${g.sum.toFixed(2)} €</td>
+                        </tr>
+                    </tfoot>
+                </table>
+            `;
+        }
+
+        html += `</div>
+        <div style="margin-top:20px; text-align:right;">
+            <button class="btn btn-secondary" onclick="window.closeLeaderModal()" style="padding:10px 25px; font-weight:bold;">Zatvoriť prehľad</button>
+        </div>`;
+        
+        window.openLeaderModal(html);
+
+    } catch (e) {
+        window.openLeaderModal(`<div class="error" style="padding:30px; text-align:center; color:#dc2626;"><i class="fas fa-exclamation-triangle fa-3x"></i><br><br>Chyba pripojenia: ${e.message}</div>`);
+    }
+};
+
+window.printLeaderInventoryPDF = function(head, groups, grandTotal) {
+    const win = window.open('', '_blank');
+    const dateStr = new Date(head.created_at).toLocaleString('sk-SK');
+    const grandColor = grandTotal < 0 ? 'red' : 'black';
+
+    let content = '';
+
+    for (const cat of Object.keys(groups).sort()) {
+        const g = groups[cat];
+        const gColor = g.sum < 0 ? 'red' : 'black';
+
+        let rows = '';
+        g.items.forEach(it => {
+             const diff = parseFloat(it.rozdiel_kg);
+             const val = parseFloat(it.hodnota_eur);
+             rows += `
+                <tr>
+                    <td style="font-family:monospace;">${escapeHtml(it.ean || '')}</td> 
+                    <td><strong>${escapeHtml(it.nazov)}</strong></td>
+                    <td class="num">${Number(it.system_stav_kg||0).toFixed(3)}</td>
+                    <td class="num"><strong>${Number(it.realny_stav_kg||0).toFixed(3)}</strong></td>
+                    <td class="num" style="color:${diff<0?'red':'inherit'}">${diff>0?'+':''}${diff.toFixed(3)}</td>
+                    <td class="num" style="font-weight:bold; color:${val<0?'red':'inherit'}">${val>0?'+':''}${val.toFixed(2)} €</td>
+                </tr>
+             `;
+        });
+
+        content += `
+            <div class="category-block">
+                <h3>Kategória: ${escapeHtml(cat)}</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th style="width:15%">EAN</th> <th style="width:35%">Názov Produktu</th>
+                            <th class="num" style="width:12%">Pôvodný Stav</th>
+                            <th class="num" style="width:12%">Nameraná Realita</th>
+                            <th class="num" style="width:12%">Rozdiel</th>
+                            <th class="num" style="width:14%">Finančný dopad</th>
+                        </tr>
+                    </thead>
+                    <tbody>${rows}</tbody>
+                    <tfoot>
+                        <tr>
+                            <td colspan="5" class="num" style="border-top:2px solid #000; padding-top:6px;">Spolu za kategóriu:</td>
+                            <td class="num" style="border-top:2px solid #000; padding-top:6px; color:${gColor}">${g.sum.toFixed(2)} €</td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        `;
+    }
+
+    win.document.write(`
+        <html>
+        <head>
+            <title>Inventúra Expedície ${head.id}</title>
+            <style>
+                @page { size: A4 portrait; margin: 1.5cm; }
+                body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px; color: #111; -webkit-print-color-adjust: exact; }
+                h1 { margin: 0 0 5px 0; font-size: 24px; text-transform: uppercase; color:#000; }
+                .header { border-bottom: 3px solid #000; padding-bottom: 15px; margin-bottom: 25px; display:flex; justify-content:space-between; align-items:flex-end; }
+                .meta { font-size: 14px; color:#444; }
+                .meta strong { color:#000; }
+                
+                .category-block { margin-bottom: 30px; page-break-inside: avoid; }
+                h3 { margin: 0 0 8px 0; font-size: 15px; border-left: 6px solid #000; padding-left: 10px; text-transform: uppercase; background:#f0f0f0; padding:6px 10px; }
+                
+                table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+                th, td { border-bottom: 1px solid #ccc; padding: 6px 8px; text-align: left; vertical-align: middle; }
+                th { background-color: #e2e8f0; font-weight: bold; font-size: 12px; border-bottom:2px solid #000;}
+                .num { text-align: right; }
+                
+                .grand-total { text-align: right; margin-top: 50px; font-size: 20px; font-weight: bold; border-top: 4px double #000; padding-top: 15px; }
+                
+                .footer { position: fixed; bottom: 0; left: 0; right: 0; font-size: 10px; text-align: center; color: #666; border-top:1px solid #ccc; padding-top:10px;}
+            </style>
+        </head>
+        <body>
+            <div class="header">
+                <div>
+                    <h1>PROTOKOL O INVENTÚRE SKLADU (Expedícia)</h1>
+                    <div class="meta">Systémové ID: <strong>#${head.id}</strong> &nbsp;|&nbsp; Čas uzávierky: <strong>${dateStr}</strong></div>
+                </div>
+                <div class="meta" style="text-align:right;">
+                    Zodpovedná osoba:<br><strong style="font-size:16px;">${escapeHtml(head.vytvoril)}</strong>
+                </div>
+            </div>
+
+            ${content}
+
+            <div class="grand-total">
+                CELKOVÝ FINANČNÝ ROZDIEL INVENTÚRY: <span style="color:${grandColor}">${grandTotal.toFixed(2)} €</span>
+            </div>
+
+            <div class="footer">
+                Tento dokument bol automaticky vygenerovaný z panelu Vedúceho Expedície (ERP Systém MIK).
+            </div>
+
+            <script>
+                window.onload = function() {
+                    setTimeout(() => { window.print(); }, 500);
+                }
+            <\/script>
+        </body>
+        </html>
+    `);
+    win.document.close();
+};
+  // =================================================================
   // SKLADOVÉ KARTY (Centrálny katalóg produktov pre vedúcu)
   // =================================================================
   window._cachedProducts = null;
@@ -4181,6 +4469,7 @@ window.submitLeaderOrderNote = async function(orderId) {
         const target = secId ? $('#'+secId) : null; if (target) target.classList.add('active');
         
         if (secId === 'leader-dashboard')  loadDashboard();
+        if (secId === 'leader-inventory') { window.loadLeaderInventory(); }
         if (secId === 'leader-b2c')        loadB2C();
         if (secId === 'leader-b2b')        loadB2B();
         if (secId === 'leader-b2b-comm') {
