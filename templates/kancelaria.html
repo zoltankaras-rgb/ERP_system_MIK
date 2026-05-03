@@ -113,6 +113,7 @@
           <li><a class="sidebar-link" data-section="section-costs"><i class="fas fa-wallet"></i> Správa Nákladov</a></li>
           <li><a class="sidebar-link" data-section="section-gemini-assistant"><i class="fas fa-robot"></i> Asistent Gemini</a></li>
           <li><a class="sidebar-link" data-section="section-import-export"><i class="fas fa-exchange-alt"></i> Import-Export ERP</a></li>
+          <li><a class="sidebar-link" data-section="section-internal-users"><i class="fas fa-users-cog"></i> Interní užívatelia</a></li>
         </ul>
       </aside>
 
@@ -273,6 +274,71 @@
         <div id="section-costs" class="content-section"></div>
         <div id="section-gemini-assistant" class="content-section"></div>
         <div id="section-import-export" class="content-section"></div>
+        
+        <div id="section-internal-users" class="content-section" style="display:none">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+              <h2><i class="fas fa-users-cog"></i> Správa interných užívateľov (Prístupy)</h2>
+              <button class="btn btn-success" onclick="InternalUsersModule.showForm()"><i class="fas fa-plus"></i> Nový užívateľ</button>
+          </div>
+          
+          <div class="card">
+              <table class="tbl" style="width:100%;">
+                  <thead style="background:#f1f5f9;">
+                      <tr>
+                          <th>Prihlasovacie meno (Login)</th>
+                          <th>Celé meno</th>
+                          <th>Rola</th>
+                          <th>Status</th>
+                          <th style="text-align:right;">Akcie</th>
+                      </tr>
+                  </thead>
+                  <tbody id="tbody-internal-users"></tbody>
+              </table>
+          </div>
+
+          <div id="user-form-container" style="display:none; margin-top:20px; padding:20px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px;">
+              <h3 id="user-form-title">...</h3>
+              <input type="hidden" id="user-id">
+              
+              <div class="form-group" style="margin-bottom: 10px;">
+                  <label>Prihlasovacie meno (Login)</label>
+                  <input type="text" id="user-username" class="form-control">
+              </div>
+              
+              <div class="form-group" style="margin-bottom: 10px;">
+                  <label>Celé meno (voliteľné)</label>
+                  <input type="text" id="user-fullname" class="form-control">
+              </div>
+
+              <div class="form-group" style="margin-bottom: 10px;">
+                  <label>Nové heslo (pri úprave nechajte prázdne pre zachovanie pôvodného)</label>
+                  <input type="password" id="user-password" class="form-control">
+              </div>
+
+              <div class="form-group" style="margin-bottom: 10px;">
+                  <label>Rola prístupu</label>
+                  <select id="user-role" class="form-control">
+                      <option value="vyroba">Výroba (Tablety)</option>
+                      <option value="expedicia">Expedícia (Tablety / Pracovníci)</option>
+                      <option value="veduci">Vedúci (Prístup k leaderexpedicia)</option>
+                      <option value="kancelaria">Kancelária</option>
+                      <option value="sofer">Šofér</option>
+                      <option value="margit">Teta Margit (Špeciálny prístup)</option>
+                      <option value="admin">Admin</option>
+                  </select>
+              </div>
+
+              <div class="form-group" style="margin-bottom: 15px;">
+                  <label>
+                      <input type="checkbox" id="user-is-active" checked> Aktívny účet
+                  </label>
+              </div>
+
+              <button class="btn btn-primary" onclick="InternalUsersModule.saveUser()">Uložiť</button>
+              <button class="btn btn-secondary" onclick="InternalUsersModule.hideForm()">Zrušiť</button>
+          </div>
+        </div>
+
       </main>
     </div>
   </div>
@@ -358,6 +424,7 @@
   <script src="{{ url_for('static', filename='js/kancelaria_modules/nakup.js') }}" defer></script>
   
   <script src="{{ url_for('static', filename='js/kancelaria_modules/service.js') }}" defer></script>
+  <script src="{{ url_for('static', filename='js/kancelaria_modules/internal_users.js') }}" defer></script>
 
 </body>
 </html>
