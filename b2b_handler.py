@@ -2870,3 +2870,45 @@ def optimize_route(data: dict):
         if conn and conn.is_connected():
             cur.close()
             conn.close()
+            
+
+def get_route_map_data(route_id, target_date):
+    import db_connector
+    if not route_id or not target_date:
+        return {"error": "Chýba ID trasy alebo dátum."}
+        
+    conn = db_connector.get_connection()
+    try:
+        cur = conn.cursor(dictionary=True)
+        # Zistíme, kto má dnes objednávku
+        cur.execute("SELECT zakaznik_id as erp_id FROM b2b_objednavky WHERE stav NOT IN ('Zrušená', 'Stornovaná') AND DATE(pozadovany_datum_dodania) = %s", (target_date,))
+        orders = cur.fetchall() or []
+        erp_ids = set([str(o['erp_id']).strip().lower() for o in orders if o.get('erp_id')])
+
+        # Vytiahneme GPS zákazníkov na tejto trase
+        cur.execute("SELECT id, zakaznik_id, lat, lon, nazov_firmy, trasa_poradie FROM b2b_zakaznici WHERE trasa_id = %s AND lat IS NOT NULL", (route_id,))
+        c_reg = cur.fetchall() or []
+        
+        cur.execute("SELECT id, interne_cislo as zakaznik_id, lat, lon, nazov_firmy, trasa_poradie FROM b2b_manual_zakaznici WHERE trasa_id = %s AND lat IS NOT NULL", (route_id,))
+        c_man = cur.fetchall() or []
+
+        points = []
+        for c in c_reg + c_man:
+            if str(c['zakaznik_id']).strip().lower() in erp_ids:
+                points.append({
+                    "name": c['nazov_firmy'],
+                    "lat": float(c['lat']),
+                    "lon": float(c['lon']),
+                    "order": int(c['trasa_poradie'] or 999)
+                })
+        
+        # Zoradíme podľa poradia vykládky
+        points.sort(key=lambda x: x['order'])
+        
+        return {"points": points, "mik_sala": [48.151759, 17.880655]}
+    except Exception as e:
+        return {"error": str(e)}
+    finally:
+        if conn and conn.is_connected():
+            cur.close()
+            conn.close()

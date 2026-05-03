@@ -1572,6 +1572,13 @@ def leader_optimize_route():
     import b2b_handler
     return jsonify(b2b_handler.optimize_route(request.get_json(silent=True) or {}))
 
+@leader_bp.get('/logistics/route-map')
+@login_required(role=('veduci','admin'))
+def leader_route_map():
+    import b2b_handler
+    route_id = request.args.get('route_id')
+    date_str = request.args.get('date')
+    return jsonify(b2b_handler.get_route_map_data(route_id, date_str))
 # =============================================================================
 # MANUÁLNE OBJEDNÁVKY (ZJEDNOTENÉ PRE REGISTROVANÝCH AJ NEREGISTROVANÝCH)
 # =============================================================================
