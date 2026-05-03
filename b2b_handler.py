@@ -698,24 +698,26 @@ def reject_b2b_registration(data: dict):
 def get_customers_and_pricelists():
     import db_connector
     
-    # 1. Štandardní B2B zákazníci
+    # 1. Štandardní B2B zákazníci (PRIDANÉ lat, lon)
     customers = db_connector.execute_query(
         """
         SELECT id, parent_id, zakaznik_id, nazov_firmy, email, telefon, 
                adresa, adresa_dorucenia, je_schvaleny, trasa_id, trasa_poradie, cislo_prevadzky,
+               lat, lon,
                0 AS is_manual
         FROM b2b_zakaznici 
         WHERE typ='B2B'
         """
     ) or []
 
-    # 2. Manuálne vytvorení zákazníci (spojenie do rovnakého poľa)
+    # 2. Manuálne vytvorení zákazníci (PRIDANÉ lat, lon)
     try:
         manual_customers = db_connector.execute_query(
             """
             SELECT id, NULL as parent_id, interne_cislo as zakaznik_id, nazov_firmy, 
                    NULL as email, kontakt as telefon, adresa, adresa as adresa_dorucenia, 
                    1 as je_schvaleny, trasa_id, trasa_poradie, NULL as cislo_prevadzky,
+                   lat, lon,
                    1 AS is_manual
             FROM b2b_manual_zakaznici
             """
@@ -723,6 +725,7 @@ def get_customers_and_pricelists():
         customers.extend(manual_customers)
     except Exception:
         pass
+    
 
     # Zoradenie podľa abecedy zjednotene
     customers.sort(key=lambda x: (x.get("nazov_firmy") or "").lower())
@@ -757,6 +760,12 @@ def update_customer_details(data: dict):
     trasa_id = fields.get('trasa_id')
     trasa_poradie = fields.get('trasa_poradie')
     is_manual = fields.get('is_manual', 0)
+    
+    # NOVÉ: Spracovanie súradníc
+    lat = fields.get('lat')
+    lon = fields.get('lon')
+    if str(lat).strip() in ["", "null", "None"]: lat = None
+    if str(lon).strip() in ["", "null", "None"]: lon = None
 
     if str(trasa_id).strip() in ["", "null", "None"]:
         trasa_id = None
@@ -770,35 +779,33 @@ def update_customer_details(data: dict):
 
     import db_connector
     
-    # --- RIEŠENIE CHYBY: Odstránenie starého prísneho pravidla z databázy ---
     try:
         db_connector.execute_query("ALTER TABLE b2b_zakaznik_cennik DROP FOREIGN KEY fk_b2bzc_customer", fetch="none")
     except Exception:
-        pass # Ak kľúč neexistuje alebo už bol zmazaný, ticho pokračujeme
-    # -------------------------------------------------------------------------
+        pass 
 
     conn = db_connector.get_connection()
     try:
         cur = conn.cursor()
         if is_manual:
-            # Update pre manuálnych zákazníkov
+            # Update pre manuálnych zákazníkov (PRIDANÉ lat, lon)
             cur.execute("""
                 UPDATE b2b_manual_zakaznici 
                 SET nazov_firmy=%s, kontakt=%s, adresa=%s, 
-                    trasa_id=%s, trasa_poradie=%s
+                    trasa_id=%s, trasa_poradie=%s, lat=%s, lon=%s
                 WHERE id=%s
             """, (fields.get('nazov_firmy'), fields.get('telefon'), 
-                  fields.get('adresa'), trasa_id, trasa_poradie, cid))
+                  fields.get('adresa'), trasa_id, trasa_poradie, lat, lon, cid))
         else:
-            # Update pre registrovaných B2B zákazníkov
+            # Update pre registrovaných B2B zákazníkov (PRIDANÉ lat, lon)
             cur.execute("""
                 UPDATE b2b_zakaznici 
                 SET nazov_firmy=%s, email=%s, telefon=%s, adresa=%s, 
-                    adresa_dorucenia=%s, je_schvaleny=%s, trasa_id=%s, trasa_poradie=%s
+                    adresa_dorucenia=%s, je_schvaleny=%s, trasa_id=%s, trasa_poradie=%s, lat=%s, lon=%s
                 WHERE id=%s
             """, (fields.get('nazov_firmy'), fields.get('email'), fields.get('telefon'), 
                   fields.get('adresa'), fields.get('adresa_dorucenia'), fields.get('je_schvaleny', 1), 
-                  trasa_id, trasa_poradie, cid))
+                  trasa_id, trasa_poradie, lat, lon, cid))
         conn.commit()
     except Exception as e:
         if conn: conn.rollback()

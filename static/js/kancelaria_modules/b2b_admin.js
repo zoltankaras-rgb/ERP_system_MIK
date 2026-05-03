@@ -1799,7 +1799,14 @@ window.editB2BCustomer = function(id, is_manual) {
     });
     const poradieVal = cust.trasa_poradie || 999;
     
-    openModal(`<div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px;">
+    const latVal = cust.lat || '';
+    const lonVal = cust.lon || '';
+    
+    openModal(`
+    <!-- Nahratie Leaflet.js knižnice -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    
+    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px;">
       <div>
           <h4>${is_manual ? 'Údaje manuálneho odberateľa' : 'Fakturačné údaje'}</h4>
           <div class="form-group"><label>ID</label><input type="text" value="${escapeHtml(cust.zakaznik_id)}" disabled class="filter-input" style="width:100%; background:#eee;"></div>
@@ -1808,33 +1815,107 @@ window.editB2BCustomer = function(id, is_manual) {
           <div class="form-group"><label>Telefón / Kontakt</label><input type="text" id="ced-phone" value="${escapeHtml(cust.telefon)}" class="filter-input" style="width:100%;"></div>
           <div class="form-group"><label>Adresa</label><textarea id="ced-addr" class="filter-input" style="width:100%;">${escapeHtml(cust.adresa)}</textarea></div>
           ${!is_manual ? `<div class="form-group"><label>Adresa doručenia</label><textarea id="ced-del-addr" class="filter-input" style="width:100%;" placeholder="Ak je iná ako fakturačná">${escapeHtml(cust.adresa_dorucenia || '')}</textarea></div>` : ''}
-      </div>
-      <div>
-          <h4>Priradené cenníky</h4>
-          <div style="max-height:150px; overflow-y:auto; border:1px solid #ddd; padding:10px; border-radius:4px;">${plHtml}</div>
           
-          <h4 style="margin-top:20px;">Logistika a Trasa</h4>
-          <div class="form-group">
-            <label>Priradená trasa (rozvoz)</label>
-            <select id="ced-trasa" class="filter-input" style="width:100%;">${routesHtml}</select>
+          <h4 style="margin-top:20px;">Priradené cenníky</h4>
+          <div style="max-height:150px; overflow-y:auto; border:1px solid #ddd; padding:10px; border-radius:4px;">${plHtml}</div>
+      </div>
+      
+      <div>
+          <h4>Logistika a Trasa</h4>
+          <div style="display:flex; gap:10px;">
+              <div class="form-group" style="flex:2;">
+                <label>Priradená trasa (rozvoz)</label>
+                <select id="ced-trasa" class="filter-input" style="width:100%;">${routesHtml}</select>
+              </div>
+              <div class="form-group" style="flex:1;">
+                <label>Poradie vykládky</label>
+                <input type="number" id="ced-poradie" value="${poradieVal}" class="filter-input" style="width:100%;">
+              </div>
           </div>
-          <div class="form-group">
-            <label>Predvolené poradie vykládky</label>
-            <input type="number" id="ced-poradie" value="${poradieVal}" class="filter-input" style="width:100%;">
+          
+          <h4 style="margin-top:20px;">📍 Miesto vykládky (Geofencing)</h4>
+          <p style="font-size:0.85em; color:#64748b; margin-top:0;">Kliknite do mapy pre nastavenie presného miesta, kde šofér vykladá tovar (pre automatické odškrtnutie trasy).</p>
+          <div id="ced-map" style="height: 250px; width: 100%; border-radius: 6px; border: 1px solid #cbd5e1; z-index: 1;"></div>
+          
+          <div style="display:flex; gap:10px; margin-top:10px;">
+              <div class="form-group" style="flex:1;">
+                  <label style="font-size:0.8rem;">Zemepisná šírka (Lat)</label>
+                  <input type="text" id="ced-lat" value="${latVal}" class="filter-input" style="width:100%; font-size:0.85rem;" readonly>
+              </div>
+              <div class="form-group" style="flex:1;">
+                  <label style="font-size:0.8rem;">Zemepisná dĺžka (Lon)</label>
+                  <input type="text" id="ced-lon" value="${lonVal}" class="filter-input" style="width:100%; font-size:0.85rem;" readonly>
+              </div>
           </div>
 
           ${!is_manual ? `<h4 style="margin-top:20px;">Iné</h4><label><input type="checkbox" id="ced-active" ${cust.je_schvaleny ? 'checked' : ''}> Účet je aktívny</label>` : ''}
       </div>
     </div>
     <div style="margin-top:20px; text-align:right;"><button class="btn btn-success" onclick="window.saveB2BCustomer(${cust.id}, ${is_manual || 0})">Uložiť zmeny</button></div>`);
+
+    // --- INICIALIZÁCIA MAPY ---
+    // Musíme počkať chvíľu, kým sa okno vyrenderuje do DOM, inak Leaflet nenájde kontajner
+    setTimeout(() => {
+        // Natiahnutie skriptu (ak ešte nie je načítaný)
+        if (typeof L === 'undefined') {
+            const script = document.createElement('script');
+            script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
+            script.onload = () => initCustomerMap(latVal, lonVal);
+            document.head.appendChild(script);
+        } else {
+            initCustomerMap(latVal, lonVal);
+        }
+    }, 200);
 };
 
+// Pomocná funkcia na inicializáciu mapy v editore
+function initCustomerMap(lat, lon) {
+    const mapEl = document.getElementById('ced-map');
+    if (!mapEl) return;
+
+    let initialLat = parseFloat(lat) || 48.669; // Default stred SK (napr. Banská Bystrica okolie)
+    let initialLon = parseFloat(lon) || 19.699;
+    let initialZoom = (lat && lon) ? 16 : 7; // Ak má polohu, priblíž, ak nie, ukáž celé Slovensko
+
+    const map = L.map('ced-map').setView([initialLat, initialLon], initialZoom);
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    let marker = null;
+
+    if (lat && lon) {
+        marker = L.marker([initialLat, initialLon]).addTo(map);
+    }
+
+    // Kliknutie do mapy presunie/vytvorí marker a zapíše súradnice
+    map.on('click', function(e) {
+        const selectedLat = e.latlng.lat.toFixed(6);
+        const selectedLon = e.latlng.lng.toFixed(6);
+
+        if (marker) {
+            marker.setLatLng(e.latlng);
+        } else {
+            marker = L.marker(e.latlng).addTo(map);
+        }
+
+        document.getElementById('ced-lat').value = selectedLat;
+        document.getElementById('ced-lon').value = selectedLon;
+    });
+}
 window.saveB2BCustomer = async function(id, is_manual) {
     const trasaEl = document.getElementById('ced-trasa');
     const poradieEl = document.getElementById('ced-poradie');
     
     const trasaVal = trasaEl && trasaEl.value ? parseInt(trasaEl.value) : null;
     const poradieVal = poradieEl && poradieEl.value ? parseInt(poradieEl.value) : 999;
+    
+    // NOVÉ: Načítanie súradníc z DOM
+    const latEl = document.getElementById('ced-lat');
+    const lonEl = document.getElementById('ced-lon');
+    const latVal = latEl && latEl.value ? parseFloat(latEl.value) : null;
+    const lonVal = lonEl && lonEl.value ? parseFloat(lonEl.value) : null;
 
     const payload = {
         id: id, 
@@ -1844,6 +1925,8 @@ window.saveB2BCustomer = async function(id, is_manual) {
         adresa: document.getElementById('ced-addr').value,
         trasa_id: trasaVal,
         trasa_poradie: poradieVal,
+        lat: latVal,  // <-- PRIDANÉ
+        lon: lonVal,  // <-- PRIDANÉ
         pricelist_ids: Array.from(document.querySelectorAll('.pl-check:checked')).map(cb => cb.value)
     };
 
@@ -1860,7 +1943,6 @@ window.saveB2BCustomer = async function(id, is_manual) {
         loadCustomersAndPricelists();
     } catch(e) { alert(e.message); }
 };
-
 window.deleteB2BCustomer = async function(id, is_manual) {
     const cust = state.customers.find(c => c.id === id && (c.is_manual || 0) == is_manual);
     if(!cust) return;
