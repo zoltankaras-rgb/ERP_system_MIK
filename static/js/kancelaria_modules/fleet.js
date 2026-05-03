@@ -1928,45 +1928,87 @@ async function fetchAndDrawRealTrip(vehicleId, dateStr, locStart, locEnd) {
     const mapEl = document.getElementById('fleet-trip-map');
     if (!mapEl) return;
 
-    let dbData = null;
+    let normalizedPoints = [];
+    let mikSalaCoords = null;
+    let roadGeometry = null;
+    let deliveryTimes = {};
     let useFallback = false;
 
-    // 1. Pokusíme sa stiahnuť 100% presné dáta z Dispečingu
     try {
-        const res = await apiRequest(`/api/kancelaria/fleet/trip-map-data?vehicle_id=${vehicleId}&date=${dateStr}`);
-        if (res.error) throw new Error(res.error);
-        dbData = res;
+        // KROK 1: Najmúdrejší krok - spýtame sa rovno Dispečingu, aké trasy má na tento deň
+        const routesRes = await apiRequest(`/api/leader/logistics/routes-data?date=${dateStr}`);
+        const allRoutes = routesRes.trasy || [];
+        let matchedRouteId = null;
+
+        const locEndLower = (locEnd || "").toLowerCase().trim();
+        const locStartLower = (locStart || "").toLowerCase().trim();
+
+        // Hľadáme zhodu medzi názvom trasy z Dispečingu a tým, čo máte napísané v Knihe jázd
+        for (let r of allRoutes) {
+            const rName = (r.nazov || "").toLowerCase().trim();
+            if (rName && (locEndLower.includes(rName) || locStartLower.includes(rName) || rName.includes(locEndLower))) {
+                matchedRouteId = r.trasa_id;
+                // Uložíme si zelené časy doručenia z Dispečingu priamo do pamäte
+                if (r.zastavky) {
+                    r.zastavky.forEach(z => {
+                        deliveryTimes[z.odberatel] = z.cas_dorucenia_real;
+                    });
+                }
+                break;
+            }
+        }
+
+        if (matchedRouteId) {
+            // BINGO! Našli sme zhodu. Sťahujeme exaktnú cestnú mapu priamo z Dispečingu!
+            const mapRes = await apiRequest(`/api/leader/logistics/route-map?route_id=${matchedRouteId}&date=${dateStr}`);
+            if (mapRes.error) throw new Error(mapRes.error);
+            
+            normalizedPoints = mapRes.points; // {name, lat, lon}
+            mikSalaCoords = mapRes.mik_sala;
+            roadGeometry = mapRes.route_geometry;
+            
+        } else {
+            // KROK 2: Nenašli sme zhodu podľa mena, skúsime to cez priradenie auta (Vehicle ID)
+            const res = await apiRequest(`/api/leader/fleet/trip-map-data?vehicle_id=${vehicleId}&date=${dateStr}`);
+            if (res.error) throw new Error(res.error);
+            
+            normalizedPoints = res.zastavky.map(z => ({ name: z.nazov_firmy, lat: z.lat, lon: z.lon, cas_dorucenia: z.cas_dorucenia }));
+            mikSalaCoords = [res.mik_sala.lat, res.mik_sala.lon];
+        }
     } catch(err) {
-        console.warn("DB Route failed, falling back to text:", err);
+        console.warn("Nenašla sa priradená trasa z DB, prepínam na čítanie textu:", err);
         useFallback = true;
     }
 
-    mapEl.innerHTML = ''; 
+    mapEl.innerHTML = '';
     const map = L.map('fleet-trip-map');
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap' }).addTo(map);
 
-    if (!useFallback && dbData && dbData.zastavky) {
-        // --- A: REŽIM DISPEČING (Presné časy doručenia z GPS) ---
+    if (!useFallback && normalizedPoints.length > 0) {
+        // --- REŽIM A: DOKONALÁ MAPA Z DISPEČINGU ---
         const bounds = [];
         const waypoints = [];
-        
-        waypoints.push(dbData.mik_sala);
-        dbData.zastavky.forEach(z => waypoints.push({lat: parseFloat(z.lat), lon: parseFloat(z.lon), name: z.nazov_firmy, cas_dorucenia: z.cas_dorucenia}));
-        waypoints.push(dbData.mik_sala);
 
-        let coordString = waypoints.map(w => `${w.lon},${w.lat}`).join(';');
+        waypoints.push(mikSalaCoords);
+        normalizedPoints.forEach(p => waypoints.push({
+            lat: parseFloat(p.lat),
+            lon: parseFloat(p.lon),
+            name: p.name,
+            cas_dorucenia: deliveryTimes[p.name] || p.cas_dorucenia
+        }));
+        waypoints.push(mikSalaCoords);
 
         waypoints.forEach((w, i) => {
             bounds.push([w.lat, w.lon]);
             const isStart = (i === 0 || i === waypoints.length - 1);
-            if (i === waypoints.length - 1 && i !== 0) return;
+            if (i === waypoints.length - 1 && i !== 0) return; // Neduplikujeme štart a cieľ
 
             const icon = L.divIcon({
                 className: isStart ? 'map-pin map-pin-start' : 'map-pin',
                 html: isStart ? 'MIK' : String(i),
                 iconSize: [28, 28], iconAnchor: [14, 14]
             });
-            
+
             let popupHtml = `<b>Zastávka ${i}:</b><br>${escapeHtml(w.name)}`;
             if (!isStart) {
                 if (w.cas_dorucenia && w.cas_dorucenia !== 'None') {
@@ -1974,41 +2016,34 @@ async function fetchAndDrawRealTrip(vehicleId, dateStr, locStart, locEnd) {
                     const timeStr = d.getHours().toString().padStart(2,'0') + ':' + d.getMinutes().toString().padStart(2,'0');
                     popupHtml += `<br><span style="display:inline-block; margin-top:5px; background:#dcfce7; color:#166534; padding:3px 6px; border-radius:4px; font-weight:bold; font-size:12px; border:1px solid #bbf7d0;">✅ Fyzicky doručené o: ${timeStr}</span>`;
                 } else {
-                    popupHtml += `<br><span style="display:inline-block; margin-top:5px; background:#f1f5f9; color:#475569; padding:3px 6px; border-radius:4px; font-weight:bold; font-size:12px; border:1px solid #cbd5e1;">⏳ Čas vykládky neznámy</span>`;
+                    popupHtml += `<br><span style="display:inline-block; margin-top:5px; background:#f1f5f9; color:#475569; padding:3px 6px; border-radius:4px; font-weight:bold; font-size:12px; border:1px solid #cbd5e1;">⏳ Čas vykládky zatiaľ neznámy</span>`;
                 }
             }
             L.marker([w.lat, w.lon], {icon: icon}).addTo(map).bindPopup(popupHtml);
         });
 
-        try {
-            const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${coordString}?overview=full&geometries=geojson`;
-            const routeRes = await fetch(osrmUrl);
-            const routeData = await routeRes.json();
-            if (routeData.routes && routeData.routes.length > 0) {
-                L.geoJSON(routeData.routes[0].geometry, { style: { color: '#0369a1', weight: 5, opacity: 0.8 } }).addTo(map);
-            } else {
-                L.polyline(bounds, {color: '#ef4444', weight: 4, dashArray: '10, 10'}).addTo(map);
-            }
-        } catch(e) {
-            L.polyline(bounds, {color: '#ef4444', weight: 4, dashArray: '10, 10'}).addTo(map);
+        // Kreslíme modrú čiaru po ceste
+        if (roadGeometry && roadGeometry.length > 0) {
+            L.polyline(roadGeometry, { color: '#0369a1', weight: 5, opacity: 0.85 }).addTo(map);
+        } else {
+            L.polyline(bounds, {color: '#0369a1', weight: 4, dashArray: '10, 10'}).addTo(map);
         }
 
         map.fitBounds(bounds, {padding: [50, 50]});
         setTimeout(() => map.invalidateSize(), 400);
 
-        // Informačný štítok do mapy
         const badge = document.createElement('div');
         badge.innerHTML = `<div style="position:absolute; bottom:20px; left:20px; z-index:999; background:rgba(255,255,255,0.9); padding:5px 10px; border-radius:4px; font-weight:bold; color:#16a34a; border:1px solid #16a34a; box-shadow:0 2px 4px rgba(0,0,0,0.2); font-size:12px;"><i class="fas fa-check-double"></i> Overená trasa z Dispečingu ERP</div>`;
         mapEl.appendChild(badge);
 
     } else {
-        // --- B: REŽIM FALLBACK (Čítanie textu z knihy jázd pri absencii dispečingu) ---
+        // --- REŽIM B: ZÁCHRANNÁ BRZDA (Zlepšené hádanie miest z textu) ---
         const fullText = (locStart || "") + " , " + (locEnd || "");
-        let locations = fullText.split(/[,>|\\-]+/).map(p => p.trim()).filter(p => p.length > 2);
+        let locations = fullText.split(/[,>|\\-\/]+|\s+a\s+/i).map(p => p.trim()).filter(p => p.length > 2);
         locations = [...new Set(locations)];
         
         if(locations.length === 0) {
-            mapEl.innerHTML = '<div style="color:#dc2626; font-weight:bold; text-align:center; padding:20px; margin-top:180px;">Satelit nenašiel priradenú trasu cez Dispečing a stĺpec Odkiaľ/Kam je prázdny. Nemám čo vykresliť.</div>';
+            mapEl.innerHTML = '<div style="color:#dc2626; font-weight:bold; text-align:center; padding:20px; margin-top:180px;">Satelit nenašiel priradenú trasu a stĺpec Odkiaľ/Kam je prázdny. Nemám čo vykresliť.</div>';
             return;
         }
 
@@ -2019,9 +2054,19 @@ async function fetchAndDrawRealTrip(vehicleId, dateStr, locStart, locEnd) {
             }
             try {
                 let cleanText = text.replace(/trasa/gi, '').replace(/okruh/gi, '').trim();
-                const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(cleanText + ', Slovakia')}&limit=1`);
-                const data = await res.json();
+                
+                // 1. Pokus: Hľadá presný text
+                let res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(cleanText + ', Slovakia')}&limit=1`);
+                let data = await res.json();
                 if (data && data.length > 0) return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon), name: text };
+                
+                // 2. Pokus: Ak je text dlhý (napr. "Predajne Coop Jednota Galanta"), skúsime len posledné slovo
+                let words = cleanText.split(' ').filter(w => w.length > 2);
+                if (words.length > 1) {
+                    let res2 = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(words[words.length - 1] + ', Slovakia')}&limit=1`);
+                    let data2 = await res2.json();
+                    if (data2 && data2.length > 0) return { lat: parseFloat(data2[0].lat), lon: parseFloat(data2[0].lon), name: text + ' (odhad: ' + words[words.length - 1] + ')' };
+                }
             } catch(e) {}
             return null;
         }
@@ -2032,8 +2077,12 @@ async function fetchAndDrawRealTrip(vehicleId, dateStr, locStart, locEnd) {
             if (coords) waypoints.push(coords);
         }
 
+        if (waypoints.length === 1 && waypoints[0].name.toUpperCase().includes("MIK") === false) {
+             waypoints.unshift({ lat: 48.165686, lon: 17.890930, name: "MIK s.r.o. Šaľa" });
+        }
+
         if (waypoints.length < 2) {
-            mapEl.innerHTML = '<div style="color:#dc2626; font-weight:bold; text-align:center; padding:20px; margin-top:180px;">Satelit nenašiel priradenú trasu a nedokázal lokalizovať ani mestá uvedené v texte: "'+escapeHtml(fullText)+'".</div>';
+            mapEl.innerHTML = '<div style="color:#dc2626; font-weight:bold; text-align:center; padding:20px; margin-top:180px;">Satelit nenašiel priradenú trasu z Dispečingu a nedokázal na mape nájsť mestá z textu: "'+escapeHtml(fullText)+'".<br>Skúste písať len čisté názvy miest.</div>';
             return;
         }
 
@@ -2072,7 +2121,6 @@ async function fetchAndDrawRealTrip(vehicleId, dateStr, locStart, locEnd) {
         map.fitBounds(bounds, {padding: [50, 50]});
         setTimeout(() => map.invalidateSize(), 400);
         
-        // Informačný štítok pre fallback
         const badge = document.createElement('div');
         badge.innerHTML = `<div style="position:absolute; bottom:20px; left:20px; z-index:999; background:rgba(255,255,255,0.9); padding:5px 10px; border-radius:4px; font-weight:bold; color:#b45309; border:1px solid #b45309; box-shadow:0 2px 4px rgba(0,0,0,0.2); font-size:12px;"><i class="fas fa-exclamation-triangle"></i> Režim odhadu: Trasa vykreslená z textu Knihy jázd</div>`;
         mapEl.appendChild(badge);
