@@ -1621,8 +1621,7 @@ def get_all_b2b_orders(filters=None):
         where.append("o.zakaznik_id=%s")
         params.append(filters["customer"])
         
-    # OPRAVA: Pridaný alias o. a z. + LEFT JOIN na b2b_zakaznici
-    # PRIDANÉ polia pre logiku váhového terminálu
+    # OPRAVA: Pridaný alias o.cas_dorucenia_real pre tabuľku na webe
     q = """
         SELECT 
             o.id, 
@@ -1638,6 +1637,7 @@ def get_all_b2b_orders(filters=None):
             o.vazenie_start,
             o.vazenie_end,
             o.aktualne_na_vahe,
+            o.cas_dorucenia_real,
             z.cislo_prevadzky
         FROM b2b_objednavky o
         LEFT JOIN b2b_zakaznici z ON o.zakaznik_id = z.zakaznik_id
@@ -1660,6 +1660,8 @@ def get_all_b2b_orders(filters=None):
             r["vazenie_start"] = str(r["vazenie_start"])
         if r.get("vazenie_end"): 
             r["vazenie_end"] = str(r["vazenie_end"])
+        if r.get("cas_dorucenia_real"): 
+            r["cas_dorucenia_real"] = str(r["cas_dorucenia_real"]) # <-- NOVÉ
             
     return {"orders": rows}
 

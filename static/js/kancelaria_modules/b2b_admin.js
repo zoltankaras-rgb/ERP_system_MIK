@@ -401,7 +401,7 @@
             }
             // ==============================================================
 
-            let html = avgHtml + `<table class="table-refined"><thead><tr><th>Číslo</th><th>Zákazník</th><th>Vytvorená</th><th>Dodanie</th><th>Suma</th><th>Stav</th><th style="text-align:center;">Čas vychystávania</th><th>Akcia</th></tr></thead><tbody>`;
+            let html = avgHtml + `<table class="table-refined"><thead><tr><th>Číslo</th><th>Zákazník</th><th>Vytvorená</th><th>Dodanie</th><th>Suma</th><th>Stav</th><th style="text-align:center;">Čas vychystávania</th><th style="text-align:center;">Čas doručenia</th><th>Akcia</th></tr></thead><tbody>`;
             
             orders.forEach(o => {
                 let statusColor = '#94a3b8'; 
@@ -444,8 +444,8 @@
                     sumaHtml += `<div style="color:#22c55e; font-weight:bold;">Finálna: ${Number(o.finalna_suma).toFixed(2)} €</div>`;
                 }
 
-                // -------------------------------------------------------------
-                // LOGIKA PRE ČASOVÉ ZOBRAZENIE
+               // -------------------------------------------------------------
+                // LOGIKA PRE ČASOVÉ ZOBRAZENIE (Vychystávanie)
                 // -------------------------------------------------------------
                 let v_start = o.vazenie_start ? new Date(o.vazenie_start.replace(' ', 'T')).getTime() : null;
                 let v_end = o.vazenie_end ? new Date(o.vazenie_end.replace(' ', 'T')).getTime() : null;
@@ -474,6 +474,18 @@
                 } else if (v_start && o.stav === 'Hotová') {
                     casVychystavaniaHtml = `<span style="color:#10b981; font-weight:bold;">✔ Hotovo (bez času)</span>`;
                 }
+
+                // -------------------------------------------------------------
+                // NOVÉ: LOGIKA PRE ČAS DORUČENIA K ZÁKAZNÍKOVI
+                // -------------------------------------------------------------
+                let casDoruceniaHtml = '<span style="color:#94a3b8;">-</span>';
+                if (o.cas_dorucenia_real && o.cas_dorucenia_real !== 'None' && o.cas_dorucenia_real !== 'null') {
+                    const d = new Date(o.cas_dorucenia_real.replace(' ', 'T'));
+                    const timeStr = d.getHours().toString().padStart(2,'0') + ':' + d.getMinutes().toString().padStart(2,'0');
+                    casDoruceniaHtml = `<span style="color:#16a34a; font-weight:bold; background:#dcfce7; padding:4px 8px; border-radius:6px; border: 1px solid #bbf7d0;" title="${d.toLocaleDateString('sk-SK')}"><i class="fas fa-check-circle"></i> ${timeStr}</span>`;
+                } else if (o.stav === 'Hotová') {
+                    casDoruceniaHtml = `<span style="color:#0ea5e9; font-size:0.85em;"><i class="fas fa-truck"></i> Na ceste</span>`;
+                }
                 // -------------------------------------------------------------
 
                 let buttonsHtml = `<button class="btn btn-outline-secondary btn-sm mb-1" onclick="window.open('/api/kancelaria/b2b/print_order_pdf/${o.id}','_blank')" style="width: 100%;">Tlačiť zadanie</button>`;
@@ -489,6 +501,7 @@
                     <td>${sumaHtml}</td>
                     <td><span style="background:${statusColor};color:white;padding:3px 8px;border-radius:4px;font-size:0.85em;font-weight:bold;box-shadow:0 1px 2px rgba(0,0,0,0.1);">${stavZobrazenie}</span></td>
                     <td style="text-align:center; vertical-align:middle;">${casVychystavaniaHtml}</td>
+                    <td style="text-align:center; vertical-align:middle;">${casDoruceniaHtml}</td>
                     <td>${buttonsHtml}</td>
                 </tr>`;
             });
