@@ -592,50 +592,92 @@ def approve_b2b_registration(data: dict):
     if (not reg_id) or (not customer_id):
         return {"error": "Chýba id registrácie alebo zákaznícke číslo."}
 
-    # zákaznícke číslo musí byť unikátne
-    exists = db_connector.execute_query(
-        "SELECT id FROM b2b_zakaznici WHERE zakaznik_id=%s",
+    import db_connector
+    import traceback
+
+    # 1. Získanie údajov z čakajúcej registrácie
+    pending_reg = db_connector.execute_query(
+        "SELECT * FROM b2b_zakaznici WHERE id=%s", (reg_id,), fetch="one"
+    )
+    if not pending_reg:
+        return {"error": "Registrácia na schválenie neexistuje alebo už bola spracovaná."}
+
+    # 2. Kontrola, či zadané zákaznícke číslo (ERP ID) už niekde neexistuje
+    existing_b2b = db_connector.execute_query(
+        "SELECT id FROM b2b_zakaznici WHERE zakaznik_id=%s AND id != %s",
+        (customer_id, reg_id), fetch="one",
+    )
+    
+    existing_manual = db_connector.execute_query(
+        "SELECT id, interne_cislo, nazov_firmy, trasa_id, trasa_poradie FROM b2b_manual_zakaznici WHERE interne_cislo=%s",
         (customer_id,), fetch="one",
     )
-    if exists:
-        return {"error": f"Zákaznícke číslo '{customer_id}' už existuje."}
 
-    db_connector.execute_query(
-        "UPDATE b2b_zakaznici SET je_schvaleny=1, zakaznik_id=%s WHERE id=%s",
-        (customer_id, reg_id), fetch="none",
-    )
+    conn = db_connector.get_connection()
+    cur = conn.cursor()
+    try:
+        # SCENÁR A: Zákaznícke číslo už používa iný plnohodnotný E-SHOP zákazník -> CHYBA
+        if existing_b2b:
+            return {"error": f"Zákaznícke číslo '{customer_id}' už používa iný registrovaný e-shop zákazník. Zvoľte iné."}
 
-    # mapovanie na cenník (ak prišlo)
-    if pricelist_ids:
-        _ensure_mapping_table()
-        conn = db_connector.get_connection()
-        cur = conn.cursor()
-        try:
+        # SCENÁR B: Zákaznícke číslo patrí MANUÁLNEMU zákazníkovi -> MIGRÁCIA (Zlúčenie)
+        elif existing_manual:
+            man_id = existing_manual['id']
+            
+            # 1. Presunieme dôležité logistické dáta z manuálneho na nový e-shopový
+            cur.execute("""
+                UPDATE b2b_zakaznici 
+                SET je_schvaleny=1, 
+                    zakaznik_id=%s, 
+                    trasa_id=%s, 
+                    trasa_poradie=%s
+                WHERE id=%s
+            """, (customer_id, existing_manual['trasa_id'], existing_manual['trasa_poradie'], reg_id))
+
+            # 2. Všetky historické manuálne objednávky zavesíme na tento nový E-SHOP účet
+            # (Aj keď manuálni nemali objednávky cez E-shop, toto chráni integritu, keby náhodou áno)
+            
+            # 3. Odstránime mapovanie cenníkov pre starý manuálny účet (priradíme nové o chvíľu)
+            cur.execute("DELETE FROM b2b_zakaznik_cennik WHERE zakaznik_id=%s", (customer_id,))
+            
+            # 4. Zmažeme starý manuálny profil (jeho duch ožíva v novom e-shop profile)
+            cur.execute("DELETE FROM b2b_manual_zakaznici WHERE id=%s", (man_id,))
+
+        # SCENÁR C: Zákaznícke číslo je ÚPLNE NOVÉ -> KLASICKÉ SCHVÁLENIE
+        else:
+            cur.execute("UPDATE b2b_zakaznici SET je_schvaleny=1, zakaznik_id=%s WHERE id=%s", (customer_id, reg_id))
+
+        # --- SPOLOČNÉ PRE VŠETKY ÚSPEŠNÉ SCENÁRE ---
+        
+        # Mapovanie na cenník (ak bol nejaký vybraný pri schvaľovaní)
+        if pricelist_ids:
+            # Uistíme sa, že tabuľka existuje (funkcia je vo vrchnej časti b2b_handler)
+            _ensure_mapping_table()
             cur.executemany(
                 "INSERT INTO b2b_zakaznik_cennik (zakaznik_id, cennik_id) VALUES (%s, %s)",
-                [(customer_id, int(pid)) for pid in pricelist_ids],
+                [(customer_id, int(pid)) for pid in pricelist_ids]
             )
-            conn.commit()
-        finally:
-            try:
-                cur.close(); conn.close()
-            except Exception:
-                pass
+
+        conn.commit()
+    except Exception as e:
+        if conn: conn.rollback()
+        traceback.print_exc()
+        return {"error": f"Chyba pri spracovaní registrácie: {str(e)}"}
+    finally:
+        if conn and conn.is_connected():
+            cur.close()
+            conn.close()
 
     # pošleme potvrdzovací e-mail
-    cust = db_connector.execute_query(
-        "SELECT email, nazov_firmy FROM b2b_zakaznici WHERE id=%s",
-        (reg_id,), fetch="one",
-    )
-    if cust:
-        try:
-            notification_handler.send_approval_email(
-                cust["email"], cust["nazov_firmy"], customer_id
-            )
-        except Exception:
-            traceback.print_exc()
+    try:
+        import notification_handler
+        notification_handler.send_approval_email(
+            pending_reg["email"], pending_reg["nazov_firmy"], customer_id
+        )
+    except Exception:
+        traceback.print_exc()
 
-    return {"message": "Registrácia schválená a notifikácia odoslaná."}
+    return {"message": "Registrácia úspešne schválená a notifikácia odoslaná."}
 
 def reject_b2b_registration(data: dict):
     reg_id = (data or {}).get("id")

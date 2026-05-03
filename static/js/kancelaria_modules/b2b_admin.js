@@ -2630,36 +2630,124 @@ window.submitQuickAddProduct = async function() {
   // =================================================================
   async function loadPendingRegistrations() {
     const box = ensureContainer('b2b-registrations-container');
-    box.innerHTML = '<p>Načítavam...</p>';
+    box.innerHTML = '<div style="padding:40px; text-align:center; color:#64748b;"><i class="fas fa-spinner fa-spin fa-2x"></i><br>Načítavam...</div>';
+    
     try {
         const data = await callFirstOk([{ url: '/api/kancelaria/b2b/getPendingB2BRegistrations' }]);
         const regs = (data && data.registrations) ? data.registrations : [];
-        if (!regs.length) { box.innerHTML = '<div class="stat-card"><p class="muted">Žiadne čakajúce registrácie.</p></div>'; return; }
-        let html = `<div class="table-container"><table class="table-refined"><thead><tr><th>Firma</th><th>Kontakt</th><th>Dátum</th><th>Zákaznícke číslo</th><th>Akcia</th></tr></thead><tbody>`;
+        
+        if (!regs.length) { 
+            box.innerHTML = `
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                    <h3 style="margin:0; color:#1e293b;">Čakajúce registrácie z E-shopu</h3>
+                </div>
+                <div class="stat-card" style="text-align:center; padding:30px;"><p class="muted">Nemáte žiadne čakajúce žiadosti o registráciu.</p></div>
+            `; 
+            return; 
+        }
+
+        let html = `
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                <h3 style="margin:0; color:#1e293b;">Čakajúce registrácie z E-shopu</h3>
+            </div>
+            
+            <div style="background:#eff6ff; border-left:4px solid #3b82f6; padding:12px; margin-bottom:15px; border-radius:4px; font-size:0.9rem; color:#1e3a8a;">
+                <i class="fas fa-info-circle"></i> <b>Tip pre zlučovanie:</b> Ak sa registroval zákazník, ktorého už máte vytvoreného ako "Manuálneho", zadajte do políčka <b>Zákaznícke číslo (ERP ID)</b> jeho staré číslo. Systém ho inteligentne preklopí na E-shopový účet bez straty histórie a trás.
+            </div>
+
+            <div class="table-container" style="border: 1px solid #e2e8f0; border-radius:8px;">
+                <table class="table-refined">
+                    <thead>
+                        <tr>
+                            <th>Firma a Adresa</th>
+                            <th>Kontakt</th>
+                            <th>Dátum podania</th>
+                            <th style="width: 200px;">Prideliť Zákaznícke číslo</th>
+                            <th style="text-align:right;">Akcia</th>
+                        </tr>
+                    </thead>
+                    <tbody>`;
+
         regs.forEach(r => {
-            html += `<tr data-id="${r.id}"><td><strong>${escapeHtml(r.nazov_firmy)}</strong><br><small>${escapeHtml(r.adresa)}</small></td><td>${escapeHtml(r.email)}<br>${escapeHtml(r.telefon)}</td><td>${new Date(r.datum_registracie).toLocaleDateString('sk-SK')}</td><td><input type="text" class="filter-input" name="cid" placeholder="Zadajte ID" value="${r.zakaznik_id.startsWith('PENDING')?'':r.zakaznik_id}"></td><td><button class="btn btn-success btn-sm" data-act="ok">Schváliť</button> <button class="btn btn-danger btn-sm" data-act="no">Zamietnuť</button></td></tr>`;
+            // Predvyplnenie políčka, ak tam nie je placeholder "PENDING-..."
+            const val = r.zakaznik_id.startsWith('PENDING') ? '' : escapeHtml(r.zakaznik_id);
+            
+            html += `
+            <tr data-id="${r.id}" style="border-bottom:1px solid #f1f5f9;">
+                <td>
+                    <strong style="font-size:1.05rem; color:#0f172a;">${escapeHtml(r.nazov_firmy)}</strong><br>
+                    <small style="color:#64748b;"><i class="fas fa-map-marker-alt"></i> ${escapeHtml(r.adresa)}</small>
+                </td>
+                <td>
+                    <div><a href="mailto:${escapeHtml(r.email)}" style="color:#0284c7; text-decoration:none;"><i class="fas fa-envelope"></i> ${escapeHtml(r.email)}</a></div>
+                    <div style="color:#475569; margin-top:3px;"><i class="fas fa-phone"></i> ${escapeHtml(r.telefon)}</div>
+                </td>
+                <td style="color:#475569;">${new Date(r.datum_registracie).toLocaleDateString('sk-SK')}</td>
+                <td>
+                    <input type="text" class="filter-input" name="cid" placeholder="Napr. 10255" value="${val}" style="width:100%; border:2px solid #3b82f6; font-weight:bold; text-align:center;">
+                </td>
+                <td style="text-align:right;">
+                    <button class="btn btn-success btn-sm" data-act="ok" style="font-weight:bold; margin-bottom:5px; width:100%;"><i class="fas fa-check"></i> Schváliť a priradiť</button><br>
+                    <button class="btn btn-danger btn-sm" data-act="no" style="width:100%;"><i class="fas fa-times"></i> Zamietnuť</button>
+                </td>
+            </tr>`;
         });
+
         html += '</tbody></table></div>';
         box.innerHTML = html;
+
         box.querySelectorAll('button[data-act]').forEach(btn => {
             btn.onclick = async (e) => {
-                const tr = e.target.closest('tr'); const id = tr.dataset.id; const action = e.target.dataset.act;
+                const tr = e.target.closest('tr'); 
+                const id = tr.dataset.id; 
+                const action = e.target.dataset.act;
+
                 if (action === 'ok') {
-                    const cid = tr.querySelector('input[name="cid"]').value;
-                    if (!cid) return showStatus('Zadajte ID', true);
-                    await callFirstOk([{ url: '/api/kancelaria/approveB2BRegistration', opts: { method: 'POST', body: { id, customer_id: cid } } }]);
-                    showStatus('Schválené');
+                    const cid = tr.querySelector('input[name="cid"]').value.trim();
+                    if (!cid) return showStatus('Musíte zadať Zákaznícke číslo (ERP ID)!', true);
+                    
+                    try {
+                        const res = await callFirstOk([{ 
+                            url: '/api/kancelaria/approveB2BRegistration', 
+                            opts: { method: 'POST', body: { id: id, customer_id: cid } } 
+                        }]);
+                        showStatus(res.message || 'Zákazník bol úspešne schválený.');
+                    } catch (err) {
+                        showStatus(err.message, true);
+                        return; // Ak zlyhalo, neobnovujeme stránku nech nestratí vyplnené dáta
+                    }
+
                 } else {
-                    if (!confirm('Zamietnuť?')) return;
-                    await callFirstOk([{ url: '/api/kancelaria/rejectB2BRegistration', opts: { method: 'POST', body: { id } } }]);
-                    showStatus('Zamietnuté');
+                    if (!confirm('Naozaj chcete zamietnuť túto registráciu? Zákazníkovi príde email o zamietnutí.')) return;
+                    try {
+                        await callFirstOk([{ 
+                            url: '/api/kancelaria/rejectB2BRegistration', 
+                            opts: { method: 'POST', body: { id: id } } 
+                        }]);
+                        showStatus('Registrácia zamietnutá.');
+                    } catch(err) {
+                        showStatus(err.message, true);
+                        return;
+                    }
                 }
+                
+                // Po úspechu načítame znova zoznam
                 loadPendingRegistrations();
+                // A načítame aj zákazníkov v pozadí, nech sa obnoví pamäť (aby bolo vidieť konverziu)
+                if (typeof loadCustomersAndPricelists === 'function') {
+                    // len potichu stiahne dáta, neprekreslí pohľad
+                    callFirstOk([{url:'/api/kancelaria/b2b/getCustomersAndPricelists'}]).then(d => {
+                        state.customers = d.customers || [];
+                        state.mapping = d.mapping || {};
+                    }).catch(()=>{});
+                }
             };
         });
-    } catch (e) { box.innerHTML = `<p class="error">${e.message}</p>`; }
-  }
 
+    } catch (e) { 
+        box.innerHTML = `<p class="error" style="color:#dc2626; font-weight:bold;">Chyba pri načítaní: ${e.message}</p>`; 
+    }
+}
  async function loadB2BSettings() {
       const box = ensureContainer('b2b-settings-container');
       box.innerHTML = '<p>Načítavam nastavenia...</p>';
