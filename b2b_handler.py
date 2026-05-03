@@ -769,6 +769,14 @@ def update_customer_details(data: dict):
         trasa_poradie = int(trasa_poradie)
 
     import db_connector
+    
+    # --- RIEŠENIE CHYBY: Odstránenie starého prísneho pravidla z databázy ---
+    try:
+        db_connector.execute_query("ALTER TABLE b2b_zakaznik_cennik DROP FOREIGN KEY fk_b2bzc_customer", fetch="none")
+    except Exception:
+        pass # Ak kľúč neexistuje alebo už bol zmazaný, ticho pokračujeme
+    # -------------------------------------------------------------------------
+
     conn = db_connector.get_connection()
     try:
         cur = conn.cursor()
@@ -794,12 +802,12 @@ def update_customer_details(data: dict):
         conn.commit()
     except Exception as e:
         if conn: conn.rollback()
-        return {"error": f"Chyba pri ukladaní trasy: {str(e)}"}
+        return {"error": f"Chyba pri ukladaní: {str(e)}"}
     finally:
         if conn and conn.is_connected():
             conn.close()
 
-    # KASKÁDOVÉ ULOŽENIE CENNÍKA (RODIČ -> VŠETKY POBOČKY)
+    # KASKÁDOVÉ ULOŽENIE CENNÍKA
     pricelist_ids = fields.get("pricelist_ids") or []
     
     if is_manual:
