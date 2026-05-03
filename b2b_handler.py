@@ -2767,6 +2767,7 @@ def update_b2b_profile(data: dict):
         return {"error": "Nepodarilo sa uložiť fakturačné údaje."}
 
 def optimize_route(data: dict):
+    import db_connector
     import requests
     import os
     from datetime import datetime, timedelta
@@ -2782,7 +2783,6 @@ def optimize_route(data: dict):
     try:
         cur = conn.cursor(dictionary=True)
         
-        # 1. Zistime, ktori zakaznici maju na dany den realne objednavky
         cur.execute("SELECT zakaznik_id as erp_id FROM b2b_objednavky WHERE stav NOT IN ('Zrušená', 'Stornovaná') AND DATE(pozadovany_datum_dodania) = %s", (target_date,))
         orders = cur.fetchall() or []
         erp_ids = set([str(o['erp_id']).strip().lower() for o in orders if o.get('erp_id')])
@@ -2790,13 +2790,11 @@ def optimize_route(data: dict):
         if not erp_ids:
             return {"error": "Na tento deň neevidujeme objednávky."}
 
-        # 2. Vytiahneme GPS zakaznikov (Reg aj Man) priradenych na tuto trasu
         cur.execute("SELECT id, zakaznik_id, lat, lon, nazov_firmy, 'REG' as type FROM b2b_zakaznici WHERE trasa_id = %s AND lat IS NOT NULL", (trasa_id,))
         c_reg = cur.fetchall() or []
         cur.execute("SELECT id, interne_cislo as zakaznik_id, lat, lon, nazov_firmy, 'MAN' as type FROM b2b_manual_zakaznici WHERE trasa_id = %s AND lat IS NOT NULL", (trasa_id,))
         c_man = cur.fetchall() or []
 
-        # 3. Vyfiltrujeme len tych, co maju dnes objednavku
         jobs_db = []
         for c in c_reg + c_man:
             if str(c['zakaznik_id']).strip().lower() in erp_ids:
@@ -2805,14 +2803,15 @@ def optimize_route(data: dict):
         if len(jobs_db) < 2:
             return {"error": "Pre optimalizáciu sú potrebné aspoň 2 zastávky s nastaveným GPS bodom vykládky."}
 
-        # 4. Priprava dat pre OpenRouteService (VRP modulu)
-        MIK_SALA = [17.880655, 48.151759]
+        # NOVÉ PRESNÉ SÚRADNICE FIRMY (ORS používa formát [Dĺžka, Šírka])
+        MIK_SALA = [17.890930, 48.165686]
+        
         jobs = []
         for i, cust in enumerate(jobs_db):
             jobs.append({
                 "id": i,
                 "location": [float(cust['lon']), float(cust['lat'])],
-                "service": 15 * 60, # 15 minut (900 sekund) na vykladku kazdeho zakaznika
+                "service": 15 * 60,
                 "description": cust['nazov_firmy']
             })
 
@@ -2821,12 +2820,11 @@ def optimize_route(data: dict):
                 "id": 1,
                 "profile": "driving-car",
                 "start": MIK_SALA,
-                "end": MIK_SALA # Auto sa musi vratit do firmy
+                "end": MIK_SALA
             }],
             "jobs": jobs
         }
 
-        # 5. Volanie Optimalizacie!
         headers = {'Authorization': ORS_API_KEY, 'Content-Type': 'application/json'}
         resp = requests.post("https://api.openrouteservice.org/optimization", json=payload, headers=headers)
         
@@ -2836,14 +2834,11 @@ def optimize_route(data: dict):
         opt_data = resp.json()
         steps = opt_data['routes'][0]['steps']
         
-        # 6. Prepisanie poradia v databaze podla najrychlejsej trasy
         poradie = 1
         for step in steps:
             if step['type'] == 'job':
                 job_idx = step['id']
                 cust = jobs_db[job_idx]
-                
-                # Ulozime nove poradie do spravnej tabulky
                 if cust['type'] == 'REG':
                     cur.execute("UPDATE b2b_zakaznici SET trasa_poradie = %s WHERE id = %s", (poradie, cust['id']))
                 else:
@@ -2852,15 +2847,11 @@ def optimize_route(data: dict):
                 
         conn.commit()
         
-        # 7. Vypocet casov a okien (Najneskorsi mozny odchod)
-        # Celkove trvanie v sekundach (cesta + vykladka vsetkych)
         total_duration_sec = opt_data['routes'][0]['duration'] 
         total_duration_min = int(total_duration_sec / 60)
         hodin = total_duration_min // 60
         minut = total_duration_min % 60
         
-        # Predpokladame fixny deadline pre skolske jedalne o 12:00
-        # Ak trasa trva napr. 3h 30m, najneskorsi odchod = 12:00 - 3h 30m = 08:30
         deadline = datetime.strptime("12:00", "%H:%M")
         odchod = deadline - timedelta(minutes=total_duration_min)
         
@@ -2878,22 +2869,22 @@ def optimize_route(data: dict):
         if conn and conn.is_connected():
             cur.close()
             conn.close()
-            
+
 
 def get_route_map_data(route_id, target_date):
     import db_connector
+    import requests
+    import os
     if not route_id or not target_date:
         return {"error": "Chýba ID trasy alebo dátum."}
         
     conn = db_connector.get_connection()
     try:
         cur = conn.cursor(dictionary=True)
-        # Zistíme, kto má dnes objednávku
         cur.execute("SELECT zakaznik_id as erp_id FROM b2b_objednavky WHERE stav NOT IN ('Zrušená', 'Stornovaná') AND DATE(pozadovany_datum_dodania) = %s", (target_date,))
         orders = cur.fetchall() or []
         erp_ids = set([str(o['erp_id']).strip().lower() for o in orders if o.get('erp_id')])
 
-        # Vytiahneme GPS zákazníkov na tejto trase
         cur.execute("SELECT id, zakaznik_id, lat, lon, nazov_firmy, trasa_poradie FROM b2b_zakaznici WHERE trasa_id = %s AND lat IS NOT NULL", (route_id,))
         c_reg = cur.fetchall() or []
         
@@ -2910,10 +2901,40 @@ def get_route_map_data(route_id, target_date):
                     "order": int(c['trasa_poradie'] or 999)
                 })
         
-        # Zoradíme podľa poradia vykládky
         points.sort(key=lambda x: x['order'])
         
-        return {"points": points, "mik_sala": [48.151759, 17.880655]}
+        # NOVÉ PRESNÉ SÚRADNICE FIRMY
+        MIK_SALA_LAT = 48.165686
+        MIK_SALA_LON = 17.890930
+        
+        route_geometry = []
+        
+        # Ak máme zákazníkov, vypýtame si od satelitu vykreslenie skutočných ciest
+        if points:
+            ORS_API_KEY = os.getenv('ORS_API_KEY')
+            if ORS_API_KEY:
+                # Trasa musí začať a skončiť vo firme (formát: Dĺžka, Šírka)
+                coords = [[MIK_SALA_LON, MIK_SALA_LAT]]
+                for p in points:
+                    coords.append([p['lon'], p['lat']])
+                coords.append([MIK_SALA_LON, MIK_SALA_LAT])
+                
+                payload = {"coordinates": coords, "instructions": False, "geometry": True}
+                headers = {'Authorization': ORS_API_KEY, 'Content-Type': 'application/json'}
+                
+                resp = requests.post("https://api.openrouteservice.org/v2/directions/driving-car/geojson", json=payload, headers=headers)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    if 'features' in data and len(data['features']) > 0:
+                        geo_coords = data['features'][0]['geometry']['coordinates']
+                        # Pre mapu (Leaflet) potrebujeme prehodiť hodnoty na [Šírka, Dĺžka]
+                        route_geometry = [[c[1], c[0]] for c in geo_coords]
+        
+        return {
+            "points": points, 
+            "mik_sala": [MIK_SALA_LAT, MIK_SALA_LON],
+            "route_geometry": route_geometry
+        }
     except Exception as e:
         return {"error": str(e)}
     finally:

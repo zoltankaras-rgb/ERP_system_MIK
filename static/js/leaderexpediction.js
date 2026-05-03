@@ -5170,10 +5170,12 @@ window.optimizeRouteOrder = async function(routeId) {
           alert("❌ Optimalizácia zlyhala:\n" + e.message);
       }
   };
-  window.showRouteMap = async function(routeId, routeName) {
+
+
+window.showRouteMap = async function(routeId, routeName) {
       const date = document.getElementById('logistics-date').value;
       
-      window.openLeaderModal('<div style="padding:30px; text-align:center;"><i class="fas fa-spinner fa-spin fa-2x"></i><br>Sťahujem GPS dáta trasy...</div>');
+      window.openLeaderModal('<div style="padding:30px; text-align:center;"><i class="fas fa-spinner fa-spin fa-2x"></i><br>Sťahujem presné cestné GPS dáta trasy...</div>');
       
       try {
           const res = await apiRequest(`/api/leader/logistics/route-map?route_id=${routeId}&date=${date}`);
@@ -5187,32 +5189,22 @@ window.optimizeRouteOrder = async function(routeId) {
               <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
               <style>
                   #leader-modal-wrapper .b2b-modal-content { max-width: 1000px !important; width: 95% !important; }
-                  /* Css pre očíslované ikonky na mape */
                   .map-number-icon {
-                      background-color: #0369a1;
-                      color: white;
-                      border-radius: 50%;
-                      text-align: center;
-                      line-height: 24px;
-                      font-weight: bold;
-                      font-size: 14px;
-                      border: 2px solid white;
-                      box-shadow: 0 2px 4px rgba(0,0,0,0.4);
+                      background-color: #0369a1; color: white; border-radius: 50%; text-align: center;
+                      line-height: 24px; font-weight: bold; font-size: 14px; border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.4);
                   }
-                  .map-start-icon {
-                      background-color: #ef4444; /* Červená pre štart (MIK) */
-                  }
+                  .map-start-icon { background-color: #ef4444; } /* Červená pre štart */
               </style>
               
               <div style="display:flex; justify-content:space-between; align-items:center; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px; margin-bottom: 15px;">
-                  <h3 style="margin:0; color:#1e3a8a;"><i class="fas fa-map-marked-alt"></i> Mapa trasy: ${escapeHtml(routeName)}</h3>
+                  <h3 style="margin:0; color:#1e3a8a;"><i class="fas fa-map-marked-alt"></i> Skutočná cestná mapa: ${escapeHtml(routeName)}</h3>
               </div>
               
               <div style="background:#eff6ff; border-left:4px solid #3b82f6; padding:10px; margin-bottom:15px; font-size:0.9rem; color:#1e3a8a;">
-                  Tento náhľad zobrazuje <b>fyzické poradie</b> vykládok (1, 2, 3...) spojené čiarou postupu. Závod MIK Šaľa je označený červenou nulou.
+                  Tento náhľad zobrazuje <b>fyzické poradie</b> vykládok spojené presnou čiarou po ceste.
               </div>
 
-              <div id="route-preview-map" style="height: 500px; width: 100%; border-radius: 8px; border: 1px solid #cbd5e1; z-index: 1;"></div>
+              <div id="route-preview-map" style="height: 550px; width: 100%; border-radius: 8px; border: 1px solid #cbd5e1; z-index: 1;"></div>
               
               <div style="text-align:right; margin-top: 15px;">
                   <button class="btn btn-secondary" onclick="window.closeLeaderModal()" style="padding: 10px 20px;">Zatvoriť mapu</button>
@@ -5221,15 +5213,14 @@ window.optimizeRouteOrder = async function(routeId) {
           
           window.openLeaderModal(html);
 
-          // Inicializácia mapy musí počkať na vyrenderovanie HTML
           setTimeout(() => {
               if (typeof L === 'undefined') {
                   const script = document.createElement('script');
                   script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
-                  script.onload = () => drawRouteMap(res.points, res.mik_sala);
+                  script.onload = () => drawRouteMap(res.points, res.mik_sala, res.route_geometry);
                   document.head.appendChild(script);
               } else {
-                  drawRouteMap(res.points, res.mik_sala);
+                  drawRouteMap(res.points, res.mik_sala, res.route_geometry);
               }
           }, 200);
 
@@ -5238,7 +5229,7 @@ window.optimizeRouteOrder = async function(routeId) {
       }
   };
 
-  function drawRouteMap(points, mikSala) {
+  function drawRouteMap(points, mikSala, routeGeometry) {
       const mapEl = document.getElementById('route-preview-map');
       if (!mapEl) return;
 
@@ -5248,50 +5239,48 @@ window.optimizeRouteOrder = async function(routeId) {
           attribution: '&copy; OpenStreetMap'
       }).addTo(map);
 
-      const latlngs = [];
       const bounds = [];
-
-      // 1. Pridáme štart (MIK Šaľa)
       const startLatLng = [mikSala[0], mikSala[1]];
-      latlngs.push(startLatLng);
       bounds.push(startLatLng);
       
       const startIcon = L.divIcon({
           className: 'map-number-icon map-start-icon',
           html: '0',
-          iconSize: [28, 28],
-          iconAnchor: [14, 14]
+          iconSize: [28, 28], iconAnchor: [14, 14]
       });
       L.marker(startLatLng, {icon: startIcon}).addTo(map).bindPopup("<b>MIK s.r.o. Šaľa</b><br>Štart / Cieľ");
 
-      // 2. Pridáme zastávky podľa poradia
+      const rawPoints = []; // Pre pripad fallbacku vzduchom
+      rawPoints.push(startLatLng);
+
       points.forEach((p, index) => {
           const ptLatLng = [p.lat, p.lon];
-          latlngs.push(ptLatLng);
           bounds.push(ptLatLng);
+          rawPoints.push(ptLatLng);
           
           const numIcon = L.divIcon({
               className: 'map-number-icon',
-              html: String(index + 1), // Očíslovanie podľa reálneho poradia
-              iconSize: [28, 28],
-              iconAnchor: [14, 14]
+              html: String(index + 1),
+              iconSize: [28, 28], iconAnchor: [14, 14]
           });
           
           L.marker(ptLatLng, {icon: numIcon}).addTo(map).bindPopup(`<b>Zastávka ${index + 1}:</b><br>${escapeHtml(p.name)}`);
       });
+      rawPoints.push(startLatLng);
 
-      // 3. Auto sa musí vrátiť do firmy (uzavretie slučky)
-      latlngs.push(startLatLng);
+      // AK MAME CESTNU GEOMETRIU ZO SATELITU (Kreslíme modrú cestu)
+      if (routeGeometry && routeGeometry.length > 0) {
+          L.polyline(routeGeometry, {color: '#0369a1', weight: 5, opacity: 0.85}).addTo(map);
+      } else {
+          // Fallback, ak by niečo zlyhalo (nakreslíme starý červený "cik-cak" vzduchom)
+          L.polyline(rawPoints, {color: '#ef4444', weight: 4, opacity: 0.7, dashArray: '10, 10'}).addTo(map);
+      }
 
-      // Vykreslenie polyline (čiary spájajúcej body)
-      L.polyline(latlngs, {color: '#0369a1', weight: 4, opacity: 0.7, dashArray: '10, 10'}).addTo(map);
-
-      // Prispôsobíme pohľad, aby bolo vidieť celú trasu
       map.fitBounds(bounds, {padding: [30, 30]});
-      
-      // Fix pre Leaflet vnútri modálneho okna (aby nenačítal len polovicu šedých dlaždíc)
       setTimeout(() => { map.invalidateSize(); }, 300);
   }
+
+  
  function boot(){
     $$('.sidebar-link').forEach(a=>{
       a.onclick = ()=>{
