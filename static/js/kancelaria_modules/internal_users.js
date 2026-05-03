@@ -97,7 +97,7 @@ const InternalUsersModule = {
             method: 'POST',
             headers: { 
                 'Content-Type': 'application/json',
-                'X-Admin-Password': this.masterPassword
+                'X-Admin-Password': InternalUsersModule.masterPassword // Opravené
             },
             body: JSON.stringify({ id: userId })
         })
@@ -105,15 +105,15 @@ const InternalUsersModule = {
         .then(result => {
             if(result.success) {
                 alert(result.message);
-                this.hideForm();
-                this.loadUsers(); // Obnoví tabuľku
+                InternalUsersModule.hideForm();   // Opravené (namiesto this)
+                InternalUsersModule.loadUsers();  // Opravené (namiesto this)
             } else {
                 alert("Chyba: " + result.error);
             }
         })
         .catch(err => console.error("Chyba pri mazaní:", err));
     },
-    
+
     saveUser: function() {
         const payload = {
             id: document.getElementById('user-id').value,
