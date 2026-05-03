@@ -1733,7 +1733,8 @@ async function loadCustomersAndPricelists() {
                         </td>
                         <td>${routeBadge}${plBadges}</td>
                         <td style="text-align:right;">
-                            ${!isManual ? `<button class="btn btn-secondary btn-sm" style="background:#0ea5e9; color:white; border:none;" onclick="window.showCustomer360(${c.id})" title="Karta zákazníka">📊 Karta</button>` : ''}
+                            <!-- ZMENA: Tlačidlo "Karta" je teraz viditeľné aj pre manuálnych zákazníkov -->
+                            <button class="btn btn-secondary btn-sm" style="background:#0ea5e9; color:white; border:none;" onclick="window.showCustomer360(${c.id}, ${c.is_manual || 0})" title="Karta zákazníka (Štatistiky nákupov)">📊 Karta</button>
                             <button class="btn btn-primary btn-sm" style="margin-left:5px;" onclick="window.editB2BCustomer(${c.id}, ${c.is_manual || 0})" title="Upraviť údaje a cenníky">✏️ Upraviť</button>
                             ${(!isBranch && !isManual) ? `<button class="btn btn-warning btn-sm" style="margin-left:5px;" onclick="window.addB2BBranch(${c.id}, '${escapeHtml(c.nazov_firmy)}')" title="Pridať pobočku">+ Pobočka</button>` : ''}
                             <button class="btn btn-danger btn-sm" style="margin-left:5px;" onclick="window.deleteB2BCustomer(${c.id}, ${c.is_manual || 0})" title="Zmazať účet">🗑️</button>
@@ -1940,11 +1941,13 @@ window.saveB2BBranch = async function(parentId) {
     } catch(e) { alert("Chyba: " + e.message); }
 };
 
-window.showCustomer360 = async function(id) {
+window.showCustomer360 = async function(id, is_manual = 0) {
     openModal('<div style="padding:40px; text-align:center; color:#666;"><i class="fas fa-spinner fa-spin fa-2x"></i><br>Načítavam štatistiky a nákupy zákazníka...</div>');
     try {
-        // Prvotné načítanie za všetky obdobia (time_filter: 'all')
-        const res = await callFirstOk([{ url: '/api/kancelaria/b2b/customer_360', opts: { method: 'POST', body: { id: id, time_filter: 'all' } } }]);
+        // Uložíme si stav, či je to manuálny zákazník, aby fungovali filtre času
+        window.currentC360IsManual = is_manual;
+        
+        const res = await callFirstOk([{ url: '/api/kancelaria/b2b/customer_360', opts: { method: 'POST', body: { id: id, is_manual: is_manual, time_filter: 'all' } } }]);
         const c = res.customer;
         const s = res.summary;
         const products = res.products || [];
@@ -2015,20 +2018,19 @@ window.showCustomer360 = async function(id) {
     } catch(e) { openModal(`<div style="padding:20px; color:red; text-align:center;"><h2>Chyba</h2>${e.message}</div>`); }
 };
 
-// Funkcia na prekreslenie iba štatistík a dát podľa filtračného Selectu
 window.updateCustomer360Data = async function(id) {
     const timeFilter = document.getElementById('c360-time-filter').value;
     const tbody = document.getElementById('c360-table-body');
     const statsContainer = document.getElementById('c360-stats-container');
+    const is_manual = window.currentC360IsManual || 0;
     
-    // Zobrazenie načítavania
     tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:30px; color:#64748b;"><i class="fas fa-spinner fa-spin fa-2x"></i><br>Prepočítavam...</td></tr>';
     statsContainer.style.opacity = '0.5';
 
     try {
         const res = await callFirstOk([{ 
             url: '/api/kancelaria/b2b/customer_360', 
-            opts: { method: 'POST', body: { id: id, time_filter: timeFilter } } 
+            opts: { method: 'POST', body: { id: id, is_manual: is_manual, time_filter: timeFilter } } 
         }]);
         
         const s = res.summary;
@@ -2036,7 +2038,6 @@ window.updateCustomer360Data = async function(id) {
         
         const sumMarginColor = s.margin_pct < 10 ? '#dc2626' : (s.margin_pct >= 20 ? '#16a34a' : '#d97706');
         
-        // Dynamické nahradenie boxov štatistiky
         statsContainer.innerHTML = `
             <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:15px; text-align:center;">
                 <div style="font-size:0.8rem; color:#64748b; font-weight:600; text-transform:uppercase;">Počet objednávok</div>
@@ -2057,7 +2058,6 @@ window.updateCustomer360Data = async function(id) {
         `;
         statsContainer.style.opacity = '1';
 
-        // Vygenerovanie tabuľky pre nové dáta
         window.filterC360Table();
 
     } catch(e) { 

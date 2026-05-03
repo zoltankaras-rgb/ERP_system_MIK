@@ -2168,34 +2168,43 @@ def get_order_history(user_id):
 
 def get_customer_360_view(data: dict):
     cid = data.get("id")
-    time_filter = data.get("time_filter", "all")  # Prijatie filtra z frontendu (default: all)
+    time_filter = data.get("time_filter", "all")
+    is_manual = data.get("is_manual", 0)  # <--- NOVÉ: Zisťujeme typ zákazníka
     
     if not cid:
         return {"error": "Chýba ID zákazníka."}
 
-    # 1. Získame základné údaje o zákazníkovi
-    cust = db_connector.execute_query(
-        "SELECT id, zakaznik_id, nazov_firmy, email, telefon FROM b2b_zakaznici WHERE id=%s", 
-        (cid,), fetch="one"
-    )
+    import db_connector
+    
+    # 1. Získame základné údaje o zákazníkovi (z dvoch rôznych tabuliek)
+    if is_manual:
+        cust = db_connector.execute_query(
+            "SELECT id, interne_cislo as zakaznik_id, nazov_firmy, NULL as email, kontakt as telefon FROM b2b_manual_zakaznici WHERE id=%s", 
+            (cid,), fetch="one"
+        )
+    else:
+        cust = db_connector.execute_query(
+            "SELECT id, zakaznik_id, nazov_firmy, email, telefon FROM b2b_zakaznici WHERE id=%s", 
+            (cid,), fetch="one"
+        )
+        
     if not cust:
         return {"error": "Zákazník neexistuje."}
 
     login = cust["zakaznik_id"]
 
-    # Generovanie časovej podmienky do SQL (podľa dátumu objednávky)
+    # Generovanie časovej podmienky do SQL
     date_sql = ""
     if time_filter == "year":
         date_sql = " AND YEAR(o.datum_objednavky) = YEAR(CURDATE())"
     elif time_filter == "month":
         date_sql = " AND YEAR(o.datum_objednavky) = YEAR(CURDATE()) AND MONTH(o.datum_objednavky) = MONTH(CURDATE())"
     elif time_filter == "week":
-        # YEARWEEK(..., 1) znamená, že týždeň začína v pondelok
         date_sql = " AND YEARWEEK(o.datum_objednavky, 1) = YEARWEEK(CURDATE(), 1)"
     elif time_filter == "day":
         date_sql = " AND DATE(o.datum_objednavky) = CURDATE()"
 
-    # 2. Celkové štatistiky s aplikovaným časovým filtrom
+    # 2. Celkové štatistiky
     stats_sql = f"""
         SELECT 
             COUNT(DISTINCT o.id) as total_orders,
@@ -2206,7 +2215,7 @@ def get_customer_360_view(data: dict):
     """
     stats = db_connector.execute_query(stats_sql, (login,), fetch="one") or {}
     
-    # 3. Detailná agregácia nákupov po produktoch s aplikovaným filtrom
+    # 3. Detailná agregácia nákupov
     products_sql = f"""
         SELECT 
             op.ean_produktu as ean,
@@ -2224,7 +2233,7 @@ def get_customer_360_view(data: dict):
     """
     products = db_connector.execute_query(products_sql, (login,), fetch="all") or []
 
-    # 4. Prepočty pre každý produkt a celkový zisk
+    # 4. Prepočty ziskov
     prod_list = []
     total_cost = 0.0
 
@@ -2232,8 +2241,6 @@ def get_customer_360_view(data: dict):
         qty = float(r["total_qty"] or 0)
         rev = float(r["revenue"] or 0)
         unit_cost = float(r["current_unit_cost"] or 0)
-        
-        # Nákladová cena pre toto nakúpené množstvo
         cost = qty * unit_cost
         total_cost += cost
         
@@ -2253,7 +2260,6 @@ def get_customer_360_view(data: dict):
             "margin": round(marg, 1)
         })
 
-    # Dopočítanie celkového zisku
     total_rev = float(stats.get("total_revenue") or 0.0)
     total_profit = total_rev - total_cost
     total_margin = (total_profit / total_rev * 100) if total_rev > 0 else 0
