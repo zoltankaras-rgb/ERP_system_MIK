@@ -554,8 +554,11 @@ def internal_login():
     data = request.get_json(silent=True) or {}
     username = (data.get('username') or '').strip()
     password = data.get('password') or ''
-    module   = (data.get('module') or '').strip().lower()
+    
+    # Úmyselne ignorujeme premennú 'module' z frontendu.
+    # Prihlásenie bude závisieť čisto len na hesle a role.
 
+    # 1. Načítanie používateľa z databázy
     user = db_connector.execute_query(
         "SELECT id, username, role, full_name, password_hash, password_salt, COALESCE(is_active,1) AS is_active "
         "FROM internal_users WHERE username=%s",
@@ -563,25 +566,18 @@ def internal_login():
         fetch='one'
     )
 
+    # 2. Overenie existencie a hesla
     if not user or not auth_handler.verify_password(password, user['password_salt'], user['password_hash']):
         return jsonify({'error': 'Nesprávne meno alebo heslo.'}), 401
+    
+    # 3. Overenie, či nie je účet vypnutý
     if not int(user.get('is_active', 1)):
         return jsonify({'error': 'Účet je deaktivovaný.'}), 401
 
-    role = canonicalize_role(user.get('role'))
+    # Normalizácia roly
+    role = auth_handler.canonicalize_role(user.get('role'))
 
-    # Matica povolených prístupov - rozšírená o šoféra a admina
-    allowed_for_module = {
-        'expedicia': {'veduci', 'expedicia', 'admin', 'sofer'},
-        'kancelaria': {'kancelaria', 'admin', 'margit'},
-        'vyroba': {'vyroba', 'admin'},
-    }
-    
-    if module:
-        allowed = allowed_for_module.get(module, set())
-        if role not in allowed and role != 'admin':
-            return jsonify({'error': f"Nemáte oprávnenie pre modul '{module}'. Vaša rola: '{role}'"}), 401
-
+    # 4. Vytvorenie relácie (Session)
     session.permanent = True
     session['user'] = {
         'id': user['id'],
@@ -590,20 +586,15 @@ def internal_login():
         'full_name': user.get('full_name') or user['username'],
     }
 
-    # FINÁLNE NASMEROVANIE
-    redirect_to = '/'
-    if module:
-        if module == 'expedicia': redirect_to = '/expedicia'
-        elif module == 'kancelaria': redirect_to = '/kancelaria'
-        elif module == 'vyroba': redirect_to = '/vyroba'
+    # 5. NATVRDO nasmerujeme používateľa presne tam, kam patrí podľa jeho roly
+    if role in ('veduci', 'expedicia', 'sofer'):
+        redirect_to = '/expedicia'
+    elif role in ('kancelaria', 'admin', 'margit'):
+        redirect_to = '/kancelaria'
+    elif role == 'vyroba':
+        redirect_to = '/vyroba'
     else:
-        # Ak prichádza z hlavnej /login stránky (module je prázdny)
-        if role in ('veduci', 'expedicia', 'sofer'):
-            redirect_to = '/expedicia'
-        elif role in ('kancelaria', 'admin', 'margit'):
-            redirect_to = '/kancelaria'
-        elif role == 'vyroba':
-            redirect_to = '/vyroba'
+        redirect_to = '/' # Fallback
 
     return jsonify({
         'ok': True,
