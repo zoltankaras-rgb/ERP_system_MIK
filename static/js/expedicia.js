@@ -482,31 +482,57 @@ async function loadProductionsByDate(dateStr) {
         return;
     }
 
-    let html = `<table><thead><tr><th>Produkt</th><th>Stav</th><th>Plán</th><th>Príjem (Realita)</th><th>Poznámka</th><th>Akcia</th></tr></thead><tbody>`;
+    // ZMENA HLAVIČKY TABUĽKY PRE LEPŠIE ZOBRAZENIE NA TABLETE
+    let html = `<table style="width:100%; border-collapse:collapse; font-size:1.1rem;">
+                <thead style="background:#f1f5f9; border-bottom:2px solid #cbd5e1;">
+                    <tr>
+                        <th style="padding:15px; text-align:left;">Produkt</th>
+                        <th style="padding:15px; text-align:left;">Stav</th>
+                        <th style="padding:15px; text-align:center;">Plán</th>
+                        <th style="padding:15px; text-align:center;">Namerané (Realita)</th>
+                        <th style="padding:15px; text-align:center;">Akcia</th>
+                    </tr>
+                </thead><tbody>`;
+    
     let hasAcceptedItems = false;
 
     data.forEach(p => {
       const isAccepted = (p.status === 'Prijaté, čaká na tlač');
       if (isAccepted) hasAcceptedItems = true;
-      const rowClass = isAccepted ? 'style="background-color:#ecfdf5;"' : '';
+      const rowClass = isAccepted ? 'style="background-color:#ecfdf5; border-bottom:1px solid #d1fae5;"' : 'style="border-bottom:1px solid #e2e8f0;"';
       
       let realityDisplay = '';
       if (isAccepted) {
           const val = p.mj === 'ks' ? `${p.realPieces} ks` : `${safeToFixed(p.realQty)} kg`;
-          realityDisplay = `<strong>${val}</strong>`;
+          realityDisplay = `<strong style="font-size:1.4rem; color:#166534;">${val}</strong>`;
       } else {
           const defaultVal = p.mj === 'ks' ? (p.expectedPieces || '') : (p.plannedQty || '');
-          realityDisplay = `<input type="number" step="${p.mj==='ks' ? 1 : 0.01}" id="actual_${p.batchId}" value="${defaultVal}" style="width:80px; font-weight:bold;"> ${p.mj}`;
+          // ZMENA: Obrovské políčko pre tablet
+          realityDisplay = `
+              <div style="display:flex; align-items:center; justify-content:center; gap:8px;">
+                  <input type="number" step="${p.mj==='ks' ? 1 : 0.01}" id="actual_${p.batchId}" value="${defaultVal}" 
+                         style="width:130px; height:50px; font-size:22px; font-weight:bold; text-align:center; border:2px solid #3b82f6; border-radius:8px; background:#f0f9ff; color:#0f172a; box-shadow:inset 0 2px 4px rgba(0,0,0,0.05);"
+                         onclick="this.select();">
+                  <span style="font-size:18px; font-weight:bold; color:#475569;">${p.mj}</span>
+              </div>`;
       }
 
       let buttons = '';
       if (isAccepted) {
-          buttons = `<div style="display:flex; gap:5px;"><button class="btn-secondary" style="margin:0; padding:5px 10px;" onclick="printLabel('${p.batchId}', '${escapeHtml(p.productName)}')"><i class="fas fa-print"></i> List</button><button class="btn-danger" style="margin:0; padding:5px 10px;" onclick="cancelAcceptancePrompt('${p.batchId}')"><i class="fas fa-undo"></i></button></div>`;
+          buttons = `<div style="display:flex; justify-content:center; gap:5px;"><button class="btn-secondary" style="margin:0; padding:10px 15px; font-size:1rem;" onclick="printLabel('${p.batchId}', '${escapeHtml(p.productName)}')"><i class="fas fa-print"></i> Tlačiť štítok</button><button class="btn-danger" style="margin:0; padding:10px 15px; font-size:1rem;" onclick="cancelAcceptancePrompt('${p.batchId}')" title="Zrušiť príjem"><i class="fas fa-undo"></i></button></div>`;
       } else {
-          buttons = `<div style="display:flex; gap:5px;"><button class="btn-success" style="margin:0; padding:5px 10px;" onclick="acceptSingleProduction('${p.batchId}','${p.mj}', this, '${dateStr}')"><i class="fas fa-check"></i> Prijať</button><button class="btn-warning" style="margin:0; padding:5px 10px; background-color:#f59e0b;" onclick="returnToProductionPrompt('${p.batchId}')" title="Vrátiť do výroby"><i class="fas fa-wrench"></i></button></div>`;
+          buttons = `<div style="display:flex; justify-content:center; gap:5px;"><button class="btn-success" style="margin:0; padding:10px 20px; font-size:1.1rem; font-weight:bold;" onclick="acceptSingleProduction('${p.batchId}','${p.mj}', this, '${dateStr}')"><i class="fas fa-check"></i> Prijať</button><button class="btn-warning" style="margin:0; padding:10px 15px; font-size:1.1rem; background-color:#f59e0b;" onclick="returnToProductionPrompt('${p.batchId}')" title="Vrátiť do výroby"><i class="fas fa-wrench"></i></button></div>`;
       }
+      
       const planned = p.mj === 'ks' ? `${p.expectedPieces || '?'} ks` : `${safeToFixed(p.plannedQty)} kg`;
-      html += `<tr ${rowClass} data-batch-id="${p.batchId}"><td><strong>${escapeHtml(p.productName)}</strong><br><small class="text-muted">${p.batchId}</small></td><td>${escapeHtml(p.status)}</td><td>${planned}</td><td>${realityDisplay}</td><td>${buttons}</td></tr>`;
+      
+      html += `<tr ${rowClass} data-batch-id="${p.batchId}">
+                <td style="padding:15px;"><strong style="font-size:1.2rem; color:#1e293b;">${escapeHtml(p.productName)}</strong><br><small class="text-muted" style="font-family:monospace;">${p.batchId}</small></td>
+                <td style="padding:15px; font-weight:600; color:#64748b;">${escapeHtml(p.status)}</td>
+                <td style="padding:15px; text-align:center; font-size:1.1rem;">${planned}</td>
+                <td style="padding:15px; text-align:center;">${realityDisplay}</td>
+                <td style="padding:15px; text-align:center;">${buttons}</td>
+              </tr>`;
     });
     html += `</tbody></table>`;
     document.getElementById('expedition-batch-table').innerHTML = html;
