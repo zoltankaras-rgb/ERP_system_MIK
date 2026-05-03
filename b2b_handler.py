@@ -2649,7 +2649,6 @@ def get_stores():
         ORDER BY s.name
     """, fetch='all') or []
 
-    # Ošetrenie prepojených b2b záznamov v manuálnom adresári zastávok
     for r in rows:
         if r.get("cislo_prevadzky") and r.get("b2b_name") and not r["b2b_name"].startswith(r["cislo_prevadzky"]):
             r["b2b_name"] = f"[{r['cislo_prevadzky']}] {r['b2b_name']}"
@@ -2663,18 +2662,15 @@ def save_store(data: dict):
     note = (data.get('note') or '').strip()
     b2b_id = data.get('b2b_customer_id')
     
-    # NOVÉ: Zachytenie súradníc z frontendu
     lat = data.get('lat')
     lon = data.get('lon')
 
     if not name:
         return {"error": "Názov prevádzky je povinný."}
 
-    # Ak je b2b_id prázdne, uložíme NULL
     if not b2b_id or str(b2b_id) == "0":
         b2b_id = None
 
-    # Ošetrenie prázdnych GPS hodnôt
     if str(lat).strip() in ["", "null", "None"]: lat = None
     if str(lon).strip() in ["", "null", "None"]: lon = None
 
@@ -2683,13 +2679,13 @@ def save_store(data: dict):
             "UPDATE b2b_stores SET name=%s, note=%s, b2b_customer_id=%s, lat=%s, lon=%s WHERE id=%s",
             (name, note, b2b_id, lat, lon, sid), fetch='none'
         )
-        return {"message": "Prevádzka bola úspešne upravená vrátane GPS."}
+        return {"message": "Prevádzka upravená vrátane GPS."}
     else:
         db_connector.execute_query(
             "INSERT INTO b2b_stores (name, note, b2b_customer_id, lat, lon) VALUES (%s, %s, %s, %s, %s)",
             (name, note, b2b_id, lat, lon), fetch='none'
         )
-        return {"message": "Nová prevádzka bola pridaná do adresára."}
+        return {"message": "Prevádzka pridaná vrátane GPS."}
     
 def delete_store(data: dict):
     sid = data.get('id')

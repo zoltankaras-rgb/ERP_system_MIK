@@ -1925,37 +1925,130 @@ window.showManualRouteEditor = async function(id) {
       } catch(e) { showStatus("Chyba: " + e.message, true); }
   };
 
-  window.showStoreEditor = async function(id) {
-      let store = { id: null, name: '', note: '' };
+ window.showStoreEditor = async function(id) {
+      let store = { id: null, name: '', note: '', lat: '', lon: '' };
+      
       if (id && window.leaderLogisticsState.stores) {
           const found = window.leaderLogisticsState.stores.find(s => s.id === id);
           if (found) store = found;
       }
+      
+      const latVal = store.lat || '';
+      const lonVal = store.lon || '';
+
       let html = `
-          <h3 style="margin-top:0;">${id ? '✏️ Úprava prevádzky' : '➕ Vytvorenie prevádzky'}</h3>
-          <div style="margin-bottom:15px;">
-              <label style="font-weight:bold;">Názov prevádzky *</label>
-              <input type="text" id="store-name" class="form-control" style="width:100%;" value="${escapeHtml(store.name)}">
+          <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+          <style>
+              #leader-modal-wrapper .b2b-modal-content { max-width: 900px !important; width: 95% !important; }
+          </style>
+          
+          <div style="display:flex; justify-content:space-between; align-items:center; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px; margin-bottom: 20px;">
+              <h3 style="margin:0; color:#1e3a8a;">${id ? '✏️ Úprava prevádzky' : '➕ Vytvorenie prevádzky'}</h3>
           </div>
-          <div style="margin-bottom:15px;">
-              <label>Poznámka / Adresa</label>
-              <input type="text" id="store-note" class="form-control" style="width:100%;" value="${escapeHtml(store.note)}">
+
+          <div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px;">
+              <div>
+                  <div style="margin-bottom:15px;">
+                      <label style="font-weight:bold; color:#0f172a;">Názov prevádzky <span style="color:red">*</span></label>
+                      <input type="text" id="store-name" class="form-control" style="width:100%; font-size:1.1rem; font-weight:bold;" value="${escapeHtml(store.name)}" placeholder="Napr. Školská jedáleň Juh">
+                  </div>
+                  <div style="margin-bottom:15px;">
+                      <label style="color:#334155;">Poznámka / Adresa (Zobrazí sa na papieri)</label>
+                      <input type="text" id="store-note" class="form-control" style="width:100%;" value="${escapeHtml(store.note)}" placeholder="Napr. Vchod zo zadu pri rampe">
+                  </div>
+              </div>
+              
+              <div>
+                  <h4 style="margin-top:0; color:#0f172a;">📍 Miesto vykládky (Geofencing)</h4>
+                  <p style="font-size:0.85em; color:#64748b; margin-top:0;">Kliknite do mapy pre nastavenie presného bodu, kde šofér fyzicky vykladá tovar.</p>
+                  
+                  <div id="store-map" style="height: 220px; width: 100%; border-radius: 6px; border: 1px solid #cbd5e1; z-index: 1;"></div>
+                  
+                  <div style="display:flex; gap:10px; margin-top:10px;">
+                      <div class="form-group" style="flex:1;">
+                          <label style="font-size:0.8rem;">Zemepisná šírka (Lat)</label>
+                          <input type="text" id="store-lat" value="${latVal}" class="form-control" style="font-size:0.85rem;" readonly>
+                      </div>
+                      <div class="form-group" style="flex:1;">
+                          <label style="font-size:0.8rem;">Zemepisná dĺžka (Lon)</label>
+                          <input type="text" id="store-lon" value="${lonVal}" class="form-control" style="font-size:0.85rem;" readonly>
+                      </div>
+                  </div>
+              </div>
           </div>
-          <div style="text-align:right;">
-              <button class="btn btn-secondary" onclick="window.manageStores()" style="margin-right:10px;">Späť</button>
-              <button class="btn btn-success" onclick="window.saveStore(${id || 'null'})">💾 Uložiť</button>
+
+          <div style="text-align:right; border-top: 1px solid #e2e8f0; padding-top: 20px; margin-top: 20px;">
+              <button class="btn btn-secondary" onclick="window.manageStores()" style="margin-right:10px; padding: 10px 20px;">Späť</button>
+              <button class="btn btn-success" onclick="window.saveStore(${id || 'null'})" style="padding: 10px 20px; font-weight:bold;">💾 Uložiť prevádzku</button>
           </div>
       `;
+      
       window.openLeaderModal(html);
+
+      // Inicializácia mapy priamo z webu
+      setTimeout(() => {
+          if (typeof L === 'undefined') {
+              const script = document.createElement('script');
+              script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
+              script.onload = () => initStoreMap(latVal, lonVal);
+              document.head.appendChild(script);
+          } else {
+              initStoreMap(latVal, lonVal);
+          }
+      }, 200);
   };
+
+  function initStoreMap(lat, lon) {
+      const mapEl = document.getElementById('store-map');
+      if (!mapEl) return;
+
+      let initialLat = parseFloat(lat) || 48.151759; // MIK Sala ako default
+      let initialLon = parseFloat(lon) || 17.880655;
+      let initialZoom = (lat && lon) ? 16 : 8; 
+
+      const map = L.map('store-map').setView([initialLat, initialLon], initialZoom);
+
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          attribution: '&copy; OpenStreetMap'
+      }).addTo(map);
+
+      let marker = null;
+      if (lat && lon) { marker = L.marker([initialLat, initialLon]).addTo(map); }
+
+      map.on('click', function(e) {
+          const selectedLat = e.latlng.lat.toFixed(6);
+          const selectedLon = e.latlng.lng.toFixed(6);
+
+          if (marker) { marker.setLatLng(e.latlng); } 
+          else { marker = L.marker(e.latlng).addTo(map); }
+
+          document.getElementById('store-lat').value = selectedLat;
+          document.getElementById('store-lon').value = selectedLon;
+      });
+  }
 
   window.saveStore = async function(id) {
       const name = document.getElementById('store-name').value.trim();
       const note = document.getElementById('store-note').value.trim();
+      const latEl = document.getElementById('store-lat').value;
+      const lonEl = document.getElementById('store-lon').value;
+      
       if (!name) return showStatus("Názov prevádzky je povinný!", true);
+
       try {
-          await apiRequest('/api/leader/b2b/saveStore', { method: 'POST', body: { id: id, name: name, note: note, b2b_customer_id: null } });
+          await apiRequest('/api/leader/b2b/saveStore', { 
+              method: 'POST', 
+              body: { 
+                  id: id, 
+                  name: name, 
+                  note: note, 
+                  b2b_customer_id: null,
+                  lat: latEl ? parseFloat(latEl) : null,
+                  lon: lonEl ? parseFloat(lonEl) : null
+              } 
+          });
           window.manageStores(); 
+          showStatus("Prevádzka bola úspešne uložená vrátane GPS.", false);
       } catch(e) { showStatus("Chyba: " + e.message, true); }
   };
 
