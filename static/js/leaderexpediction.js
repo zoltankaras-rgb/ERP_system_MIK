@@ -1668,7 +1668,10 @@ window.showManualRouteEditor = async function(id) {
                                   ${!isUnassigned ? `<button class="btn btn-sm" style="padding:0; color:#94a3b8; background:transparent; border:none;" title="Premenovať trasu" onclick="window.renameRoute('${t.trasa_id}', '${escapeHtml(t.nazov)}')"><i class="fas fa-edit"></i></button>` : ''}
                                   <span class="k-count" style="opacity:0.7;font-size:0.8rem;">(${t.zastavky.length})</span>
                               </span>
-                              <div>
+                              <div style="display:flex; gap:5px;">
+                                  <!-- NOVÁ MAGICKÁ PALIČKA -->
+                                  ${!isUnassigned && !isEmpty ? `<button class="btn btn-sm" style="color:#f59e0b; background:transparent; border:none; padding:2px 8px; font-size:0.85rem;" onclick="window.optimizeRouteOrder('${t.trasa_id}')" title="Automaticky usporiadať najrýchlejšiu trasu (VRP)"><i class="fas fa-magic"></i></button>` : ''}
+                                  
                                   ${!isUnassigned && !isEmpty ? `<button class="btn btn-warning btn-sm" style="padding:2px 8px; font-size:0.75rem; color:#000;" onclick='window.printChecklist(${JSON.stringify(t).replace(/'/g, "&apos;")}, "${date}")'><i class="fas fa-print"></i></button>` : closeColBtn}
                               </div>
                           </div>
@@ -5137,6 +5140,33 @@ window.loadLeaderReceptions = async function() {
         container.innerHTML = `<div class="alert alert-danger">Chyba pri načítaní: ${e.message}</div>`;
     }
 };
+
+window.optimizeRouteOrder = async function(routeId) {
+      const date = document.getElementById('logistics-date').value;
+      
+      if (!confirm("Chcete spustiť AI optimalizáciu trasy?\n\nSystém vezme všetkých zákazníkov v tomto stĺpci, pošle ich do satelitného systému a preusporiada poradie kartičiek tak, aby šofér najazdil čo najmenej kilometrov a stihol časové okná.")) {
+          return;
+      }
+      
+      showStatus('Satelit analyzuje cesty. Prepočítavam...', false);
+      
+      try {
+          const res = await apiRequest('/api/leader/logistics/optimize-route', {
+              method: 'POST',
+              body: { route_id: routeId, date: date }
+          });
+          
+          // Zobrazenie vysledneho pop-upu s casmi
+          alert("✅ " + res.message);
+          
+          // Okamzite prekreslenie Kanban nastenky
+          document.getElementById('logistics-load-btn').click();
+          
+      } catch(e) {
+          showStatus('Chyba optimalizácie: ' + e.message, true);
+          alert("❌ Optimalizácia zlyhala:\n" + e.message);
+      }
+  };
  function boot(){
     $$('.sidebar-link').forEach(a=>{
       a.onclick = ()=>{

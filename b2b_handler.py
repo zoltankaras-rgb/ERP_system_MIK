@@ -2757,3 +2757,116 @@ def update_b2b_profile(data: dict):
     except Exception as e:
         print(f"Chyba pri aktualizácii B2B profilu: {e}")
         return {"error": "Nepodarilo sa uložiť fakturačné údaje."}
+
+def optimize_route(data: dict):
+    import requests
+    import os
+    from datetime import datetime, timedelta
+
+    trasa_id = data.get('route_id')
+    target_date = data.get('date')
+    ORS_API_KEY = os.getenv('ORS_API_KEY')
+
+    if not trasa_id or not target_date or not ORS_API_KEY:
+        return {"error": "Chýba trasa, dátum alebo API kľúč."}
+
+    conn = db_connector.get_connection()
+    try:
+        cur = conn.cursor(dictionary=True)
+        
+        # 1. Zistime, ktori zakaznici maju na dany den realne objednavky
+        cur.execute("SELECT zakaznik_id as erp_id FROM b2b_objednavky WHERE stav NOT IN ('Zrušená', 'Stornovaná') AND DATE(pozadovany_datum_dodania) = %s", (target_date,))
+        orders = cur.fetchall() or []
+        erp_ids = set([str(o['erp_id']).strip().lower() for o in orders if o.get('erp_id')])
+
+        if not erp_ids:
+            return {"error": "Na tento deň neevidujeme objednávky."}
+
+        # 2. Vytiahneme GPS zakaznikov (Reg aj Man) priradenych na tuto trasu
+        cur.execute("SELECT id, zakaznik_id, lat, lon, nazov_firmy, 'REG' as type FROM b2b_zakaznici WHERE trasa_id = %s AND lat IS NOT NULL", (trasa_id,))
+        c_reg = cur.fetchall() or []
+        cur.execute("SELECT id, interne_cislo as zakaznik_id, lat, lon, nazov_firmy, 'MAN' as type FROM b2b_manual_zakaznici WHERE trasa_id = %s AND lat IS NOT NULL", (trasa_id,))
+        c_man = cur.fetchall() or []
+
+        # 3. Vyfiltrujeme len tych, co maju dnes objednavku
+        jobs_db = []
+        for c in c_reg + c_man:
+            if str(c['zakaznik_id']).strip().lower() in erp_ids:
+                jobs_db.append(c)
+
+        if len(jobs_db) < 2:
+            return {"error": "Pre optimalizáciu sú potrebné aspoň 2 zastávky s nastaveným GPS bodom vykládky."}
+
+        # 4. Priprava dat pre OpenRouteService (VRP modulu)
+        MIK_SALA = [17.880655, 48.151759]
+        jobs = []
+        for i, cust in enumerate(jobs_db):
+            jobs.append({
+                "id": i,
+                "location": [float(cust['lon']), float(cust['lat'])],
+                "service": 15 * 60, # 15 minut (900 sekund) na vykladku kazdeho zakaznika
+                "description": cust['nazov_firmy']
+            })
+
+        payload = {
+            "vehicles": [{
+                "id": 1,
+                "profile": "driving-car",
+                "start": MIK_SALA,
+                "end": MIK_SALA # Auto sa musi vratit do firmy
+            }],
+            "jobs": jobs
+        }
+
+        # 5. Volanie Optimalizacie!
+        headers = {'Authorization': ORS_API_KEY, 'Content-Type': 'application/json'}
+        resp = requests.post("https://api.openrouteservice.org/optimization", json=payload, headers=headers)
+        
+        if resp.status_code != 200:
+            return {"error": f"Chyba satelitu: {resp.text}"}
+            
+        opt_data = resp.json()
+        steps = opt_data['routes'][0]['steps']
+        
+        # 6. Prepisanie poradia v databaze podla najrychlejsej trasy
+        poradie = 1
+        for step in steps:
+            if step['type'] == 'job':
+                job_idx = step['id']
+                cust = jobs_db[job_idx]
+                
+                # Ulozime nove poradie do spravnej tabulky
+                if cust['type'] == 'REG':
+                    cur.execute("UPDATE b2b_zakaznici SET trasa_poradie = %s WHERE id = %s", (poradie, cust['id']))
+                else:
+                    cur.execute("UPDATE b2b_manual_zakaznici SET trasa_poradie = %s WHERE id = %s", (poradie, cust['id']))
+                poradie += 1
+                
+        conn.commit()
+        
+        # 7. Vypocet casov a okien (Najneskorsi mozny odchod)
+        # Celkove trvanie v sekundach (cesta + vykladka vsetkych)
+        total_duration_sec = opt_data['routes'][0]['duration'] 
+        total_duration_min = int(total_duration_sec / 60)
+        hodin = total_duration_min // 60
+        minut = total_duration_min % 60
+        
+        # Predpokladame fixny deadline pre skolske jedalne o 12:00
+        # Ak trasa trva napr. 3h 30m, najneskorsi odchod = 12:00 - 3h 30m = 08:30
+        deadline = datetime.strptime("12:00", "%H:%M")
+        odchod = deadline - timedelta(minutes=total_duration_min)
+        
+        msg = (f"Optimalizácia bola úspešná! Zákazníci boli zoradení do najkrajtšej možnej trasy.\n\n"
+               f"⏱️ Čistý čas jazdy + vykládky: {hodin} hod {minut} min.\n"
+               f"🚚 Ak potrebujete stihnúť rozvoz pre jedálne do 12:00, "
+               f"šofér musí vyraziť zo závodu MIK najneskôr o {odchod.strftime('%H:%M')}!")
+
+        return {"message": msg, "success": True}
+
+    except Exception as e:
+        if conn: conn.rollback()
+        return {"error": f"Kritická chyba optimalizácie: {str(e)}"}
+    finally:
+        if conn and conn.is_connected():
+            cur.close()
+            conn.close()
