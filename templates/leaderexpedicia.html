@@ -658,7 +658,7 @@
   
   <script src="{{ url_for('static', filename='js/leader_modules/billing.js') }}?v=999"></script>
   
-  <script>
+ <script>
     function closeModal() {
       const overlay = document.getElementById('temp-modal-overlay');
       if (overlay) document.body.removeChild(overlay);
@@ -673,7 +673,12 @@
         container.innerHTML = '<div class="text-center muted" style="padding: 20px;"><i class="fas fa-spinner fa-spin fa-2x"></i><br>Načítavam dáta zo servera...</div>';
         
         try {
-            const days = await apiRequest('/api/leader/reception/archive_days');
+            // ZMENA: Používame natívny 'fetch' namiesto 'apiRequest', aby to nikdy nepadlo
+            const response = await fetch('/api/leader/reception/archive_days');
+            if (!response.ok) throw new Error('Chyba pripojenia na server (HTTP ' + response.status + ')');
+            const days = await response.json();
+            
+            if (days.error) throw new Error(days.error);
             
             if (!days || days.length === 0) {
                 container.innerHTML = '<div class="alert alert-secondary text-center">Zatiaľ nebol uzavretý žiadny deň.</div>';
