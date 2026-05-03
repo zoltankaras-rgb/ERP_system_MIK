@@ -85,6 +85,10 @@
       /* --- TVRDÁ POISTKA PRE PREPÍNANIE SEKCÍ --- */
       .content-section { display: none !important; }
       .content-section.active { display: block !important; }
+      
+      /* Štýly pre <details> aby nevyzerali ako základné HTML */
+      details > summary { list-style: none; outline: none; }
+      details > summary::-webkit-details-marker { display: none; }
   </style>
 </head>
 <body>
@@ -113,7 +117,7 @@
             </a>
           </li>
           <li>
-            <a href="#" class="sidebar-link" data-section="leader-inventory">
+            <a class="sidebar-link" href="#" data-section="leader-archive" onclick="if(window.loadLeaderArchive) window.loadLeaderArchive();">
               <i class="fas fa-archive"></i> <span>Inventúry a Protokoly</span>
             </a>
           </li>
@@ -188,10 +192,10 @@
           </div>
         </div>
 
-        <div id="leader-inventory" class="content-section">
+        <div id="leader-archive" class="content-section">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
             <h3 style="margin:0;">Inventúry a Protokoly príjmu</h3>
-            <button class="btn btn-primary" onclick="if(window.loadLeaderInventory) window.loadLeaderInventory(); if(window.loadLeaderReceptions) window.loadLeaderReceptions();"><i class="fas fa-sync"></i> Obnoviť všetky dáta</button>
+            <button class="btn btn-primary" onclick="window.loadLeaderArchive()"><i class="fas fa-sync"></i> Obnoviť všetky dáta</button>
           </div>
           
           <div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px;">
@@ -205,14 +209,13 @@
                 </div>
             </div>
             
-            <!-- STĹPEC 2: TVOJE PÔVODNÉ INVENTÚRY -->
+            <!-- STĹPEC 2: INVENTÚRY -->
             <div class="card" style="margin:0;">
                 <div class="card-header" style="background:#f0fdf4; color:#166534; font-size:1.1rem; border-bottom:1px solid #bbf7d0;">
                     <strong><i class="fas fa-clipboard-list"></i> Inventúry skladu</strong>
                 </div>
-                <div class="card-body" style="max-height: 70vh; overflow-y: auto; padding: 15px; background:#fff;">
-                    <!-- Do tohto kontajneru sa automaticky načíta tvoj zoznam inventúr -->
-                    <div id="leader-inventory-content"></div>
+                <div class="card-body" id="leader-inventory-content" style="max-height: 70vh; overflow-y: auto; padding: 15px; background:#fff;">
+                    <div class="muted text-center" style="padding:20px;"><i class="fas fa-clock"></i> Zvoľte sekciu z menu pre načítanie...</div>
                 </div>
             </div>
           </div>
@@ -658,7 +661,7 @@
   
   <script src="{{ url_for('static', filename='js/leader_modules/billing.js') }}?v=999"></script>
   
- <script>
+  <script>
     function closeModal() {
       const overlay = document.getElementById('temp-modal-overlay');
       if (overlay) document.body.removeChild(overlay);
@@ -666,6 +669,14 @@
     window.closeModal = closeModal;
 
     // NOVÝ KÓD PRE NAČÍTANIE ARCHÍVU A INVENTÚR
+    window.loadLeaderArchive = function() {
+        // 1. Načítať nové príjemky (Ľavý stĺpec)
+        window.loadLeaderReceptions();
+        
+        // 2. Načítať tvoje pôvodné inventúry do nového stromu (Pravý stĺpec)
+        window.loadLeaderInventory();
+    };
+
     window.loadLeaderReceptions = async function() {
         const container = document.getElementById('archive-receptions-container');
         if (!container) return;
@@ -673,7 +684,6 @@
         container.innerHTML = '<div class="text-center muted" style="padding: 20px;"><i class="fas fa-spinner fa-spin fa-2x"></i><br>Načítavam dáta zo servera...</div>';
         
         try {
-            // ZMENA: Používame natívny 'fetch' namiesto 'apiRequest', aby to nikdy nepadlo
             const response = await fetch('/api/leader/reception/archive_days');
             if (!response.ok) throw new Error('Chyba pripojenia na server (HTTP ' + response.status + ')');
             const days = await response.json();
@@ -694,34 +704,35 @@
             });
 
             let html = '';
-            const years = Object.keys(tree).sort((a, b) => b - a);
-
-            years.forEach(year => {
-                html += `<h4 style="background:#e2e8f0; padding:10px 15px; margin:0 0 10px 0; color:#0f172a; border-radius:6px; border:1px solid #cbd5e1;"><i class="fas fa-folder-open" style="color:#0369a1;"></i> ROK ${year}</h4>`;
-                
-                const months = Object.keys(tree[year]).sort((a, b) => b - a);
-                months.forEach(month => {
-                    const mName = new Date(year, month - 1).toLocaleString('sk-SK', {month:'long'});
-                    
-                    html += `<details style="margin-bottom:10px; background:#fff; border:1px solid #e2e8f0; border-radius:6px;">
-                            <summary style="cursor:pointer; color:#0369a1; text-transform:capitalize; font-weight:bold; padding:10px; border-bottom:1px solid #f1f5f9;">
-                                <i class="far fa-calendar-alt"></i> ${mName}
+            Object.keys(tree).sort((a, b) => b - a).forEach(year => {
+                html += `<details style="margin-bottom:8px; background:#fff; border:1px solid #cbd5e1; border-radius:6px;">
+                            <summary style="cursor:pointer; background:#e2e8f0; padding:10px 15px; font-weight:bold; color:#0f172a; border-radius:5px;">
+                                <i class="fas fa-folder" style="color:#0369a1;"></i> ROK ${year}
                             </summary>
-                            <div style="padding:10px; display:flex; flex-direction:column; gap:8px; background:#f8fafc;">`;
+                            <div style="padding:10px; display:flex; flex-direction:column; gap:5px; background:#f8fafc;">`;
+                
+                Object.keys(tree[year]).sort((a, b) => b - a).forEach(month => {
+                    const mName = new Date(year, parseInt(month) - 1).toLocaleString('sk-SK', {month:'long'});
+                    html += `<details style="margin-bottom:5px; background:#fff; border:1px solid #e2e8f0; border-radius:4px;">
+                                <summary style="cursor:pointer; padding:8px 12px; font-weight:600; color:#0369a1; text-transform:capitalize; border-bottom:1px solid #f1f5f9;">
+                                    <i class="far fa-calendar-alt"></i> ${mName}
+                                </summary>
+                                <div style="padding:10px; display:flex; flex-direction:column; gap:5px;">`;
                     
-                    tree[year][month].forEach(date => {
+                    tree[year][month].sort((a, b) => new Date(b) - new Date(a)).forEach(date => {
                         const dayNum = date.split('-')[2];
                         html += `
-                            <div style="display:flex; justify-content:space-between; align-items:center; background:#fff; padding:10px 15px; border-radius:4px; border:1px solid #e2e8f0; box-shadow:0 1px 2px rgba(0,0,0,0.05);">
+                            <div style="display:flex; justify-content:space-between; align-items:center; background:#f1f5f9; padding:8px 15px; border-radius:4px; border:1px solid #cbd5e1;">
                                 <span style="font-size:1.05rem; color:#1e293b;"><strong>${dayNum}.</strong> ${mName}</span>
-                                <button class="btn btn-sm btn-primary" onclick="window.open('/api/leader/reception/print_report/${date}', '_blank')" style="font-weight:bold;">
-                                    <i class="fas fa-print"></i> Tlačiť
+                                <button class="btn btn-sm btn-primary" onclick="window.open('/api/leader/reception/print_report/${date}', '_blank')" style="font-weight:bold; padding:4px 10px;">
+                                    <i class="fas fa-print"></i> Tlačiť PDF
                                 </button>
                             </div>`;
                     });
                     
                     html += `</div></details>`;
                 });
+                html += `</div></details>`;
             });
 
             container.innerHTML = html;
@@ -731,15 +742,111 @@
         }
     };
 
-    // Pripojíme načítanie príjemiek na kliknutie v menu
-    document.addEventListener('DOMContentLoaded', () => {
-        const invLink = document.querySelector('a[data-section="leader-inventory"]');
-        if (invLink) {
-            invLink.addEventListener('click', () => {
-                if(window.loadLeaderReceptions) window.loadLeaderReceptions();
+    // Prepis pôvodnej funkcie loadLeaderInventory na stromovú štruktúru
+    window.loadLeaderInventory = async function() {
+        const container = document.getElementById('leader-inventory-content');
+        if (!container) return;
+        
+        container.innerHTML = '<div class="text-center muted" style="padding: 20px;"><i class="fas fa-spinner fa-spin fa-2x"></i><br>Načítavam inventúry...</div>';
+        
+        try {
+            const response = await fetch('/api/kancelaria/getExpeditionInventoryHistory');
+            if (!response.ok) throw new Error('Chyba pripojenia (HTTP ' + response.status + ')');
+            const data = await response.json();
+            
+            if (data.error) throw new Error(data.error);
+            const rows = data.history || [];
+            
+            if (rows.length === 0) {
+                container.innerHTML = '<div class="alert alert-secondary text-center">Zatiaľ nebola vykonaná žiadna inventúra.</div>';
+                return;
+            }
+
+            const tree = {};
+            rows.forEach(r => {
+                const dObj = new Date(r.created_at || r.datum);
+                const y = dObj.getFullYear();
+                const m = String(dObj.getMonth() + 1).padStart(2, '0');
+                const d = String(dObj.getDate()).padStart(2, '0');
+                
+                if (!tree[y]) tree[y] = {};
+                if (!tree[y][m]) tree[y][m] = {};
+                if (!tree[y][m][d]) tree[y][m][d] = [];
+                
+                tree[y][m][d].push(r);
             });
+
+            let html = '';
+            Object.keys(tree).sort((a, b) => b - a).forEach(year => {
+                html += `<details style="margin-bottom:8px; background:#fff; border:1px solid #cbd5e1; border-radius:6px;">
+                            <summary style="cursor:pointer; background:#e2e8f0; padding:10px 15px; font-weight:bold; color:#166534; border-radius:5px;">
+                                <i class="fas fa-folder" style="color:#15803d;"></i> ROK ${year}
+                            </summary>
+                            <div style="padding:10px; display:flex; flex-direction:column; gap:5px; background:#f8fafc;">`;
+                
+                Object.keys(tree[year]).sort((a, b) => b - a).forEach(month => {
+                    const mName = new Date(year, parseInt(month) - 1).toLocaleString('sk-SK', {month:'long'});
+                    html += `<details style="margin-bottom:5px; background:#fff; border:1px solid #e2e8f0; border-radius:4px;">
+                                <summary style="cursor:pointer; padding:8px 12px; font-weight:600; color:#15803d; text-transform:capitalize; border-bottom:1px solid #f1f5f9;">
+                                    <i class="far fa-calendar-alt"></i> ${mName}
+                                </summary>
+                                <div style="padding:10px; display:flex; flex-direction:column; gap:5px;">`;
+                    
+                    Object.keys(tree[year][month]).sort((a, b) => b - a).forEach(day => {
+                        html += `<details style="margin-bottom:5px; background:#f1f5f9; border:1px solid #cbd5e1; border-radius:4px;">
+                                    <summary style="cursor:pointer; padding:6px 10px; font-weight:bold; color:#1e293b;">
+                                        <i class="fas fa-calendar-day"></i> Deň: ${day}. ${mName}
+                                    </summary>
+                                    <div style="padding:10px; background:#fff;">`;
+                        
+                        tree[year][month][day].forEach(inv => {
+                            const dObj = new Date(inv.created_at || inv.datum);
+                            const timeStr = dObj.toLocaleTimeString('sk-SK', {hour:'2-digit', minute:'2-digit'});
+                            const val = parseFloat(inv.celkova_hodnota_rozdielu || 0);
+                            const color = val < 0 ? '#ef4444' : (val > 0 ? '#10b981' : '#1e293b');
+                            
+                            html += `
+                                <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #e2e8f0; padding:8px 0;">
+                                    <div>
+                                        <span style="font-weight:bold; color:#334155;"><i class="far fa-clock"></i> ${timeStr}</span><br>
+                                        <small class="muted">Vykonal: ${escapeHtml(inv.vytvoril)} | Položiek: ${inv.poloziek}</small>
+                                    </div>
+                                    <div style="text-align:right;">
+                                        <div style="font-weight:bold; color:${color}; font-size:1.1rem;">${val.toFixed(2)} €</div>
+                                        <div style="margin-top:5px; display:flex; gap:5px;">
+                                            <button class="btn btn-sm" style="background:#f59e0b; color:#000; border:none; padding:4px 8px; font-weight:bold;" onclick="window.viewLeaderInventoryDetail(${inv.id})"><i class="fas fa-eye"></i> Detail</button>
+                                            <button class="btn btn-sm btn-danger" style="padding:4px 8px;" onclick="window.deleteLeaderInventory(${inv.id})"><i class="fas fa-trash"></i></button>
+                                        </div>
+                                    </div>
+                                </div>
+                            `;
+                        });
+                        
+                        html += `</div></details>`;
+                    });
+                    html += `</div></details>`;
+                });
+                html += `</div></details>`;
+            });
+
+            container.innerHTML = html;
+
+        } catch (e) {
+            container.innerHTML = `<div class="alert alert-danger">Chyba pri načítaní: ${e.message}</div>`;
         }
-    });
+    };
+
+    // Pomocná funkcia na escape (aby html nezlyhalo ak je v mene úvodzovka)
+    function escapeHtml(unsafe) {
+        if (!unsafe) return '';
+        return unsafe
+             .toString()
+             .replace(/&/g, "&amp;")
+             .replace(/</g, "&lt;")
+             .replace(/>/g, "&gt;")
+             .replace(/"/g, "&quot;")
+             .replace(/'/g, "&#039;");
+    }
   </script>
 
 </body>
