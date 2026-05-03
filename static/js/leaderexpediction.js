@@ -2679,7 +2679,8 @@ function initManualOrdersUI() {
                           if(saveCustBtn) saveCustBtn.style.display = (c.is_registered === '1') ? 'none' : 'inline-block';
                           activePricelistItems = {}; 
                           
-                          if(c.is_registered === '1' && plContainer && plSelect) {
+                          // ZMENA: Odstránili sme podmienku (c.is_registered === '1'), cenník sa teraz načíta KAŽDÉMU
+                          if(plContainer && plSelect) {
                               plContainer.style.display = 'block';
                               plSelect.innerHTML = '<option>Načítavam cenníky...</option>';
                               try {
