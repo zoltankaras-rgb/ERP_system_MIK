@@ -1866,3 +1866,152 @@ async function handleDeleteTripLog(id) {
         alert("Chyba: " + e.message);
     }
 }
+// =================================================================
+// TLAČ MAPY JAZDY PRE DAŇOVÝ ÚRAD (REÁLNE DÁTA Z OBJEDNÁVOK)
+// =================================================================
+window.openFleetTripMap = async function(dateStr, vehicleId, kmDriven, driverName) {
+    showModal('Mapa jazdy: ' + dateStr.split('-').reverse().join('.'), function() {
+        let html = `
+          <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+          <style>
+              #leader-modal-wrapper .b2b-modal-content, #modal-container .b2c-modal-card { max-width: 900px !important; width: 95% !important; }
+              @media print {
+                  body * { visibility: hidden; }
+                  #fleet-print-map-area, #fleet-print-map-area * { visibility: visible; }
+                  #fleet-print-map-area { position: absolute; left: 0; top: 0; width: 100%; height: 100%; padding:20px; }
+                  .btn, .b2c-modal-card header button, .b2c-modal-card header { display: none !important; }
+              }
+              .map-pin { background:#0369a1; color:white; border-radius:50%; text-align:center; line-height:24px; font-weight:bold; border:2px solid white; box-shadow:0 2px 4px rgba(0,0,0,0.4); }
+              .map-pin-start { background:#ef4444; }
+          </style>
+          
+          <div id="fleet-print-map-area" style="padding: 10px;">
+              <div style="margin-bottom: 15px; border-bottom: 2px solid #0369a1; padding-bottom: 10px;">
+                  <h2 style="margin:0; color:#1e293b; font-size:24px;">Záznam o reálnej trase - Kniha jázd</h2>
+                  <table style="width:100%; margin-top:10px; font-size:16px;">
+                      <tr>
+                          <td style="padding:4px 0;">Dátum rozvozu: <strong>${dateStr.split('-').reverse().join('.')}</strong></td>
+                          <td style="padding:4px 0;">Šofér: <strong>${escapeHtml(driverName)}</strong></td>
+                      </tr>
+                      <tr>
+                          <td style="padding:8px 0; color:#0369a1; font-size:18px; border-top:1px solid #ccc;" colspan="2">Vykázané prejazdené KM: <strong>${kmDriven} km</strong></td>
+                      </tr>
+                  </table>
+              </div>
+              
+              <div id="fleet-trip-map" style="height: 500px; width: 100%; border: 1px solid #cbd5e1; border-radius: 8px; background: #f8fafc; display:flex; align-items:center; justify-content:center;">
+                  <div style="text-align:center;"><i class="fas fa-spinner fa-spin fa-2x" style="color:#0369a1;"></i><br><br><b>Analyzujem denné objednávky a generujem trasu...</b></div>
+              </div>
+              
+              <div style="margin-top:20px; font-size:12px; color:#666;">* Táto mapa je absolútne presným odrazom ERP systému. Zobrazuje výlučne body vykládky zákazníkov, ktorí mali v tento deň fyzicky evidovanú vybavenú objednávku pre dané vozidlo.</div>
+          </div>
+
+          <div style="margin-top: 20px; text-align: right; border-top:1px solid #e2e8f0; padding-top:15px;">
+              <button class="btn btn-secondary" onclick="closeModal()">Zatvoriť</button>
+              <button class="btn btn-primary" onclick="window.print()" style="margin-left:10px; font-size:1.1rem; padding:10px 20px;"><i class="fas fa-print"></i> Vytlačiť pre Daňový úrad</button>
+          </div>
+        `;
+        
+        return {
+            html: html,
+            onReady: function() {
+                setTimeout(() => {
+                    if (typeof L === 'undefined') {
+                        const script = document.createElement('script');
+                        script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
+                        script.onload = () => fetchAndDrawRealTrip(vehicleId, dateStr);
+                        document.head.appendChild(script);
+                    } else {
+                        fetchAndDrawRealTrip(vehicleId, dateStr);
+                    }
+                }, 200);
+            }
+        };
+    });
+};
+
+async function fetchAndDrawRealTrip(vehicleId, dateStr) {
+    const mapEl = document.getElementById('fleet-trip-map');
+    if (!mapEl) return;
+
+    try {
+        const res = await apiRequest(`/api/kancelaria/fleet/trip-map-data?vehicle_id=${vehicleId}&date=${dateStr}`);
+        
+        if (res.error) {
+            mapEl.innerHTML = `<div style="color:#dc2626; font-weight:bold; text-align:center; padding:20px;">${escapeHtml(res.error)}</div>`;
+            return;
+        }
+
+        mapEl.innerHTML = ''; 
+        const map = L.map('fleet-trip-map');
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap' }).addTo(map);
+
+        const bounds = [];
+        const waypoints = [];
+        
+        // 1. Štart - MIK Šaľa
+        waypoints.push(res.mik_sala);
+        
+       // 2. Reálne zastávky z databázy (pridaný cas_dorucenia)
+        res.zastavky.forEach(z => waypoints.push({
+            lat: parseFloat(z.lat), 
+            lon: parseFloat(z.lon), 
+            name: z.nazov_firmy,
+            cas_dorucenia: z.cas_dorucenia
+        }));
+        
+        // 3. Koniec - Návrat do MIK
+        waypoints.push(res.mik_sala);
+
+        let coordString = waypoints.map(w => `${w.lon},${w.lat}`).join(';');
+
+        waypoints.forEach((w, i) => {
+            bounds.push([w.lat, w.lon]);
+            const isStart = (i === 0 || i === waypoints.length - 1);
+            
+            if (i === waypoints.length - 1 && i !== 0) return;
+
+            const icon = L.divIcon({
+                className: isStart ? 'map-pin map-pin-start' : 'map-pin',
+                html: isStart ? 'MIK' : String(i),
+                iconSize: [28, 28], iconAnchor: [14, 14]
+            });
+            
+            // Logika pre zobrazenie potvrdenia o doručení
+            let popupHtml = `<b>Zastávka ${i}:</b><br>${escapeHtml(w.name)}`;
+            
+            if (!isStart) {
+                if (w.cas_dorucenia && w.cas_dorucenia !== 'None') {
+                    const d = new Date(w.cas_dorucenia.replace(' ', 'T'));
+                    const timeStr = d.getHours().toString().padStart(2,'0') + ':' + d.getMinutes().toString().padStart(2,'0');
+                    popupHtml += `<br><span style="display:inline-block; margin-top:5px; background:#dcfce7; color:#166534; padding:3px 6px; border-radius:4px; font-weight:bold; font-size:12px; border:1px solid #bbf7d0;">✅ Fyzicky doručené o: ${timeStr}</span>`;
+                } else {
+                    popupHtml += `<br><span style="display:inline-block; margin-top:5px; background:#f1f5f9; color:#475569; padding:3px 6px; border-radius:4px; font-weight:bold; font-size:12px; border:1px solid #cbd5e1;">⏳ Čas vykládky neznámy</span>`;
+                }
+            }
+            
+            L.marker([w.lat, w.lon], {icon: icon}).addTo(map).bindPopup(popupHtml);
+        });
+        // Vykreslenie cestnej geometrie cez OSMR satelit
+        try {
+            const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${coordString}?overview=full&geometries=geojson`;
+            const routeRes = await fetch(osrmUrl);
+            const routeData = await routeRes.json();
+
+            if (routeData.routes && routeData.routes.length > 0) {
+                const geojson = routeData.routes[0].geometry;
+                L.geoJSON(geojson, { style: { color: '#0369a1', weight: 5, opacity: 0.8 } }).addTo(map);
+            } else {
+                L.polyline(bounds, {color: '#ef4444', weight: 4, dashArray: '10, 10'}).addTo(map);
+            }
+        } catch(e) {
+            L.polyline(bounds, {color: '#ef4444', weight: 4, dashArray: '10, 10'}).addTo(map);
+        }
+
+        map.fitBounds(bounds, {padding: [50, 50]});
+        setTimeout(() => map.invalidateSize(), 400);
+
+    } catch(err) {
+        mapEl.innerHTML = `<div style="color:#dc2626; font-weight:bold; text-align:center; padding:20px;">Nepodarilo sa stiahnuť dáta pre mapu: ${err.message}</div>`;
+    }
+}

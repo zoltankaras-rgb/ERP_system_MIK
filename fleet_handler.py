@@ -11,9 +11,13 @@
 
 import os, json
 from calendar import monthrange
-from flask import render_template, make_response, request
+from flask import render_template, make_response, request, Blueprint
+from app import login_required
 import db_connector
 from datetime import datetime, date, timedelta
+from flask import jsonify
+
+fleet_bp = Blueprint('fleet', __name__)
 
 # --- cesty na meta (bez DB zmien) --------------------------------
 BASE_DIR    = os.path.dirname(__file__)
@@ -778,3 +782,83 @@ def delete_trip_log(data: dict):
     
     db_connector.execute_query("DELETE FROM fleet_logs WHERE id=%s", (trip_id,), fetch="none")
     return {"message": "Záznam o jazde vymazaný."}
+
+@fleet_bp.get('/trip-map-data')
+@login_required(role=('veduci', 'admin', 'kancelaria'))
+def fleet_trip_map_data():
+    import db_connector
+    vehicle_id = request.args.get('vehicle_id')
+    date_str = request.args.get('date')
+    
+    if not vehicle_id or not date_str:
+        return jsonify({"error": "Chýba vozidlo alebo dátum."}), 400
+        
+    conn = db_connector.get_connection()
+    try:
+        cur = conn.cursor(dictionary=True)
+        
+        cur.execute("SELECT trasa_id FROM logistika_trasy_auta WHERE vehicle_id = %s AND datum = %s", (vehicle_id, date_str))
+        trasy = cur.fetchall() or []
+        trasa_ids = [str(t['trasa_id']) for t in trasy if t.get('trasa_id')]
+        
+        if not trasa_ids:
+            return jsonify({"error": "V tento deň auto nemalo cez Dispečing priradenú žiadnu trasu."}), 404
+
+        format_strings = ','.join(['%s'] * len(trasa_ids))
+        
+        # NOVÉ: Pridaný MAX(o.cas_dorucenia_real) pre dôkaz o doručení
+        sql = f"""
+            SELECT z.nazov_firmy, z.lat, z.lon, z.trasa_poradie, MAX(o.cas_dorucenia_real) as cas_dorucenia
+            FROM b2b_zakaznici z
+            JOIN b2b_objednavky o ON o.zakaznik_id = z.zakaznik_id
+            WHERE z.trasa_id IN ({format_strings}) 
+              AND DATE(o.pozadovany_datum_dodania) = %s 
+              AND o.stav NOT IN ('Zrušená', 'Stornovaná')
+              AND z.lat IS NOT NULL
+            GROUP BY z.nazov_firmy, z.lat, z.lon, z.trasa_poradie
+              
+            UNION
+            
+            SELECT mz.nazov_firmy, mz.lat, mz.lon, mz.trasa_poradie, MAX(o.cas_dorucenia_real) as cas_dorucenia
+            FROM b2b_manual_zakaznici mz
+            JOIN b2b_objednavky o ON o.zakaznik_id = mz.interne_cislo
+            WHERE mz.trasa_id IN ({format_strings}) 
+              AND DATE(o.pozadovany_datum_dodania) = %s 
+              AND o.stav NOT IN ('Zrušená', 'Stornovaná')
+              AND mz.lat IS NOT NULL
+            GROUP BY mz.nazov_firmy, mz.lat, mz.lon, mz.trasa_poradie
+        """
+        
+        params = tuple(trasa_ids + [date_str] + trasa_ids + [date_str])
+        cur.execute(sql, params)
+        rows = cur.fetchall() or []
+        
+        if not rows:
+            return jsonify({"error": "Na túto trasu v daný deň neboli žiadne aktívne objednávky s GPS súradnicami."}), 404
+            
+        rows.sort(key=lambda x: int(x['trasa_poradie'] or 999))
+        
+        zastavky = []
+        for r in rows:
+            cas = r.get('cas_dorucenia')
+            zastavky.append({
+                "nazov_firmy": r['nazov_firmy'],
+                "lat": r['lat'],
+                "lon": r['lon'],
+                "trasa_poradie": r['trasa_poradie'],
+                "cas_dorucenia": str(cas) if cas else None
+            })
+            
+        MIK_SALA = {"lat": 48.165686, "lon": 17.890930, "name": "MIK s.r.o. Šaľa"}
+        
+        return jsonify({
+            "mik_sala": MIK_SALA,
+            "zastavky": zastavky
+        })
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        if conn and conn.is_connected():
+            cur.close()
+            conn.close()
