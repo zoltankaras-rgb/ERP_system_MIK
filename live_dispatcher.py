@@ -45,13 +45,81 @@ def vypocitaj_trasu_ors(zastavky_gps):
         print(f"[-] Chyba ORS: {e}")
     return None
 
+import xml.etree.ElementTree as ET
+
+# Pridajte toto hore medzi načítanie premenných
+CCS_MODE = os.getenv('CCS_MODE', 'mock')
+CCS_USER = os.getenv('CCS_USERNAME')
+CCS_PASS = os.getenv('CCS_PASSWORD')
+CCS_FIRM = os.getenv('CCS_FIRM')
+
 # ==========================================
-# 2. CCS SIMULACIA
+# 2. CCS KOMUNIKACIA (MOCK vs LIVE)
 # ==========================================
 def get_live_gps_from_ccs(vehicle_id):
-    """Mock funkcia. Tu napojime skutocne CCS, ked ho zapnu."""
-    # Simulujeme, ze auto prave odislo zo Sale a blizi sa k Bratislave (vzdialenost > 1km od MIK)
-    return {"lat": 48.152000, "lon": 17.200000} 
+    """
+    Rozhodne sa, ci taha data z testovacieho prostredia alebo z ostreho CCS API.
+    """
+    if CCS_MODE == 'mock':
+        # --- FIKTIVNE DATA PRE TESTOVANIE ---
+        print(f"  [TEST] Stahujem fiktivnu polohu pre auto {vehicle_id}")
+        return {"lat": 48.152000, "lon": 17.200000} 
+        
+    elif CCS_MODE == 'live':
+        # --- OSTRA PREVADZKA (REALNE API CCS) ---
+        url = "https://www.imonitor.cz/imonws/basews.asmx"
+        headers = {
+            'Content-Type': 'text/xml; charset=utf-8',
+            'SOAPAction': '"http://ccs.cz/WS/GetVehicleOnlinePosition"'
+        }
+        
+        # Skladame XML presne podla sablony od CCS
+        payload = f"""<?xml version="1.0" encoding="utf-8"?>
+        <soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+          <soap:Body>
+            <GetVehicleOnlinePosition xmlns="http://ccs.cz/WS">
+              <userName>{CCS_USER}</userName>
+              <password>{CCS_PASS}</password>
+              <firmNameContext>{CCS_FIRM}</firmNameContext>
+              <idVehicle>{vehicle_id}</idVehicle>
+              <imei></imei>
+            </GetVehicleOnlinePosition>
+          </soap:Body>
+        </soap:Envelope>"""
+        
+        try:
+            response = requests.post(url, data=payload.encode('utf-8'), headers=headers, timeout=10)
+            if response.status_code == 200:
+                # Rozparsovanie vrateneho XML
+                root = ET.fromstring(response.text)
+                
+                # Zadefinujeme namespaces, s ktorymi CCS pracuje
+                namespaces = {
+                    'soap': 'http://schemas.xmlsoap.org/soap/envelope/',
+                    'ws': 'http://ccs.cz/WS',
+                    'data': 'http://ccs.cz/WS/DataVehicleOnlinePosition'
+                }
+                
+                # Hladame prvy <row>
+                row = root.find('.//data:row', namespaces)
+                if row is not None:
+                    lat_str = row.find('data:Lat', namespaces).text
+                    lon_str = row.find('data:Lon', namespaces).text
+                    
+                    return {
+                        "lat": float(lat_str),
+                        "lon": float(lon_str)
+                    }
+                else:
+                    print(f"  [CCS] Varovanie: Auto {vehicle_id} nevratilo ziadnu polohu (mozno je vypnute).")
+                    return None
+            else:
+                print(f"  [CCS] API Chyba: {response.status_code}")
+                return None
+                
+        except Exception as e:
+            print(f"  [CCS] Zlyhalo pripojenie na server: {e}")
+            return None
 
 # ==========================================
 # 3. DISPECERSKY CYKLUS

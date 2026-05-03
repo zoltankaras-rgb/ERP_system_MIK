@@ -691,12 +691,25 @@ async function buildEanUsageMap(currentPricelistId = null) {
                                     <tr>
                                         <th style="width:60px; text-align:center;">Poradie</th>
                                         <th>Odberateľ a Adresa</th>
+                                        <th>Stav dodania</th>
                                         <th>Objednávky</th>
                                         <th style="text-align:center;">Uložiť</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    ${t.zastavky.map((z) => `
+                                    ${t.zastavky.map((z) => {
+                                        // Formatovanie casov a logiky
+                                        let timeHtml = '<span style="color:#94a3b8; font-size:0.85rem;"><i class="fas fa-bed"></i> Čaká na odjazd...</span>';
+                                        
+                                        if (z.cas_dorucenia_real && z.cas_dorucenia_real !== 'None') {
+                                            const d = new Date(z.cas_dorucenia_real.replace(' ', 'T'));
+                                            timeHtml = `<span style="color:#16a34a; font-weight:bold; background:#dcfce7; padding:4px 8px; border-radius:6px; font-size:0.9rem; border: 1px solid #bbf7d0;"><i class="fas fa-check-circle"></i> Vyložené: ${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}</span>`;
+                                        } else if (z.cas_eta && z.cas_eta !== 'None') {
+                                            const d = new Date(z.cas_eta.replace(' ', 'T'));
+                                            timeHtml = `<span style="color:#0284c7; font-weight:bold; background:#e0f2fe; padding:4px 8px; border-radius:6px; font-size:0.9rem; border: 1px solid #bae6fd;"><i class="fas fa-truck"></i> Príchod cca: ${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}</span>`;
+                                        }
+
+                                        return `
                                         <tr>
                                             <td style="text-align:center;">
                                                 <input type="number" value="${z.poradie}" class="filter-input" style="width:60px; text-align:center; font-weight:bold;" id="poradie_${z.zakaznik_id}">
@@ -706,14 +719,18 @@ async function buildEanUsageMap(currentPricelistId = null) {
                                                 <small style="color:#64748b;">${escapeHtml(z.adresa)}</small>
                                             </td>
                                             <td>
+                                                ${timeHtml}
+                                            </td>
+                                            <td>
                                                 <span style="background:#e0f2fe; color:#0369a1; padding:2px 6px; border-radius:4px; font-weight:bold;">${z.pocet_objednavok} obj.</span><br>
                                                 <small style="color:#94a3b8;">${z.cisla_objednavok.join(', ')}</small>
                                             </td>
                                             <td style="text-align:center;">
-                                                <button class="btn btn-primary btn-sm" onclick="window.saveRouteOrder(${z.zakaznik_id})">💾</button>
+                                                <button class="btn btn-primary btn-sm" onclick="window.saveRouteOrder('${z.zakaznik_id}')">💾</button>
                                             </td>
                                         </tr>
-                                    `).join('')}
+                                        `;
+                                    }).join('')}
                                 </tbody>
                             </table>
                             

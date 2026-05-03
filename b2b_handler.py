@@ -2379,6 +2379,7 @@ def get_logistics_routes_data(target_date: str):
         sql = """
         SELECT 
             o.cislo_objednavky, o.nazov_firmy AS odberatel, o.adresa, o.zakaznik_id AS erp_id,
+            o.cas_eta, o.cas_dorucenia_real,
             pol.nazov_vyrobku AS produkt, pol.mnozstvo, pol.mj, p.predajna_kategoria
         FROM b2b_objednavky o
         JOIN b2b_objednavky_polozky pol ON o.id = pol.objednavka_id
@@ -2425,7 +2426,9 @@ def get_logistics_routes_data(target_date: str):
             if odberatel_zobrazenie not in routes_data[tid]["zastavky"]:
                 routes_data[tid]["zastavky"][odberatel_zobrazenie] = {
                     "zakaznik_id": db_id, "odberatel": odberatel_zobrazenie, "adresa": p['adresa'],
-                    "poradie": int(poradie), "objednavky_set": set()
+                    "poradie": int(poradie), "objednavky_set": set(),
+                    "cas_eta": str(p['cas_eta']) if p['cas_eta'] else None,
+                    "cas_dorucenia_real": str(p['cas_dorucenia_real']) if p['cas_dorucenia_real'] else None
                 }
             routes_data[tid]["zastavky"][odberatel_zobrazenie]["objednavky_set"].add(p['cislo_objednavky'])
 
@@ -2445,6 +2448,8 @@ def get_logistics_routes_data(target_date: str):
                     "odberatel": zdata["odberatel"],
                     "adresa": zdata["adresa"],
                     "poradie": zdata["poradie"],
+                    "cas_eta": zdata.get("cas_eta"),
+                    "cas_dorucenia_real": zdata.get("cas_dorucenia_real"),
                     "pocet_objednavok": len(zdata["objednavky_set"]),
                     "cisla_objednavok": list(zdata["objednavky_set"])
                 })
