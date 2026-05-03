@@ -554,9 +554,8 @@ def internal_login():
     data = request.get_json(silent=True) or {}
     username = (data.get('username') or '').strip()
     password = data.get('password') or ''
-    module   = (data.get('module') or '').strip().lower()  # napr. 'expedicia'; môže byť prázdne
+    module   = (data.get('module') or '').strip().lower()
 
-    # načítanie používateľa (is_active ak máš)
     user = db_connector.execute_query(
         "SELECT id, username, role, full_name, password_hash, password_salt, COALESCE(is_active,1) AS is_active "
         "FROM internal_users WHERE username=%s",
@@ -564,27 +563,25 @@ def internal_login():
         fetch='one'
     )
 
-    # základná kontrola mena/hesla
     if not user or not auth_handler.verify_password(password, user['password_salt'], user['password_hash']):
         return jsonify({'error': 'Nesprávne meno alebo heslo.'}), 401
     if not int(user.get('is_active', 1)):
         return jsonify({'error': 'Účet je deaktivovaný.'}), 401
 
-    # ROZDHODUJÚCA ZMENA: rolu vždy skánonizuj (strip + lower + aliasy: veduca -> veduci)
     role = canonicalize_role(user.get('role'))
 
-    # Prístup do modulov
+    # Matica povolených prístupov - rozšírená o šoféra a admina
     allowed_for_module = {
-        'expedicia': {'veduci', 'expedicia', 'admin', 'sofer'}, # <-- Pridaný sofer
-        'kancelaria': {'kancelaria', 'admin'},
+        'expedicia': {'veduci', 'expedicia', 'admin', 'sofer'},
+        'kancelaria': {'kancelaria', 'admin', 'margit'},
         'vyroba': {'vyroba', 'admin'},
     }
+    
     if module:
         allowed = allowed_for_module.get(module, set())
         if role not in allowed and role != 'admin':
             return jsonify({'error': f"Nemáte oprávnenie pre modul '{module}'. Vaša rola: '{role}'"}), 401
 
-    # login OK → session
     session.permanent = True
     session['user'] = {
         'id': user['id'],
@@ -593,20 +590,17 @@ def internal_login():
         'full_name': user.get('full_name') or user['username'],
     }
 
-    # redirect – ak FE pošle module, rešpektuj ho; inak podľa roly
+    # FINÁLNE NASMEROVANIE
     redirect_to = '/'
     if module:
-        if module == 'expedicia':
-            redirect_to = '/expedicia'
-        elif module == 'kancelaria':
-            redirect_to = '/kancelaria'
-        elif module == 'vyroba':
-            redirect_to = '/vyroba'
+        if module == 'expedicia': redirect_to = '/expedicia'
+        elif module == 'kancelaria': redirect_to = '/kancelaria'
+        elif module == 'vyroba': redirect_to = '/vyroba'
     else:
-        # fallback podľa roly (nič nerozbiješ, keď FE modul neposiela)
-        if role in ('veduci', 'expedicia'):
+        # Ak prichádza z hlavnej /login stránky (module je prázdny)
+        if role in ('veduci', 'expedicia', 'sofer'):
             redirect_to = '/expedicia'
-        elif role == 'kancelaria':
+        elif role in ('kancelaria', 'admin', 'margit'):
             redirect_to = '/kancelaria'
         elif role == 'vyroba':
             redirect_to = '/vyroba'
