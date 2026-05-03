@@ -14,7 +14,7 @@ import unicodedata
 import random
 import string
 from typing import Optional, List, Dict, Any
-
+from pdf_generator import generate_daily_receipt_pdf
 # ─────────────────────────────────────────────────────────────
 # Pomocné: detekcia stĺpcov, tabuľky, parse čísla, slug, batch-id
 # ─────────────────────────────────────────────────────────────

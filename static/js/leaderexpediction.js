@@ -4860,6 +4860,98 @@ window.generateInventorySheetPDF = function() {
     `);
     win.document.close();
 };
+
+// leaderexpediction.js
+
+window.openArchiveManager = async function() {
+    window.openLeaderModal('<div class="loader-padding"><i class="fas fa-sync fa-spin"></i> Načítavam archív...</div>');
+    
+    try {
+        const data = await apiRequest('/api/leader/archive/all-reports');
+        
+        // Pomocná funkcia na zoskupenie dát podľa Rok -> Mesiac
+        const groupByDate = (days) => {
+            const tree = {};
+            days.forEach(d => {
+                const [y, m, day] = d.split('-');
+                if (!tree[y]) tree[y] = {};
+                if (!tree[y][m]) tree[y][m] = [];
+                tree[y][m].push(d);
+            });
+            return tree;
+        };
+
+        const recTree = groupByDate(data.receptions);
+        const invTree = groupByDate(data.inventories);
+
+        let html = `
+            <div class="archive-container" style="padding:10px;">
+                <h2 style="margin-bottom:20px; border-bottom:3px solid #0369a1; padding-bottom:10px;">
+                    <i class="fas fa-archive"></i> Inventúry a Protokoly príjmu
+                </h2>
+                
+                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:30px;">
+                    <div class="archive-section">
+                        <h4 style="background:#f1f5f9; padding:10px; border-radius:5px;"><i class="fas fa-truck-loading"></i> Denné Príjemky</h4>
+                        ${renderArchiveTree(recTree, 'reception')}
+                    </div>
+                    
+                    <div class="archive-section">
+                        <h4 style="background:#f1f5f9; padding:10px; border-radius:5px;"><i class="fas fa-clipboard-list"></i> Inventúry skladu</h4>
+                        ${renderArchiveTree(invTree, 'inventory')}
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        window.openLeaderModal(html);
+    } catch (e) {
+        showStatus('Nepodarilo sa načítať archív: ' + e.message, true);
+    }
+};
+
+function renderArchiveTree(tree, type) {
+    let h = '<div class="tree-root" style="margin-top:10px;">';
+    const years = Object.keys(tree).sort((a,b) => b - a);
+    
+    if (years.length === 0) return '<div class="muted">Žiadne záznamy</div>';
+
+    years.forEach(year => {
+        h += `<details style="margin-bottom:5px;">
+                <summary style="cursor:pointer; font-weight:bold; font-size:1.1rem; color:#1e293b;">
+                    <i class="fas fa-folder"></i> Rok ${year}
+                </summary>
+                <div style="padding-left:20px; margin-top:5px;">`;
+        
+        const months = Object.keys(tree[year]).sort((a,b) => b - a);
+        months.forEach(month => {
+            const mName = new Date(year, month - 1).toLocaleString('sk-SK', {month:'long'});
+            h += `<details style="margin-bottom:3px;">
+                    <summary style="cursor:pointer; color:#0369a1; text-transform:capitalize;">
+                        <i class="far fa-calendar-alt"></i> ${mName}
+                    </summary>
+                    <div style="padding-left:20px; display:flex; flex-direction:column; gap:5px; margin-top:5px;">`;
+            
+            tree[year][month].forEach(date => {
+                const btnClass = type === 'reception' ? 'btn-print-rec' : 'btn-print-inv';
+                const action = type === 'reception' 
+                    ? `window.open('/api/leader/archive/print-reception/${date}', '_blank')`
+                    : `window.printInventoryReport('${date}')`;
+
+                h += `<div style="display:flex; justify-content:space-between; align-items:center; background:#fff; padding:8px; border-radius:4px; border:1px solid #e2e8f0;">
+                        <span><strong>${date.split('-')[2]}.</strong> ${mName.slice(0,3)}</span>
+                        <button class="btn btn-sm btn-primary" onclick="${action}" style="padding:2px 10px; font-size:0.8rem;">
+                            <i class="fas fa-print"></i> Tlačiť
+                        </button>
+                      </div>`;
+            });
+            h += `</div></details>`;
+        });
+        h += `</div></details>`;
+    });
+    h += '</div>';
+    return h;
+}
  function boot(){
     $$('.sidebar-link').forEach(a=>{
       a.onclick = ()=>{

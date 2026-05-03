@@ -2150,7 +2150,33 @@ def leader_plan_rozpis():
     except Exception as e:
         print(f"Chyba pri generovaní rozpisu: {e}")
         return jsonify({'error': str(e)}), 500
-    # =============================================================================
+    
+@leader_bp.get('/archive/all-reports')
+@login_required(role=('veduci', 'admin'))
+def get_archive_reports():
+    """Vráti zoznam všetkých príjemiek a inventúr pre stromové zobrazenie."""
+    # Získame dni kedy bol príjem (príjemky)
+    reception_days = expedition_handler.get_acceptance_days() # Vráti ['2024-03-20', ...]
+    
+    # Tu predpokladám, že máš funkciu na získanie histórie inventúr
+    # Ak nie, upravíme podľa tvojho názvu tabuľky (napr. 'expedicia_inventury')
+    inventory_sessions = db_connector.execute_query(
+        "SELECT DISTINCT DATE(created_at) as d FROM expedicia_inventura_log ORDER BY d DESC", 
+        fetch='all'
+    ) or []
+    inventory_days = [str(r['d']) for r in inventory_sessions]
+
+    return jsonify({
+        "receptions": reception_days,
+        "inventories": inventory_days
+    })
+
+@leader_bp.get('/archive/print-reception/<date_str>')
+@login_required(role=('veduci', 'admin'))
+def print_archive_reception(date_str):
+    """HTML náhľad príjemky pre tlač."""
+    return expedition_handler.get_daily_reception_report_html(date_str)
+ # =============================================================================
 # SKLAD - Mínusové stavy
 # =============================================================================
 
@@ -2186,3 +2212,6 @@ def leader_stock_negatives():
         return jsonify({'negatives': grouped})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+    
+
+    
