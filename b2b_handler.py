@@ -2629,6 +2629,7 @@ def assign_vehicle_to_route_and_fleet(data: dict):
 # =================================================================
 
 def _ensure_stores_table():
+    import db_connector
     db_connector.execute_query("""
         CREATE TABLE IF NOT EXISTS b2b_stores (
             id INT AUTO_INCREMENT PRIMARY KEY,
@@ -2638,6 +2639,13 @@ def _ensure_stores_table():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_slovak_ci
     """, fetch='none')
+    
+    # Automatické pridanie GPS stĺpcov, ak v starej tabuľke chýbajú
+    try:
+        db_connector.execute_query("ALTER TABLE b2b_stores ADD COLUMN lat DECIMAL(10,6) NULL", fetch='none')
+        db_connector.execute_query("ALTER TABLE b2b_stores ADD COLUMN lon DECIMAL(10,6) NULL", fetch='none')
+    except Exception:
+        pass # Ignoruj chybu, ak stĺpce už existujú
 
 def get_stores():
     _ensure_stores_table()
