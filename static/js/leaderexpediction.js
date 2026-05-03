@@ -1577,6 +1577,10 @@ window.showManualRouteEditor = async function(id) {
                   <label style="font-weight:bold; margin:0;">Dátum:</label>
                   <input type="date" id="logistics-date" class="form-control" style="width:auto; padding:6px;" value="${today}">
                   <button id="logistics-load-btn" class="btn btn-primary"><i class="fas fa-sync"></i> Načítať</button>
+                  
+                  <!-- TOTO JE NOVÉ TLAČIDLO -->
+                  <button class="btn btn-info" style="color:white; font-weight:bold; background-color:#0ea5e9; border:none;" onclick="window.manageStores()">🏢 Adresár prevádzok</button>
+                  
                   <button class="btn btn-secondary" onclick="window.manageManualRoutes()">📝 Trasy</button>
                   <button class="btn btn-dark" onclick="window.printDailySummary()"><i class="fas fa-print"></i> Slepý list dňa</button>
               </div>
