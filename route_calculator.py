@@ -10,8 +10,6 @@ def vypocitaj_trasu(zastavky_gps):
     """
     zastavky_gps: zoznam suradnic vo formate [[lon1, lat1], [lon2, lat2], ...]
     """
-    # Pouzivame profil pre dodavky/auta (driving-car). 
-    # Ak mate kamiony nad 3.5t, da sa to zmenit na 'driving-hgv'
     url = "https://api.openrouteservice.org/v2/directions/driving-car"
     
     headers = {
@@ -19,28 +17,34 @@ def vypocitaj_trasu(zastavky_gps):
         'Content-Type': 'application/json'
     }
     
+    # Oproti prvej verzii sme zrusili "instructions": False, 
+    # aby nam server bezpecne poslal vsetky useky a casy
     body = {
-        "coordinates": zastavky_gps,
-        "instructions": False  # Nepotrebujeme texty ako "odbocte doprava", stacia nam cisla
+        "coordinates": zastavky_gps
     }
     
     try:
         response = requests.post(url, json=body, headers=headers)
-        data = response.json()
         
-        if 'error' in data:
-            print(f"[-] Chyba ORS API: {data['error']['message']}")
+        # Osetrenie, ak by server vratil napriklad chybu s API klucom
+        if response.status_code != 200:
+            print(f"[-] API Zamietnute (Kod {response.status_code}): {response.text}")
             return None
             
-        # Ziskame data o celej trase z odpovede
-        trasa = data['routes'][0]
-        sekundy_celkom = trasa['summary']['duration']
-        metre_celkom = trasa['summary']['distance']
+        data = response.json()
         
-        # Casove useky medzi jednotlivymi zastavkami
-        # Toto je pre nas najdolezitejsie, zisti to cas od jedneho zakaznika k druhemu
-        useky_sekundy = [seg['duration'] for seg in trasa['segments']]
+        # Bezpecne nacitanie dat
+        trasa = data.get('routes', [{}])[0]
+        sekundy_celkom = trasa.get('summary', {}).get('duration', 0)
+        metre_celkom = trasa.get('summary', {}).get('distance', 0)
         
+        # Ziskanie casov medzi zastavkami
+        useky_sekundy = []
+        if 'segments' in trasa:
+            useky_sekundy = [seg['duration'] for seg in trasa['segments']]
+        else:
+            useky_sekundy = [sekundy_celkom]
+            
         return {
             "celkovy_cas_sekundy": sekundy_celkom,
             "celkova_vzdialenost_metre": metre_celkom,
@@ -48,7 +52,7 @@ def vypocitaj_trasu(zastavky_gps):
         }
         
     except Exception as e:
-        print(f"[-] Chyba pripojenia na mapovy server: {e}")
+        print(f"[-] Chyba pri spracovani trasy: {e}")
         return None
 
 # ==========================================
@@ -60,10 +64,8 @@ if __name__ == "__main__":
     else:
         print("Prebieha komunikacia so satelitom (ORS)...")
         
-        # Test: Start z MIK Sala -> Zakaznik 1 v BA -> Zakaznik 2 v TT
-        # Suradnice davame ako [Dlzka(Lon), Sirka(Lat)]
         testovacia_trasa = [
-            [17.880655, 48.151759], # Start: Sala
+            [17.880655, 48.151759], # Start: MIK Sala
             [17.112165, 48.152865], # Zastavka 1: Bratislava
             [17.585785, 48.373264]  # Zastavka 2: Trnava
         ]
@@ -78,6 +80,6 @@ if __name__ == "__main__":
             print(f"Celkovy hruby cas cesty: {minuty_celkom:.1f} minut")
             print(f"Celkova vzdialenost: {km_celkom:.1f} km")
             
-            print("\nDetail cesty:")
-            print(f" - Zo Sale k prvemu zakaznikovi: {vysledok['trvanie_usekov_sekundy'][0] / 60:.1f} minut")
-            print(f" - Od prveho k druhemu zakaznikovi: {vysledok['trvanie_usekov_sekundy'][1] / 60:.1f} minut")
+            print("\nDetail cesty (Cisty cas jazdenia):")
+            for i, usek in enumerate(vysledok['trvanie_usekov_sekundy']):
+                print(f" - Usek {i+1}: {usek / 60:.1f} minut")
