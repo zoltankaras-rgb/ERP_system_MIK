@@ -1468,8 +1468,8 @@ def leader_product_history():
 # =============================================================================
 
 @leader_bp.get('/logistics/routes-data')
-@login_required(role=('veduci','admin'))
-def leader_logistics_routes_data():
+@login_required(role=('veduci', 'admin', 'kancelaria'))
+def leader_routes_data():
     date_str = request.args.get('date')
     return jsonify(b2b_handler.get_logistics_routes_data(date_str))
 
@@ -1573,7 +1573,7 @@ def leader_optimize_route():
     return jsonify(b2b_handler.optimize_route(request.get_json(silent=True) or {}))
 
 @leader_bp.get('/logistics/route-map')
-@login_required(role=('veduci','admin'))
+@login_required(role=('veduci', 'admin', 'kancelaria'))
 def leader_route_map():
     import b2b_handler
     route_id = request.args.get('route_id')
