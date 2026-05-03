@@ -1590,7 +1590,7 @@ async function loadCustomersAndPricelists() {
         const data = await callFirstOk([{url:'/api/kancelaria/b2b/getCustomersAndPricelists'}]);
         state.customers = data.customers || []; 
         state.pricelists = data.pricelists || []; 
-        state.routes = data.routes || []; // Dynamické trasy
+        state.routes = data.routes || []; 
         state.mapping = data.mapping || {};
         
         const plMap = new Map(state.pricelists.map(p=>[p.id, p.nazov_cennika]));
@@ -1616,10 +1616,11 @@ async function loadCustomersAndPricelists() {
 
                     <div class="filter-group">
                         <label>Typ účtu</label>
-                        <select id="cust-filter-type" class="filter-input" style="width:150px;">
+                        <select id="cust-filter-type" class="filter-input" style="width:170px;">
                             <option value="all">Všetci</option>
                             <option value="main">👑 Hlavné účty</option>
                             <option value="branch">🏢 Pobočky</option>
+                            <option value="manual">📝 Manuálni odberatelia</option>
                         </select>
                     </div>
                     
@@ -1656,8 +1657,11 @@ async function loadCustomersAndPricelists() {
                 }
 
                 const isBranch = !!c.parent_id;
-                if (typeFilter === 'main' && isBranch) return false;
+                const isManual = !!c.is_manual;
+                
+                if (typeFilter === 'main' && (isBranch || isManual)) return false;
                 if (typeFilter === 'branch' && !isBranch) return false;
+                if (typeFilter === 'manual' && !isManual) return false;
 
                 return true;
             });
@@ -1675,7 +1679,7 @@ async function loadCustomersAndPricelists() {
                     <thead>
                         <tr>
                             <th style="width:100px;">ERP ID</th>
-                            <th>Firma / Pobočka</th>
+                            <th>Firma / Odberateľ</th>
                             <th>Kontakt & Adresa</th>
                             <th>Trasa / Cenníky</th>
                             <th style="width:260px; text-align:right;">Akcia</th>
@@ -1703,14 +1707,21 @@ async function loadCustomersAndPricelists() {
                     const routeBadge = `<div style="margin-bottom:5px;"><span style="background:#f1f5f9; color:#0f172a; padding:2px 6px; border-radius:4px; font-size:0.75rem; border:1px solid #cbd5e1;">🚛 ${escapeHtml(routeName)} (Poradie: ${c.trasa_poradie || '-'})</span></div>`;
 
                     const isBranch = !!c.parent_id;
-                    const nameDisplay = isBranch 
+                    const isManual = !!c.is_manual;
+                    
+                    const nameDisplay = isManual 
                         ? `<div style="display:flex; flex-direction:column;">
-                             <span style="font-weight:600; color:#0f172a;">${escapeHtml(c.nazov_firmy)}</span>
-                             <span style="color:#2563eb; font-size:0.75rem; display:flex; align-items:center; gap:3px;">🏢 Pobočka (Rodič ID: ${c.parent_id})</span>
+                             <span style="font-weight:700; font-size:1.05rem; color:#0f172a;">${escapeHtml(c.nazov_firmy)}</span>
+                             <span style="color:#b45309; font-size:0.75rem; display:flex; align-items:center; gap:3px;">📝 Manuálny odberateľ</span>
                            </div>`
-                        : `<span style="font-weight:700; font-size:1.05rem; color:#0f172a;">${escapeHtml(c.nazov_firmy)}</span>`;
+                        : (isBranch 
+                            ? `<div style="display:flex; flex-direction:column;">
+                                 <span style="font-weight:600; color:#0f172a;">${escapeHtml(c.nazov_firmy)}</span>
+                                 <span style="color:#2563eb; font-size:0.75rem; display:flex; align-items:center; gap:3px;">🏢 Pobočka (Rodič ID: ${c.parent_id})</span>
+                               </div>`
+                            : `<span style="font-weight:700; font-size:1.05rem; color:#0f172a;">${escapeHtml(c.nazov_firmy)}</span>`);
 
-                    const rowStyle = isBranch ? 'background:#f8fafc;' : '';
+                    const rowStyle = isBranch || isManual ? 'background:#f8fafc;' : '';
 
                     tableHtml += `<tr style="${rowStyle}">
                         <td style="color:#64748b; font-family:monospace; font-weight:bold;">${escapeHtml(c.zakaznik_id)}</td>
@@ -1722,10 +1733,10 @@ async function loadCustomersAndPricelists() {
                         </td>
                         <td>${routeBadge}${plBadges}</td>
                         <td style="text-align:right;">
-                            <button class="btn btn-secondary btn-sm" style="background:#0ea5e9; color:white; border:none;" onclick="window.showCustomer360(${c.id})" title="Karta zákazníka (Štatistiky nákupov)">📊 Karta</button>
-                            <button class="btn btn-primary btn-sm" style="margin-left:5px;" onclick="window.editB2BCustomer(${c.id})" title="Upraviť údaje a cenníky">✏️ Upraviť</button>
-                            ${!isBranch ? `<button class="btn btn-warning btn-sm" style="margin-left:5px;" onclick="window.addB2BBranch(${c.id}, '${escapeHtml(c.nazov_firmy)}')" title="Pridať pobočku">+ Pobočka</button>` : ''}
-                            <button class="btn btn-danger btn-sm" style="margin-left:5px;" onclick="window.deleteB2BCustomer(${c.id})" title="Zmazať účet">🗑️</button>
+                            ${!isManual ? `<button class="btn btn-secondary btn-sm" style="background:#0ea5e9; color:white; border:none;" onclick="window.showCustomer360(${c.id})" title="Karta zákazníka">📊 Karta</button>` : ''}
+                            <button class="btn btn-primary btn-sm" style="margin-left:5px;" onclick="window.editB2BCustomer(${c.id}, ${c.is_manual || 0})" title="Upraviť údaje a cenníky">✏️ Upraviť</button>
+                            ${(!isBranch && !isManual) ? `<button class="btn btn-warning btn-sm" style="margin-left:5px;" onclick="window.addB2BBranch(${c.id}, '${escapeHtml(c.nazov_firmy)}')" title="Pridať pobočku">+ Pobočka</button>` : ''}
+                            <button class="btn btn-danger btn-sm" style="margin-left:5px;" onclick="window.deleteB2BCustomer(${c.id}, ${c.is_manual || 0})" title="Zmazať účet">🗑️</button>
                         </td>
                     </tr>`;
                 });
@@ -1768,8 +1779,8 @@ async function loadCustomersAndPricelists() {
     }
 }
 
-window.editB2BCustomer = function(id) {
-    const cust = state.customers.find(c => c.id === id);
+window.editB2BCustomer = function(id, is_manual) {
+    const cust = state.customers.find(c => c.id === id && (c.is_manual || 0) == is_manual);
     if(!cust) return;
     
     const assignedIds = state.mapping[cust.zakaznik_id] || state.mapping[cust.id] || [];
@@ -1789,13 +1800,13 @@ window.editB2BCustomer = function(id) {
     
     openModal(`<div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px;">
       <div>
-          <h4>Fakturačné údaje</h4>
+          <h4>${is_manual ? 'Údaje manuálneho odberateľa' : 'Fakturačné údaje'}</h4>
           <div class="form-group"><label>ID</label><input type="text" value="${escapeHtml(cust.zakaznik_id)}" disabled class="filter-input" style="width:100%; background:#eee;"></div>
           <div class="form-group"><label>Firma</label><input type="text" id="ced-name" value="${escapeHtml(cust.nazov_firmy)}" class="filter-input" style="width:100%;"></div>
-          <div class="form-group"><label>Email</label><input type="text" id="ced-email" value="${escapeHtml(cust.email)}" class="filter-input" style="width:100%;"></div>
-          <div class="form-group"><label>Telefón</label><input type="text" id="ced-phone" value="${escapeHtml(cust.telefon)}" class="filter-input" style="width:100%;"></div>
+          ${!is_manual ? `<div class="form-group"><label>Email</label><input type="text" id="ced-email" value="${escapeHtml(cust.email)}" class="filter-input" style="width:100%;"></div>` : ''}
+          <div class="form-group"><label>Telefón / Kontakt</label><input type="text" id="ced-phone" value="${escapeHtml(cust.telefon)}" class="filter-input" style="width:100%;"></div>
           <div class="form-group"><label>Adresa</label><textarea id="ced-addr" class="filter-input" style="width:100%;">${escapeHtml(cust.adresa)}</textarea></div>
-          <div class="form-group"><label>Adresa doručenia</label><textarea id="ced-del-addr" class="filter-input" style="width:100%;" placeholder="Ak je iná ako fakturačná">${escapeHtml(cust.adresa_dorucenia || '')}</textarea></div>
+          ${!is_manual ? `<div class="form-group"><label>Adresa doručenia</label><textarea id="ced-del-addr" class="filter-input" style="width:100%;" placeholder="Ak je iná ako fakturačná">${escapeHtml(cust.adresa_dorucenia || '')}</textarea></div>` : ''}
       </div>
       <div>
           <h4>Priradené cenníky</h4>
@@ -1811,14 +1822,13 @@ window.editB2BCustomer = function(id) {
             <input type="number" id="ced-poradie" value="${poradieVal}" class="filter-input" style="width:100%;">
           </div>
 
-          <h4 style="margin-top:20px;">Iné</h4>
-          <label><input type="checkbox" id="ced-active" ${cust.je_schvaleny ? 'checked' : ''}> Účet je aktívny</label>
+          ${!is_manual ? `<h4 style="margin-top:20px;">Iné</h4><label><input type="checkbox" id="ced-active" ${cust.je_schvaleny ? 'checked' : ''}> Účet je aktívny</label>` : ''}
       </div>
     </div>
-    <div style="margin-top:20px; text-align:right;"><button class="btn btn-success" onclick="window.saveB2BCustomer(${cust.id})">Uložiť zmeny</button></div>`);
+    <div style="margin-top:20px; text-align:right;"><button class="btn btn-success" onclick="window.saveB2BCustomer(${cust.id}, ${is_manual || 0})">Uložiť zmeny</button></div>`);
 };
 
-window.saveB2BCustomer = async function(id) {
+window.saveB2BCustomer = async function(id, is_manual) {
     const trasaEl = document.getElementById('ced-trasa');
     const poradieEl = document.getElementById('ced-poradie');
     
@@ -1827,16 +1837,20 @@ window.saveB2BCustomer = async function(id) {
 
     const payload = {
         id: id, 
+        is_manual: is_manual,
         nazov_firmy: document.getElementById('ced-name').value, 
-        email: document.getElementById('ced-email').value, 
         telefon: document.getElementById('ced-phone').value, 
         adresa: document.getElementById('ced-addr').value,
-        adresa_dorucenia: document.getElementById('ced-del-addr').value,
-        je_schvaleny: document.getElementById('ced-active').checked ? 1 : 0, 
         trasa_id: trasaVal,
         trasa_poradie: poradieVal,
         pricelist_ids: Array.from(document.querySelectorAll('.pl-check:checked')).map(cb => cb.value)
     };
+
+    if (!is_manual) {
+        payload.email = document.getElementById('ced-email').value;
+        payload.adresa_dorucenia = document.getElementById('ced-del-addr').value;
+        payload.je_schvaleny = document.getElementById('ced-active').checked ? 1 : 0;
+    }
     
     try {
         await callFirstOk([{ url: '/api/kancelaria/b2b/updateCustomer', opts: { method: 'POST', body: payload } }]);
@@ -1844,6 +1858,25 @@ window.saveB2BCustomer = async function(id) {
         closeModal(); 
         loadCustomersAndPricelists();
     } catch(e) { alert(e.message); }
+};
+
+window.deleteB2BCustomer = async function(id, is_manual) {
+    const cust = state.customers.find(c => c.id === id && (c.is_manual || 0) == is_manual);
+    if(!cust) return;
+
+    const assignedIds = state.mapping[cust.zakaznik_id] || state.mapping[cust.id] || [];
+    if (assignedIds.length > 0) {
+        alert(`Odberateľ ${cust.nazov_firmy} má priradené cenníky.\nPred zmazaním mu ich musíte odobrať.`);
+        return;
+    }
+    const confirmWord = prompt(`UPOZORNENIE: Chystáte sa natrvalo zmazať odberateľa:\n"${cust.nazov_firmy}"\n\nAk ste si istí, napíšte slovo ZMAZAT:`);
+    if (confirmWord !== "ZMAZAT") { showStatus("Mazanie zrušené.", true); return; }
+
+    try {
+        const res = await callFirstOk([{ url: '/api/kancelaria/b2b/deleteCustomer', opts: { method: 'POST', body: { id: id, is_manual: is_manual } } }]);
+        showStatus(res.message || 'Zákazník bol zmazaný.');
+        loadCustomersAndPricelists();
+    } catch(e) { alert("Chyba pri mazaní: " + e.message); }
 };
 
 window.deleteB2BCustomer = async function(id) {

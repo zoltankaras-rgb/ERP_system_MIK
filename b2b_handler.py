@@ -656,26 +656,42 @@ def reject_b2b_registration(data: dict):
 def get_customers_and_pricelists():
     import db_connector
     
-    # 1. Zákazníci - Pridané cislo_prevadzky pre Logistiku
+    # 1. Štandardní B2B zákazníci
     customers = db_connector.execute_query(
         """
         SELECT id, parent_id, zakaznik_id, nazov_firmy, email, telefon, 
-               adresa, adresa_dorucenia, je_schvaleny, trasa_id, trasa_poradie, cislo_prevadzky
+               adresa, adresa_dorucenia, je_schvaleny, trasa_id, trasa_poradie, cislo_prevadzky,
+               0 AS is_manual
         FROM b2b_zakaznici 
         WHERE typ='B2B'
-        ORDER BY nazov_firmy
         """
     ) or []
+
+    # 2. Manuálne vytvorení zákazníci (spojenie do rovnakého poľa)
+    try:
+        manual_customers = db_connector.execute_query(
+            """
+            SELECT id, NULL as parent_id, interne_cislo as zakaznik_id, nazov_firmy, 
+                   NULL as email, kontakt as telefon, adresa, adresa as adresa_dorucenia, 
+                   1 as je_schvaleny, trasa_id, trasa_poradie, NULL as cislo_prevadzky,
+                   1 AS is_manual
+            FROM b2b_manual_zakaznici
+            """
+        ) or []
+        customers.extend(manual_customers)
+    except Exception:
+        pass
+
+    # Zoradenie podľa abecedy zjednotene
+    customers.sort(key=lambda x: (x.get("nazov_firmy") or "").lower())
 
     # Zlúčenie do jedného reťazca pre zobrazenie v Logistike
     for c in customers:
         if c.get("cislo_prevadzky") and c.get("nazov_firmy") and not c["nazov_firmy"].startswith(c["cislo_prevadzky"]):
             c["nazov_firmy"] = f"[{c['cislo_prevadzky']}] {c['nazov_firmy']}"
     
-    # 2. Cenníky
+    # 3. Cenníky a Trasy
     pricelists = db_connector.execute_query("SELECT id, nazov_cennika FROM b2b_cenniky ORDER BY nazov_cennika") or []
-    
-    # 3. Trasy
     routes = db_connector.execute_query("SELECT id, nazov FROM logistika_trasy WHERE is_active=1 ORDER BY nazov") or []
     
     # 4. Mapovanie cenníkov
@@ -698,6 +714,7 @@ def update_customer_details(data: dict):
     fields = data.get("fields", data)
     trasa_id = fields.get('trasa_id')
     trasa_poradie = fields.get('trasa_poradie')
+    is_manual = fields.get('is_manual', 0)
 
     if str(trasa_id).strip() in ["", "null", "None"]:
         trasa_id = None
@@ -709,17 +726,29 @@ def update_customer_details(data: dict):
     else:
         trasa_poradie = int(trasa_poradie)
 
+    import db_connector
     conn = db_connector.get_connection()
     try:
         cur = conn.cursor()
-        cur.execute("""
-            UPDATE b2b_zakaznici 
-            SET nazov_firmy=%s, email=%s, telefon=%s, adresa=%s, 
-                adresa_dorucenia=%s, je_schvaleny=%s, trasa_id=%s, trasa_poradie=%s
-            WHERE id=%s
-        """, (fields.get('nazov_firmy'), fields.get('email'), fields.get('telefon'), 
-              fields.get('adresa'), fields.get('adresa_dorucenia'), fields.get('je_schvaleny', 1), 
-              trasa_id, trasa_poradie, cid))
+        if is_manual:
+            # Update pre manuálnych zákazníkov
+            cur.execute("""
+                UPDATE b2b_manual_zakaznici 
+                SET nazov_firmy=%s, kontakt=%s, adresa=%s, 
+                    trasa_id=%s, trasa_poradie=%s
+                WHERE id=%s
+            """, (fields.get('nazov_firmy'), fields.get('telefon'), 
+                  fields.get('adresa'), trasa_id, trasa_poradie, cid))
+        else:
+            # Update pre registrovaných B2B zákazníkov
+            cur.execute("""
+                UPDATE b2b_zakaznici 
+                SET nazov_firmy=%s, email=%s, telefon=%s, adresa=%s, 
+                    adresa_dorucenia=%s, je_schvaleny=%s, trasa_id=%s, trasa_poradie=%s
+                WHERE id=%s
+            """, (fields.get('nazov_firmy'), fields.get('email'), fields.get('telefon'), 
+                  fields.get('adresa'), fields.get('adresa_dorucenia'), fields.get('je_schvaleny', 1), 
+                  trasa_id, trasa_poradie, cid))
         conn.commit()
     except Exception as e:
         if conn: conn.rollback()
@@ -730,23 +759,26 @@ def update_customer_details(data: dict):
 
     # KASKÁDOVÉ ULOŽENIE CENNÍKA (RODIČ -> VŠETKY POBOČKY)
     pricelist_ids = fields.get("pricelist_ids") or []
-    row = db_connector.execute_query("SELECT zakaznik_id FROM b2b_zakaznici WHERE id=%s", (cid,), fetch="one")
+    
+    if is_manual:
+        row = db_connector.execute_query("SELECT interne_cislo as zakaznik_id FROM b2b_manual_zakaznici WHERE id=%s", (cid,), fetch="one")
+    else:
+        row = db_connector.execute_query("SELECT zakaznik_id FROM b2b_zakaznici WHERE id=%s", (cid,), fetch="one")
     
     if row and row["zakaznik_id"]:
         login = row["zakaznik_id"]
         
-        # Zistíme všetky pobočky, ktoré patria tomuto zákazníkovi
-        children = db_connector.execute_query("SELECT zakaznik_id FROM b2b_zakaznici WHERE parent_id=%s", (cid,), fetch="all") or []
-        all_logins = [login] + [c["zakaznik_id"] for c in children if c.get("zakaznik_id")]
+        all_logins = [login]
+        if not is_manual:
+            children = db_connector.execute_query("SELECT zakaznik_id FROM b2b_zakaznici WHERE parent_id=%s", (cid,), fetch="all") or []
+            all_logins += [c["zakaznik_id"] for c in children if c.get("zakaznik_id")]
         
         conn2 = db_connector.get_connection()
         cur2 = conn2.cursor()
         try:
-            # 1. Vymažeme doterajšie mapovanie cenníkov pre rodiča aj všetky jeho pobočky
             format_strings = ','.join(['%s'] * len(all_logins))
             cur2.execute(f"DELETE FROM b2b_zakaznik_cennik WHERE zakaznik_id IN ({format_strings})", tuple(all_logins))
             
-            # 2. Priradíme nový cenník hromadne všetkým prepojeným účtom
             if pricelist_ids:
                 insert_data = []
                 for lgn in all_logins:
@@ -760,7 +792,44 @@ def update_customer_details(data: dict):
             cur2.close()
             conn2.close()
 
-    return {"message": "Zákazník bol aktualizovaný a cenník sa úspešne aplikoval aj na všetky jeho pobočky."}
+    return {"message": "Zákazník bol aktualizovaný a cenník sa úspešne aplikoval."}
+
+def delete_b2b_customer(data: dict):
+    cid = data.get("id")
+    is_manual = data.get("is_manual", 0)
+    
+    if not cid:
+        return {"error": "Chýba ID zákazníka."}
+        
+    import db_connector
+    
+    if is_manual:
+        # Mazanie manuálneho zákazníka
+        cust = db_connector.execute_query("SELECT interne_cislo as zakaznik_id, nazov_firmy FROM b2b_manual_zakaznici WHERE id=%s", (cid,), fetch="one")
+        if not cust: return {"error": "Zákazník už neexistuje."}
+        try:
+            db_connector.execute_query("DELETE FROM b2b_zakaznik_cennik WHERE zakaznik_id=%s", (cust['zakaznik_id'],), fetch="none")
+            db_connector.execute_query("DELETE FROM b2b_manual_zakaznici WHERE id=%s", (cid,), fetch="none")
+            return {"message": f"Manuálny profil '{cust['nazov_firmy']}' bol odstránený."}
+        except Exception as e:
+            return {"error": f"Chyba pri mazaní: {str(e)}"}
+    else:
+        # Pôvodné mazanie registrovaného B2B zákazníka
+        cust = db_connector.execute_query("SELECT id, zakaznik_id, nazov_firmy FROM b2b_zakaznici WHERE id=%s", (cid,), fetch="one")
+        if not cust: return {"error": "Zákazník už neexistuje."}
+        login = cust["zakaznik_id"]
+        try:
+            db_connector.execute_query("DELETE FROM b2b_kosik WHERE zakaznik_id=%s", (login,), fetch="none")
+            db_connector.execute_query("DELETE FROM b2b_objednavky_polozky WHERE objednavka_id IN (SELECT id FROM b2b_objednavky WHERE zakaznik_id = %s)", (login,), fetch="none")
+            db_connector.execute_query("DELETE FROM b2b_objednavky WHERE zakaznik_id=%s", (login,), fetch="none")
+            db_connector.execute_query("DELETE FROM b2b_zakaznik_cennik WHERE zakaznik_id=%s", (login,), fetch="none")
+            db_connector.execute_query("DELETE FROM b2b_messages WHERE customer_id=%s", (cid,), fetch="none")
+            db_connector.execute_query("DELETE FROM b2b_zakaznici WHERE id=%s", (cid,), fetch="none")
+            return {"message": f"Testovací profil '{cust['nazov_firmy']}' bol odstránený."}
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return {"error": f"Chyba pri mazaní: {str(e)}"}
 
 def update_customer_route_order(data: dict):
     cid = str(data.get("zakaznik_id", ""))
@@ -2096,80 +2165,6 @@ def get_order_history(user_id):
     ) or []
     return {"orders": rows}
 
-def delete_b2b_customer(data: dict):
-    cid = data.get("id")
-    if not cid:
-        return {"error": "Chýba ID zákazníka."}
-    
-    # 1. Získame LOGIN (zakaznik_id), lebo objednávky sú viazané na string, nie na ID
-    cust = db_connector.execute_query(
-        "SELECT id, zakaznik_id, nazov_firmy FROM b2b_zakaznici WHERE id=%s", 
-        (cid,), fetch="one"
-    )
-    
-    if not cust:
-        return {"error": "Zákazník už neexistuje."}
-        
-    login = cust["zakaznik_id"]
-    
-    print(f"--- ZAČÍNAM MAZANIE TESTOVACIEHO PROFILU: {login} (ID: {cid}) ---")
-
-    try:
-        # A) Zmažeme položky v KOŠÍKU (ak nejaké zostali visieť)
-        db_connector.execute_query(
-            "DELETE FROM b2b_kosik WHERE zakaznik_id=%s", 
-            (login,), fetch="none"
-        )
-
-        # B) Zmažeme POLOŽKY OBJEDNÁVOK (Najprv deti, potom rodičov!)
-        # Musíme nájsť ID objednávok tohto zákazníka a zmazať ich položky
-        db_connector.execute_query(
-            """
-            DELETE FROM b2b_objednavky_polozky 
-            WHERE objednavka_id IN (
-                SELECT id FROM b2b_objednavky WHERE zakaznik_id = %s
-            )
-            """, 
-            (login,), fetch="none"
-        )
-
-        # C) Teraz môžeme zmazať samotné OBJEDNÁVKY
-        db_connector.execute_query(
-            "DELETE FROM b2b_objednavky WHERE zakaznik_id=%s", 
-            (login,), fetch="none"
-        )
-
-        # D) Zmažeme väzby na CENNÍKY
-        db_connector.execute_query(
-            "DELETE FROM b2b_zakaznik_cennik WHERE zakaznik_id=%s", 
-            (login,), fetch="none"
-        )
-        
-        # E) Zmažeme SPRÁVY
-        db_connector.execute_query(
-            "DELETE FROM b2b_messages WHERE customer_id=%s", 
-            (cid,), fetch="none"
-        )
-
-        # F) Konečne zmažeme ZÁKAZNÍKA
-        db_connector.execute_query(
-            "DELETE FROM b2b_zakaznici WHERE id=%s", 
-            (cid,), fetch="none"
-        )
-
-        # 2. OVERENIE (pre istotu)
-        check = db_connector.execute_query(
-            "SELECT id FROM b2b_zakaznici WHERE id=%s", (cid,), fetch="one"
-        )
-        
-        if check:
-            return {"error": "Databáza stále odmieta zmazať záznam. Pravdepodobne existuje ešte iná tabuľka s väzbou, o ktorej nevieme."}
-
-        return {"message": f"Testovací profil '{cust['nazov_firmy']}' a všetky jeho dáta boli kompletne odstránené."}
-
-    except Exception as e:
-        traceback.print_exc()
-        return {"error": f"Chyba pri mazaní: {str(e)}"}
 
 def get_customer_360_view(data: dict):
     cid = data.get("id")
