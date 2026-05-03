@@ -2642,7 +2642,7 @@ def _ensure_stores_table():
 def get_stores():
     _ensure_stores_table()
     rows = db_connector.execute_query("""
-        SELECT s.id, s.name, s.note, s.b2b_customer_id, 
+        SELECT s.id, s.name, s.note, s.b2b_customer_id, s.lat, s.lon,
                c.nazov_firmy as b2b_name, c.zakaznik_id as b2b_erp_id, c.cislo_prevadzky
         FROM b2b_stores s
         LEFT JOIN b2b_zakaznici c ON s.b2b_customer_id = c.id
@@ -2655,12 +2655,17 @@ def get_stores():
             r["b2b_name"] = f"[{r['cislo_prevadzky']}] {r['b2b_name']}"
             
     return {"stores": rows}
+
 def save_store(data: dict):
     _ensure_stores_table()
     sid = data.get('id')
     name = (data.get('name') or '').strip()
     note = (data.get('note') or '').strip()
     b2b_id = data.get('b2b_customer_id')
+    
+    # NOVÉ: Zachytenie súradníc z frontendu
+    lat = data.get('lat')
+    lon = data.get('lon')
 
     if not name:
         return {"error": "Názov prevádzky je povinný."}
@@ -2669,19 +2674,23 @@ def save_store(data: dict):
     if not b2b_id or str(b2b_id) == "0":
         b2b_id = None
 
+    # Ošetrenie prázdnych GPS hodnôt
+    if str(lat).strip() in ["", "null", "None"]: lat = None
+    if str(lon).strip() in ["", "null", "None"]: lon = None
+
     if sid:
         db_connector.execute_query(
-            "UPDATE b2b_stores SET name=%s, note=%s, b2b_customer_id=%s WHERE id=%s",
-            (name, note, b2b_id, sid), fetch='none'
+            "UPDATE b2b_stores SET name=%s, note=%s, b2b_customer_id=%s, lat=%s, lon=%s WHERE id=%s",
+            (name, note, b2b_id, lat, lon, sid), fetch='none'
         )
-        return {"message": "Prevádzka bola úspešne upravená."}
+        return {"message": "Prevádzka bola úspešne upravená vrátane GPS."}
     else:
         db_connector.execute_query(
-            "INSERT INTO b2b_stores (name, note, b2b_customer_id) VALUES (%s, %s, %s)",
-            (name, note, b2b_id), fetch='none'
+            "INSERT INTO b2b_stores (name, note, b2b_customer_id, lat, lon) VALUES (%s, %s, %s, %s, %s)",
+            (name, note, b2b_id, lat, lon), fetch='none'
         )
         return {"message": "Nová prevádzka bola pridaná do adresára."}
-
+    
 def delete_store(data: dict):
     sid = data.get('id')
     if not sid: return {"error": "Chýba ID prevádzky."}
