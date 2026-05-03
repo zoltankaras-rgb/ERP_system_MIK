@@ -1628,6 +1628,18 @@ window.showManualRouteEditor = async function(id) {
                   
                   let cardsHtml = '';
                   t.zastavky.forEach(z => {
+                      // NOVÉ: Logika pre zobrazenie ETA priamo na kartičke
+                      let timeBadge = '';
+                      if (z.cas_dorucenia_real && z.cas_dorucenia_real !== 'None') {
+                          const d = new Date(z.cas_dorucenia_real.replace(' ', 'T'));
+                          timeBadge = `<div style="margin-top:8px;"><span style="color:#16a34a; font-weight:bold; background:#dcfce7; padding:3px 6px; border-radius:4px; font-size:0.75rem; border: 1px solid #bbf7d0;"><i class="fas fa-check-circle"></i> Vyložené: ${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}</span></div>`;
+                      } else if (z.cas_eta && z.cas_eta !== 'None') {
+                          const d = new Date(z.cas_eta.replace(' ', 'T'));
+                          timeBadge = `<div style="margin-top:8px;"><span style="color:#0284c7; font-weight:bold; background:#e0f2fe; padding:3px 6px; border-radius:4px; font-size:0.75rem; border: 1px solid #bae6fd;"><i class="fas fa-clock"></i> ETA: ${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}</span></div>`;
+                      } else {
+                          timeBadge = `<div style="margin-top:8px;"><span style="color:#94a3b8; font-size:0.75rem;"><i class="fas fa-bed"></i> Čaká na odjazd...</span></div>`;
+                      }
+
                       cardsHtml += `
                           <div class="k-card" draggable="true" data-cid="${escapeHtml(z.zakaznik_id)}">
                               <div style="display:flex; justify-content:space-between; align-items:flex-start;">
@@ -1639,6 +1651,7 @@ window.showManualRouteEditor = async function(id) {
                                   <span class="k-badge">${z.pocet_objednavok} obj.</span>
                                   <span style="font-size:0.75rem; color:#94a3b8; margin-left:5px;">${z.cisla_objednavok.join(', ')}</span>
                               </div>
+                              ${timeBadge}
                           </div>
                       `;
                   });
