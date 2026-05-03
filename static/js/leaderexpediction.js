@@ -4952,6 +4952,80 @@ function renderArchiveTree(tree, type) {
     h += '</div>';
     return h;
 }
+// =================================================================
+// ARCHÍV PRÍJEMOK A INVENTÚR
+// =================================================================
+
+window.loadLeaderArchive = function() {
+    // 1. Načítať nové príjemky (Ľavý stĺpec)
+    window.loadLeaderReceptions();
+    
+    // 2. Načítať tvoje pôvodné inventúry (Pravý stĺpec)
+    if (typeof window.loadLeaderInventory === 'function') {
+        window.loadLeaderInventory();
+    }
+};
+
+window.loadLeaderReceptions = async function() {
+    const container = document.getElementById('archive-receptions-container');
+    if (!container) return;
+    
+    container.innerHTML = '<div class="text-center muted" style="padding: 20px;"><i class="fas fa-spinner fa-spin fa-2x"></i><br>Načítavam dáta zo servera...</div>';
+    
+    try {
+        const days = await apiRequest('/api/leader/reception/archive_days');
+        
+        if (!days || days.length === 0) {
+            container.innerHTML = '<div class="alert alert-secondary text-center">Zatiaľ nebol uzavretý žiadny deň.</div>';
+            return;
+        }
+
+        // Zoskupenie dní podľa Roku a Mesiaca pre pekný strom
+        const tree = {};
+        days.forEach(d => {
+            const [y, m, day] = d.split('-');
+            if (!tree[y]) tree[y] = {};
+            if (!tree[y][m]) tree[y][m] = [];
+            tree[y][m].push(d);
+        });
+
+        let html = '';
+        const years = Object.keys(tree).sort((a, b) => b - a);
+
+        years.forEach(year => {
+            html += `<h4 style="background:#e2e8f0; padding:10px 15px; margin:0 0 10px 0; color:#0f172a; border-radius:6px; border:1px solid #cbd5e1;"><i class="fas fa-folder-open" style="color:#0369a1;"></i> ROK ${year}</h4>`;
+            
+            const months = Object.keys(tree[year]).sort((a, b) => b - a);
+            months.forEach(month => {
+                const mName = new Date(year, month - 1).toLocaleString('sk-SK', {month:'long'});
+                
+                html += `<details style="margin-bottom:10px; background:#fff; border:1px solid #e2e8f0; border-radius:6px;">
+                        <summary style="cursor:pointer; color:#0369a1; text-transform:capitalize; font-weight:bold; padding:10px; border-bottom:1px solid #f1f5f9;">
+                            <i class="far fa-calendar-alt"></i> ${mName}
+                        </summary>
+                        <div style="padding:10px; display:flex; flex-direction:column; gap:8px; background:#f8fafc;">`;
+                
+                tree[year][month].forEach(date => {
+                    const dayNum = date.split('-')[2];
+                    html += `
+                        <div style="display:flex; justify-content:space-between; align-items:center; background:#fff; padding:10px 15px; border-radius:4px; border:1px solid #e2e8f0; box-shadow:0 1px 2px rgba(0,0,0,0.05);">
+                            <span style="font-size:1.05rem; color:#1e293b;"><strong>${dayNum}.</strong> ${mName}</span>
+                            <button class="btn btn-sm btn-primary" onclick="window.open('/api/leader/reception/print_report/${date}', '_blank')" style="font-weight:bold;">
+                                <i class="fas fa-print"></i> Tlačiť
+                            </button>
+                        </div>`;
+                });
+                
+                html += `</div></details>`;
+            });
+        });
+
+        container.innerHTML = html;
+
+    } catch (e) {
+        container.innerHTML = `<div class="alert alert-danger">Chyba pri načítaní: ${e.message}</div>`;
+    }
+};
  function boot(){
     $$('.sidebar-link').forEach(a=>{
       a.onclick = ()=>{

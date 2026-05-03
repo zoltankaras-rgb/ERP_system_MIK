@@ -2176,6 +2176,31 @@ def get_archive_reports():
 def print_archive_reception(date_str):
     """HTML náhľad príjemky pre tlač."""
     return expedition_handler.get_daily_reception_report_html(date_str)
+
+# =============================================================================
+# ARCHÍV A TLAČ DENNÝCH PRÍJMOV PRE VEDÚCEHO
+# =============================================================================
+
+@leader_bp.get('/reception/archive_days')
+@login_required(role=('veduci', 'admin'))
+def leader_reception_days():
+    """Vráti zoznam dní, kedy bol vykonaný príjem na sklad."""
+    import expedition_handler
+    return jsonify(expedition_handler.get_acceptance_days())
+
+@leader_bp.get('/reception/print_report/<date_str>')
+@login_required(role=('veduci', 'admin'))
+def leader_print_reception_report(date_str):
+    """Vygeneruje a vráti HTML denného reportu na priamu tlač."""
+    import expedition_handler
+    html_content = expedition_handler.get_daily_reception_report_html(date_str)
+    
+    auto_print_script = "<script>window.onload=function(){ window.print(); }</script>"
+    
+    if "</body>" in html_content:
+        return html_content.replace("</body>", f"{auto_print_script}</body>")
+    
+    return html_content + auto_print_script
  # =============================================================================
 # SKLAD - Mínusové stavy
 # =============================================================================
