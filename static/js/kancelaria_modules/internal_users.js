@@ -55,7 +55,7 @@ const InternalUsersModule = {
         });
     },
 
-   showForm: function() {
+    showForm: function() {
         document.getElementById('user-form-container').style.display = 'block';
         document.getElementById('user-id').value = '';
         document.getElementById('user-username').value = '';
@@ -82,7 +82,7 @@ const InternalUsersModule = {
         document.getElementById('btn-delete-user').style.display = 'block'; 
     },
 
-    // Nová funkcia na fyzické zmazanie
+    // Funkcia na fyzické zmazanie
     deleteUserFromForm: function() {
         const userId = document.getElementById('user-id').value;
         const username = document.getElementById('user-username').value;
@@ -97,7 +97,7 @@ const InternalUsersModule = {
             method: 'POST',
             headers: { 
                 'Content-Type': 'application/json',
-                'X-Admin-Password': InternalUsersModule.masterPassword // Opravené
+                'X-Admin-Password': InternalUsersModule.masterPassword
             },
             body: JSON.stringify({ id: userId })
         })
@@ -105,8 +105,8 @@ const InternalUsersModule = {
         .then(result => {
             if(result.success) {
                 alert(result.message);
-                InternalUsersModule.hideForm();   // Opravené (namiesto this)
-                InternalUsersModule.loadUsers();  // Opravené (namiesto this)
+                InternalUsersModule.hideForm();
+                InternalUsersModule.loadUsers();
             } else {
                 alert("Chyba: " + result.error);
             }
@@ -128,7 +128,7 @@ const InternalUsersModule = {
             method: 'POST',
             headers: { 
                 'Content-Type': 'application/json',
-                'X-Admin-Password': this.masterPassword
+                'X-Admin-Password': InternalUsersModule.masterPassword
             },
             body: JSON.stringify(payload)
         })
@@ -136,12 +136,13 @@ const InternalUsersModule = {
         .then(result => {
             if(result.success) {
                 alert(result.message);
-                this.hideForm();
-                this.loadUsers();
+                InternalUsersModule.hideForm();
+                InternalUsersModule.loadUsers();
             } else {
                 alert("Chyba: " + result.error);
             }
-        });
+        })
+        .catch(err => console.error("Chyba pri ukladaní:", err));
     }
 };
 
