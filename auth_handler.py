@@ -59,11 +59,9 @@ def canonicalize_role(role_raw: str) -> str:
 
 # Kto smie do ktorého modulu
 MODULE_ROLE_MATRIX = {
-    'expedicia': {'veduci', 'expedicia', 'admin'},  # veduci má prístup do expedície
+    'expedicia': {'veduci', 'expedicia', 'admin', 'sofer'}, # <-- Pridaný sofer
     'kancelaria': {'kancelaria', 'admin'},
     'vyroba': {'vyroba', 'admin'},
-
-    # --- NOVÉ: Peťov vyhradený priestor ---
     'margit': {'margit', 'admin'},
 }
 

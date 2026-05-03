@@ -573,9 +573,9 @@ def internal_login():
     # ROZDHODUJÚCA ZMENA: rolu vždy skánonizuj (strip + lower + aliasy: veduca -> veduci)
     role = canonicalize_role(user.get('role'))
 
-    # Prístup do modulov – 'veduci' má prístup do expedície
+    # Prístup do modulov
     allowed_for_module = {
-        'expedicia': {'veduci', 'expedicia', 'admin'},
+        'expedicia': {'veduci', 'expedicia', 'admin', 'sofer'}, # <-- Pridaný sofer
         'kancelaria': {'kancelaria', 'admin'},
         'vyroba': {'vyroba', 'admin'},
     }
@@ -5487,7 +5487,7 @@ def api_internal_users_save():
 
     data = request.json or {}
     user_id = data.get('id')
-    username = data.get('username')
+    username = (data.get('username') or '').strip()
     password = data.get('password')
     role_raw = data.get('role')
     full_name = data.get('full_name') or None
@@ -5528,6 +5528,31 @@ def api_internal_users_save():
     except Exception as e:
         # Odchytí napr. duplicitu username (UNIQUE constraint)
         return jsonify({"error": f"Chyba databázy: {str(e)}"}), 500
+
+@app.route('/api/kancelaria/internal_users/delete', methods=['POST'])
+@login_required(role=['kancelaria', 'admin', 'veduci'])
+def api_internal_users_delete():
+    # Kontrola master hesla
+    pwd = request.headers.get('X-Admin-Password')
+    if pwd != ADMIN_MASTER_PASSWORD:
+        return jsonify({"error": "Neplatné administrátorské heslo."}), 403
+
+    data = request.json or {}
+    user_id = data.get('id')
+    
+    if not user_id:
+        return jsonify({"error": "Chýba ID používateľa."}), 400
+
+    try:
+        # Fyzické zmazanie z databázy
+        import db_connector
+        db_connector.execute_query(
+            "DELETE FROM internal_users WHERE id=%s",
+            (user_id,), fetch='none'
+        )
+        return jsonify({"success": True, "message": "Používateľ bol natrvalo zmazaný."})
+    except Exception as e:
+        return jsonify({"error": f"Chyba pri mazaní z databázy: {str(e)}"}), 500
 # =================================================================
 # === SPUSTENIE APLIKÁCIE (len pre lokálny development) ===========
 # =================================================================
