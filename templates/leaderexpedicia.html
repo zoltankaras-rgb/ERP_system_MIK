@@ -117,8 +117,9 @@
             </a>
           </li>
           <li>
-            <a class="sidebar-link" href="#" data-section="leader-archive" onclick="if(window.loadLeaderArchive) window.loadLeaderArchive();">
-              <i class="fas fa-archive"></i> <span>Inventúry a Protokoly</span>
+            <!-- ZMENA: Namiesto onclick používame tvoj overený data-section="leader-inventory" -->
+            <a href="#" class="sidebar-link" data-section="leader-inventory">
+              <i class="fas fa-clipboard-check"></i> <span>Inventúry a Protokoly</span>
             </a>
           </li>
           <li><a class="sidebar-link" href="#" data-section="leader-b2c"><i class="fas fa-basket-shopping"></i> B2C Objednávky</a></li>
@@ -192,10 +193,11 @@
           </div>
         </div>
 
-        <div id="leader-archive" class="content-section">
+        <!-- ZMENA: ID kontajneru je teraz natívne podľa tvojho JS 'leader-inventory' -->
+        <div id="leader-inventory" class="content-section">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
             <h3 style="margin:0;">Inventúry a Protokoly príjmu</h3>
-            <button class="btn btn-primary" onclick="window.loadLeaderArchive()"><i class="fas fa-sync"></i> Obnoviť všetky dáta</button>
+            <button class="btn btn-primary" onclick="window.loadLeaderInventory()"><i class="fas fa-sync"></i> Obnoviť všetky dáta</button>
           </div>
           
           <div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px;">
@@ -668,13 +670,10 @@
     }
     window.closeModal = closeModal;
 
-    // NOVÝ KÓD PRE NAČÍTANIE ARCHÍVU A INVENTÚR
-    window.loadLeaderArchive = function() {
-        // 1. Načítať nové príjemky (Ľavý stĺpec)
+    // TOTO PREPÍŠE PÔVODNÚ FUNKCIU V LEADEREXPEDICTION.JS A SPUSTÍ OBA STĹPCE!
+    window.loadLeaderInventory = async function() {
         window.loadLeaderReceptions();
-        
-        // 2. Načítať tvoje pôvodné inventúry do nového stromu (Pravý stĺpec)
-        window.loadLeaderInventory();
+        window.loadLeaderInventoriesTree();
     };
 
     window.loadLeaderReceptions = async function() {
@@ -742,8 +741,7 @@
         }
     };
 
-    // Prepis pôvodnej funkcie loadLeaderInventory na stromovú štruktúru
-    window.loadLeaderInventory = async function() {
+    window.loadLeaderInventoriesTree = async function() {
         const container = document.getElementById('leader-inventory-content');
         if (!container) return;
         
@@ -836,7 +834,6 @@
         }
     };
 
-    // Pomocná funkcia na escape (aby html nezlyhalo ak je v mene úvodzovka)
     function escapeHtml(unsafe) {
         if (!unsafe) return '';
         return unsafe
