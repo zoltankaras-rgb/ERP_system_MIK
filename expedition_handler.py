@@ -1226,10 +1226,21 @@ def finish_product_inventory():
 # ───────────────────────── Denný report ─────────────────────────
 def get_daily_reception_report_html(date_str):
     if not date_str: return "Chýba dátum."
+    
+    # ZMENA: Pridaný LEFT JOIN na tabuľku produkty pre stiahnutie EAN kódu
     rows = db_connector.execute_query(
         """
-        SELECT ep.created_at, ep.nazov_vyrobku, ep.unit, ep.prijem_kg, ep.prijem_ks, ep.prijal, ep.id_davky
+        SELECT 
+            ep.created_at, 
+            ep.nazov_vyrobku, 
+            ep.unit, 
+            ep.prijem_kg, 
+            ep.prijem_ks, 
+            ep.prijal, 
+            ep.id_davky,
+            p.ean
         FROM expedicia_prijmy ep
+        LEFT JOIN produkty p ON TRIM(ep.nazov_vyrobku) = TRIM(p.nazov_vyrobku)
         WHERE ep.datum_prijmu = %s AND ep.is_deleted = 0
         ORDER BY ep.created_at ASC
         """, (date_str,), fetch='all'
@@ -1250,18 +1261,43 @@ def get_daily_reception_report_html(date_str):
             val = int(r['prijem_ks'] or 0)
             qty_display = f"{val} ks"
 
-        trs += f"<tr><td>{cas}</td><td>{r['id_davky']}</td><td>{r['nazov_vyrobku']}</td><td style='text-align:right'>{qty_display}</td><td>{r['prijal']}</td></tr>"
+        # Zabezpečenie ak produkt nemá EAN
+        ean_disp = r.get('ean') or '---'
+
+        # ZMENA: Pridaný nový stĺpec pre EAN do riadku tabuľky
+        trs += f"<tr><td>{cas}</td><td style='font-family:monospace;'>{r['id_davky']}</td><td style='font-family:monospace; font-weight:bold;'>{ean_disp}</td><td>{r['nazov_vyrobku']}</td><td style='text-align:right'>{qty_display}</td><td>{r['prijal']}</td></tr>"
 
     formatted_date = datetime.strptime(date_str, '%Y-%m-%d').strftime('%d.%m.%Y')
     local_now = _to_local_time(datetime.now())
     generated_at = local_now.strftime('%d.%m.%Y %H:%M')
 
+    # ZMENA: V hlavičke tabuľky (<thead>) pridaný <th>EAN</th> a vo footer (<tfoot>) upravený colspan na 4
     return f"""<!DOCTYPE html><html lang="sk"><head><meta charset="UTF-8"><title>Report</title>
     <style>body{{font-family:Arial,sans-serif;font-size:12px}}h1{{font-size:18px}}table{{width:100%;border-collapse:collapse}}th,td{{border:1px solid #ccc;padding:5px}}th{{background:#f0f0f0}}.right{{text-align:right}}@media print{{.no-print{{display:none}}}}</style></head>
     <body><button class="no-print" onclick="window.print()">Tlačiť</button><h1>Denný protokol {formatted_date}</h1>
-    <table><thead><tr><th>Čas</th><th>Šarža</th><th>Produkt</th><th class="right">Množstvo</th><th>Prijal</th></tr></thead><tbody>{trs or '<tr><td colspan=5>Žiadny príjem.</td></tr>'}</tbody><tfoot><tr><td colspan=3 class="right"><strong>Spolu (kg):</strong></td><td class="right"><strong>{total_kg:.2f} kg</strong></td><td></td></tr></tfoot></table>
+    <table>
+        <thead>
+            <tr>
+                <th>Čas</th>
+                <th>Šarža</th>
+                <th>EAN</th>
+                <th>Produkt</th>
+                <th class="right">Množstvo</th>
+                <th>Prijal</th>
+            </tr>
+        </thead>
+        <tbody>
+            {trs or '<tr><td colspan=6>Žiadny príjem.</td></tr>'}
+        </tbody>
+        <tfoot>
+            <tr>
+                <td colspan=4 class="right"><strong>Spolu (kg):</strong></td>
+                <td class="right"><strong>{total_kg:.2f} kg</strong></td>
+                <td></td>
+            </tr>
+        </tfoot>
+    </table>
     <div style="margin-top:40px">Vygenerované: {generated_at}</div></body></html>"""
-
 # ───────────────────────── Traceability ─────────────────────────
 def get_traceability_info(batch_id):
     if not batch_id:
