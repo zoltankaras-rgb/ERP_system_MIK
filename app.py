@@ -4333,6 +4333,17 @@ def api_fleet_get_prev_odo():
         
     val = fleet_handler.get_previous_odometer_value(vid, date_str)
     return jsonify({'value': val})
+
+
+@app.route('/api/kancelaria/fleet/trip-map-data', methods=['GET'])
+@login_required(role=('kancelaria', 'veduci', 'admin'))
+def api_fleet_trip_map_data():
+    res = fleet_handler.get_trip_map_data(
+        request.args.get('vehicle_id'),
+        request.args.get('date')
+    )
+    return (jsonify(res), 200) if 'error' not in res else (jsonify(res), 400)
+
 # =================================================================
 # === MEAT CALC (Kancelária) ===
 # =================================================================

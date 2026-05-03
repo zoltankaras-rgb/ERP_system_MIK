@@ -783,15 +783,11 @@ def delete_trip_log(data: dict):
     db_connector.execute_query("DELETE FROM fleet_logs WHERE id=%s", (trip_id,), fetch="none")
     return {"message": "Záznam o jazde vymazaný."}
 
-@fleet_bp.get('/trip-map-data')
-@login_required(role=('veduci', 'admin', 'kancelaria'))
-def fleet_trip_map_data():
+def get_trip_map_data(vehicle_id, date_str):
     import db_connector
-    vehicle_id = request.args.get('vehicle_id')
-    date_str = request.args.get('date')
     
     if not vehicle_id or not date_str:
-        return jsonify({"error": "Chýba vozidlo alebo dátum."}), 400
+        return {"error": "Chýba vozidlo alebo dátum."}
         
     conn = db_connector.get_connection()
     try:
@@ -802,11 +798,10 @@ def fleet_trip_map_data():
         trasa_ids = [str(t['trasa_id']) for t in trasy if t.get('trasa_id')]
         
         if not trasa_ids:
-            return jsonify({"error": "V tento deň auto nemalo cez Dispečing priradenú žiadnu trasu."}), 404
+            return {"error": "V tento deň auto nemalo cez Dispečing priradenú žiadnu trasu."}
 
         format_strings = ','.join(['%s'] * len(trasa_ids))
         
-        # NOVÉ: Pridaný MAX(o.cas_dorucenia_real) pre dôkaz o doručení
         sql = f"""
             SELECT z.nazov_firmy, z.lat, z.lon, z.trasa_poradie, MAX(o.cas_dorucenia_real) as cas_dorucenia
             FROM b2b_zakaznici z
@@ -834,7 +829,7 @@ def fleet_trip_map_data():
         rows = cur.fetchall() or []
         
         if not rows:
-            return jsonify({"error": "Na túto trasu v daný deň neboli žiadne aktívne objednávky s GPS súradnicami."}), 404
+            return {"error": "Na túto trasu v daný deň neboli aktívne objednávky s GPS."}
             
         rows.sort(key=lambda x: int(x['trasa_poradie'] or 999))
         
@@ -851,13 +846,13 @@ def fleet_trip_map_data():
             
         MIK_SALA = {"lat": 48.165686, "lon": 17.890930, "name": "MIK s.r.o. Šaľa"}
         
-        return jsonify({
+        return {
             "mik_sala": MIK_SALA,
             "zastavky": zastavky
-        })
+        }
         
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return {"error": str(e)}
     finally:
         if conn and conn.is_connected():
             cur.close()
