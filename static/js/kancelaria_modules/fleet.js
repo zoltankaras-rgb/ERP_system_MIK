@@ -2039,7 +2039,7 @@ async function fetchAndDrawRealTrip(vehicleId, dateStr, locStart, locEnd) {
     } else {
         // --- REŽIM B: ZÁCHRANNÁ BRZDA (Zlepšené hádanie miest z textu) ---
         const fullText = (locStart || "") + " , " + (locEnd || "");
-        let locations = fullText.split(/[,>|\\-\/]+|\s+a\s+/i).map(p => p.trim()).filter(p => p.length > 2);
+        let locations = fullText.split(/[,>|\\/\-]+|\s+a\s+/i).map(p => p.trim()).filter(p => p.length > 2);
         locations = [...new Set(locations)];
         
         if(locations.length === 0) {
