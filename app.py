@@ -5517,7 +5517,6 @@ def api_internal_users_save():
 @app.route('/api/kancelaria/internal_users/delete', methods=['POST'])
 @login_required(role=['kancelaria', 'admin', 'veduci'])
 def api_internal_users_delete():
-    # Kontrola master hesla
     pwd = request.headers.get('X-Admin-Password')
     if pwd != ADMIN_MASTER_PASSWORD:
         return jsonify({"error": "Neplatné administrátorské heslo."}), 403
@@ -5529,13 +5528,13 @@ def api_internal_users_delete():
         return jsonify({"error": "Chýba ID používateľa."}), 400
 
     try:
-        # Fyzické zmazanie z databázy
         import db_connector
+        # Fyzické vymazanie záznamu z tabuľky
         db_connector.execute_query(
             "DELETE FROM internal_users WHERE id=%s",
             (user_id,), fetch='none'
         )
-        return jsonify({"success": True, "message": "Používateľ bol natrvalo zmazaný."})
+        return jsonify({"success": True, "message": "Používateľ bol natrvalo zmazaný z databázy."})
     except Exception as e:
         return jsonify({"error": f"Chyba pri mazaní z databázy: {str(e)}"}), 500
 # =================================================================

@@ -55,7 +55,7 @@ const InternalUsersModule = {
         });
     },
 
-    showForm: function() {
+   showForm: function() {
         document.getElementById('user-form-container').style.display = 'block';
         document.getElementById('user-id').value = '';
         document.getElementById('user-username').value = '';
@@ -64,10 +64,9 @@ const InternalUsersModule = {
         document.getElementById('user-role').value = 'vyroba';
         document.getElementById('user-is-active').checked = true;
         document.getElementById('user-form-title').innerText = 'Nový používateľ';
-    },
-
-    hideForm: function() {
-        document.getElementById('user-form-container').style.display = 'none';
+        
+        // Skryjeme tlačidlo zmazať pri vytváraní nového
+        document.getElementById('btn-delete-user').style.display = 'none'; 
     },
 
     editUser: function(user) {
@@ -78,8 +77,43 @@ const InternalUsersModule = {
         document.getElementById('user-fullname').value = user.full_name || '';
         document.getElementById('user-role').value = user.role;
         document.getElementById('user-is-active').checked = (user.is_active === 1);
+        
+        // Zobrazíme tlačidlo zmazať, lebo upravujeme existujúceho
+        document.getElementById('btn-delete-user').style.display = 'block'; 
     },
 
+    // Nová funkcia na fyzické zmazanie
+    deleteUserFromForm: function() {
+        const userId = document.getElementById('user-id').value;
+        const username = document.getElementById('user-username').value;
+
+        if (!userId) return;
+
+        if (!confirm(`Naozaj chcete NATRVALO VYMAZAŤ používateľa "${username}" z databázy? \nTáto akcia sa nedá vrátiť späť.`)) {
+            return;
+        }
+
+        fetch('/api/kancelaria/internal_users/delete', {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/json',
+                'X-Admin-Password': this.masterPassword
+            },
+            body: JSON.stringify({ id: userId })
+        })
+        .then(res => res.json())
+        .then(result => {
+            if(result.success) {
+                alert(result.message);
+                this.hideForm();
+                this.loadUsers(); // Obnoví tabuľku
+            } else {
+                alert("Chyba: " + result.error);
+            }
+        })
+        .catch(err => console.error("Chyba pri mazaní:", err));
+    },
+    
     saveUser: function() {
         const payload = {
             id: document.getElementById('user-id').value,
