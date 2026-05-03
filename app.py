@@ -5473,45 +5473,45 @@ def api_internal_users_save():
     data = request.json or {}
     user_id = data.get('id')
     username = (data.get('username') or '').strip()
-    password = data.get('password')
+    password = data.get('password') or ''
     role_raw = data.get('role')
     full_name = data.get('full_name') or None
     is_active = int(data.get('is_active', 1))
 
-    # Využijeme vašu existujúcu normalizáciu rolí
+    # Normalizácia roly
     role = auth_handler.canonicalize_role(role_raw)
 
     if not username or not role:
         return jsonify({"error": "Meno a rola sú povinné."}), 400
 
     try:
+        import db_connector
         if user_id:
-            # Úprava existujúceho
+            # Úprava existujúceho (presne podľa stĺpcov v DB)
             if password:
                 salt, hsh = auth_handler.generate_password_hash(password)
                 db_connector.execute_query(
-                    "UPDATE internal_users SET username=%s, password_hash=%s, password_salt=%s, role=%s, full_name=%s, is_active=%s, updated_at=NOW() WHERE id=%s",
+                    "UPDATE internal_users SET username=%s, password_hash=%s, password_salt=%s, role=%s, full_name=%s, is_active=%s WHERE id=%s",
                     (username, hsh, salt, role, full_name, is_active, user_id), fetch='none'
                 )
             else:
                 db_connector.execute_query(
-                    "UPDATE internal_users SET username=%s, role=%s, full_name=%s, is_active=%s, updated_at=NOW() WHERE id=%s",
+                    "UPDATE internal_users SET username=%s, role=%s, full_name=%s, is_active=%s WHERE id=%s",
                     (username, role, full_name, is_active, user_id), fetch='none'
                 )
             return jsonify({"success": True, "message": "Používateľ upravený."})
         else:
-            # Nový používateľ
+            # Nový používateľ (presne podľa stĺpcov v DB)
             if not password:
                 return jsonify({"error": "Pre nového používateľa je heslo povinné."}), 400
             
             salt, hsh = auth_handler.generate_password_hash(password)
             db_connector.execute_query(
-                "INSERT INTO internal_users (username, password_hash, password_salt, role, full_name, is_active, created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW())",
+                "INSERT INTO internal_users (username, password_hash, password_salt, role, full_name, is_active) VALUES (%s, %s, %s, %s, %s, %s)",
                 (username, hsh, salt, role, full_name, is_active), fetch='none'
             )
             return jsonify({"success": True, "message": "Používateľ vytvorený."})
     except Exception as e:
-        # Odchytí napr. duplicitu username (UNIQUE constraint)
         return jsonify({"error": f"Chyba databázy: {str(e)}"}), 500
 
 @app.route('/api/kancelaria/internal_users/delete', methods=['POST'])
