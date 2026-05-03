@@ -1989,14 +1989,18 @@ async function fetchAndDrawRealTrip(vehicleId, dateStr, locStart, locEnd) {
         const bounds = [];
         const waypoints = [];
 
-        waypoints.push(mikSalaCoords);
+        // OPRAVA: Pevne definovaný bod štartu a cieľa v správnom formáte
+        const mikSalaObj = { lat: 48.165686, lon: 17.890930, name: "MIK s.r.o. Šaľa" };
+        waypoints.push(mikSalaObj);
+        
         normalizedPoints.forEach(p => waypoints.push({
             lat: parseFloat(p.lat),
             lon: parseFloat(p.lon),
             name: p.name,
             cas_dorucenia: deliveryTimes[p.name] || p.cas_dorucenia
         }));
-        waypoints.push(mikSalaCoords);
+        
+        waypoints.push(mikSalaObj);
 
         waypoints.forEach((w, i) => {
             bounds.push([w.lat, w.lon]);
