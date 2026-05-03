@@ -1,11 +1,10 @@
-const InternalUsersModule = {
+window.InternalUsersModule = {
     masterPassword: null,
 
     init: function() {
         if (!this.masterPassword) {
             this.masterPassword = prompt("Zadajte hlavné administrátorské heslo pre prístup k správe užívateľov:");
             if (!this.masterPassword) {
-                // Ak zruší prompt, preklikneme ho späť na dashboard
                 document.querySelector('[data-section="section-dashboard"]').click();
                 return;
             }
@@ -14,18 +13,19 @@ const InternalUsersModule = {
     },
 
     loadUsers: function() {
+        const self = this; // Tvrdé uloženie kontextu
         fetch('/api/kancelaria/internal_users/list', {
-            headers: { 'X-Admin-Password': this.masterPassword }
+            headers: { 'X-Admin-Password': self.masterPassword }
         })
         .then(res => res.json())
         .then(data => {
             if (data.error) {
                 alert(data.error);
-                this.masterPassword = null;
+                self.masterPassword = null;
                 document.querySelector('[data-section="section-dashboard"]').click();
                 return;
             }
-            this.renderTable(data);
+            self.renderTable(data);
         })
         .catch(err => console.error("Chyba:", err));
     },
@@ -46,7 +46,7 @@ const InternalUsersModule = {
                 <td>${roleBadge}</td>
                 <td>${statusBadge}</td>
                 <td style="text-align:right;">
-                    <button class="btn btn-secondary btn-sm" onclick='InternalUsersModule.editUser(${JSON.stringify(u)})'>
+                    <button class="btn btn-secondary btn-sm" onclick='window.InternalUsersModule.editUser(${JSON.stringify(u)})'>
                         <i class="fas fa-edit"></i> Upraviť
                     </button>
                 </td>
@@ -64,9 +64,11 @@ const InternalUsersModule = {
         document.getElementById('user-role').value = 'vyroba';
         document.getElementById('user-is-active').checked = true;
         document.getElementById('user-form-title').innerText = 'Nový používateľ';
-        
-        // Skryjeme tlačidlo zmazať pri vytváraní nového
         document.getElementById('btn-delete-user').style.display = 'none'; 
+    },
+
+    hideForm: function() {
+        document.getElementById('user-form-container').style.display = 'none';
     },
 
     editUser: function(user) {
@@ -77,13 +79,12 @@ const InternalUsersModule = {
         document.getElementById('user-fullname').value = user.full_name || '';
         document.getElementById('user-role').value = user.role;
         document.getElementById('user-is-active').checked = (user.is_active === 1);
-        
-        // Zobrazíme tlačidlo zmazať, lebo upravujeme existujúceho
         document.getElementById('btn-delete-user').style.display = 'block'; 
     },
 
-    // Funkcia na fyzické zmazanie
+    // Fyzické zmazanie
     deleteUserFromForm: function() {
+        const self = this; // Tvrdé uloženie kontextu
         const userId = document.getElementById('user-id').value;
         const username = document.getElementById('user-username').value;
 
@@ -97,7 +98,7 @@ const InternalUsersModule = {
             method: 'POST',
             headers: { 
                 'Content-Type': 'application/json',
-                'X-Admin-Password': InternalUsersModule.masterPassword
+                'X-Admin-Password': self.masterPassword
             },
             body: JSON.stringify({ id: userId })
         })
@@ -105,8 +106,8 @@ const InternalUsersModule = {
         .then(result => {
             if(result.success) {
                 alert(result.message);
-                InternalUsersModule.hideForm();
-                InternalUsersModule.loadUsers();
+                self.hideForm();
+                self.loadUsers();
             } else {
                 alert("Chyba: " + result.error);
             }
@@ -115,6 +116,7 @@ const InternalUsersModule = {
     },
 
     saveUser: function() {
+        const self = this; // Tvrdé uloženie kontextu
         const payload = {
             id: document.getElementById('user-id').value,
             username: document.getElementById('user-username').value,
@@ -128,7 +130,7 @@ const InternalUsersModule = {
             method: 'POST',
             headers: { 
                 'Content-Type': 'application/json',
-                'X-Admin-Password': InternalUsersModule.masterPassword
+                'X-Admin-Password': self.masterPassword
             },
             body: JSON.stringify(payload)
         })
@@ -136,8 +138,8 @@ const InternalUsersModule = {
         .then(result => {
             if(result.success) {
                 alert(result.message);
-                InternalUsersModule.hideForm();
-                InternalUsersModule.loadUsers();
+                self.hideForm();
+                self.loadUsers();
             } else {
                 alert("Chyba: " + result.error);
             }
@@ -151,7 +153,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const link = document.querySelector('[data-section="section-internal-users"]');
     if(link) {
         link.addEventListener('click', () => {
-            InternalUsersModule.init();
+            window.InternalUsersModule.init();
         });
     }
 });
