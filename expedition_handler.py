@@ -569,20 +569,19 @@ def get_slicing_requirements_from_orders():
 # ─────────────────────────────────────────────────────────────
 def get_production_dates():
     """
-    Vráti dátumy, pre ktoré existuje výroba v stave 'Vo výrobe' alebo 'Vrátené do výroby'.
-    Ignoruje dni, kde sú len ukončené, zrušené, naplánované alebo technické záznamy.
+    Vráti dátumy, pre ktoré existuje výroba v stave 'Vo výrobe' alebo 'Vrátené do výroby',
+    alebo 'Prijaté, čaká na tlač' (aby sa dal deň hromadne uzavrieť a vygenerovať CSV).
     """
     rows = db_connector.execute_query(
         """
         SELECT DISTINCT DATE(datum_vyroby) AS d
           FROM zaznamy_vyroba
          WHERE stav NOT IN (
-             'Prijaté, čaká na tlač', 
              'Ukončené', 
              'Automaticky naplánované', 
              'Naplánované', 
-             'Zrušená',    -- <--- PRIDANÉ
-             'Dokončené'   -- <--- PRIDANÉ (technické záznamy z krájania)
+             'Zrušená',    
+             'Dokončené'   
          )
          ORDER BY d DESC
         """
@@ -942,7 +941,7 @@ def start_slicing_request(packaged_product_ean, planned_pieces):
 
 def finalize_slicing_transaction(log_id, actual_pieces):
     """
-    Ukončí krájanie a vytvorí logy pre export Skladu 2.
+    Ukončí krájanie a uloží ho do denného príjmu (čaká na večernú uzávierku pre CSV).
     """
     import json
     import random
@@ -1010,14 +1009,14 @@ def finalize_slicing_transaction(log_id, actual_pieces):
         cur.execute("UPDATE produkty SET aktualny_sklad_finalny_kg = aktualny_sklad_finalny_kg - %s WHERE ean = %s", (total_weight_kg, source_ean))
         cur.execute("UPDATE produkty SET aktualny_sklad_finalny_kg = aktualny_sklad_finalny_kg + %s WHERE ean = %s", (total_weight_kg, target_ean))
 
-        # 6. Primárna aktualizácia logu krájania
+        # 6. Primárna aktualizácia logu krájania (Menované na Prijaté, čaká na tlač)
         cur.execute(f"""
             UPDATE zaznamy_vyroba 
-            SET stav='Ukončené', realne_mnozstvo_kg=%s, realne_mnozstvo_ks=%s, datum_ukoncenia=NOW() 
+            SET stav='Prijaté, čaká na tlač', realne_mnozstvo_kg=%s, realne_mnozstvo_ks=%s, datum_ukoncenia=NOW() 
             WHERE id_davky=%s
         """, (total_weight_kg, pieces, log_id))
 
-        # 7. Zabezpečené riadky pre CSV export (Eliminácia VARCHAR truncation a NOT NULL pádov)
+        # 7. Zabezpečené riadky pre neskorší CSV export (Prijaté, čaká na tlač)
         rnd_suffix = str(random.randint(10000, 99999))
         batch_id_in = f"SL-IN-{rnd_suffix}"
         batch_id_out = f"SL-OUT-{rnd_suffix}"
@@ -1025,7 +1024,7 @@ def finalize_slicing_transaction(log_id, actual_pieces):
         cur.execute(f"""
             INSERT INTO zaznamy_vyroba 
             (id_davky, {zv_col}, datum_vyroby, datum_spustenia, datum_ukoncenia, planovane_mnozstvo_kg, realne_mnozstvo_kg, realne_mnozstvo_ks, celkova_cena_surovin, cena_za_jednotku, stav)
-            VALUES (%s, %s, NOW(), NOW(), NOW(), %s, %s, %s, 0, %s, 'Dokončené')
+            VALUES (%s, %s, NOW(), NOW(), NOW(), %s, %s, %s, 0, %s, 'Prijaté, čaká na tlač')
         """, (batch_id_in, target_prod['nazov_vyrobku'], total_weight_kg, total_weight_kg, pieces, target_price))
 
         cur.execute("""
@@ -1036,7 +1035,7 @@ def finalize_slicing_transaction(log_id, actual_pieces):
         cur.execute(f"""
             INSERT INTO zaznamy_vyroba 
             (id_davky, {zv_col}, datum_vyroby, datum_spustenia, datum_ukoncenia, planovane_mnozstvo_kg, realne_mnozstvo_kg, celkova_cena_surovin, cena_za_jednotku, stav)
-            VALUES (%s, %s, NOW(), NOW(), NOW(), %s, %s, 0, %s, 'Dokončené')
+            VALUES (%s, %s, NOW(), NOW(), NOW(), %s, %s, 0, %s, 'Prijaté, čaká na tlač')
         """, (batch_id_out, source_prod['nazov_vyrobku'], total_weight_kg, total_weight_kg, source_price))
 
         cur.execute("""
@@ -1045,7 +1044,7 @@ def finalize_slicing_transaction(log_id, actual_pieces):
         """, (batch_id_out, source_prod['nazov_vyrobku'], -total_weight_kg))
 
         conn.commit()
-        return {"message": "Hotovo. Úloha na krájanie bola úspešne ukončená a zapísaná do exportu."}
+        return {"message": "Hotovo. Krájanie bolo úspešne zapísané do denného príjmu (čaká na večernú uzávierku)."}
 
     except Exception as e:
         if conn: conn.rollback()
@@ -1087,18 +1086,19 @@ def manual_receive_product(data: Dict[str, Any]):
 
     zv=_zv_name_col()
     batch_id=_gen_unique_batch_id("MANUAL-PRIJEM", product['nazov_vyrobku'])
+    
+    # ZMENA: Namiesto 'Ukončené' vkladáme s 'Prijaté, čaká na tlač'
     db_connector.execute_query(
         f"""INSERT INTO zaznamy_vyroba
             (id_davky, stav, datum_vyroby, datum_ukoncenia, {zv}, realne_mnozstvo_kg, realne_mnozstvo_ks, poznamka_expedicie)
             VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
-        (batch_id, 'Ukončené', rdate, datetime.now(), product['nazov_vyrobku'],
+        (batch_id, 'Prijaté, čaká na tlač', rdate, datetime.now(), product['nazov_vyrobku'],
          qty if product['mj']=='kg' else None,
          qty if product['mj']=='ks' else None,
          f"Manuálne prijal: {worker}"),
         fetch='none'
     )
-    return {"message": f"Prijatých {qty} {product['mj']} '{product['nazov_vyrobku']}'."}
-
+    return {"message": f"Prijatých {qty} {product['mj']} '{product['nazov_vyrobku']}' do denného príjmu."}
 def log_manual_damage(data: Dict[str, Any]):
     # ... (rovnako ako predtým) ...
     return {"message": "Škoda zapísaná."}
