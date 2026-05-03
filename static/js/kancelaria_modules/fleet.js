@@ -648,7 +648,6 @@ function renderLogbookTable(logs, year, month, lastOdometer) {
     logsByDay[d].push(l);
   });
 
-  // ZMENA: Pridané stĺpce do hlavičky (Vývoz, Dovoz, DL)
   let html = '<div class="table-container"><table><thead><tr>'
     + '<th style="width:90px">Dátum</th>'
     + '<th>Čas</th>'
@@ -657,10 +656,10 @@ function renderLogbookTable(logs, year, month, lastOdometer) {
     + '<th>Šofér</th>'
     + '<th>Tachometer</th>'
     + '<th>KM</th>'
-    + '<th>Vývoz (kg)</th>' // NOVÉ
-    + '<th>Dovoz (kg)</th>' // NOVÉ
-    + '<th>DL (ks)</th>'    // NOVÉ
-    + '<th style="width:90px">Akcia</th>'
+    + '<th>Vývoz (kg)</th>'
+    + '<th>Dovoz (kg)</th>'
+    + '<th>DL (ks)</th>'
+    + '<th style="width:110px">Akcia</th>'
     + '</tr></thead><tbody>';
 
   for (let day = 1; day <= daysInMonth; day++) {
@@ -669,8 +668,7 @@ function renderLogbookTable(logs, year, month, lastOdometer) {
     const dayLogs = logsByDay[day] || [];
 
     if (dayLogs.length === 0) {
-        // Prázdny deň - riadok na pridanie prvej jazdy
-        // ZMENA: colspan zmenený zo 6 na 9, aby sedel s novými stĺpcami
+        // Prázdny deň
         html += `<tr style="background:#fafafa; color:#999; font-size:0.9em;">
             <td>${dateSK}</td>
             <td colspan="9" style="text-align:center;"><i>Žiadna jazda</i></td>
@@ -683,7 +681,6 @@ function renderLogbookTable(logs, year, month, lastOdometer) {
             const routeStr = (log.location_start || '') + ' &rarr; ' + (log.location_end || '');
             const odoStr = (log.start_odometer || '?') + ' - ' + (log.end_odometer || '?');
             
-            // Dátum a tlačidlo "+" zobrazíme len v prvom riadku dňa
             let dateCell = '';
             if (index === 0) {
                 dateCell = `<td rowspan="${dayLogs.length}" style="vertical-align:top; background:#fff; border-right:1px solid #eee;">
@@ -695,7 +692,6 @@ function renderLogbookTable(logs, year, month, lastOdometer) {
             html += `<tr>`;
             if (index === 0) html += dateCell;
             
-            // ZMENA: Pridané bunky pre Vývoz, Dovoz a DL
             html += `
               <td>${timeStr}</td>
               <td>${routeStr}</td>
@@ -706,7 +702,10 @@ function renderLogbookTable(logs, year, month, lastOdometer) {
               <td>${log.goods_out_kg ? Number(log.goods_out_kg).toFixed(1) : ''}</td>
               <td>${log.goods_in_kg ? Number(log.goods_in_kg).toFixed(1) : ''}</td>
               <td>${log.delivery_notes_count || ''}</td>
-              <td>
+              <td style="white-space:nowrap;">
+                <!-- MODRÉ TLAČIDLO MAPY PRE DAŇOVÝ ÚRAD -->
+                <button class="btn btn-info btn-xs" style="color:white; background:#0ea5e9; border:none;" onclick='window.openFleetTripMap("${dateISO}", ${log.vehicle_id}, ${log.km_driven}, "${escapeHtml(log.driver || "")}")' title="Mapa pre daňový úrad"><i class="fas fa-map-marked-alt"></i></button>
+                
                 <button class="btn btn-secondary btn-xs" onclick='openEditLogModal("${dateISO}", ${JSON.stringify(log)})'><i class="fas fa-edit"></i></button>
                 <button class="btn btn-danger btn-xs" onclick="handleDeleteTripLog(${log.id})"><i class="fas fa-trash"></i></button>
               </td>
@@ -718,11 +717,9 @@ function renderLogbookTable(logs, year, month, lastOdometer) {
   html += '</tbody></table></div>';
   container.innerHTML = html;
 
-  // Starý save button (ak existoval) schováme - zachované z tvojho kódu
   const oldSave = document.getElementById('save-logbook-changes-btn');
   if (oldSave) oldSave.style.display = 'none';
 
-  // Event listenery - zachované z tvojho kódu
   container.querySelectorAll('button[data-edit-day]').forEach(btn => {
     btn.addEventListener('click', () => {
       const dateISO = btn.dataset.date;
