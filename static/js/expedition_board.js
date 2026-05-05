@@ -309,16 +309,29 @@ function ukazTvFocusOverlay(cisloObjednavky, jeNovyFocus = false) {
     let custName = cisloObjednavky;
     let notesHtml = '';
     
-    // Hľadáme údaje o objednávke v načítaných dátach
-    const obj = vsetkyPoznamkyData.find(o => o.id_objednavky === cisloObjednavky);
+    // 1. BEZPEČNÉ PÁROVANIE: odstránime medzery a zjednotíme veľkosť písmen pre istotu
+    const hladaneCislo = String(cisloObjednavky).trim().toLowerCase();
+    let obj = vsetkyPoznamkyData.find(o => String(o.id_objednavky).trim().toLowerCase() === hladaneCislo);
     
+    // 2. OKAMŽITÝ REFRESH: Ak TV monitor ešte nestihol stiahnuť túto objednávku, prinútime ho stiahnuť dáta hneď!
+    if (!obj && jeNovyFocus) {
+        fetch('/api/tv-board/data')
+            .then(r => r.json())
+            .then(data => {
+                vsetkyPoznamkyData = data.poznamky || [];
+                // Zavoláme funkciu znova s už čerstvými dátami, aby sa detail okamžite zobrazil
+                ukazTvFocusOverlay(cisloObjednavky, false);
+            })
+            .catch(err => console.error("Chyba pri nútenom načítaní dát:", err));
+        // Zatiaľ necháme zobrazené "Načítavam...", kým sa nedokončí fetch
+    }
+
     if (obj) {
         custName = obj.zakaznik;
-        if (obj.cislo_prevadzky && obj.cislo_prevadzky.trim() !== '') {
+        if (obj.cislo_prevadzky && String(obj.cislo_prevadzky).trim() !== '') {
             custName = `<span style="color: #94a3b8;">[${obj.cislo_prevadzky}]</span> ${custName}`;
         }
         
-        // Zostavenie HTML pre poznámky
         let hasNotes = false;
         
         if (obj.trvala_poznamka && obj.trvala_poznamka.trim() !== '') {
@@ -326,15 +339,18 @@ function ukazTvFocusOverlay(cisloObjednavky, jeNovyFocus = false) {
             hasNotes = true;
         }
         
+        // Poznámka k objednávke (vrátane pripojených poznámok k položkám z backendu)
         if (obj.poznamka_objednavky && obj.poznamka_objednavky.trim() !== '') {
-            notesHtml += `<div class="tv-note-item"><i class="fas fa-info-circle"></i> <strong>K OBJEDNÁVKE:</strong> ${obj.poznamka_objednavky}</div>`;
+            notesHtml += `<div class="tv-note-item"><i class="fas fa-info-circle"></i> <strong>K OBJEDNÁVKE / POLOŽKÁM:</strong> ${obj.poznamka_objednavky}</div>`;
             hasNotes = true;
         }
-        // PRIDANÉ: Jednorazová poznámka od vedúcej
+        
+        // 3. OPRAVA: Vynútené vykreslenie poznámok od VEDÚCEJ VÝROBY
         if (obj.poznamka_veduceho && obj.poznamka_veduceho.trim() !== '') {
-            notesHtml += `<div class="tv-note-item" style="border-left-color: #f59e0b; background: rgba(245, 158, 11, 0.15); color: #fbbf24;"><i class="fas fa-comment-dots"></i> <strong>JEDNORÁZOVÁ POZNÁMKA:</strong> ${obj.poznamka_veduceho}</div>`;
+            notesHtml += `<div class="tv-note-item" style="border-left-color: #f59e0b; background: rgba(245, 158, 11, 0.15); color: #fbbf24;"><i class="fas fa-comment-dots"></i> <strong>OD VEDÚCEJ VÝROBY:</strong> ${obj.poznamka_veduceho}</div>`;
             hasNotes = true;
         }
+        
         if (obj.mrazene_polozky && obj.mrazene_polozky.trim() !== '') {
             notesHtml += `<div class="tv-note-item"><i class="fas fa-snowflake"></i> <strong>MRAZENÉ:</strong> ${obj.mrazene_polozky}</div>`;
             hasNotes = true;
@@ -345,7 +361,6 @@ function ukazTvFocusOverlay(cisloObjednavky, jeNovyFocus = false) {
         }
         
     } else {
-        // Ak sa objednávka nenájde v zozname (napr. už je hotová a zmizla)
         notesHtml = `<div class="tv-note-item empty"><i class="fas fa-search"></i> Načítavam detaily objednávky...</div>`;
     }
     
