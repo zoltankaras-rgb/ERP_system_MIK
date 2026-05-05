@@ -50,12 +50,12 @@ def get_b2b_special_notes():
         SELECT 
             COALESCE(t.nazov, 'Nezaradené') AS trasa_nazov,
             z.cislo_prevadzky,
-            z.nazov_firmy AS zakaznik,
+            COALESCE(z.nazov_firmy, 'Neznámy zákazník') AS zakaznik,
             COALESCE(z.adresa_dorucenia, z.adresa, '') AS adresa,
             z.stala_poznamka_expedicia AS trvala_poznamka,
             o.cislo_objednavky AS id_objednavky,
             o.poznamka AS poznamka_objednavky,
-            o.poznamka_veduceho,  -- PRIDANÝ STĹPEC: Jednorazová poznámka vedúcej
+            o.poznamka_veduceho,
             o.stav,
             (SELECT GROUP_CONCAT(CONCAT(nazov_vyrobku, ': ', poznamka) SEPARATOR ' | ') 
              FROM b2b_objednavky_polozky 
@@ -76,14 +76,13 @@ def get_b2b_special_notes():
             ), 0) FROM b2b_objednavky_polozky WHERE objednavka_id = o.id) AS celkova_vaha_kg,
             1 AS ma_objednavku
         FROM b2b_objednavky o
-        JOIN b2b_zakaznici z ON o.zakaznik_id = z.zakaznik_id
+        LEFT JOIN b2b_zakaznici z ON o.zakaznik_id = z.id   -- OPRAVENÉ: správny spojovací kľúč
         LEFT JOIN logistika_trasy t ON z.trasa_id = t.id
         WHERE o.stav != 'Zrušená'
-          AND z.typ = 'B2B'
-          AND o.pozadovany_datum_dodania = %s
+          AND (z.typ = 'B2B' OR z.typ IS NULL)              -- OPRAVENÉ: priepustnosť aj pre manuál bez profilu
+          AND DATE(o.pozadovany_datum_dodania) = %s         -- OPRAVENÉ: odstránenie možnej chyby s časom
         ORDER BY ISNULL(t.id), t.nazov ASC, z.trasa_poradie ASC, z.nazov_firmy ASC
     """
-    
     rows = db_connector.execute_query(sql, (cielovy_datum_str,), fetch='all') or []
     
     for r in rows:
