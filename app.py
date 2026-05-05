@@ -4603,22 +4603,41 @@ def set_tv_focus(cislo_objednavky):
     
     import db_connector
     
-    # 1. AKCIA: Rýchla aktualizácia TV obrazovky (Uloží len to, čo si pípól)
+    # --- OPRAVA: Extrakcia správneho čísla objednávky ---
+    ciste_cislo = cislo_objednavky
+    
+    # Ak terminál pošle "695700_20260504055239", rozdelíme to a vezmeme DRUHÚ časť [1]
+    if "_" in ciste_cislo:
+        ciste_cislo = ciste_cislo.split("_")[1]
+        
+    # INTELIGENTNÉ VYHĽADANIE:
+    # Keďže terminál poslal len "20260504055239", nájdeme si v databáze PRESNÉ 
+    # číslo objednávky (napr. "B2BM-12345-20260504055239") a pošleme ho do TV.
+    try:
+        row = db_connector.execute_query(
+            "SELECT cislo_objednavky FROM b2b_objednavky WHERE cislo_objednavky LIKE %s LIMIT 1",
+            (f"%{ciste_cislo}%",), fetch='one'
+        )
+        if row and row.get('cislo_objednavky'):
+            ciste_cislo = row['cislo_objednavky']
+    except Exception:
+        pass
+    
+    # 1. AKCIA: Rýchla aktualizácia TV obrazovky (Uloží už plné, správne číslo)
     db_connector.execute_query("DELETE FROM system_settings WHERE kluc = 'tv_active_order'", fetch='none')
     db_connector.execute_query(
         "INSERT INTO system_settings (kluc, hodnota) VALUES ('tv_active_order', %s)", 
-        (cislo_objednavky,), fetch='none'
+        (ciste_cislo,), fetch='none'
     )
     
     # 2. AKCIA: Zápis času do databázy pre B2B Admin stopky
     try:
         import b2b_handler
-        b2b_handler.terminal_focus_start(cislo_objednavky)
-    except Exception as e:
+        b2b_handler.terminal_focus_start(ciste_cislo)
+    except Exception:
         pass
     
-    return jsonify({"status": "success", "focused_order": cislo_objednavky})
-
+    return jsonify({"status": "success", "focused_order": ciste_cislo, "raw_input": cislo_objednavky})
 
 @app.route('/api/terminal/focus/exit', methods=['GET', 'POST'])
 def clear_tv_focus():
