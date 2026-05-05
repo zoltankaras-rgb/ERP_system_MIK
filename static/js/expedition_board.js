@@ -309,10 +309,42 @@ function ukazTvFocusOverlay(cisloObjednavky, jeNovyFocus = false) {
     let custName = cisloObjednavky;
     let notesHtml = '';
     
-    // OPRAVA: Orezanie medzier a zjednotenie veľkosti písmen pre 100% zhodu
-    const hladaneCislo = String(cisloObjednavky).trim().toLowerCase();
-    const obj = vsetkyPoznamkyData.find(o => String(o.id_objednavky).trim().toLowerCase() === hladaneCislo);
+    // =========================================================
+    // 1. INTELIGENTNÉ PÁROVANIE (OPRAVA PRE B2BM / B2B FORMÁTY)
+    // =========================================================
+    const formatZTerminalu = String(cisloObjednavky).trim().toLowerCase();
     
+    // Rozsekáme string "b2bm-12345-20260505155405" a zoberieme úplne poslednú časť (číslo objednávky)
+    const castiTerminal = formatZTerminalu.split('-');
+    const cisteHladaneCislo = castiTerminal[castiTerminal.length - 1]; 
+
+    let obj = vsetkyPoznamkyData.find(o => {
+        const dbId = String(o.id_objednavky).trim().toLowerCase();
+        
+        // Rozsekáme aj ID z databázy (pre prípad, že v DB je uložené napr. "b2b-12345-20260505155405")
+        const castiDb = dbId.split('-');
+        const cisteDbCislo = castiDb[castiDb.length - 1];
+
+        // Objednávka sa spáruje ak:
+        // A: Zhodujú sa celé stringy (napr. b2bm === b2bm)
+        // B: Zhodujú sa len koncové čísla objednávok (napr. 20260505155405 === 20260505155405)
+        return dbId === formatZTerminalu || cisteDbCislo === cisteHladaneCislo;
+    });
+    
+    // =========================================================
+    // 2. OKAMŽITÝ REFRESH PRI NOVEJ OBJEDNÁVKE
+    // =========================================================
+    if (!obj && jeNovyFocus) {
+        fetch('/api/tv-board/data')
+            .then(r => r.json())
+            .then(data => {
+                vsetkyPoznamkyData = data.poznamky || [];
+                // Po stiahnutí čerstvých dát zavoláme funkciu znova
+                ukazTvFocusOverlay(cisloObjednavky, false);
+            })
+            .catch(err => console.error("Chyba pri nútenom načítaní dát:", err));
+    }
+
     if (obj) {
         custName = obj.zakaznik;
         if (obj.cislo_prevadzky && String(obj.cislo_prevadzky).trim() !== '') {
@@ -327,16 +359,18 @@ function ukazTvFocusOverlay(cisloObjednavky, jeNovyFocus = false) {
         }
         
         if (obj.poznamka_objednavky && obj.poznamka_objednavky.trim() !== '') {
-            notesHtml += `<div class="tv-note-item"><i class="fas fa-info-circle"></i> <strong>K POLOŽKÁM / OBJEDNÁVKE:</strong> ${obj.poznamka_objednavky}</div>`;
+            notesHtml += `<div class="tv-note-item"><i class="fas fa-info-circle"></i> <strong>K OBJEDNÁVKE / POLOŽKÁM:</strong> ${obj.poznamka_objednavky}</div>`;
             hasNotes = true;
         }
-
-        // OPRAVA: Pridané vykreslenie poznámky od vedúcej výroby k celej objednávke
+        
+        // =========================================================
+        // 3. OPRAVA: ZOBRAZENIE POZNÁMKY OD VEDÚCEJ VÝROBY
+        // =========================================================
         if (obj.poznamka_veduceho && obj.poznamka_veduceho.trim() !== '') {
             notesHtml += `<div class="tv-note-item" style="border-left-color: #f59e0b; background: rgba(245, 158, 11, 0.15); color: #fbbf24;"><i class="fas fa-comment-dots"></i> <strong>OD VEDÚCEJ VÝROBY:</strong> ${obj.poznamka_veduceho}</div>`;
             hasNotes = true;
         }
-
+        
         if (obj.mrazene_polozky && obj.mrazene_polozky.trim() !== '') {
             notesHtml += `<div class="tv-note-item"><i class="fas fa-snowflake"></i> <strong>MRAZENÉ:</strong> ${obj.mrazene_polozky}</div>`;
             hasNotes = true;
@@ -347,7 +381,7 @@ function ukazTvFocusOverlay(cisloObjednavky, jeNovyFocus = false) {
         }
         
     } else {
-        notesHtml = `<div class="tv-note-item empty"><i class="fas fa-search"></i> Načítavam detaily objednávky... (Uisti sa, že objednávka je na správny deň expedície)</div>`;
+        notesHtml = `<div class="tv-note-item empty"><i class="fas fa-search"></i> Načítavam detaily objednávky...</div>`;
     }
     
     customerEl.innerHTML = custName;

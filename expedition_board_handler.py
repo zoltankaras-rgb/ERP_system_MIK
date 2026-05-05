@@ -55,16 +55,11 @@ def get_b2b_special_notes():
             z.stala_poznamka_expedicia AS trvala_poznamka,
             o.cislo_objednavky AS id_objednavky,
             o.poznamka AS poznamka_objednavky,
-            o.poznamka_veduceho,
+            o.poznamka_veduceho,  -- PRIDANÝ STĹPEC: Jednorazová poznámka vedúcej
             o.stav,
-            
-            -- OPRAVA: Ťahá bežnú poznámku AJ poznámku vedúcej k samotným položkám
-            -- (Ak máš stĺpec nazvaný inak ako poznamka_veducej_vyroby, uprav si názov)
-            (SELECT GROUP_CONCAT(CONCAT(nazov_vyrobku, ': ', COALESCE(poznamka, ''), ' ', COALESCE(poznamka_veducej_vyroby, '')) SEPARATOR ' | ') 
+            (SELECT GROUP_CONCAT(CONCAT(nazov_vyrobku, ': ', poznamka) SEPARATOR ' | ') 
              FROM b2b_objednavky_polozky 
-             WHERE objednavka_id = o.id 
-               AND (poznamka IS NOT NULL OR poznamka_veducej_vyroby IS NOT NULL) 
-               AND (poznamka != '' OR poznamka_veducej_vyroby != '')) AS poznamka_poloziek,
+             WHERE objednavka_id = o.id AND poznamka IS NOT NULL AND poznamka != '') AS poznamka_poloziek,
              
             (SELECT GROUP_CONCAT(DISTINCT CONCAT(pol.nazov_vyrobku, ' ', (ROUND(COALESCE(pol.dodane_mnozstvo, pol.mnozstvo), 2) + 0), ' ', pol.mj) SEPARATOR ' | ')
              FROM b2b_objednavky_polozky pol
@@ -85,8 +80,7 @@ def get_b2b_special_notes():
         LEFT JOIN logistika_trasy t ON z.trasa_id = t.id
         WHERE o.stav != 'Zrušená'
           AND z.typ = 'B2B'
-          -- OPRAVA: DATE() zabezpečí, že nájde objednávku aj keď má uložený časový údaj
-          AND DATE(o.pozadovany_datum_dodania) = %s
+          AND o.pozadovany_datum_dodania = %s
         ORDER BY ISNULL(t.id), t.nazov ASC, z.trasa_poradie ASC, z.nazov_firmy ASC
     """
     
