@@ -76,11 +76,13 @@ def get_b2b_special_notes():
             ), 0) FROM b2b_objednavky_polozky WHERE objednavka_id = o.id) AS celkova_vaha_kg,
             1 AS ma_objednavku
         FROM b2b_objednavky o
-        LEFT JOIN b2b_zakaznici z ON o.zakaznik_id = z.id   -- OPRAVENÉ: správny spojovací kľúč
+        LEFT JOIN b2b_zakaznici z ON o.zakaznik_id = z.id
         LEFT JOIN logistika_trasy t ON z.trasa_id = t.id
         WHERE o.stav != 'Zrušená'
-          AND (z.typ = 'B2B' OR z.typ IS NULL)              -- OPRAVENÉ: priepustnosť aj pre manuál bez profilu
-          AND DATE(o.pozadovany_datum_dodania) = %s         -- OPRAVENÉ: odstránenie možnej chyby s časom
+          AND (
+              (DATE(o.pozadovany_datum_dodania) = %s AND (z.typ = 'B2B' OR z.typ IS NULL))
+              OR o.cislo_objednavky = (SELECT hodnota FROM system_settings WHERE kluc = 'tv_active_order')
+          )
         ORDER BY ISNULL(t.id), t.nazov ASC, z.trasa_poradie ASC, z.nazov_firmy ASC
     """
     rows = db_connector.execute_query(sql, (cielovy_datum_str,), fetch='all') or []

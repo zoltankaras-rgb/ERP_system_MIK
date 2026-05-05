@@ -298,7 +298,6 @@ function nacitajPoznamkyNaTabulu() {
 // MASÍVNY OVERLAY PRE VÁŽENIE (FOCUS MÓD) - UPRAVENÝ
 // =======================================================================
 
-// Funkcia na zapnutie a vizuálne nastavenie Overlay okna (s poznámkami)
 function ukazTvFocusOverlay(cisloObjednavky, jeNovyFocus = false) {
     const overlay = document.getElementById('tv-focus-overlay');
     const customerEl = document.getElementById('tv-focus-customer');
@@ -309,40 +308,25 @@ function ukazTvFocusOverlay(cisloObjednavky, jeNovyFocus = false) {
     let custName = cisloObjednavky;
     let notesHtml = '';
     
-    // =========================================================
-    // 1. INTELIGENTNÉ PÁROVANIE (OPRAVA PRE B2BM / B2B FORMÁTY)
-    // =========================================================
-    const formatZTerminalu = String(cisloObjednavky).trim().toLowerCase();
+    // Spárovanie
+    const hladaneCislo = String(cisloObjednavky).trim().toLowerCase();
+    let obj = vsetkyPoznamkyData.find(o => String(o.id_objednavky).trim().toLowerCase() === hladaneCislo);
     
-    // Rozsekáme string "b2bm-12345-20260505155405" a zoberieme úplne poslednú časť (číslo objednávky)
-    const castiTerminal = formatZTerminalu.split('-');
-    const cisteHladaneCislo = castiTerminal[castiTerminal.length - 1]; 
-
-    let obj = vsetkyPoznamkyData.find(o => {
-        const dbId = String(o.id_objednavky).trim().toLowerCase();
-        
-        // Rozsekáme aj ID z databázy (pre prípad, že v DB je uložené napr. "b2b-12345-20260505155405")
-        const castiDb = dbId.split('-');
-        const cisteDbCislo = castiDb[castiDb.length - 1];
-
-        // Objednávka sa spáruje ak:
-        // A: Zhodujú sa celé stringy (napr. b2bm === b2bm)
-        // B: Zhodujú sa len koncové čísla objednávok (napr. 20260505155405 === 20260505155405)
-        return dbId === formatZTerminalu || cisteDbCislo === cisteHladaneCislo;
-    });
-    
-    // =========================================================
-    // 2. OKAMŽITÝ REFRESH PRI NOVEJ OBJEDNÁVKE
-    // =========================================================
+    // Ak objednávka ešte nie je v pamäti TV, stiahne ju vďaka SQL oprave vyššie
     if (!obj && jeNovyFocus) {
+        customerEl.innerHTML = cisloObjednavky;
+        notesEl.innerHTML = `<div class="tv-note-item empty"><i class="fas fa-sync fa-spin"></i> Sťahujem objednávku zo servera...</div>`;
+        overlay.classList.add('active');
+        
         fetch('/api/tv-board/data')
             .then(r => r.json())
             .then(data => {
                 vsetkyPoznamkyData = data.poznamky || [];
-                // Po stiahnutí čerstvých dát zavoláme funkciu znova
-                ukazTvFocusOverlay(cisloObjednavky, false);
+                ukazTvFocusOverlay(cisloObjednavky, false); // Opakuje vykreslenie už s dátami
             })
-            .catch(err => console.error("Chyba pri nútenom načítaní dát:", err));
+            .catch(err => console.error("Chyba:", err));
+            
+        return; // Dôležité: zastaví vykonávanie, kým neprídu dáta
     }
 
     if (obj) {
@@ -363,9 +347,6 @@ function ukazTvFocusOverlay(cisloObjednavky, jeNovyFocus = false) {
             hasNotes = true;
         }
         
-        // =========================================================
-        // 3. OPRAVA: ZOBRAZENIE POZNÁMKY OD VEDÚCEJ VÝROBY
-        // =========================================================
         if (obj.poznamka_veduceho && obj.poznamka_veduceho.trim() !== '') {
             notesHtml += `<div class="tv-note-item" style="border-left-color: #f59e0b; background: rgba(245, 158, 11, 0.15); color: #fbbf24;"><i class="fas fa-comment-dots"></i> <strong>OD VEDÚCEJ VÝROBY:</strong> ${obj.poznamka_veduceho}</div>`;
             hasNotes = true;
