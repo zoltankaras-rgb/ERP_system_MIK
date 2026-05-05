@@ -21,11 +21,9 @@ def get_b2b_special_notes():
         cielovy_datum = dnes + timedelta(days=1)
         
     # --- DYNAMICKÁ KONTROLA SVIATKOV A VÍKENDOV ---
-    # Bude posúvať dátum dopredu, kým nenájde bežný pracovný deň
     while True:
         posun_nastal = False
         
-        # Ak by to padlo na Sobotu (5) alebo Nedeľu (6), posuň na Pondelok
         if cielovy_datum.weekday() == 5:
             cielovy_datum += timedelta(days=2)
             posun_nastal = True
@@ -33,25 +31,36 @@ def get_b2b_special_notes():
             cielovy_datum += timedelta(days=1)
             posun_nastal = True
             
-        # Ak je to Sviatok zaznamenaný v kalendári, posuň o 1 deň
         if is_holiday(cielovy_datum):
             cielovy_datum += timedelta(days=1)
             posun_nastal = True
             
-        # Ak sme v tomto cykle nemuseli robiť žiadny posun, máme finálny pracovný deň
         if not posun_nastal:
             break
     # ----------------------------------------------
 
     cielovy_datum_str = cielovy_datum.strftime('%Y-%m-%d')
     cielovy_datum_sk = cielovy_datum.strftime('%d.%m.%Y')
+
+    # 1. BEZPEČNÁ POISTKA: Najskôr zistíme aktívnu objednávku cez Python
+    # Tým pádom sa nám SQL dotaz nikdy nezacyklí na vnorených subqueries
+    try:
+        active_row = db_connector.execute_query(
+            "SELECT hodnota FROM system_settings WHERE kluc = 'tv_active_order' LIMIT 1", 
+            fetch='one'
+        )
+        active_order = active_row['hodnota'] if active_row and active_row.get('hodnota') else "ZIADNA_AKTIVNA_OBJ"
+    except Exception:
+        active_order = "ZIADNA_AKTIVNA_OBJ"
+
+    # 2. OPRAVENÝ SQL DOTAZ (odstránený neexistujúci stĺpec z.poznamka)
     sql = """
         SELECT 
             COALESCE(t.nazov, 'Nezaradené') AS trasa_nazov,
             z.cislo_prevadzky,
             COALESCE(z.nazov_firmy, 'Neznámy zákazník') AS zakaznik,
             COALESCE(z.adresa_dorucenia, z.adresa, '') AS adresa,
-            COALESCE(z.stala_poznamka_expedicia, z.poznamka, '') AS trvala_poznamka,
+            z.stala_poznamka_expedicia AS trvala_poznamka,
             COALESCE(o.cislo_objednavky, CAST(o.id AS CHAR)) AS id_objednavky,
             o.poznamka AS poznamka_objednavky,
             o.poznamka_veduceho,
@@ -80,19 +89,22 @@ def get_b2b_special_notes():
         WHERE o.stav != 'Zrušená'
           AND (
               (DATE(o.pozadovany_datum_dodania) = %s AND (z.typ = 'B2B' OR z.typ IS NULL))
-              OR o.cislo_objednavky = (SELECT hodnota FROM system_settings WHERE kluc = 'tv_active_order' LIMIT 1)
-              OR CAST(o.id AS CHAR) = (SELECT hodnota FROM system_settings WHERE kluc = 'tv_active_order' LIMIT 1)
+              OR o.cislo_objednavky = %s
+              OR CAST(o.id AS CHAR) = %s
           )
         ORDER BY ISNULL(t.id), t.nazov ASC, z.trasa_poradie ASC, z.nazov_firmy ASC
     """
-
-    rows = db_connector.execute_query(sql, (cielovy_datum_str,), fetch='all') or []
     
+    try:
+        rows = db_connector.execute_query(sql, (cielovy_datum_str, active_order, active_order), fetch='all') or []
+    except Exception as e:
+        print(f"CRITICAL SQL ERROR in get_b2b_special_notes: {e}")
+        rows = []
+        
     for r in rows:
         weight = float(r.get('celkova_vaha_kg') or 0)
         r['vaha_kg'] = weight
         
-        # Spojenie hlavnej poznámky s poznámkami k jednotlivým položkám
         po = r.get('poznamka_objednavky') or ""
         pp = r.get('poznamka_poloziek') or ""
         if pp:
@@ -133,7 +145,6 @@ def get_b2b_special_notes():
         "akcie_coop": akcie_coop,
         "poznamky": rows
     }
-
 def is_holiday(check_date):
     """
     Overí v databáze kalendára, či je na daný deň naplánovaný sviatok (HOLIDAY).
