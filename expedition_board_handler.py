@@ -45,15 +45,14 @@ def get_b2b_special_notes():
 
     cielovy_datum_str = cielovy_datum.strftime('%Y-%m-%d')
     cielovy_datum_sk = cielovy_datum.strftime('%d.%m.%Y')
-
     sql = """
         SELECT 
             COALESCE(t.nazov, 'Nezaradené') AS trasa_nazov,
             z.cislo_prevadzky,
             COALESCE(z.nazov_firmy, 'Neznámy zákazník') AS zakaznik,
             COALESCE(z.adresa_dorucenia, z.adresa, '') AS adresa,
-            z.stala_poznamka_expedicia AS trvala_poznamka,
-            o.cislo_objednavky AS id_objednavky,
+            COALESCE(z.stala_poznamka_expedicia, z.poznamka, '') AS trvala_poznamka,
+            COALESCE(o.cislo_objednavky, CAST(o.id AS CHAR)) AS id_objednavky,
             o.poznamka AS poznamka_objednavky,
             o.poznamka_veduceho,
             o.stav,
@@ -81,10 +80,12 @@ def get_b2b_special_notes():
         WHERE o.stav != 'Zrušená'
           AND (
               (DATE(o.pozadovany_datum_dodania) = %s AND (z.typ = 'B2B' OR z.typ IS NULL))
-              OR o.cislo_objednavky = (SELECT hodnota FROM system_settings WHERE kluc = 'tv_active_order')
+              OR o.cislo_objednavky = (SELECT hodnota FROM system_settings WHERE kluc = 'tv_active_order' LIMIT 1)
+              OR CAST(o.id AS CHAR) = (SELECT hodnota FROM system_settings WHERE kluc = 'tv_active_order' LIMIT 1)
           )
         ORDER BY ISNULL(t.id), t.nazov ASC, z.trasa_poradie ASC, z.nazov_firmy ASC
     """
+
     rows = db_connector.execute_query(sql, (cielovy_datum_str,), fetch='all') or []
     
     for r in rows:

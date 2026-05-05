@@ -4595,39 +4595,45 @@ def api_tv_board_data():
 # Jednoduchý token pre bezpečnosť
 TERMINAL_API_TOKEN = "mik-terminal-2026-secret" 
 
-@app.route('/api/terminal/focus/<cislo_objednavky>', methods=['GET', 'POST'])
+@app.route('/api/terminal/focus/<path:cislo_objednavky>', methods=['GET', 'POST'])
 def set_tv_focus(cislo_objednavky):
     token = request.args.get('token')
-    if token != "mik-terminal-2026-secret":
+    if token != TERMINAL_API_TOKEN:
         return jsonify({"error": "Unauthorized"}), 401
     
-    # 1. AKCIA: Aktualizácia TV obrazovky
-    sql = """
-        INSERT INTO system_settings (kluc, hodnota) 
-        VALUES ('tv_active_order', %s) 
-        ON DUPLICATE KEY UPDATE hodnota = %s
-    """
-    db_connector.execute_query(sql, (cislo_objednavky, cislo_objednavky), fetch='none')
+    # 1. AKCIA: Aktualizácia TV obrazovky (Bezpečná metóda cez DELETE a INSERT, zabráni duplicitám)
+    import db_connector
+    db_connector.execute_query("DELETE FROM system_settings WHERE kluc = 'tv_active_order'", fetch='none')
+    db_connector.execute_query(
+        "INSERT INTO system_settings (kluc, hodnota) VALUES ('tv_active_order', %s)", 
+        (cislo_objednavky,), fetch='none'
+    )
     
-    # 2. AKCIA: Zápis času do databázy pre B2B Admin stopky
-    import b2b_handler
-    b2b_handler.terminal_focus_start(cislo_objednavky)
+    # 2. AKCIA: Zápis času do databázy pre B2B Admin stopky (Chránené cez try-except)
+    try:
+        import b2b_handler
+        b2b_handler.terminal_focus_start(cislo_objednavky)
+    except Exception as e:
+        print(f"Warning: b2b_handler.terminal_focus_start failed: {e}")
     
     return jsonify({"status": "success", "focused_order": cislo_objednavky})
 
 @app.route('/api/terminal/focus/exit', methods=['GET', 'POST'])
 def clear_tv_focus():
     token = request.args.get('token')
-    if token != "mik-terminal-2026-secret":
+    if token != TERMINAL_API_TOKEN:
         return jsonify({"error": "Unauthorized"}), 401
     
     # 1. AKCIA: Vymazanie TV obrazovky
-    sql = "UPDATE system_settings SET hodnota = NULL WHERE kluc = 'tv_active_order'"
-    db_connector.execute_query(sql, fetch='none')
+    import db_connector
+    db_connector.execute_query("UPDATE system_settings SET hodnota = NULL WHERE kluc = 'tv_active_order'", fetch='none')
     
     # 2. AKCIA: Zastavenie stopiek v B2B Admine
-    import b2b_handler
-    b2b_handler.terminal_focus_exit()
+    try:
+        import b2b_handler
+        b2b_handler.terminal_focus_exit()
+    except Exception as e:
+        print(f"Warning: b2b_handler.terminal_focus_exit failed: {e}")
     
     return jsonify({"status": "success", "focused_order": None})
 
@@ -4636,9 +4642,9 @@ def get_current_focus():
     import db_connector
     from flask import jsonify
     
-    # Prečítame, či je v DB nastavená nejaká aktívna objednávka
+    # Pridané LIMIT 1 pre zabránenie pádu, ak by vznikla duplicita
     row = db_connector.execute_query(
-        "SELECT hodnota FROM system_settings WHERE kluc = 'tv_active_order'", 
+        "SELECT hodnota FROM system_settings WHERE kluc = 'tv_active_order' LIMIT 1", 
         fetch='one'
     )
     
