@@ -4603,49 +4603,25 @@ def set_tv_focus(cislo_objednavky):
     
     import db_connector
     
-    # ---------------------------------------------------------
-    # INTELIGENTNÝ PREKLADAČ PRE TERMINÁL
-    # Terminál pípne napr.: "695700_20260504055239" (ID zakaznika _ Casova peciatka / ID objednavky z ineho systemu)
-    # Databáza to má uložené napr. ako "B2BM-12345-20260504055239" alebo "12345-20260504055239"
-    # ---------------------------------------------------------
+    # --- TVOJ OBJAV: PREPÍSANIE ZNAKU ---
+    # Terminál posiela podtržník (_), ale systém funguje na pomlčkách (-)
+    spravne_cislo = cislo_objednavky.replace("_", "-")
     
-    ciste_cislo = cislo_objednavky
-    
-    # Ak terminál poslal kód s podtržníkom, vytiahneme to dôležité (to na konci)
-    if "_" in ciste_cislo:
-        # split("_") urobí pole, my si zoberieme posledný prvok [-1]
-        # (pre istotu, keby to náhodou malo tvar 695700_B2BM_2026...)
-        hladany_vyraz = ciste_cislo.split("_")[-1]
-    else:
-        hladany_vyraz = ciste_cislo
-
-    # Teraz ideme do databázy a nájdeme si PRESNÉ a PLNÉ číslo objednávky
-    try:
-        row = db_connector.execute_query(
-            "SELECT cislo_objednavky FROM b2b_objednavky WHERE cislo_objednavky LIKE %s LIMIT 1",
-            (f"%{hladany_vyraz}%",), fetch='one'
-        )
-        if row and row.get('cislo_objednavky'):
-            ciste_cislo = row['cislo_objednavky']
-    except Exception as e:
-        print(f"TV FOCUS SQL ERROR: {e}")
-        pass
-    
-    # 1. AKCIA: Rýchla aktualizácia TV obrazovky (Uloží už plné, správne číslo)
+    # 1. AKCIA: Rýchla aktualizácia TV obrazovky (Uloží sa už s pomlčkou!)
     db_connector.execute_query("DELETE FROM system_settings WHERE kluc = 'tv_active_order'", fetch='none')
     db_connector.execute_query(
         "INSERT INTO system_settings (kluc, hodnota) VALUES ('tv_active_order', %s)", 
-        (ciste_cislo,), fetch='none'
+        (spravne_cislo,), fetch='none'
     )
     
     # 2. AKCIA: Zápis času do databázy pre B2B Admin stopky
     try:
         import b2b_handler
-        b2b_handler.terminal_focus_start(ciste_cislo)
+        b2b_handler.terminal_focus_start(spravne_cislo)
     except Exception:
         pass
     
-    return jsonify({"status": "success", "focused_order": ciste_cislo, "raw_input": cislo_objednavky})
+    return jsonify({"status": "success", "focused_order": spravne_cislo, "raw_input": cislo_objednavky})
 
 
 @app.route('/api/terminal/focus/exit', methods=['GET', 'POST'])
@@ -4681,7 +4657,6 @@ def get_current_focus():
         active_order = None
         
     return jsonify({"active_order": active_order})
-
 # =================================================================
 # === NOVÉ ROUTY PRE ŠABLÓNY -Meat calc (Templates) ==========================
 # =================================================================
