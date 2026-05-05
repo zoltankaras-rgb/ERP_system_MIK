@@ -4603,24 +4603,32 @@ def set_tv_focus(cislo_objednavky):
     
     import db_connector
     
-    # --- OPRAVA: Extrakcia správneho čísla objednávky ---
+    # ---------------------------------------------------------
+    # INTELIGENTNÝ PREKLADAČ PRE TERMINÁL
+    # Terminál pípne napr.: "695700_20260504055239" (ID zakaznika _ Casova peciatka / ID objednavky z ineho systemu)
+    # Databáza to má uložené napr. ako "B2BM-12345-20260504055239" alebo "12345-20260504055239"
+    # ---------------------------------------------------------
+    
     ciste_cislo = cislo_objednavky
     
-    # Ak terminál pošle "695700_20260504055239", rozdelíme to a vezmeme DRUHÚ časť [1]
+    # Ak terminál poslal kód s podtržníkom, vytiahneme to dôležité (to na konci)
     if "_" in ciste_cislo:
-        ciste_cislo = ciste_cislo.split("_")[1]
-        
-    # INTELIGENTNÉ VYHĽADANIE:
-    # Keďže terminál poslal len "20260504055239", nájdeme si v databáze PRESNÉ 
-    # číslo objednávky (napr. "B2BM-12345-20260504055239") a pošleme ho do TV.
+        # split("_") urobí pole, my si zoberieme posledný prvok [-1]
+        # (pre istotu, keby to náhodou malo tvar 695700_B2BM_2026...)
+        hladany_vyraz = ciste_cislo.split("_")[-1]
+    else:
+        hladany_vyraz = ciste_cislo
+
+    # Teraz ideme do databázy a nájdeme si PRESNÉ a PLNÉ číslo objednávky
     try:
         row = db_connector.execute_query(
             "SELECT cislo_objednavky FROM b2b_objednavky WHERE cislo_objednavky LIKE %s LIMIT 1",
-            (f"%{ciste_cislo}%",), fetch='one'
+            (f"%{hladany_vyraz}%",), fetch='one'
         )
         if row and row.get('cislo_objednavky'):
             ciste_cislo = row['cislo_objednavky']
-    except Exception:
+    except Exception as e:
+        print(f"TV FOCUS SQL ERROR: {e}")
         pass
     
     # 1. AKCIA: Rýchla aktualizácia TV obrazovky (Uloží už plné, správne číslo)
@@ -4639,21 +4647,20 @@ def set_tv_focus(cislo_objednavky):
     
     return jsonify({"status": "success", "focused_order": ciste_cislo, "raw_input": cislo_objednavky})
 
+
 @app.route('/api/terminal/focus/exit', methods=['GET', 'POST'])
 def clear_tv_focus():
     token = request.args.get('token')
     if token != TERMINAL_API_TOKEN:
         return jsonify({"error": "Unauthorized"}), 401
     
-    # 1. AKCIA: Vymazanie TV obrazovky
     import db_connector
     db_connector.execute_query("UPDATE system_settings SET hodnota = NULL WHERE kluc = 'tv_active_order'", fetch='none')
     
-    # 2. AKCIA: Zastavenie stopiek v B2B Admine
     try:
         import b2b_handler
         b2b_handler.terminal_focus_exit()
-    except Exception as e:
+    except Exception:
         pass
     
     return jsonify({"status": "success", "focused_order": None})
@@ -4664,7 +4671,6 @@ def get_current_focus():
     import db_connector
     from flask import jsonify
     
-    # Prečítame, či je v DB nastavená nejaká aktívna objednávka
     try:
         row = db_connector.execute_query(
             "SELECT hodnota FROM system_settings WHERE kluc = 'tv_active_order' LIMIT 1", 
