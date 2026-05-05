@@ -431,11 +431,19 @@
                     }
                 }
 
-                let zobrazenyNazov = escapeHtml(o.nazov_firmy);
+                // Pridané načítanie mena aj z manuálnej objednávky (o.odberatel)
+                let zobrazenyNazov = escapeHtml(o.nazov_firmy || o.odberatel || 'Neznámy zákazník');
                 if (o.cislo_prevadzky) {
-                    let cistyNazov = o.nazov_firmy.replace(new RegExp('^' + o.cislo_prevadzky + '\\s*-?\\s*'), '');
+                    let cistyNazov = (o.nazov_firmy || o.odberatel || 'Neznámy zákazník').replace(new RegExp('^' + o.cislo_prevadzky + '\\s*-?\\s*'), '');
                     zobrazenyNazov = `<strong>[${escapeHtml(o.cislo_prevadzky)}]</strong> ${escapeHtml(cistyNazov)}`;
                 }
+
+                // Vykreslenie poznámky
+                let veducaNote = '';
+                if (o.poznamka_veduceho && o.poznamka_veduceho.trim() !== '') {
+                    veducaNote = `<div style="color: #b45309; background: #fef3c7; border-left: 3px solid #f59e0b; padding: 4px 8px; margin-top: 5px; font-size: 0.85rem; border-radius: 4px; box-shadow: 0 1px 2px rgba(0,0,0,0.05);"><i class="fas fa-comment-dots"></i> <strong>Od vedúcej expedície:</strong> ${escapeHtml(o.poznamka_veduceho)}</div>`;
+                }
+                zobrazenyNazov += veducaNote;
 
                 let vypracovaneHtml = o.datum_vypracovania ? `<br><span style="color:#22c55e; font-size:0.85em;"><strong>Vypracované:</strong> ${o.datum_vypracovania}</span>` : '';
 

@@ -20,10 +20,8 @@ def get_b2b_special_notes():
     else: # Nedeľa až Štvrtok
         cielovy_datum = dnes + timedelta(days=1)
         
-    # --- DYNAMICKÁ KONTROLA SVIATKOV A VÍKENDOV ---
     while True:
         posun_nastal = False
-        
         if cielovy_datum.weekday() == 5:
             cielovy_datum += timedelta(days=2)
             posun_nastal = True
@@ -37,12 +35,11 @@ def get_b2b_special_notes():
             
         if not posun_nastal:
             break
-    # ----------------------------------------------
 
     cielovy_datum_str = cielovy_datum.strftime('%Y-%m-%d')
     cielovy_datum_sk = cielovy_datum.strftime('%d.%m.%Y')
 
-    # 1. BEZPEČNÁ POISTKA: Najskôr zistíme aktívnu objednávku
+    # 1. BEZPEČNÁ POISTKA
     try:
         active_row = db_connector.execute_query(
             "SELECT hodnota FROM system_settings WHERE kluc = 'tv_active_order' LIMIT 1", 
@@ -52,12 +49,12 @@ def get_b2b_special_notes():
     except Exception:
         active_order = "ZIADNA_AKTIVNA_OBJ"
 
-    # 2. OPRAVENÝ SQL DOTAZ (Odstránené chybné stĺpce, opravené Meno zákazníka)
+    # 2. OPRAVENÝ SQL DOTAZ (Pridané o.odberatel, odstránené padajúce stĺpce)
     sql = """
         SELECT 
             COALESCE(t.nazov, 'Nezaradené') AS trasa_nazov,
             z.cislo_prevadzky,
-            COALESCE(o.nazov_firmy, z.nazov_firmy, 'Neznámy zákazník') AS zakaznik,
+            COALESCE(o.odberatel, o.nazov_firmy, z.nazov_firmy, 'Neznámy zákazník') AS zakaznik,
             COALESCE(o.adresa, z.adresa_dorucenia, z.adresa, '') AS adresa,
             z.stala_poznamka_expedicia AS trvala_poznamka,
             COALESCE(o.cislo_objednavky, CAST(o.id AS CHAR)) AS id_objednavky,
@@ -88,8 +85,8 @@ def get_b2b_special_notes():
         WHERE o.stav != 'Zrušená'
           AND (
               DATE(o.pozadovany_datum_dodania) = %s
-              OR o.cislo_objednavky = %s
-              OR CAST(o.id AS CHAR) = %s
+              OR TRIM(o.cislo_objednavky) = TRIM(%s)
+              OR CAST(o.id AS CHAR) = TRIM(%s)
           )
         ORDER BY ISNULL(t.id), t.nazov ASC, z.trasa_poradie ASC, o.nazov_firmy ASC
     """
@@ -103,23 +100,16 @@ def get_b2b_special_notes():
     for r in rows:
         weight = float(r.get('celkova_vaha_kg') or 0)
         r['vaha_kg'] = weight
-        
         po = r.get('poznamka_objednavky') or ""
         pp = r.get('poznamka_poloziek') or ""
         if pp:
             r['poznamka_objednavky'] = f"{po} | Špecifické: {pp}" if po else f"Špecifické: {pp}"
+        
+        if weight >= 100: r['vaha_kategoria'] = 'velka'
+        elif weight >= 50: r['vaha_kategoria'] = 'stredna'
+        else: r['vaha_kategoria'] = 'mala'
             
-        if weight >= 100:
-            r['vaha_kategoria'] = 'velka'
-        elif weight >= 50:
-            r['vaha_kategoria'] = 'stredna'
-        else:
-            r['vaha_kategoria'] = 'mala'
-            
-    oznam_row = db_connector.execute_query(
-        "SELECT hodnota FROM system_settings WHERE kluc = 'expedicia_globalny_oznam'", 
-        fetch='one'
-    )
+    oznam_row = db_connector.execute_query("SELECT hodnota FROM system_settings WHERE kluc = 'expedicia_globalny_oznam'", fetch='one')
     global_note = oznam_row['hodnota'] if oznam_row and oznam_row.get('hodnota') else ""
 
     akcie_coop = []
