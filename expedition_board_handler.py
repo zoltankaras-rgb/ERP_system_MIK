@@ -12,12 +12,11 @@ from datetime import datetime, date, timedelta
 def get_b2b_special_notes():
     dnes = date.today()
     
-    # Základný posun pre ďalší deň
-    if dnes.weekday() == 4: # Piatok
+    if dnes.weekday() == 4:
         cielovy_datum = dnes + timedelta(days=3)
-    elif dnes.weekday() == 5: # Sobota
+    elif dnes.weekday() == 5:
         cielovy_datum = dnes + timedelta(days=2)
-    else: # Nedeľa až Štvrtok
+    else:
         cielovy_datum = dnes + timedelta(days=1)
         
     while True:
@@ -39,7 +38,6 @@ def get_b2b_special_notes():
     cielovy_datum_str = cielovy_datum.strftime('%Y-%m-%d')
     cielovy_datum_sk = cielovy_datum.strftime('%d.%m.%Y')
 
-    # 1. BEZPEČNÁ POISTKA
     try:
         active_row = db_connector.execute_query(
             "SELECT hodnota FROM system_settings WHERE kluc = 'tv_active_order' LIMIT 1", 
@@ -49,7 +47,7 @@ def get_b2b_special_notes():
     except Exception:
         active_order = "ZIADNA_AKTIVNA_OBJ"
 
-    # 2. OPRAVENÝ SQL DOTAZ (Na 100% zosúladený s tvojou DB štruktúrou)
+    # ZMENA: V sekcii WHERE používame LIKE CONCAT pre čiastočnú zhodu
     sql = """
         SELECT 
             COALESCE(t.nazov, 'Nezaradené') AS trasa_nazov,
@@ -85,7 +83,7 @@ def get_b2b_special_notes():
         WHERE o.stav != 'Zrušená'
           AND (
               DATE(o.pozadovany_datum_dodania) = %s
-              OR TRIM(o.cislo_objednavky) = TRIM(%s)
+              OR o.cislo_objednavky LIKE CONCAT('%%', %s, '%%')
               OR CAST(o.id AS CHAR) = TRIM(%s)
           )
         ORDER BY ISNULL(t.id), t.nazov ASC, z.trasa_poradie ASC, o.nazov_firmy ASC

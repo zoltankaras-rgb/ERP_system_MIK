@@ -309,8 +309,9 @@ function ukazTvFocusOverlay(cisloObjednavky, jeNovyFocus = false) {
     let notesHtml = '';
     
     // Spárovanie
-    const hladaneCislo = String(cisloObjednavky).trim().toLowerCase();
-    let obj = vsetkyPoznamkyData.find(o => String(o.id_objednavky).trim().toLowerCase() === hladaneCislo);
+   const hladaneCislo = String(cisloObjednavky).trim().toLowerCase();
+    // ZMENA: Namiesto 100% zhody hľadáme, či databázový kód "obsahuje" odpípnuté číslo
+    let obj = vsetkyPoznamkyData.find(o => String(o.id_objednavky).trim().toLowerCase().includes(hladaneCislo));
     
     // Ak objednávka ešte nie je v pamäti TV, stiahne ju vďaka SQL oprave vyššie
     if (!obj && jeNovyFocus) {

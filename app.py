@@ -4602,33 +4602,22 @@ def set_tv_focus(cislo_objednavky):
         return jsonify({"error": "Unauthorized"}), 401
     
     import db_connector
-
-    # INTELIGENTNÉ VYHĽADANIE: Ak z terminálu príde len časť kódu (bez B2BM, EDI...), 
-    # nájdeme si v databáze jej plný názov. Zabezpečí to kompatibilitu pre TV aj stopky.
-    try:
-        row = db_connector.execute_query(
-            "SELECT cislo_objednavky FROM b2b_objednavky WHERE cislo_objednavky LIKE %s LIMIT 1",
-            (f"%{cislo_objednavky}%",), fetch='one'
-        )
-        plne_cislo = row['cislo_objednavky'] if row and row.get('cislo_objednavky') else cislo_objednavky
-    except Exception:
-        plne_cislo = cislo_objednavky
     
-    # 1. AKCIA: Aktualizácia TV obrazovky (Ukladáme už PLNÉ číslo)
+    # 1. AKCIA: Rýchla aktualizácia TV obrazovky (Uloží len to, čo si pípól)
     db_connector.execute_query("DELETE FROM system_settings WHERE kluc = 'tv_active_order'", fetch='none')
     db_connector.execute_query(
         "INSERT INTO system_settings (kluc, hodnota) VALUES ('tv_active_order', %s)", 
-        (plne_cislo,), fetch='none'
+        (cislo_objednavky,), fetch='none'
     )
     
     # 2. AKCIA: Zápis času do databázy pre B2B Admin stopky
     try:
         import b2b_handler
-        b2b_handler.terminal_focus_start(plne_cislo)
+        b2b_handler.terminal_focus_start(cislo_objednavky)
     except Exception as e:
-        print(f"Warning: b2b_handler.terminal_focus_start failed: {e}")
+        pass
     
-    return jsonify({"status": "success", "focused_order": plne_cislo})
+    return jsonify({"status": "success", "focused_order": cislo_objednavky})
 
 # =================================================================
 # === NOVÉ ROUTY PRE ŠABLÓNY -Meat calc (Templates) ==========================
