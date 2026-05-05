@@ -4601,55 +4601,34 @@ def set_tv_focus(cislo_objednavky):
     if token != TERMINAL_API_TOKEN:
         return jsonify({"error": "Unauthorized"}), 401
     
-    # 1. AKCIA: Aktualizácia TV obrazovky (Bezpečná metóda cez DELETE a INSERT, zabráni duplicitám)
     import db_connector
+
+    # INTELIGENTNÉ VYHĽADANIE: Ak z terminálu príde len časť kódu (bez B2BM, EDI...), 
+    # nájdeme si v databáze jej plný názov. Zabezpečí to kompatibilitu pre TV aj stopky.
+    try:
+        row = db_connector.execute_query(
+            "SELECT cislo_objednavky FROM b2b_objednavky WHERE cislo_objednavky LIKE %s LIMIT 1",
+            (f"%{cislo_objednavky}%",), fetch='one'
+        )
+        plne_cislo = row['cislo_objednavky'] if row and row.get('cislo_objednavky') else cislo_objednavky
+    except Exception:
+        plne_cislo = cislo_objednavky
+    
+    # 1. AKCIA: Aktualizácia TV obrazovky (Ukladáme už PLNÉ číslo)
     db_connector.execute_query("DELETE FROM system_settings WHERE kluc = 'tv_active_order'", fetch='none')
     db_connector.execute_query(
         "INSERT INTO system_settings (kluc, hodnota) VALUES ('tv_active_order', %s)", 
-        (cislo_objednavky,), fetch='none'
+        (plne_cislo,), fetch='none'
     )
     
-    # 2. AKCIA: Zápis času do databázy pre B2B Admin stopky (Chránené cez try-except)
+    # 2. AKCIA: Zápis času do databázy pre B2B Admin stopky
     try:
         import b2b_handler
-        b2b_handler.terminal_focus_start(cislo_objednavky)
+        b2b_handler.terminal_focus_start(plne_cislo)
     except Exception as e:
         print(f"Warning: b2b_handler.terminal_focus_start failed: {e}")
     
-    return jsonify({"status": "success", "focused_order": cislo_objednavky})
-
-@app.route('/api/terminal/focus/exit', methods=['GET', 'POST'])
-def clear_tv_focus():
-    token = request.args.get('token')
-    if token != TERMINAL_API_TOKEN:
-        return jsonify({"error": "Unauthorized"}), 401
-    
-    # 1. AKCIA: Vymazanie TV obrazovky
-    import db_connector
-    db_connector.execute_query("UPDATE system_settings SET hodnota = NULL WHERE kluc = 'tv_active_order'", fetch='none')
-    
-    # 2. AKCIA: Zastavenie stopiek v B2B Admine
-    try:
-        import b2b_handler
-        b2b_handler.terminal_focus_exit()
-    except Exception as e:
-        print(f"Warning: b2b_handler.terminal_focus_exit failed: {e}")
-    
-    return jsonify({"status": "success", "focused_order": None})
-
-@app.route('/api/tv-board/current-focus', methods=['GET'])
-def get_current_focus():
-    import db_connector
-    from flask import jsonify
-    
-    # Pridané LIMIT 1 pre zabránenie pádu, ak by vznikla duplicita
-    row = db_connector.execute_query(
-        "SELECT hodnota FROM system_settings WHERE kluc = 'tv_active_order' LIMIT 1", 
-        fetch='one'
-    )
-    
-    active_order = row['hodnota'] if row and row.get('hodnota') else None
-    return jsonify({"active_order": active_order})
+    return jsonify({"status": "success", "focused_order": plne_cislo})
 
 # =================================================================
 # === NOVÉ ROUTY PRE ŠABLÓNY -Meat calc (Templates) ==========================
