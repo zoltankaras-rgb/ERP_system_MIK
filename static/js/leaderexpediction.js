@@ -426,11 +426,14 @@
         tb.innerHTML = list.map(r=>{
           // OPRAVA: Pridané r.nazov_firmy
           const id = r.cislo_objednavky || r.id; const who = safeStr(r.odberatel || r.nazov_firmy || r.zakaznik_meno || ''); const ddel = r.pozadovany_datum_dodania || '';
+          
+          // Vykreslenie poznámky od vedúcej
           let veducaNote = '';
           if (r.poznamka_veduceho && r.poznamka_veduceho.trim() !== '') {
-              veducaNote = `<div style="color: #b45309; background: #fef3c7; border-left: 3px solid #f59e0b; padding: 4px 8px; margin-top: 5px; font-size: 0.85rem; border-radius: 4px; box-shadow: 0 1px 2px rgba(0,0,0,0.05);"><i class="fas fa-comment-dots"></i> <strong>Od vedúcej expedície:</strong> ${escapeHtml(r.poznamka_veduceho)}</div>`;
+              veducaNote = `<div style="color: #b45309; background: #fef3c7; border-left: 3px solid #f59e0b; padding: 4px 8px; margin-top: 5px; font-size: 0.85rem; border-radius: 4px;"><i class="fas fa-comment-dots"></i> <strong>Od vedúcej:</strong> ${escapeHtml(r.poznamka_veduceho)}</div>`;
           }
-          let buttons = `<button class="btn btn-sm" data-b2b-pdf="${escapeHtml(id)}">Zadanie (PDF)</button> 
+          
+          let buttons = `<button class="btn btn-sm" data-b2b-pdf="${escapeHtml(id)}">Zadanie (PDF)</button>
                          <button class="btn btn-sm" data-b2b-edit="${escapeHtml(id)}">Upraviť</button>
                          <button class="btn btn-sm btn-outline-warning" style="border:1px solid #f59e0b; color:#b45309;" onclick="window.addLeaderOrderNote('${escapeHtml(r.id)}', '${escapeHtml(who)}')" title="Pridať jednorázovú poznámku pre TV"><i class="fas fa-sticky-note"></i></button>`;
           if (r.stav === 'Hotová') {
@@ -446,6 +449,12 @@
           const rowsHtml = groups[k].map(r=>{ 
             // OPRAVA: Pridané r.nazov_firmy
             const id = r.cislo_objednavky || r.id; const who = safeStr(r.odberatel || r.nazov_firmy || r.zakaznik_meno || ''); 
+            
+            // Vykreslenie poznámky od vedúcej
+            let veducaNote = '';
+            if (r.poznamka_veduceho && r.poznamka_veduceho.trim() !== '') {
+                veducaNote = `<div style="color: #b45309; background: #fef3c7; border-left: 3px solid #f59e0b; padding: 4px 8px; margin-top: 5px; font-size: 0.85rem; border-radius: 4px;"><i class="fas fa-comment-dots"></i> <strong>Od vedúcej:</strong> ${escapeHtml(r.poznamka_veduceho)}</div>`;
+            }
             
             // --- NOVÝ DIZAJN TLAČIDIEL PRE AKCIU ---
 let buttons = `
@@ -482,7 +491,7 @@ let buttons = `
     ` : ''}
 </div>`;
 
-            return `<tr><td>${escapeHtml(id)}</td><td style="font-weight:bold;">${escapeHtml(who)}</td><td>${priceCell(r)}</td><td>${escapeHtml(r.stav||'')}</td><td>${buttons}</td></tr>`; 
+            return `<tr><td>${escapeHtml(id)}</td><td style="font-weight:bold;">${escapeHtml(who)}${veducaNote}</td><td>${priceCell(r)}</td><td>${escapeHtml(r.stav||'')}</td><td>${buttons}</td></tr>`; 
           }).join('');
           return `<tr class="muted"><td colspan="6"><strong>Dodanie:</strong> ${escapeHtml(k!=='(bez dátumu)'?`${fmtSK(k)} (${k})`:k)}</td></tr>${rowsHtml}`;
         }).join('');

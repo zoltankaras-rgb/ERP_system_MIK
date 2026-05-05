@@ -49,12 +49,12 @@ def get_b2b_special_notes():
     except Exception:
         active_order = "ZIADNA_AKTIVNA_OBJ"
 
-    # 2. OPRAVENÝ SQL DOTAZ (Pridané o.odberatel, odstránené padajúce stĺpce)
+    # 2. OPRAVENÝ SQL DOTAZ (Na 100% zosúladený s tvojou DB štruktúrou)
     sql = """
         SELECT 
             COALESCE(t.nazov, 'Nezaradené') AS trasa_nazov,
             z.cislo_prevadzky,
-            COALESCE(o.odberatel, o.nazov_firmy, z.nazov_firmy, 'Neznámy zákazník') AS zakaznik,
+            COALESCE(o.nazov_firmy, z.nazov_firmy, 'Neznámy zákazník') AS zakaznik,
             COALESCE(o.adresa, z.adresa_dorucenia, z.adresa, '') AS adresa,
             z.stala_poznamka_expedicia AS trvala_poznamka,
             COALESCE(o.cislo_objednavky, CAST(o.id AS CHAR)) AS id_objednavky,
@@ -80,7 +80,7 @@ def get_b2b_special_notes():
             ), 0) FROM b2b_objednavky_polozky WHERE objednavka_id = o.id) AS celkova_vaha_kg,
             1 AS ma_objednavku
         FROM b2b_objednavky o
-        LEFT JOIN b2b_zakaznici z ON o.zakaznik_id = z.id
+        LEFT JOIN b2b_zakaznici z ON o.zakaznik_id = CAST(z.id AS CHAR) OR o.zakaznik_id = z.zakaznik_id
         LEFT JOIN logistika_trasy t ON z.trasa_id = t.id
         WHERE o.stav != 'Zrušená'
           AND (
