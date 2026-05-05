@@ -4619,6 +4619,44 @@ def set_tv_focus(cislo_objednavky):
     
     return jsonify({"status": "success", "focused_order": cislo_objednavky})
 
+
+@app.route('/api/terminal/focus/exit', methods=['GET', 'POST'])
+def clear_tv_focus():
+    token = request.args.get('token')
+    if token != TERMINAL_API_TOKEN:
+        return jsonify({"error": "Unauthorized"}), 401
+    
+    # 1. AKCIA: Vymazanie TV obrazovky
+    import db_connector
+    db_connector.execute_query("UPDATE system_settings SET hodnota = NULL WHERE kluc = 'tv_active_order'", fetch='none')
+    
+    # 2. AKCIA: Zastavenie stopiek v B2B Admine
+    try:
+        import b2b_handler
+        b2b_handler.terminal_focus_exit()
+    except Exception as e:
+        pass
+    
+    return jsonify({"status": "success", "focused_order": None})
+
+
+@app.route('/api/tv-board/current-focus', methods=['GET'])
+def get_current_focus():
+    import db_connector
+    from flask import jsonify
+    
+    # Prečítame, či je v DB nastavená nejaká aktívna objednávka
+    try:
+        row = db_connector.execute_query(
+            "SELECT hodnota FROM system_settings WHERE kluc = 'tv_active_order' LIMIT 1", 
+            fetch='one'
+        )
+        active_order = row['hodnota'] if row and row.get('hodnota') else None
+    except Exception:
+        active_order = None
+        
+    return jsonify({"active_order": active_order})
+
 # =================================================================
 # === NOVÉ ROUTY PRE ŠABLÓNY -Meat calc (Templates) ==========================
 # =================================================================
