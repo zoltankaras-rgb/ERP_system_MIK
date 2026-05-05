@@ -347,10 +347,10 @@ function ukazTvFocusOverlay(cisloObjednavky, jeNovyFocus = false) {
             hasNotes = true;
         }
         
-        if (obj.poznamka_veduceho && obj.poznamka_veduceho.trim() !== '') {
-            notesHtml += `<div class="tv-note-item" style="border-left-color: #f59e0b; background: rgba(245, 158, 11, 0.15); color: #fbbf24;"><i class="fas fa-comment-dots"></i> <strong>OD VEDÚCEJ VÝROBY:</strong> ${obj.poznamka_veduceho}</div>`;
-            hasNotes = true;
-        }
+       if (obj.poznamka_veduceho && obj.poznamka_veduceho.trim() !== '') {
+    notesHtml += `<div class="tv-note-item" style="border-left-color: #f59e0b; background: rgba(245, 158, 11, 0.15); color: #fbbf24;"><i class="fas fa-comment-dots"></i> <strong>OD VEDÚCEJ EXPEDÍCIE:</strong> ${obj.poznamka_veduceho}</div>`;
+    hasNotes = true;
+}
         
         if (obj.mrazene_polozky && obj.mrazene_polozky.trim() !== '') {
             notesHtml += `<div class="tv-note-item"><i class="fas fa-snowflake"></i> <strong>MRAZENÉ:</strong> ${obj.mrazene_polozky}</div>`;
@@ -467,7 +467,8 @@ function vykresliStranu() {
                 if (obj.trvala_poznamka) poznamkyHtml += `<div class="p-riadok stala-poznamka"><i class="fas fa-exclamation-circle"></i><div><strong>VŽDY:</strong> ${obj.trvala_poznamka}</div></div>`;
                 if (obj.poznamka_objednavky) poznamkyHtml += `<div class="p-riadok dnesna-poznamka"><i class="fas fa-info-circle"></i><div><strong>DOPLNENIE:</strong> ${obj.poznamka_objednavky}</div></div>`;
                 // PRIDANÉ: Výpis jednorazovej poznámky do malej kartičky
-                if (obj.poznamka_veduceho) poznamkyHtml += `<div class="p-riadok" style="color: #b45309; background: #fef3c7; border-left: 4px solid #f59e0b;"><i class="fas fa-comment-dots"></i><div><strong>JEDNORÁZOVÁ:</strong> ${obj.poznamka_veduceho}</div></div>`;
+                // PRIDANÉ: Výpis jednorazovej poznámky do malej kartičky
+if (obj.poznamka_veduceho) poznamkyHtml += `<div class="p-riadok" style="color: #b45309; background: #fef3c7; border-left: 4px solid #f59e0b;"><i class="fas fa-comment-dots"></i><div><strong>OD VEDÚCEJ EXPEDÍCIE:</strong> ${obj.poznamka_veduceho}</div></div>`;
                 if (obj.mrazene_polozky) poznamkyHtml += `<div class="p-riadok mrazena-poznamka"><i class="fas fa-snowflake"></i><div><strong>MRAZENÉ:</strong> ${obj.mrazene_polozky}</div></div>`;
             }
         }
